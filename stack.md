@@ -8,14 +8,14 @@ Architecture monolith, backend mise à dispostion
 ### Technos
 
 - GitHub
-- Authentification OAuth2 (par services Google/apple) => Clerk or clerk
+- Authentification OAuth2 (par services Google/apple) => Clerk
 - Agenda => Cronofy
-- Communication => Stream ou Firebase
-- Envoi mail => Brevo 300mails/jrs **gratuit** ou postmark 98% en **deliverabilty inbox**
+- Communication => Stream
+- Envoi mail => Brevo 300mails/jrs **gratuit** .
 
 ### Infra et services tiers
 
-- Hébergement => Render ou Railway
+- Hébergement => Railway
 - Paiement (Stripe)
 - Cartographie (GoogleMaps API)
 - Stockage images (AWS S3)
@@ -29,7 +29,7 @@ Architecture monolith, backend mise à dispostion
 - Backend
   - API => FastAPI in REST
   - Runtime/langage => NodeJs
-  - Framework => NestJS + FastifyAdapter because NestJS(long-term) or Fastify(MVP purpose)
+  - Framework => NestJS + FastifyAdapter NestJS(long-term)
 
 ### Base de données
 
@@ -81,7 +81,7 @@ graph TD
         I[Stripe]
         J[Cronofy Calendar]
         K[Brevo / Postmark]
-        L[Stream / Firebase]
+        L[Stream]
         M[Google Maps API]
         N[AWS S3 images]
     end

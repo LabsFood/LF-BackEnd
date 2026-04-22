@@ -1,34 +1,38 @@
 # LF BackEnd
 
-Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), Docker, and integrations fixed in [`stack.md`](./stack.md).
+Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), Docker, and integrations fixed in `[stack.md](./stack.md)`.
 
-## Stack summary (final choices)
+## Stack summary
 
-| Layer | Choice |
-|--------|--------|
-| REST API | FastAPI (OpenAPI/Swagger) |
-| Runtime / application framework | Node.js, **NestJS** with **Fastify** adapter (long-term stack line) |
-| Database | PostgreSQL |
-| Cache & queues | Redis (availability/slots cache; async jobs: email, notifications) |
-| Containers | Docker |
-| Hosting | **Railway** |
+
+| Layer                           | Choice                                                             |
+| ------------------------------- | ------------------------------------------------------------------ |
+| REST API                        | FastAPI (OpenAPI/Swagger)                                          |
+| Runtime / application framework | Node.js, **NestJS** with **Fastify** adapter                       |
+| Database                        | PostgreSQL                                                         |
+| Cache & queues                  | Redis (availability/slots cache; async jobs: email, notifications) |
+| Containers                      | Docker                                                             |
+| Hosting                         | **Railway**                                                        |
+
 
 ## Third-party services
 
-| Domain | Service |
-|--------|---------|
-| Auth (OAuth2 Google/Apple) | [Clerk](https://clerk.com/) |
-| Calendar / provider availability | [Cronofy](https://www.cronofy.com/) |
-| Realtime chat (clients ↔ providers) | [Stream](https://getstream.io/) |
-| Transactional email | [Brevo](https://www.brevo.com/) (free tier: ~300 emails/day) |
-| Payments | [Stripe](https://stripe.com/) |
-| Maps & routing | Google Maps API |
-| Object storage | AWS S3 |
+
+| Domain                              | Service                             |
+| ----------------------------------- | ----------------------------------- |
+| Auth (OAuth2 Google/Apple)          | [Clerk](https://clerk.com/)         |
+| Calendar / provider availability    | [Cronofy](https://www.cronofy.com/) |
+| Realtime chat (clients ↔ providers) | [Stream](https://getstream.io/)     |
+| Transactional email                 | [Brevo](https://www.brevo.com/)     |
+| Payments                            | [Stripe](https://stripe.com/)       |
+| Maps & routing                      | Google Maps API                     |
+| Object storage                      | AWS S3                              |
+
 
 ## Frontends (outside this repo)
 
 - **Web:** Next.js, Tailwind CSS  
-- **Mobile:** React Native  
+- **Mobile:** React Native
 
 ## High-level flow
 
@@ -86,6 +90,8 @@ graph TD
     F --> O
 ```
 
+
+
 ## Repository layout (planned)
 
 This repository is the **backend** piece. Service code (`Dockerfile`, migrations, NestJS/FastAPI apps) will appear here as the implementation grows.
@@ -93,10 +99,11 @@ This repository is the **backend** piece. Service code (`Dockerfile`, migrations
 ## Getting started
 
 1. Clone the repository.
-2. `cp .env.example .env` and set secrets and URLs (see comments in [`.env.example`](./.env.example)).
+2. `cp .env.example .env` and set secrets and URLs (see comments in `[.env.example](./.env.example)`).
 3. Run PostgreSQL and Redis locally or via Docker; start the API once the app entrypoint exists.
 4. When a Compose file is added, prefer `docker compose up` for a full local stack.
 
 ## Documentation
 
-- [`stack.md`](./stack.md) — architecture notes and Mermaid source diagram.
+- `[stack.md](./stack.md)` — architecture notes and Mermaid source diagram.
+
