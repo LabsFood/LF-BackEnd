@@ -1,36 +1,41 @@
 # LF BackEnd
 
-Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), containerised deployment, and integrations with auth, payments, calendar, messaging, and storage.
+Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), Docker, and integrations fixed in [`stack.md`](./stack.md).
 
-Full stack decisions and diagrams live in [`stack.md`](./stack.md).
-
-## Stack summary
+## Stack summary (final choices)
 
 | Layer | Choice |
 |--------|--------|
-| API | FastAPI (REST + Swagger) |
-| Optional long-term / MVP alt | NestJS + Fastify adapter, Node runtime |
+| REST API | FastAPI (OpenAPI/Swagger) |
+| Runtime / application framework | Node.js, **NestJS** with **Fastify** adapter (long-term stack line) |
 | Database | PostgreSQL |
-| Cache & queues | Redis (availability/slots cache, async jobs: email, notifications) |
+| Cache & queues | Redis (availability/slots cache; async jobs: email, notifications) |
 | Containers | Docker |
-| Hosting | Render or Railway |
+| Hosting | **Railway** |
 
 ## Third-party services
 
-- **Auth** — OAuth2 (Google/Apple) via [Clerk](https://clerk.com/)
-- **Scheduling** — [Cronofy](https://www.cronofy.com/) (provider availability / calendar)
-- **Realtime** — Stream or Firebase (client ↔ provider chat)
-- **Email** — Brevo (free tier) or Postmark (deliverability)
-- **Payments** — Stripe
-- **Maps** — Google Maps API
-- **Object storage** — AWS S3 (photos, documents)
+| Domain | Service |
+|--------|---------|
+| Auth (OAuth2 Google/Apple) | [Clerk](https://clerk.com/) |
+| Calendar / provider availability | [Cronofy](https://www.cronofy.com/) |
+| Realtime chat (clients ↔ providers) | [Stream](https://getstream.io/) |
+| Transactional email | [Brevo](https://www.brevo.com/) (free tier: ~300 emails/day) |
+| Payments | [Stripe](https://stripe.com/) |
+| Maps & routing | Google Maps API |
+| Object storage | AWS S3 |
+
+## Frontends (outside this repo)
+
+- **Web:** Next.js, Tailwind CSS  
+- **Mobile:** React Native  
 
 ## High-level flow
 
-1. **Clients** — Next.js (web) or React Native (mobile); sign-in through Clerk.
-2. **API** — Bookings and profiles go through the backend REST API; PostgreSQL persists users, providers, bookings, availability; Redis caches hot paths and backs async work.
-3. **Integrations** — Stripe, Cronofy, email, chat, Maps, and S3 are called from the backend as needed.
-4. **Deploy** — Backend, PostgreSQL, and Redis run in Docker on Render or Railway; frontends deploy separately (e.g. Vercel, Netlify, Render).
+1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
+2. **API** — Bookings and profiles hit the backend; **PostgreSQL** holds users, profiles, providers, bookings, availability; **Redis** caches hot paths and backs async work.
+3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
+4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
 ```mermaid
 graph TD
@@ -51,14 +56,14 @@ graph TD
     subgraph External_Services["External Services"]
         I[Stripe]
         J[Cronofy Calendar]
-        K[Brevo / Postmark]
-        L[Stream / Firebase]
+        K[Brevo]
+        L[Stream]
         M[Google Maps API]
         N[AWS S3 images]
     end
 
     subgraph Infra
-        O[Render / Railway]
+        O[Railway]
     end
 
     A --> B
@@ -83,18 +88,15 @@ graph TD
 
 ## Repository layout (planned)
 
-This repo is the **backend** piece. Application code (FastAPI/NestJS apps, `Dockerfile`, migrations) will land here as the implementation grows. See `stack.md` for the full product architecture including frontends.
+This repository is the **backend** piece. Service code (`Dockerfile`, migrations, NestJS/FastAPI apps) will appear here as the implementation grows.
 
 ## Getting started
 
-Prerequisites: Docker (recommended), or local PostgreSQL + Redis when services are added.
-
 1. Clone the repository.
-2. Copy environment templates once they exist (`cp .env.example .env`) and fill secrets (Clerk, Stripe, DB URLs, etc.).
-3. Run the stack via Docker Compose when a `compose` file is added.
-
-Details will be updated as the first service and compose definitions are committed.
+2. `cp .env.example .env` and set secrets and URLs (see comments in [`.env.example`](./.env.example)).
+3. Run PostgreSQL and Redis locally or via Docker; start the API once the app entrypoint exists.
+4. When a Compose file is added, prefer `docker compose up` for a full local stack.
 
 ## Documentation
 
-- [`stack.md`](./stack.md) — schema, technos, infra, and Mermaid flow (source of truth for stack choices).
+- [`stack.md`](./stack.md) — architecture notes and Mermaid source diagram.
