@@ -3,6 +3,16 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "tsConfigPath": "./tsconfig.json",
+    "webpack": false,
+    "assets": [],
+    "watchAssets": false,
+    "plugins": []
+  },
+  "entryFile": "main",
+  "language": "ts",
+  "generateOptions": {
+    "spec": false
   }
 }

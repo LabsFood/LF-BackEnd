@@ -1,0 +1,7 @@
+/** TSConfig for building the project. 
+    For production use. */
+
+{
+    "extends": "./tsconfig.json",
+    "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  }
