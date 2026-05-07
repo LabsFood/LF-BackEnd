@@ -148,4 +148,8 @@ npm test          # jest unit tests
 
 - [`stack.md`](./stack.md) — architecture notes and Mermaid source diagram.
 - [`docs/architecture.md`](./docs/architecture.md) — Phase 1 architecture.
+- [`docs/features/f19-concept-cms.md`](./docs/features/f19-concept-cms.md) — F19 concept CMS analysis and implementation scope.
+- [`docs/testing/f19-concept-cms-cahier-de-test.md`](./docs/testing/f19-concept-cms-cahier-de-test.md) — F19 test book and acceptance qualification cases.
+- [`docs/testing/f19-concept-cms-test-execution.md`](./docs/testing/f19-concept-cms-test-execution.md) — F19 execution evidence and blocked/passed status.
+- [`docs/evolution/f19-concept-cms-evolution.md`](./docs/evolution/f19-concept-cms-evolution.md) — F19 variables, functions, files, and route evolution register.
 - [`AGENTS.md`](./AGENTS.md) — Cursor Cloud development instructions.
