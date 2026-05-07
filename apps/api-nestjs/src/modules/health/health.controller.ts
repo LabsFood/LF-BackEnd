@@ -1,16 +1,41 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  HealthCheck,
+  HealthCheckService,
+  TypeOrmHealthIndicator,
+} from '@nestjs/terminus';
+import type { HealthCheckResult } from '@nestjs/terminus';
 
+import { RedisService } from '../../redis/redis.service';
+
+@ApiTags('health')
 @Controller()
 export class HealthController {
-  /** Liveness probe returning a constant healthy payload. */
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly db: TypeOrmHealthIndicator,
+    private readonly redis: RedisService,
+  ) {}
+
   @Get('health')
-  health(): { status: string } {
+  @ApiOkResponse({ description: 'Liveness probe.' })
+  liveness(): { status: string } {
     return { status: 'ok' };
   }
 
-  /** Readiness probe placeholder; extend with real DB/Redis checks in Phase 2. */
   @Get('ready')
-  ready(): { status: string; api: string } {
-    return { status: 'ok', api: 'ok' };
+  @HealthCheck()
+  @ApiOkResponse({ description: 'Readiness probe (DB + Redis).' })
+  async readiness(): Promise<HealthCheckResult> {
+    return this.health.check([
+      () => this.db.pingCheck('database', { timeout: 1500 }),
+      async () => {
+        const ok = await this.redis.ping();
+        return {
+          redis: { status: ok ? 'up' : 'down' },
+        };
+      },
+    ]);
   }
 }

@@ -1,17 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import Stripe from 'stripe';
 
 @Injectable()
 export class StripeService {
-  readonly secretKey?: string;
+  private readonly logger = new Logger(StripeService.name);
+  private readonly client: Stripe | null;
+  readonly apiKey?: string;
+  readonly webhookSecret?: string;
 
-  /** Load the Stripe secret key from typed config at module init. */
   constructor(config: ConfigService) {
-    this.secretKey = config.get<string>('stripe.secretKey');
+    this.apiKey = config.get<string>('stripe.secretKey');
+    this.webhookSecret = config.get<string>('stripe.webhookSecret');
+    this.client = this.apiKey ? new Stripe(this.apiKey, { typescript: true }) : null;
+    if (!this.client) {
+      this.logger.warn('Stripe is not configured (STRIPE_SECRET_KEY missing).');
+    }
   }
 
-  /** Whether the Stripe secret key was provided via env. */
   get configured(): boolean {
-    return Boolean(this.secretKey);
+    return this.client !== null;
+  }
+
+  getClient(): Stripe {
+    if (!this.client) {
+      throw new Error('Stripe is not configured.');
+    }
+    return this.client;
   }
 }
