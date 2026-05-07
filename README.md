@@ -1,22 +1,20 @@
 # LF BackEnd
 
-Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), Docker, and integrations fixed in `[stack.md](./stack.md)`.
+Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and integrations fixed in [`stack.md`](./stack.md).
 
 ## Stack summary
 
-
 | Layer                           | Choice                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |
-| REST API                        | FastAPI (OpenAPI/Swagger)                                          |
-| Runtime / application framework | Node.js, **NestJS** with **Fastify** adapter                       |
-| Database                        | PostgreSQL                                                         |
-| Cache & queues                  | Redis (availability/slots cache; async jobs: email, notifications) |
-| Containers                      | Docker                                                             |
+| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                 |
+| REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)           |
+| ORM / migrations                | TypeORM with `pg`                                                  |
+| Database                        | PostgreSQL 16                                                      |
+| Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
+| Containers                      | Docker / Docker Compose                                            |
 | Hosting                         | **Railway**                                                        |
 
-
 ## Third-party services
-
 
 | Domain                              | Service                             |
 | ----------------------------------- | ----------------------------------- |
@@ -28,16 +26,15 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger), D
 | Maps & routing                      | Google Maps API                     |
 | Object storage                      | AWS S3                              |
 
-
 ## Frontends (outside this repo)
 
-- **Web:** Next.js, Tailwind CSS  
+- **Web:** Next.js, Tailwind CSS
 - **Mobile:** React Native
 
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the backend; **PostgreSQL** holds users, profiles, providers, bookings, availability; **Redis** caches hot paths and backs async work.
+2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, profiles, providers, bookings, availability; **Redis** caches hot paths and backs async work.
 3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
@@ -51,7 +48,7 @@ graph TD
 
     subgraph Auth_and_API["Auth & API"]
         D[Clerk Auth]
-        E[FastAPI REST API]
+        E[NestJS REST API]
         F[Docker]
         G[Redis cache / queue]
         H[PostgreSQL]
@@ -90,20 +87,65 @@ graph TD
     F --> O
 ```
 
+## Repository layout
 
-
-## Repository layout (planned)
-
-This repository is the **backend** piece. Service code (`Dockerfile`, migrations, NestJS/FastAPI apps) will appear here as the implementation grows.
+```
+apps/
+  api-nestjs/          # NestJS + Fastify primary API (REST + OpenAPI)
+docs/
+  architecture.md      # Phase 1 architecture notes (entities, modules, integrations)
+docker-compose.yml     # postgres, redis, api
+.env.example           # template for required environment variables
+stack.md               # high-level stack and flow diagram
+```
 
 ## Getting started
 
-1. Clone the repository.
-2. `cp .env.example .env` and set secrets and URLs (see comments in `[.env.example](./.env.example)`).
-3. Run PostgreSQL and Redis locally or via Docker; start the API once the app entrypoint exists.
-4. When a Compose file is added, prefer `docker compose up` for a full local stack.
+### 1. Configure environment
+
+```bash
+cp .env.example .env
+# fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, … as needed
+```
+
+### 2. Run with Docker Compose (recommended)
+
+```bash
+docker compose up --build
+```
+
+- API:           http://localhost:8000
+- Health:        http://localhost:8000/health
+- Readiness:     http://localhost:8000/ready
+- Swagger UI:    http://localhost:8000/docs
+- OpenAPI JSON:  http://localhost:8000/openapi.json
+
+The `api` container runs TypeORM migrations on startup, so the schema is created automatically against a fresh Postgres volume.
+
+### 3. Run locally (without Docker)
+
+```bash
+# Start backing services only
+docker compose up -d postgres redis
+
+# In apps/api-nestjs
+cd apps/api-nestjs
+npm install
+npm run migration:run     # apply DB migrations
+npm run start:dev         # watch mode on port 8000
+```
+
+## Tooling
+
+```bash
+cd apps/api-nestjs
+npm run build     # production tsc build to dist/
+npm run lint      # eslint + prettier check
+npm test          # jest unit tests
+```
 
 ## Documentation
 
-- `[stack.md](./stack.md)` — architecture notes and Mermaid source diagram.
-
+- [`stack.md`](./stack.md) — architecture notes and Mermaid source diagram.
+- [`docs/architecture.md`](./docs/architecture.md) — Phase 1 architecture.
+- [`AGENTS.md`](./AGENTS.md) — Cursor Cloud development instructions.

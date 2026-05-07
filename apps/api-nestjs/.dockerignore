@@ -1,5 +1,13 @@
 node_modules
 dist
+coverage
+.git
+.gitignore
+.eslintrc.js
+.prettierrc
 .env
 .env.*
-.git
+!.env.example
+*.log
+README.md
+test

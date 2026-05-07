@@ -13,11 +13,17 @@ export interface ClerkUser {
   email?: string;
 }
 
+interface JwtClaims {
+  sub?: string;
+  sid?: string;
+  email?: string;
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
-  /** Reject requests without a Clerk Bearer token and attach the user to the request. */
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>;
@@ -32,10 +38,8 @@ export class ClerkAuthGuard implements CanActivate {
     }
 
     const header = req.headers['authorization'];
-    if (!header?.toLowerCase().startsWith('bearer ')) {
-      throw new UnauthorizedException(
-        'Missing or invalid Authorization header.',
-      );
+    if (!header || !header.toLowerCase().startsWith('bearer ')) {
+      throw new UnauthorizedException('Missing or invalid Authorization header.');
     }
 
     const token = header.slice(7).trim();
@@ -53,15 +57,17 @@ export class ClerkAuthGuard implements CanActivate {
   }
 }
 
-/** Decode the payload of a JWT without verifying the signature (Phase 1 stub). */
-function decodeUnverifiedJwt(
-  token: string,
-): Record<string, string | undefined> | null {
+/** Decode a JWT payload without verifying the signature.
+ *
+ *  Phase 1 stub matching the FastAPI `jose.jwt.get_unverified_claims()` behaviour.
+ *  Replace with full JWKS verification once the Clerk instance URL is provisioned.
+ */
+function decodeUnverifiedJwt(token: string): JwtClaims | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   try {
     const json = Buffer.from(parts[1], 'base64url').toString('utf8');
-    return JSON.parse(json) as Record<string, string | undefined>;
+    return JSON.parse(json) as JwtClaims;
   } catch {
     return null;
   }
