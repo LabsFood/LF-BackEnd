@@ -8,6 +8,7 @@ import { DatabaseModule } from './database/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { HealthModule } from './modules/health/health.module';
+import { ContentCmsModule } from './modules/content-cms/content-cms.module';
 import { UsersModule } from './modules/users/users.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -23,6 +24,7 @@ import { RedisModule } from './redis/redis.module';
     DatabaseModule,
     RedisModule,
     AuthModule,
+    ContentCmsModule,
     IntegrationsModule,
     HealthModule,
     UsersModule,

@@ -18,8 +18,8 @@ Examples: `v1.0.0` first stable epic; `v1.1.0` adds features on that line; `v1.1
 | Version | Title & brief description                                 | Release date | Released by | Pre-release approval date |
 | ------- | --------------------------------------------------------- | ------------ | ----------- | ------------------------- |
 | v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | DKO         | -                         |
-| v1.1.0  | F19 candidate — Page "Notre Concept" CMS content          |              |             |                           |
-| v1.x.0  | Integrations layer — webhooks and external provider stubs |              | DKO         |                           |
+| v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | DKO         |                           |
+| v1.x.0  | ISSUE_TYPE — ISSUE_DESC                                   |              |             |                           |
 
 
 Replace rows with your real releases; keep **approval date** on or before **release date** for audit trail.
