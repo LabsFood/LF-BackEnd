@@ -1,7 +1,15 @@
 export interface AppConfig {
   environment: string;
+  debug: boolean;
+  api: {
+    host: string;
+    port: number;
+  };
   databaseUrl: string;
   redisUrl: string;
+  cors: {
+    origins: string[];
+  };
   clerk: {
     secretKey?: string;
     webhookSigningSecret?: string;
@@ -25,13 +33,35 @@ export interface AppConfig {
     senderEmail: string;
     senderName: string;
   };
+  google: {
+    mapsApiKey?: string;
+  };
+  aws: {
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    region: string;
+    s3Bucket?: string;
+  };
 }
 
-/** Build the typed app config object read from process environment variables. */
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
 export const configLoader = (): AppConfig => ({
   environment: process.env.ENVIRONMENT ?? 'development',
+  debug: (process.env.DEBUG ?? 'true').toLowerCase() === 'true',
+  api: {
+    host: process.env.API_HOST ?? '0.0.0.0',
+    port: Number(process.env.API_PORT ?? 8000),
+  },
   databaseUrl: process.env.DATABASE_URL ?? '',
   redisUrl: process.env.REDIS_URL ?? '',
+  cors: {
+    origins: parseOrigins(process.env.CORS_ORIGINS),
+  },
   clerk: {
     secretKey: process.env.CLERK_SECRET_KEY,
     webhookSigningSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
@@ -54,5 +84,14 @@ export const configLoader = (): AppConfig => ({
     apiKey: process.env.BREVO_API_KEY,
     senderEmail: process.env.BREVO_SENDER_EMAIL ?? 'noreply@example.com',
     senderName: process.env.BREVO_SENDER_NAME ?? 'Labs Food',
+  },
+  google: {
+    mapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
+  },
+  aws: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.AWS_REGION ?? 'eu-west-3',
+    s3Bucket: process.env.AWS_S3_BUCKET,
   },
 });

@@ -1,34 +1,55 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
   HttpException,
   HttpStatus,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+  ApiUnprocessableEntityResponse,
+} from '@nestjs/swagger';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
+import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { BookingsService } from './bookings.service';
+import { BookingReadDto } from './dto/booking-read.dto';
+import { CreateBookingDto } from './dto/create-booking.dto';
 
 @ApiTags('bookings')
 @ApiBearerAuth()
 @Controller('bookings')
 @UseGuards(ClerkAuthGuard)
 export class BookingsController {
-  /** List bookings (empty array in Phase 1; returns an auth-gated shape only). */
+  constructor(private readonly bookings: BookingsService) {}
+
   @Get()
-  list(): unknown[] {
-    return [];
+  @ApiOkResponse({ type: BookingReadDto, isArray: true })
+  async list(): Promise<BookingReadDto[]> {
+    const rows = await this.bookings.list();
+    return rows.map((row) => BookingReadDto.fromEntity(row));
   }
 
-  /** Create a booking (Phase 1 scaffold; returns 501 until Stripe/Cronofy wiring lands). */
   @Post()
-  create(@Req() req: { clerkUser?: ClerkUser }): never {
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ type: BookingReadDto })
+  @ApiUnprocessableEntityResponse({ description: 'ends_at must be after starts_at' })
+  create(@Body() payload: CreateBookingDto, @CurrentClerkUser() user: ClerkUser): never {
+    if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
+      throw new HttpException(
+        'endsAt must be after startsAt',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
     throw new HttpException(
-      `Booking creation is not wired yet (Phase 1 scaffold). Authenticated as Clerk user ${
-        req.clerkUser?.userId ?? 'unknown'
-      }.`,
+      `Booking creation is not wired yet (Phase 1 scaffold). Authenticated as Clerk user ${user.userId}.`,
       HttpStatus.NOT_IMPLEMENTED,
     );
   }

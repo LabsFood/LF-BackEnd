@@ -7,21 +7,19 @@ export class CronofyService {
   readonly clientSecret?: string;
   readonly dataCenter: string;
 
-  /** Load Cronofy OAuth credentials and target data center from typed config. */
   constructor(config: ConfigService) {
     this.clientId = config.get<string>('cronofy.clientId');
     this.clientSecret = config.get<string>('cronofy.clientSecret');
     this.dataCenter = config.get<string>('cronofy.dataCenter', 'us');
   }
 
-  /** Whether both Cronofy OAuth credentials are present. */
   get configured(): boolean {
     return Boolean(this.clientId && this.clientSecret);
   }
 
   /** Build the regional Cronofy API base URL from the configured data center. */
   get baseUrl(): string {
-    const dc = this.dataCenter || 'us';
+    const dc = (this.dataCenter ?? '').trim() || 'us';
     const prefix = dc === 'us' ? '' : `${dc}-`;
     return `https://api-${prefix}cronofy.com/v1`;
   }

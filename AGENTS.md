@@ -6,10 +6,9 @@
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| FastAPI API (primary) | 8000 | REST API — booking, auth, integrations |
-| PostgreSQL 16 | 5432 | Primary data store |
-| Redis (with JSON module) | 6379 | Cache, queues, JSON document store |
-| NestJS API (optional scaffold) | 8001 | Secondary Node.js API — Phase 1 scaffold only |
+| NestJS API (primary) | 8000 | REST API — booking, auth, integrations |
+| PostgreSQL 16 | 5432 | Primary data store (TypeORM migrations run on API startup) |
+| Redis 7 | 6379 | Cache, queues |
 
 ### Starting backing services
 
@@ -17,64 +16,69 @@
 # Start Docker daemon (required first)
 sudo dockerd &>/tmp/dockerd.log &
 
-# Start PostgreSQL via docker compose
-sudo docker compose up -d postgres
-
-# Start Redis Stack (requires RedisJSON module — standard redis:7-alpine won't work)
-sudo docker run -d --name redis-stack --network workspace_default -p 6379:6379 redis/redis-stack-server:latest
+# Bring up Postgres + Redis
+sudo docker compose up -d postgres redis
 ```
 
-**Important:** The `redis_client.py` module executes `JSON.SET` at import time. You must use `redis/redis-stack-server` (not plain `redis:7-alpine`) or the FastAPI app will crash on startup.
+### Running the NestJS API (primary)
 
-### Running the FastAPI app (primary)
+Either bring up the whole stack with Compose, or run the API locally against
+the dockerised Postgres + Redis.
 
 ```bash
-cd apps/api-fastapi
-source .venv/bin/activate
-export DATABASE_URL="postgresql+psycopg://lf:lf@localhost:5432/lf_backend"
+# Option A — full stack in Docker
+sudo docker compose up --build api
+
+# Option B — local dev with hot-reload (recommended while iterating)
+cd apps/api-nestjs
+npm install
+export DATABASE_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export REDIS_URL="redis://localhost:6379/0"
-export CLERK_SECRET_KEY="sk_test_placeholder"  # needed for auth routes to function
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+export CLERK_SECRET_KEY="sk_test_placeholder"   # any non-empty string works locally
+npm run migration:run    # apply DB migrations once
+npm run start:dev        # listens on 8000
 ```
 
-- Swagger UI: http://localhost:8000/docs
-- Health: http://localhost:8000/health
-- Readiness (checks PG + Redis): http://localhost:8000/ready
+- Swagger UI:  http://localhost:8000/docs
+- OpenAPI:     http://localhost:8000/openapi.json
+- Health:      http://localhost:8000/health
+- Readiness:   http://localhost:8000/ready (pings Postgres + Redis)
 
-### Alembic migrations
-
-The SQL init script in `infra/db/migrations/` runs automatically on first Postgres container start (via docker-entrypoint-initdb.d). On a fresh DB, stamp alembic rather than running `upgrade head` to avoid "DuplicateObject" errors:
+### TypeORM migrations
 
 ```bash
-cd apps/api-fastapi && source .venv/bin/activate
-export DATABASE_URL="postgresql+psycopg://lf:lf@localhost:5432/lf_backend"
-export REDIS_URL="redis://localhost:6379/0"
-alembic stamp head
+cd apps/api-nestjs
+npm run migration:run                 # apply pending migrations
+npm run migration:revert              # roll back the most recent migration
+npm run migration:generate -- src/database/migrations/<name>
 ```
+
+When the API container starts it runs `migrationsRun: true`, so a fresh
+Postgres volume is bootstrapped automatically; you only need the CLI for new
+migrations or manual rollbacks.
 
 ### Linting and testing
 
 ```bash
-# Python lint (FastAPI)
-cd apps/api-fastapi && source .venv/bin/activate && ruff check .
-
-# Python tests (no test files exist yet, but pytest is configured)
-cd apps/api-fastapi && source .venv/bin/activate && pytest
-
-# NestJS (optional — has pre-existing TS type errors due to @nestjs/common@10 vs @nestjs/core@11 conflict)
-cd apps/api-nestjs && npm run lint  # requires eslint config (not yet added)
-cd apps/api-nestjs && npm run build  # will fail due to TS errors
+cd apps/api-nestjs
+npm run lint        # eslint + prettier
+npm run build       # tsc via @nestjs/cli, output to dist/
+npm test            # jest unit tests
 ```
-
-### NestJS scaffold notes
-
-The NestJS app (`apps/api-nestjs`) is a Phase 1 scaffold with known dependency version conflicts (`@nestjs/common@^10.3.10` vs `@nestjs/core@^11.1.19`). It won't compile until those are aligned. Use `--legacy-peer-deps` for `npm install`.
 
 ### Auth testing without Clerk
 
-The auth middleware uses `jose.jwt.get_unverified_claims()`, so any well-formed JWT with a `sub` claim works locally when `CLERK_SECRET_KEY` is set to any non-empty string. Generate test tokens with:
+`ClerkAuthGuard` decodes the JWT payload without signature verification, so any
+well-formed JWT with a `sub` claim works locally as long as `CLERK_SECRET_KEY`
+is set to a non-empty value. Generate a token with Node:
 
-```python
-from jose import jwt
-token = jwt.encode({"sub": "user_test_123", "email": "test@example.com"}, "any-secret", algorithm="HS256")
+```bash
+node -e '
+  const h = Buffer.from(JSON.stringify({alg:"HS256",typ:"JWT"})).toString("base64url");
+  const p = Buffer.from(JSON.stringify({sub:"user_test_123",email:"test@example.com"})).toString("base64url");
+  console.log(`${h}.${p}.signature`);
+'
 ```
+
+Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
+`/bookings`.
