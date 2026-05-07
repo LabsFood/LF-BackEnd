@@ -47,9 +47,9 @@ npm run test:e2e
 | --- | --- | --- | --- | --- |
 | F19-EXEC-001 | 2026-05-07 | Codebase analysis | Passed | Identified required implementation modules and missing current feature code. |
 | F19-EXEC-002 | 2026-05-07 | Documentation generation | Passed | Added feature report, cahier de test, execution log, and evolution register. |
-| F19-EXEC-003 | 2026-05-07 | `npm test` | Pending | To be run after initial documentation commit. |
-| F19-EXEC-004 | 2026-05-07 | `npm run build` | Pending | To be run after initial documentation commit. |
-| F19-EXEC-005 | 2026-05-07 | `npm run lint` | Pending | To be run after initial documentation commit. |
+| F19-EXEC-003 | 2026-05-07 | `npm test` | Passed | 3 test suites passed; 13 tests passed after `npm ci`. |
+| F19-EXEC-004 | 2026-05-07 | `npm run build` | Passed | NestJS TypeScript build completed after `npm ci`. |
+| F19-EXEC-005 | 2026-05-07 | `npm run lint` | Passed | ESLint completed with no reported issues after `npm ci`. |
 
 ## Functional Test Status
 
