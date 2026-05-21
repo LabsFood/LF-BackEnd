@@ -67,3 +67,6 @@ dump.rdb
 # Misc temp
 .temp/
 .tmp/
+
+# Added by ggshield
+.cache_ggshield

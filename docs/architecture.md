@@ -42,7 +42,7 @@ The PR titled `14 feat710/page concept contenu cms` targets a CMS-backed
 "Notre Concept" page. The current codebase does not yet include a content/CMS
 module, so F19 is expected to add:
 
-- `modules/content/` for `GET /content/concept` and `PUT /content/concept`.
+- `modules/content-cms/` for F19 `GET /content/concept` and `PUT /content/concept`; `modules/content/` reserved for general app content.
 - a CMS page entity and migration registered through TypeORM.
 - an admin authorization layer on top of `ClerkAuthGuard` and `UserRole.ADMIN`.
 - DTO validation and Swagger documentation for public read vs admin write.

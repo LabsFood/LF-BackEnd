@@ -1,0 +1,63 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsArray, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+
+import { CmsPage } from '../../../supabase/entities';
+import {
+  CmsHeroContentDto,
+  CmsHowItWorksStepDto,
+  CmsIntroBlockDto,
+  CmsReassuranceItemDto,
+} from './concept-content-parts.dto';
+import type { ConceptPageContent } from '../concept-defaults';
+
+export class ConceptContentDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  title!: string;
+
+  @ApiProperty({ type: CmsHeroContentDto })
+  @ValidateNested()
+  @Type(() => CmsHeroContentDto)
+  hero!: CmsHeroContentDto;
+
+  @ApiProperty({ type: CmsIntroBlockDto, isArray: true })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CmsIntroBlockDto)
+  introBlocks!: CmsIntroBlockDto[];
+
+  @ApiProperty({ type: CmsHowItWorksStepDto, isArray: true })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CmsHowItWorksStepDto)
+  howItWorks!: CmsHowItWorksStepDto[];
+
+  @ApiProperty({ type: CmsReassuranceItemDto, isArray: true })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CmsReassuranceItemDto)
+  reassuranceItems!: CmsReassuranceItemDto[];
+
+  static fromEntity(page: CmsPage): ConceptContentDto {
+    return ConceptContentDto.fromContent({
+      title: page.title,
+      hero: page.hero,
+      introBlocks: page.introBlocks,
+      howItWorks: page.howItWorks,
+      reassuranceItems: page.reassuranceItems,
+    });
+  }
+
+  static fromContent(content: ConceptPageContent): ConceptContentDto {
+    return {
+      title: content.title,
+      hero: content.hero,
+      introBlocks: content.introBlocks,
+      howItWorks: content.howItWorks,
+      reassuranceItems: content.reassuranceItems,
+    };
+  }
+}

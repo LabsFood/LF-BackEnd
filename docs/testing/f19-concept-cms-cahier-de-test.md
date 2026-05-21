@@ -30,7 +30,7 @@ Use the same backing services as local development to preserve dev/prod parity:
 sudo dockerd &>/tmp/dockerd.log &
 sudo docker compose up -d postgres redis
 cd apps/api-nestjs
-export DATABASE_URL="postgresql://lf:lf@localhost:5432/lf_backend"
+export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export REDIS_URL="redis://localhost:6379/0"
 export CLERK_SECRET_KEY="sk_test_placeholder"
 npm run migration:run
