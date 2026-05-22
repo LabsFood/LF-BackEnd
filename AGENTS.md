@@ -2,6 +2,10 @@
 
 ## Cursor Cloud specific instructions
 
+### Application specifiactions
+
+Consider docs/SPEC-BACKEND.md and docs/SPEC-ADMIN-DASHBOARD.md as the main guidemine of the intention and the direction intended for the is backend section of the application.
+
 ### Services overview
 
 | Service | Port | Purpose |
