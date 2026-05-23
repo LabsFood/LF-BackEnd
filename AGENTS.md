@@ -4,14 +4,14 @@
 
 ### Application specifiactions
 
-Consider docs/SPEC-BACKEND.md and docs/SPEC-ADMIN-DASHBOARD.md as the main guidemine of the intention and the direction intended for the is backend section of the application.
+Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](docs/SPEC-ADMIN-DASHBOARD.md) as the main guide for product intent and API direction. Track gaps and decisions in [`docs/evolution/platform-spec-alignment-evolution.md`](docs/evolution/platform-spec-alignment-evolution.md). Stack and backend architecture: [`stack.md`](stack.md), [`docs/architecture.md`](docs/architecture.md).
 
 ### Services overview
 
 | Service | Port | Purpose |
 |---------|------|---------|
 | NestJS API (primary) | 8000 | REST API — booking, auth, integrations |
-| PostgreSQL 16 | 5432 | Primary data store via Supabase Postgres URL (TypeORM migrations on API startup) |
+| PostgreSQL 16 | 5432 | Primary data store via Supabase Postgres URL (**Prisma** target; interim TypeORM migrations on API startup) |
 | Redis 7 | 6379 | Cache, queues *(not wired yet — module commented out)* |
 
 ### Starting backing services
@@ -51,7 +51,9 @@ npm run start:dev        # listens on 8000
 - Health:      http://localhost:8000/health
 - Readiness:   http://localhost:8000/ready (pings Postgres)
 
-### TypeORM migrations
+### Database migrations (interim TypeORM)
+
+Until the Prisma migration branch lands, use TypeORM:
 
 ```bash
 cd apps
@@ -61,8 +63,7 @@ npm run migration:generate -- src/supabase/migrations/<name>
 ```
 
 When the API container starts it runs `migrationsRun: true`, so a fresh
-Postgres volume is bootstrapped automatically; you only need the CLI for new
-migrations or manual rollbacks.
+Postgres volume is bootstrapped automatically. **Target ORM:** Prisma (`stack.md`).
 
 ### Linting and testing
 

@@ -8,7 +8,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | ------------------------------- | ------------------------------------------------------------------ |
 | Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                 |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)           |
-| ORM / migrations                | TypeORM with `pg`                                                  |
+| ORM / migrations                | **Prisma** (target); interim **TypeORM** in `apps/` until migration branch |
 | Database                        | PostgreSQL 16                                                      |
 | Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
 | Containers                      | Docker / Docker Compose                                            |
@@ -19,8 +19,8 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Domain                              | Service                             |
 | ----------------------------------- | ----------------------------------- |
 | Auth (OAuth2 Google/Apple)          | [Clerk](https://clerk.com/)         |
-| Calendar / provider availability    | [Cronofy](https://www.cronofy.com/) |
-| Realtime chat (clients ↔ providers) | [Stream](https://getstream.io/)     |
+| Calendar / chef availability        | [Cronofy](https://www.cronofy.com/) |
+| Realtime chat (clients ↔ chefs)     | [Stream](https://getstream.io/)     |
 | Transactional email                 | [Brevo](https://www.brevo.com/)     |
 | Payments                            | [Stripe](https://stripe.com/)       |
 | Maps & routing                      | Google Maps API                     |
@@ -90,13 +90,15 @@ graph TD
 ## Repository layout
 
 ```
-apps/
-  api-nestjs/          # NestJS + Fastify primary API (REST + OpenAPI)
+apps/                  # NestJS + Fastify primary API (src/, package.json)
 docs/
-  architecture.md      # Phase 1 architecture notes (entities, modules, integrations)
+  SPEC-BACKEND.md      # product spec — client API & shared domain
+  SPEC-ADMIN-DASHBOARD.md
+  architecture.md      # backend architecture (spec-aligned)
+  evolution/           # change registers (platform + F19)
 docker-compose.yml     # postgres, redis, api
 .env.example           # template for required environment variables
-stack.md               # high-level stack and flow diagram
+stack.md               # backend stack and decisions
 ```
 
 ## Getting started
@@ -120,7 +122,7 @@ docker compose up --build
 - Swagger UI:    http://localhost:8000/docs
 - OpenAPI JSON:  http://localhost:8000/openapi.json
 
-The `api` container runs TypeORM migrations on startup, so the schema is created automatically against a fresh Postgres volume.
+The `api` container runs database migrations on startup (interim TypeORM), so the schema is created automatically against a fresh Postgres volume.
 
 ### 3. Run locally (without Docker)
 
@@ -128,17 +130,16 @@ The `api` container runs TypeORM migrations on startup, so the schema is created
 # Start backing services only
 docker compose up -d postgres redis
 
-# In apps/api-nestjs
-cd apps/api-nestjs
+cd apps
 npm install
-npm run migration:run     # apply DB migrations
+npm run migration:run     # apply DB migrations (interim TypeORM)
 npm run start:dev         # watch mode on port 8000
 ```
 
 ## Tooling
 
 ```bash
-cd apps/api-nestjs
+cd apps
 npm run build     # production tsc build to dist/
 npm run lint      # eslint + prettier check
 npm test          # jest unit tests
@@ -146,8 +147,11 @@ npm test          # jest unit tests
 
 ## Documentation
 
-- [`stack.md`](./stack.md) — architecture notes and Mermaid source diagram.
-- [`docs/architecture.md`](./docs/architecture.md) — Phase 1 architecture.
+- [`stack.md`](./stack.md) — backend stack, integrations, resolved decisions.
+- [`docs/SPEC-BACKEND.md`](./docs/SPEC-BACKEND.md) — client API & domain spec.
+- [`docs/SPEC-ADMIN-DASHBOARD.md`](./docs/SPEC-ADMIN-DASHBOARD.md) — admin API spec.
+- [`docs/architecture.md`](./docs/architecture.md) — backend architecture (spec-aligned).
+- [`docs/evolution/platform-spec-alignment-evolution.md`](./docs/evolution/platform-spec-alignment-evolution.md) — spec gap backlog & decisions.
 - [`docs/features/f19-concept-cms.md`](./docs/features/f19-concept-cms.md) — F19 concept CMS analysis and implementation scope.
 - [`docs/testing/f19-concept-cms-cahier-de-test.md`](./docs/testing/f19-concept-cms-cahier-de-test.md) — F19 test book and acceptance qualification cases.
 - [`docs/testing/f19-concept-cms-test-execution.md`](./docs/testing/f19-concept-cms-test-execution.md) — F19 execution evidence and blocked/passed status.

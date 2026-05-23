@@ -17,7 +17,7 @@ This file records qualification evidence for F19. At creation time, the current 
 
 | Check | Status | Evidence |
 | --- | --- | --- |
-| Existing CMS/content module | Not available | No `content`, `cms`, or `concept` module exists under `apps/api-nestjs/src/modules/`. |
+| Existing CMS/content module | Not available | No `content`, `cms`, or `concept` module exists under `apps/src/modules/`. |
 | `GET /content/concept` | Not implemented | No controller route exists. |
 | `PUT /content/concept` | Not implemented | No controller route exists. |
 | Admin authorization guard | Not implemented | `UserRole.ADMIN` exists, but no `AdminGuard` or roles guard exists. |
@@ -28,7 +28,7 @@ This file records qualification evidence for F19. At creation time, the current 
 Run these commands on each implementation iteration and record the result below:
 
 ```bash
-cd apps/api-nestjs
+cd apps
 npm test
 npm run build
 npm run lint
@@ -37,7 +37,7 @@ npm run lint
 If the feature is implemented with integration/e2e tests, also run:
 
 ```bash
-cd apps/api-nestjs
+cd apps
 npm run test:e2e
 ```
 

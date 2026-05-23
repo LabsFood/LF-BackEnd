@@ -1,7 +1,9 @@
 # lf-api-nestjs
 
 Primary backend for Labs Food: **NestJS 11 + Fastify** REST API documented via
-OpenAPI/Swagger, backed by Supabase Postgres (TypeORM). Redis (ioredis) is scaffolded but not enabled yet.
+OpenAPI/Swagger, backed by Supabase Postgres. **Target ORM:** Prisma; interim migrations use TypeORM under `src/supabase/`. Redis is scaffolded but not enabled yet.
+
+Product specs: [`../docs/SPEC-BACKEND.md`](../docs/SPEC-BACKEND.md), [`../docs/SPEC-ADMIN-DASHBOARD.md`](../docs/SPEC-ADMIN-DASHBOARD.md). Backlog: [`../docs/evolution/platform-spec-alignment-evolution.md`](../docs/evolution/platform-spec-alignment-evolution.md).
 
 ## Local development
 

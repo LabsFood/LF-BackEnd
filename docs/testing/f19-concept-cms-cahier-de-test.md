@@ -29,7 +29,7 @@ Use the same backing services as local development to preserve dev/prod parity:
 ```bash
 sudo dockerd &>/tmp/dockerd.log &
 sudo docker compose up -d postgres redis
-cd apps/api-nestjs
+cd apps
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export REDIS_URL="redis://localhost:6379/0"
 export CLERK_SECRET_KEY="sk_test_placeholder"
@@ -73,9 +73,9 @@ node -e 'const h = Buffer.from(JSON.stringify({alg:"HS256",typ:"JWT"})).toString
 
 | ID | Scenario | Command or Steps | Expected Result |
 | --- | --- | --- | --- |
-| F19-NR-001 | Unit tests pass | `cd apps/api-nestjs && npm test` | Existing and new Jest tests pass. |
-| F19-NR-002 | Build passes | `cd apps/api-nestjs && npm run build` | TypeScript compilation succeeds. |
-| F19-NR-003 | Lint passes | `cd apps/api-nestjs && npm run lint` | ESLint and Prettier checks pass. |
+| F19-NR-001 | Unit tests pass | `cd apps && npm test` | Existing and new Jest tests pass. |
+| F19-NR-002 | Build passes | `cd apps && npm run build` | TypeScript compilation succeeds. |
+| F19-NR-003 | Lint passes | `cd apps && npm run lint` | ESLint and Prettier checks pass. |
 | F19-NR-004 | Health endpoint unchanged | Call `GET /health`. | `200 {"status":"ok"}`. |
 | F19-NR-005 | Readiness endpoint unchanged | Call `GET /ready` with Postgres and Redis running. | `200` readiness response. |
 | F19-NR-006 | Existing protected routes still require auth | Call `GET /bookings` without token. | `401 Unauthorized`. |

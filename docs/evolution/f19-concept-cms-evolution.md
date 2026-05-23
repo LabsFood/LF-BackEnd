@@ -30,7 +30,8 @@ Track the evolution of files, variables, functions, routes, DTOs, entities, and 
 | `apps/src/supabase/entities/index.ts` | Done | Exports `CmsPage` and related types. |
 | `apps/README.md` | Done | Documents F19 endpoints and local test commands. |
 | `.env.example` | Done | `SUPABASE_DB_URL` and optional Supabase API keys. |
-| `docs/architecture.md` | Done | Documents content vs content-cms module split. |
+| `docs/architecture.md` | Done | Backend architecture; content-cms module documented. |
+| `docs/evolution/platform-spec-alignment-evolution.md` | Created | Platform spec gap register (separate from F19). |
 | `apps/src/modules/content/*` (F19 files) | Removed | F19 implementation moved to `content-cms`; general `ContentModule` kept separate. |
 
 ## Route Evolution

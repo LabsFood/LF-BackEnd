@@ -18,46 +18,46 @@ Relevant baseline files:
 
 | Area | Existing files | Current role |
 | --- | --- | --- |
-| API root wiring | `apps/api-nestjs/src/app.module.ts` | Imports existing modules. Add the new content module here. |
-| Database wiring | `apps/api-nestjs/src/database/database.module.ts` | Registers TypeORM entities and migrations explicitly. Add CMS entities and migrations here. |
-| Entity exports | `apps/api-nestjs/src/database/entities/index.ts` | Re-exports database entities. Add CMS entity exports here. |
-| Auth | `apps/api-nestjs/src/auth/clerk-auth.guard.ts` | Decodes Clerk JWT payload and attaches `clerkUser`. Public GET should not use it; admin PUT should. |
-| User role source | `apps/api-nestjs/src/database/entities/user.entity.ts` | Defines `UserRole.ADMIN`, but no admin guard exists yet. |
-| User lookup | `apps/api-nestjs/src/modules/users/users.service.ts` | Provides persisted users and exported `UsersService`. Reuse for admin role checks. |
-| Public route pattern | `apps/api-nestjs/src/modules/health/health.controller.ts` | Shows unauthenticated controller methods. |
-| Feature module pattern | `apps/api-nestjs/src/modules/bookings/*` | Shows module/controller/service/DTO structure and Swagger decorators. |
-| Migration baseline | `apps/api-nestjs/src/database/migrations/1700000000000-init.ts` | Initial schema. Add a new migration rather than editing this one. |
+| API root wiring | `apps/src/app.module.ts` | Imports existing modules. Add the new content module here. |
+| Database wiring | `apps/src/supabase/database.module.ts` | Registers TypeORM entities and migrations explicitly. Add CMS entities and migrations here. |
+| Entity exports | `apps/src/supabase/entities/index.ts` | Re-exports database entities. Add CMS entity exports here. |
+| Auth | `apps/src/auth/clerk-auth.guard.ts` | Decodes Clerk JWT payload and attaches `clerkUser`. Public GET should not use it; admin PUT should. |
+| User role source | `apps/src/supabase/entities/user.entity.ts` | Defines `UserRole.ADMIN`, but no admin guard exists yet. |
+| User lookup | `apps/src/modules/users/users.service.ts` | Provides persisted users and exported `UsersService`. Reuse for admin role checks. |
+| Public route pattern | `apps/src/modules/health/health.controller.ts` | Shows unauthenticated controller methods. |
+| Feature module pattern | `apps/src/modules/bookings/*` | Shows module/controller/service/DTO structure and Swagger decorators. |
+| Migration baseline | `apps/src/supabase/migrations/1700000000000-init.ts` | Initial schema. Add a new migration rather than editing this one. |
 
 ## Recommended Implementation Scope
 
-Create a standalone `ContentModule` under `apps/api-nestjs/src/modules/content/`. This keeps CMS page management separate from bookings/users and matches the existing NestJS module boundaries.
+Create a standalone `ContentModule` under `apps/src/modules/content/`. This keeps CMS page management separate from bookings/users and matches the existing NestJS module boundaries.
 
 ### New Files To Add
 
 | File | Purpose |
 | --- | --- |
-| `apps/api-nestjs/src/modules/content/content.module.ts` | Registers controller, service, and TypeORM repositories. |
-| `apps/api-nestjs/src/modules/content/content.controller.ts` | Exposes `GET /content/concept` and `PUT /content/concept`. |
-| `apps/api-nestjs/src/modules/content/content.service.ts` | Encapsulates CMS loading, default content, validation, and update persistence. |
-| `apps/api-nestjs/src/modules/content/dto/concept-content.dto.ts` | Public read DTO returned by `GET /content/concept`. |
-| `apps/api-nestjs/src/modules/content/dto/update-concept-content.dto.ts` | Admin write DTO accepted by `PUT /content/concept`. |
-| `apps/api-nestjs/src/modules/content/content.service.spec.ts` | Unit coverage for defaults, read mapping, and update behavior. |
-| `apps/api-nestjs/src/modules/content/content.controller.spec.ts` | Unit coverage for public access and admin update delegation. |
-| `apps/api-nestjs/src/auth/admin.guard.ts` | Authorizes `UserRole.ADMIN` using `ClerkAuthGuard` output and `UsersService`. |
-| `apps/api-nestjs/src/auth/admin.guard.spec.ts` | Unit coverage for allowed admin, forbidden non-admin, and missing user paths. |
-| `apps/api-nestjs/src/database/entities/cms-page.entity.ts` | Persists CMS page content keyed by slug, initially `concept`. |
-| `apps/api-nestjs/src/database/migrations/<timestamp>-add-cms-pages.ts` | Creates CMS table and seeds initial `concept` content. |
+| `apps/src/modules/content/content.module.ts` | Registers controller, service, and TypeORM repositories. |
+| `apps/src/modules/content/content.controller.ts` | Exposes `GET /content/concept` and `PUT /content/concept`. |
+| `apps/src/modules/content/content.service.ts` | Encapsulates CMS loading, default content, validation, and update persistence. |
+| `apps/src/modules/content/dto/concept-content.dto.ts` | Public read DTO returned by `GET /content/concept`. |
+| `apps/src/modules/content/dto/update-concept-content.dto.ts` | Admin write DTO accepted by `PUT /content/concept`. |
+| `apps/src/modules/content/content.service.spec.ts` | Unit coverage for defaults, read mapping, and update behavior. |
+| `apps/src/modules/content/content.controller.spec.ts` | Unit coverage for public access and admin update delegation. |
+| `apps/src/auth/admin.guard.ts` | Authorizes `UserRole.ADMIN` using `ClerkAuthGuard` output and `UsersService`. |
+| `apps/src/auth/admin.guard.spec.ts` | Unit coverage for allowed admin, forbidden non-admin, and missing user paths. |
+| `apps/src/supabase/entities/cms-page.entity.ts` | Persists CMS page content keyed by slug, initially `concept`. |
+| `apps/src/supabase/migrations/<timestamp>-add-cms-pages.ts` | Creates CMS table and seeds initial `concept` content. |
 
 ### Existing Files To Modify
 
 | File | Change |
 | --- | --- |
-| `apps/api-nestjs/src/app.module.ts` | Import `ContentModule`. |
-| `apps/api-nestjs/src/auth/auth.module.ts` | Provide and export `AdminGuard` if it lives in `auth/`. |
-| `apps/api-nestjs/src/database/database.module.ts` | Register `CmsPage` and the new migration. |
-| `apps/api-nestjs/src/database/data-source.ts` | Register the new entity/migration if the CLI data source is explicit. |
-| `apps/api-nestjs/src/database/entities/index.ts` | Export `CmsPage` and any content-related enums/types. |
-| `apps/api-nestjs/README.md` | Add endpoint and local test notes after implementation. |
+| `apps/src/app.module.ts` | Import `ContentModule`. |
+| `apps/src/auth/auth.module.ts` | Provide and export `AdminGuard` if it lives in `auth/`. |
+| `apps/src/supabase/database.module.ts` | Register `CmsPage` and the new migration. |
+| `apps/src/supabase/data-source.ts` | Register the new entity/migration if the CLI data source is explicit. |
+| `apps/src/supabase/entities/index.ts` | Export `CmsPage` and any content-related enums/types. |
+| `apps/README.md` | Add endpoint and local test notes after implementation. |
 | `docs/architecture.md` | Add the content module, CMS entity, and route-level auth model after implementation. |
 | `docs/Revisions_followup.md` | Track F19 as a feature release candidate. |
 | `docs/evolution/f19-concept-cms-evolution.md` | Record variable/function/file evolution as implementation changes land. |

@@ -82,7 +82,7 @@ admin-labsfood/
 ```
 
 > **Point d'intégration** : remplacer les imports `lib/mock/*` par des appels à l'API
-> backend (cf. `SPEC-BACKEND-BATCH-COOKING.md`). Chaque fichier mock correspond à une
+> backend (cf. [`SPEC-BACKEND.md`](./SPEC-BACKEND.md)). Chaque fichier mock correspond à une
 > ressource d'API.
 
 ### 2.3 Authentification & rôles
@@ -224,7 +224,7 @@ côté backend ils proviendront de `GET /admin/dashboard/badges`.
 ## 5. Schéma de données — entités spécifiques à l'admin
 
 > Le modèle complet (User, Reservation, Meal, Quote…) est décrit dans
-> `SPEC-BACKEND-BATCH-COOKING.md`. Ci-dessous, les entités **propres au site principal
+> [`SPEC-BACKEND.md`](./SPEC-BACKEND.md). Ci-dessous, les entités **propres au site principal
 > et à la console admin**.
 
 ### 5.1 Diagramme

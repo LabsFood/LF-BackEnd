@@ -19,6 +19,7 @@ Examples: `v1.0.0` first stable epic; `v1.1.0` adds features on that line; `v1.1
 | ------- | --------------------------------------------------------- | ------------ | ----------- | ------------------------- |
 | v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | DKO         | -                         |
 | v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | DKO         |                           |
+| v1.x.0  | Platform spec alignment — Prisma, bookings domain, admin API |          |             | See `docs/evolution/platform-spec-alignment-evolution.md` |
 | v1.x.0  | ISSUE_TYPE — ISSUE_DESC                                   |              |             |                           |
 
 

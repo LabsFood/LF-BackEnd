@@ -2,6 +2,8 @@
 
 The NestJS API uses **two connection URLs** when talking to hosted Supabase Postgres. Local Docker Postgres uses a single direct URL for both.
 
+**ORM note:** The target persistence layer is **Prisma** ([`stack.md`](../stack.md)). Until the Prisma migration branch lands, runtime and CLI migrations use **TypeORM** under `apps/src/supabase/`.
+
 ## Environment variables
 
 | Variable | Required | Use |

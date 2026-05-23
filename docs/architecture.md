@@ -1,165 +1,205 @@
-# Architecture — Phase 1
+# Backend architecture
 
-This document captures the state of the backend scaffold. See
-[`../stack.md`](../stack.md) for the broader stack choices.
+This document describes the **LF-BackEnd** API only. Product intent and route contracts come from [`SPEC-BACKEND.md`](./SPEC-BACKEND.md) and [`SPEC-ADMIN-DASHBOARD.md`](./SPEC-ADMIN-DASHBOARD.md) (API sections). Stack choices are in [`../stack.md`](../stack.md).
+
+## Guiding specs
+
+| Document | Backend scope |
+|----------|----------------|
+| [`SPEC-BACKEND.md`](./SPEC-BACKEND.md) | Client/batch-cooking API, shared domain model, payments, notifications, stats |
+| [`SPEC-ADMIN-DASHBOARD.md`](./SPEC-ADMIN-DASHBOARD.md) | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
+
+Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API but are **not** documented here.
+
+## Resolved implementation choices
+
+| Topic | Decision | Notes |
+|-------|----------|-------|
+| ORM | **Prisma** (target) | Codebase still uses TypeORM until the Prisma migration branch; new schema work should target Prisma models |
+| Auth | **Clerk** | No first-party `/auth/register` or password routes; JWT from Clerk on protected routes |
+| Booking aggregate | **`bookings`** | Spec “reservation” maps to existing booking module/table naming |
+| Chef role | **`chef`** replaces `provider` | Enum/schema rename deferred to a dedicated branch — document only for now |
+| Calendar / chat | **Cronofy** + **Stream** | Kept per stack; wire to booking lifecycle and messaging modules |
+| Tracking | [`evolution/platform-spec-alignment-evolution.md`](./evolution/platform-spec-alignment-evolution.md) | Gap list and delivery status |
 
 ## Services in this repo
 
 | Service | Path | Role | Default port |
 |---------|------|------|--------------|
-| `api` (NestJS + Fastify) | [`apps/api-nestjs`](../apps/api-nestjs) | Primary REST API (OpenAPI/Swagger) | 8000 |
-| `postgres` | — | Primary relational store | 5432 |
-| `redis` | — | Cache + async queue backend | 6379 |
+| NestJS API | [`apps/`](../apps/) (`apps/src/`) | Primary REST API (OpenAPI/Swagger) | 8000 |
+| PostgreSQL | Docker / Supabase | Primary data store | 5432 |
+| Redis | Docker | Cache + async queues (module not enabled yet) | 6379 |
 
-The API runs TypeORM migrations on container startup, so the database schema
-is created automatically when bringing the stack up against a fresh volume.
+Database bootstrap today: TypeORM `migrationsRun: true` on API startup. After Prisma adoption: `prisma migrate deploy` (or equivalent) in container entrypoint.
 
-## NestJS module layout
+## Current module layout (implemented)
 
 ```
-apps/api-nestjs/src/
-├── main.ts                    # Fastify bootstrap (helmet, CORS, ValidationPipe, Swagger)
-├── app.module.ts              # Root module, imports Config/Database/Redis/Auth/...
-├── config/                    # configLoader + Joi env validation schema
-├── database/
-│   ├── database.module.ts     # TypeORM forRootAsync (migrationsRun: true)
-│   ├── data-source.ts         # CLI DataSource for typeorm migration:* scripts
-│   ├── entities/              # User, ProviderProfile, ServiceOffer,
-│   │                          # AvailabilitySlot, Booking
-│   └── migrations/            # 1700000000000-init.ts (initial schema)
-├── redis/                     # ioredis client + RedisService
-├── auth/                      # ClerkAuthGuard + @CurrentClerkUser decorator
-├── integrations/              # Stripe / Cronofy / Stream / Brevo services
+apps/src/
+├── main.ts
+├── app.module.ts
+├── config/                    # env validation (Joi), config loader
+├── supabase/                  # DB module (interim TypeORM); rename/target Prisma client here
+│   ├── database.module.ts
+│   ├── data-source.ts         # CLI migrations (interim)
+│   ├── entities/              # User, ProviderProfile, ServiceOffer, AvailabilitySlot, Booking, CmsPage
+│   └── migrations/
+├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser
+├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (CMS assets)
+├── redis/                     # scaffold (commented out of AppModule)
 └── modules/
-    ├── health/                # /health liveness, /ready Terminus checks
-    ├── users/                 # /thisUser, /me (upsert from Clerk subject)
-    └── bookings/              # /bookings list + create scaffold
+    ├── health/                # GET /health, GET /ready
+    ├── users/                 # GET /thisUser, GET /me
+    ├── bookings/              # GET /bookings, POST /bookings (create not wired)
+    └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
 ```
 
-## Planned feature: F19 concept CMS
+Reserved: `modules/content/` for non-CMS app content.
 
-The PR titled `14 feat710/page concept contenu cms` targets a CMS-backed
-"Notre Concept" page. The current codebase does not yet include a content/CMS
-module, so F19 is expected to add:
+## Target backend modules (from specs)
 
-- `modules/content-cms/` for F19 `GET /content/concept` and `PUT /content/concept`; `modules/content/` reserved for general app content.
-- a CMS page entity and migration registered through TypeORM.
-- an admin authorization layer on top of `ClerkAuthGuard` and `UserRole.ADMIN`.
-- DTO validation and Swagger documentation for public read vs admin write.
+Modules below are the **planned** NestJS boundaries. None except those in “Current” are fully implemented.
 
-Detailed implementation scope, test cases, execution evidence, and evolution
-tracking live in:
+| Module | Responsibility | Primary routes (spec) |
+|--------|----------------|------------------------|
+| `auth` | Clerk session bridge, role resolution | *(no password routes)* — use Clerk + `UsersService` upsert |
+| `users` | User row + **client profile** (CRM fields) | `GET/PATCH /me/profile`, account/settings/GDPR |
+| `catalog` | Meals, weekly menu, formules | `GET /menus/current`; admin meals/menu-weeks/formules |
+| `bookings` | Session lifecycle, reference `LF-…`, meals on booking | `GET /me/bookings`*, `POST /bookings`, cancel; admin list/patch |
+| `shopping-lists` | Ingredient aggregation by aisle | Embedded in booking detail + admin |
+| `quotes` | Sur-mesure requests & quotes | `POST /quotes`, `/me/quotes`, admin `/admin/quotes` |
+| `messaging` | Threads + Stream realtime | `/me/thread`, `/admin/threads` |
+| `payments` | Stripe intents & webhooks, tax credit fields | `/payments/intent`, `/webhooks/stripe` |
+| `kossam` | Kossam product orders | Admin `/admin/kossam-orders`; public submit from main site |
+| `recruitment` | Chef applications + documents | `/admin/applications` |
+| `contact` | Site contact inbox | `/admin/contact-messages` |
+| `reviews` | Moderation & publish | `/admin/reviews` |
+| `notifications` | Email/SMS/in-app + preferences | Driven by booking/quote transitions |
+| `stats` | Dashboard aggregations | `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard` |
+| `admin` | Guards, badges, settings singleton | `/admin/*`, `/admin/dashboard/badges` |
+| `content-cms` | Marketing “Notre Concept” page | **Done** — `/content/concept` |
+| `team` | Chefs/staff & service zones | `/admin/team`, `/admin/zones` |
 
-- [`features/f19-concept-cms.md`](./features/f19-concept-cms.md)
-- [`testing/f19-concept-cms-cahier-de-test.md`](./testing/f19-concept-cms-cahier-de-test.md)
-- [`testing/f19-concept-cms-test-execution.md`](./testing/f19-concept-cms-test-execution.md)
-- [`evolution/f19-concept-cms-evolution.md`](./evolution/f19-concept-cms-evolution.md)
+\*Spec uses `/me/reservations`; implementation keeps **`bookings`** paths unless a versioned alias is added later.
 
-## Data model (Phase 1 baseline)
+## Booking lifecycle (target)
+
+Spec state machine (stored on `bookings.status`):
+
+```
+pending → confirmed → shopping → cooking → delivered
+                    ↘ cancelled
+```
+
+Phase 1 enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/rename toward spec on the bookings epic.
+
+## Data model direction
+
+### Implemented (Phase 1 + F19)
 
 ```mermaid
 erDiagram
-    users ||--o| provider_profiles : "is_a_provider"
-    users ||--o{ bookings : "books"
+    users ||--o| provider_profiles : "chef_profile_pending_rename"
+    users ||--o{ bookings : "client"
     provider_profiles ||--o{ service_offers : "offers"
     provider_profiles ||--o{ availability_slots : "exposes"
     provider_profiles ||--o{ bookings : "fulfills"
     service_offers ||--o{ bookings : "priced_as"
+    users ||--o{ cms_pages : "updated_by"
 
     users {
       uuid id
       string clerk_user_id
       string email
-      string role
-    }
-    provider_profiles {
-      uuid id
-      uuid user_id
-      string display_name
-      string city
-      bool is_active
-      bool is_verified
-    }
-    service_offers {
-      uuid id
-      uuid provider_id
-      int duration_minutes
-      int price_cents
-    }
-    availability_slots {
-      uuid id
-      uuid provider_id
-      timestamptz starts_at
-      timestamptz ends_at
-      bool is_booked
+      enum role
     }
     bookings {
       uuid id
-      uuid client_id
-      uuid provider_id
-      uuid service_offer_id
-      timestamptz starts_at
-      timestamptz ends_at
-      string status
+      string reference
+      enum status
       int price_cents
+    }
+    cms_pages {
+      string slug
+      jsonb content
     }
 ```
 
-## Runtime flow
+### Target additions (Prisma schema — spec-aligned)
+
+Core shared entities: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote`, `ChatThread`, `ChatMessage`, `Payment`, `Notification`.
+
+Admin / main-site entities: `KossamOrder`, `KossamOrderItem`, `ChefApplication`, `ApplicationDocument`, `ContactMessage`, `Review`, `TeamMember`, `ServiceZone`, `AdminSettings`.
+
+Logical ER (target — names follow spec; table `bookings` retained):
 
 ```mermaid
-flowchart TD
-    clients[NextJSOrReactNative]
-    clerk[ClerkAuth]
-    api[NestJSPrimary]
-    pg[PostgreSQL]
-    redis[Redis]
-    stripe[Stripe]
-    cronofy[Cronofy]
-    brevo[Brevo]
-    stream[StreamChat]
-    maps[GoogleMaps]
-    s3[AWSS3]
-
-    clients --> clerk
-    clerk --> api
-    api --> pg
-    api --> redis
-    api --> stripe
-    api --> cronofy
-    api --> brevo
-    api --> stream
-    api --> maps
-    api --> s3
+erDiagram
+    users ||--o| client_profiles : "client"
+    users ||--o{ bookings : "books"
+    users ||--o{ quotes : "requests"
+    bookings ||--o{ booking_meals : "includes"
+    meals ||--o{ booking_meals : "selected"
+    bookings ||--o| shopping_lists : "generates"
+    bookings ||--o| payments : "paid_by"
+    users ||--o{ chat_threads : "owns"
+    chat_threads ||--o{ chat_messages : "contains"
 ```
 
-## Authentication (Phase 1)
+`provider_profiles` evolves into chef/team modeling (`TeamMember`, chef assignment on `bookings`) on the chef-role branch.
 
-- `ClerkAuthGuard` reads the `Authorization: Bearer …` header, decodes the JWT
-  payload (without signature verification — Phase 1 stub mirroring the prior
-  FastAPI behaviour), and attaches a `ClerkUser` to the request.
-- `@CurrentClerkUser()` parameter decorator exposes that user inside controllers.
-- Protected routes today: `GET /thisUser`, `GET /me`, `GET /bookings`,
-  `POST /bookings`.
-- Phase 2 swaps in JWKS verification once the Clerk instance URL is known.
+## Authentication
 
-## Integrations (Phase 1)
+- `ClerkAuthGuard` — Bearer JWT, payload decode (JWKS verification planned).
+- `@CurrentClerkUser()` — exposes Clerk `sub` and email in controllers.
+- `AdminGuard` — requires persisted `UserRole.ADMIN` after Clerk auth.
+- Future: `ChefGuard` or scoped queries for `UserRole.CHEF` (after enum migration).
 
-All integration services expose a `configured` flag driven by env vars and do
-not perform business calls in Phase 1:
+Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current` (when implemented).
 
-- `StripeService` — wraps the `stripe` SDK; bound at construction when
-  `STRIPE_SECRET_KEY` is present.
-- `CronofyService` — data-center-aware `baseUrl` helper.
-- `StreamService` — credentials-only scaffold.
-- `BrevoService` — exposes Brevo v3 base URL and the auth header set used by
-  the future HTTP client.
-- AWS S3 and Google Maps — keys are loaded into the typed config object;
-  clients will be added when first used.
+## Integrations
+
+| Service | Config | Status |
+|---------|--------|--------|
+| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending |
+| Cronofy | `CRONOFY_*` | Scaffold; link to chef availability |
+| Stream | `STREAM_*` | Scaffold; link to messaging module |
+| Brevo | `BREVO_*` | Scaffold; notification templates pending |
+| AWS S3 | `AWS_*` | Config only; uploads pending |
+| Supabase API | `SUPABASE_*`, CMS bucket | Optional CMS asset storage |
 
 ## Health checks
 
-- `GET /health` — fast liveness probe, returns `{status: "ok"}` without
-  touching backing services.
-- `GET /ready` — Terminus-based readiness probe that pings PostgreSQL via
-  TypeORM and runs `PING` against Redis.
+- `GET /health` — liveness, no backing services.
+- `GET /ready` — Postgres ping (+ Redis when enabled).
+
+## API surface summary
+
+### Implemented
+
+| Method | Route | Auth |
+|--------|-------|------|
+| GET | `/health`, `/ready` | public |
+| GET | `/content/concept` | public |
+| PUT | `/content/concept` | admin |
+| GET | `/thisUser`, `/me` | Clerk |
+| GET | `/bookings` | Clerk |
+| POST | `/bookings` | Clerk (stub — not wired) |
+
+### Client / public backlog (SPEC-BACKEND)
+
+`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/GDPR routes.
+
+### Admin backlog (SPEC-ADMIN-DASHBOARD)
+
+`/admin/dashboard`, `/admin/dashboard/badges`, reservations (bookings), quotes, threads, clients, meals, menu-weeks, formules, kossam-orders, applications, contact-messages, reviews, team, zones, settings.
+
+## Documentation map
+
+| File | Role |
+|------|------|
+| [`features/f19-concept-cms.md`](./features/f19-concept-cms.md) | F19 scope (shipped) |
+| [`evolution/f19-concept-cms-evolution.md`](./evolution/f19-concept-cms-evolution.md) | F19 change register |
+| [`evolution/platform-spec-alignment-evolution.md`](./evolution/platform-spec-alignment-evolution.md) | Platform spec gap & backlog |
+| [`database-connection.md`](./database-connection.md) | Supabase URLs |
+| [`Revisions_followup.md`](./Revisions_followup.md) | Release register |
