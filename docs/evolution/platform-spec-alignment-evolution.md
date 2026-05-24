@@ -36,11 +36,12 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Introduce `prisma/schema.prisma` from spec entities | Todo | Map spec model; keep `bookings` table name |
-| Replace `@nestjs/typeorm` with PrismaService / repository pattern | Todo | Remove `apps/src/supabase/data-source.ts` when done |
-| Migrate F19 `cms_pages` + Phase 1 tables | Todo | Data migration script if needed |
-| Update Docker/AGENTS migration commands | Todo | `prisma migrate deploy` |
-| Deprecate TypeORM migrations under `apps/src/supabase/migrations/` | Todo | After cutover |
+| Introduce `prisma/schema.prisma` from spec entities | Done | Phase 1 + `cms_pages` + full spec domain (`20250522130000_spec_domain`) |
+| Replace `@nestjs/typeorm` with PrismaService | Done | `apps/src/prisma/` |
+| Baseline migration `20250522120000_init` | Done | Equivalent to former TypeORM DDL |
+| Seed `prisma/seed.ts` (F19 concept) | Done | `npm run db:seed` |
+| Update Docker/AGENTS/docs | Done | `db:migrate`, `db:seed` |
+| Remove TypeORM entities/migrations | Done | See `docs/database-connection.md` § baseline for existing DBs |
 
 ### E1 — Role rename `provider` → `chef`
 
@@ -201,3 +202,5 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 |------|--------|--------|
 | 2026-05-22 | Created register; aligned stack, architecture, README, AGENTS, F19 doc paths | User request to document spec gap and decisions |
 | 2026-05-22 | Recorded Prisma, Clerk, bookings, chef (deferred), Cronofy, Stream decisions | Team resolution on spec tensions |
+| 2026-05-22 | **E0 done:** Prisma schema, migration, PrismaService, removed TypeORM | User-requested ORM switch |
+| 2026-05-22 | Spec domain models + migration; seed JSON fix via `toInputJson` | Phase 1 + cms_pages todo cleared |

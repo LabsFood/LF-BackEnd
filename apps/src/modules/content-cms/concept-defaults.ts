@@ -3,7 +3,7 @@ import type {
   CmsHowItWorksStep,
   CmsIntroBlock,
   CmsReassuranceItem,
-} from '../../supabase/entities/cms-page.entity';
+} from '../../supabase/types/cms-content';
 
 export const CONCEPT_SLUG = 'concept';
 

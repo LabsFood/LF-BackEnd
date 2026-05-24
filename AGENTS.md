@@ -11,7 +11,7 @@ Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DA
 | Service | Port | Purpose |
 |---------|------|---------|
 | NestJS API (primary) | 8000 | REST API — booking, auth, integrations |
-| PostgreSQL 16 | 5432 | Primary data store via Supabase Postgres URL (**Prisma** target; interim TypeORM migrations on API startup) |
+| PostgreSQL 16 | 5432 | Primary data store via Supabase Postgres URL (**Prisma**) |
 | Redis 7 | 6379 | Cache, queues *(not wired yet — module commented out)* |
 
 ### Starting backing services
@@ -42,7 +42,9 @@ npm install
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 # export REDIS_URL="redis://localhost:6379/0"   # not required until Redis is enabled
 export CLERK_SECRET_KEY="sk_test_placeholder"   # any non-empty string works locally
-npm run migration:run    # apply DB migrations once (see docs/database-connection.md for Supabase pooler vs direct)
+export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
+npm run db:migrate       # apply Prisma migrations once (see docs/database-connection.md)
+npm run db:seed          # optional: seed CMS concept page
 npm run start:dev        # listens on 8000
 ```
 
@@ -51,19 +53,17 @@ npm run start:dev        # listens on 8000
 - Health:      http://localhost:8000/health
 - Readiness:   http://localhost:8000/ready (pings Postgres)
 
-### Database migrations (interim TypeORM)
-
-Until the Prisma migration branch lands, use TypeORM:
+### Database (Prisma)
 
 ```bash
 cd apps
-npm run migration:run                 # apply pending migrations
-npm run migration:revert              # roll back the most recent migration
-npm run migration:generate -- src/supabase/migrations/<name>
+npm run db:migrate                    # apply pending migrations (deploy)
+npm run db:seed                       # seed CMS concept page
+npm run db:migrate:dev                # dev: create/apply migrations
+npm run db:studio                     # Prisma Studio
 ```
 
-When the API container starts it runs `migrationsRun: true`, so a fresh
-Postgres volume is bootstrapped automatically. **Target ORM:** Prisma (`stack.md`).
+Docker `api` runs `prisma migrate deploy` on container start. Schema: `apps/prisma/schema.prisma`.
 
 ### Linting and testing
 

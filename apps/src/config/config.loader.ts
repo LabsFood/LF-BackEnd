@@ -45,7 +45,7 @@ export interface AppConfig {
   supabase: {
     /** Runtime app connection — Supabase pooler (6543) in cloud; direct OK locally. */
     dbUrl: string;
-    /** TypeORM CLI / one-off migrations — direct session (5432) on Supabase. */
+    /** Prisma migrate — direct session (5432) on Supabase; falls back to dbUrl locally. */
     migrationDbUrl: string;
     url?: string;
     serviceRoleKey?: string;

@@ -29,7 +29,7 @@ export const resolveEnvFilePaths = (startDir = process.cwd()): string[] => {
   );
 };
 
-/** Load repo-root env files into `process.env` (TypeORM CLI, scripts). */
+/** Load repo-root env files into `process.env` (Prisma CLI, scripts). */
 export const loadRepoEnv = (startDir = process.cwd()): void => {
   const paths = resolveEnvFilePaths(startDir);
   paths.forEach((path, index) => {

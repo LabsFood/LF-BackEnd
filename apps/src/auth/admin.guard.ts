@@ -5,8 +5,8 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 
-import { UserRole } from '../supabase/entities';
 import { UsersService } from '../modules/users/users.service';
 import type { ClerkUser } from './clerk-auth.guard';
 
@@ -22,7 +22,7 @@ export class AdminGuard implements CanActivate {
     }
 
     const user = await this.users.findByClerkId(clerkUser.userId);
-    if (!user || user.role !== UserRole.ADMIN) {
+    if (!user || user.role !== UserRole.admin) {
       throw new ForbiddenException('Admin role required.');
     }
 

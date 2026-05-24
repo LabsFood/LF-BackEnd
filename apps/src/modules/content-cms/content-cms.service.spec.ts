@@ -1,7 +1,9 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { CmsPage, CmsPageStatus, UserRole } from '../../supabase/entities';
+import { CmsPage, UserRole } from '@prisma/client';
+
+import { PrismaService } from '../../prisma/prisma.service';
+import { CmsPageStatus } from '../../supabase/types/cms-content';
 import { UsersService } from '../users/users.service';
 import { CONCEPT_SLUG, DEFAULT_CONCEPT_CONTENT } from './concept-defaults';
 import { ContentCmsService } from './content-cms.service';
@@ -10,13 +12,12 @@ import { ConceptContentDto } from './dto/concept-content.dto';
 describe('ContentCmsService', () => {
   let service: ContentCmsService;
   let cmsPages: {
-    findOne: jest.Mock;
-    create: jest.Mock;
-    save: jest.Mock;
+    findUnique: jest.Mock;
+    upsert: jest.Mock;
   };
   let users: { findByClerkId: jest.Mock };
 
-  const publishedPage: CmsPage = {
+  const publishedPage = {
     id: 'page-1',
     slug: CONCEPT_SLUG,
     title: 'Stored title',
@@ -28,13 +29,18 @@ describe('ContentCmsService', () => {
     updatedByUserId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as CmsPage;
 
   beforeEach(async () => {
     cmsPages = {
-      findOne: jest.fn(),
-      create: jest.fn((value) => value as CmsPage),
-      save: jest.fn(async (value) => value as CmsPage),
+      findUnique: jest.fn(),
+      upsert: jest.fn(
+        async (args: { update: Partial<CmsPage> }) =>
+          ({
+            ...publishedPage,
+            ...args.update,
+          }) as CmsPage,
+      ),
     };
     users = {
       findByClerkId: jest.fn(),
@@ -43,7 +49,7 @@ describe('ContentCmsService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         ContentCmsService,
-        { provide: getRepositoryToken(CmsPage), useValue: cmsPages },
+        { provide: PrismaService, useValue: { cmsPage: cmsPages } },
         { provide: UsersService, useValue: users },
       ],
     }).compile();
@@ -52,24 +58,24 @@ describe('ContentCmsService', () => {
   });
 
   it('returns deterministic defaults when the concept page is missing', async () => {
-    cmsPages.findOne.mockResolvedValue(null);
+    cmsPages.findUnique.mockResolvedValue(null);
     const result = await service.getConcept();
     expect(result).toEqual(ConceptContentDto.fromContent(DEFAULT_CONCEPT_CONTENT));
   });
 
   it('maps a published concept page from persistence', async () => {
-    cmsPages.findOne.mockResolvedValue(publishedPage);
+    cmsPages.findUnique.mockResolvedValue(publishedPage);
     const result = await service.getConcept();
     expect(result.title).toBe('Stored title');
   });
 
   it('persists a full replacement for admin users', async () => {
-    cmsPages.findOne.mockResolvedValue(publishedPage);
+    cmsPages.findUnique.mockResolvedValue(publishedPage);
     users.findByClerkId.mockResolvedValue({
       id: 'admin-1',
       clerkUserId: 'clerk_admin',
-      role: UserRole.ADMIN,
-    } as never);
+      role: UserRole.admin,
+    });
 
     const payload = ConceptContentDto.fromContent({
       ...DEFAULT_CONCEPT_CONTENT,
@@ -78,11 +84,13 @@ describe('ContentCmsService', () => {
 
     const result = await service.updateConcept(payload, 'clerk_admin');
     expect(result.title).toBe('Updated title');
-    expect(cmsPages.save).toHaveBeenCalledWith(
+    expect(cmsPages.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Updated title',
-        status: CmsPageStatus.PUBLISHED,
-        updatedByUserId: 'admin-1',
+        update: expect.objectContaining({
+          title: 'Updated title',
+          status: CmsPageStatus.PUBLISHED,
+          updatedByUserId: 'admin-1',
+        }),
       }),
     );
   });
@@ -90,8 +98,8 @@ describe('ContentCmsService', () => {
   it('rejects updates from non-admin users', async () => {
     users.findByClerkId.mockResolvedValue({
       id: 'client-1',
-      role: UserRole.CLIENT,
-    } as never);
+      role: UserRole.client,
+    });
 
     await expect(
       service.updateConcept(

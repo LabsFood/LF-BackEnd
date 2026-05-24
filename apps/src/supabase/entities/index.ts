@@ -1,13 +1,19 @@
-export { AvailabilitySlot } from './availability-slot.entity';
-export { Booking, BookingStatus } from './booking.entity';
-export { ProviderProfile } from './provider-profile.entity';
-export { ServiceOffer } from './service-offer.entity';
-export { User, UserRole } from './user.entity';
-export { CmsPage, CmsPageStatus } from './cms-page.entity';
+export type {
+  AvailabilitySlot,
+  Booking,
+  CmsPage,
+  ProviderProfile,
+  ServiceOffer,
+  User,
+} from '@prisma/client';
+
+export { BookingStatus, UserRole } from '../enums';
+export { UserRoleEnum } from '../enums';
+export { CmsPageStatus } from '../types/cms-content';
 export type {
   CmsHeroContent,
   CmsHowItWorksStep,
   CmsImageRef,
   CmsIntroBlock,
   CmsReassuranceItem,
-} from './cms-page.entity';
+} from '../types/cms-content';

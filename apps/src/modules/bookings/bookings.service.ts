@@ -1,17 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Booking } from '@prisma/client';
 
-import { Booking } from '../../supabase/entities';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class BookingsService {
-  constructor(
-    @InjectRepository(Booking)
-    private readonly bookings: Repository<Booking>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   list(): Promise<Booking[]> {
-    return this.bookings.find({ order: { startsAt: 'ASC' } });
+    return this.prisma.booking.findMany({ orderBy: { startsAt: 'asc' } });
   }
 }

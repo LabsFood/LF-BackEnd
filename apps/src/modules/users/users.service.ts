@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { User, UserRole } from '@prisma/client';
 
-import { User, UserRole } from '../../supabase/entities';
+import { PrismaService } from '../../prisma/prisma.service';
 
 export interface UpsertFromClerkInput {
   clerkUserId: string;
@@ -12,39 +11,38 @@ export interface UpsertFromClerkInput {
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectRepository(User)
-    private readonly users: Repository<User>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findByClerkId(clerkUserId: string): Promise<User | null> {
-    return this.users.findOne({ where: { clerkUserId } });
+    return this.prisma.user.findUnique({ where: { clerkUserId } });
   }
 
   /** Get-or-create a `users` row keyed by Clerk subject. */
   async upsertFromClerk(input: UpsertFromClerkInput): Promise<User> {
     const existing = await this.findByClerkId(input.clerkUserId);
     if (existing) {
-      let dirty = false;
-      if (input.email && existing.email !== input.email) {
-        existing.email = input.email;
-        dirty = true;
-      }
-      if (input.fullName !== undefined && existing.fullName !== input.fullName) {
-        existing.fullName = input.fullName ?? null;
-        dirty = true;
-      }
-      if (dirty) {
-        return this.users.save(existing);
+      const email = input.email && existing.email !== input.email ? input.email : undefined;
+      const fullName =
+        input.fullName !== undefined && existing.fullName !== input.fullName
+          ? (input.fullName ?? null)
+          : undefined;
+
+      if (email !== undefined || fullName !== undefined) {
+        return this.prisma.user.update({
+          where: { id: existing.id },
+          data: { email, fullName },
+        });
       }
       return existing;
     }
-    const created = this.users.create({
-      clerkUserId: input.clerkUserId,
-      email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
-      fullName: input.fullName ?? null,
-      role: UserRole.CLIENT,
+
+    return this.prisma.user.create({
+      data: {
+        clerkUserId: input.clerkUserId,
+        email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
+        fullName: input.fullName ?? null,
+        role: UserRole.client,
+      },
     });
-    return this.users.save(created);
   }
 }

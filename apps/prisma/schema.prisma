@@ -1,0 +1,711 @@
+// Labs Food — PostgreSQL schema (SPEC-BACKEND + SPEC-ADMIN).
+// Phase 1 marketplace tables retained; spec entities added for forward API work.
+// Table name `bookings` kept (spec "Reservation").
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("SUPABASE_DB_URL")
+  directUrl = env("SUPABASE_DB_MIGRATION_URL")
+}
+
+// --- Enums ---
+
+enum UserRole {
+  client
+  provider
+  admin
+
+  @@map("user_role")
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  cancelled
+  completed
+  shopping
+  cooking
+  delivered
+
+  @@map("booking_status")
+}
+
+enum ClientProfileStatus {
+  vip
+  active
+  prospect
+  inactive
+
+  @@map("client_profile_status")
+}
+
+enum MealContinent {
+  europe
+  africa
+  asia
+  americas
+  middle_east
+
+  @@map("meal_continent")
+}
+
+enum MealDifficulty {
+  easy
+  medium
+  hard
+
+  @@map("meal_difficulty")
+}
+
+enum MealStatus {
+  published
+  draft
+  archived
+
+  @@map("meal_status")
+}
+
+enum QuoteStatus {
+  submitted
+  in_review
+  quoted
+  accepted
+  declined
+
+  @@map("quote_status")
+}
+
+enum ChatMessageFrom {
+  client
+  admin
+
+  @@map("chat_message_from")
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  refunded
+
+  @@map("payment_status")
+}
+
+enum NotificationChannel {
+  email
+  sms
+  in_app
+
+  @@map("notification_channel")
+}
+
+enum KossamOrderStatus {
+  new
+  preparing
+  delivering
+  delivered
+  cancelled
+
+  @@map("kossam_order_status")
+}
+
+enum KossamPaymentStatus {
+  pending
+  paid
+  refunded
+
+  @@map("kossam_payment_status")
+}
+
+enum ChefApplicationStatus {
+  new
+  reviewing
+  interview
+  accepted
+  rejected
+
+  @@map("chef_application_status")
+}
+
+enum ApplicationDocumentType {
+  cv
+  cover_letter
+  haccp
+  diploma
+  id_card
+  portfolio
+
+  @@map("application_document_type")
+}
+
+enum ApplicationDocumentFormat {
+  pdf
+  image
+
+  @@map("application_document_format")
+}
+
+enum ContactChannel {
+  form
+  whatsapp
+  email
+
+  @@map("contact_channel")
+}
+
+enum ContactMessageStatus {
+  new
+  read
+  replied
+  archived
+
+  @@map("contact_message_status")
+}
+
+enum ReviewService {
+  batch_cooking
+  atelier
+  kossam
+
+  @@map("review_service")
+}
+
+enum TeamMemberRole {
+  founder
+  chef
+  staff
+
+  @@map("team_member_role")
+}
+
+enum TeamMemberStatus {
+  active
+  inactive
+
+  @@map("team_member_status")
+}
+
+// --- Phase 1 core ---
+
+model User {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId String   @unique @map("clerk_user_id") @db.VarChar(128)
+  email       String   @unique @db.VarChar(320)
+  fullName    String?  @map("full_name") @db.VarChar(255)
+  role        UserRole @default(client)
+  phone       String?  @db.VarChar(32)
+  avatarUrl   String?  @map("avatar_url") @db.VarChar(512)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  providerProfile   ProviderProfile?
+  clientProfile     ClientProfile?
+  bookingsAsClient  Booking[]          @relation("BookingClient")
+  bookingsAsChef    Booking[]          @relation("BookingChef")
+  quotes            Quote[]            @relation("QuoteClient")
+  quotesAssigned    Quote[]            @relation("QuoteChef")
+  chatThreads       ChatThread[]
+  payments          Payment[]
+  notifications     Notification[]
+  cmsPagesUpdated   CmsPage[]          @relation("CmsPageUpdatedBy")
+
+  @@map("users")
+}
+
+model ProviderProfile {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  displayName      String   @map("display_name") @db.VarChar(255)
+  bio              String?  @db.Text
+  city             String?  @db.VarChar(120)
+  serviceRadiusKm  Int      @default(10) @map("service_radius_km")
+  isActive         Boolean  @default(false) @map("is_active")
+  isVerified       Boolean  @default(false) @map("is_verified")
+  cronofyProfileId String?  @map("cronofy_profile_id") @db.VarChar(128)
+  stripeAccountId  String?  @map("stripe_account_id") @db.VarChar(128)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceOffers     ServiceOffer[]
+  availabilitySlots AvailabilitySlot[]
+  bookings          Booking[]          @relation("BookingProvider")
+
+  @@map("provider_profiles")
+}
+
+model ServiceOffer {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  providerId      String   @map("provider_id") @db.Uuid
+  name            String   @db.VarChar(160)
+  description     String?  @db.Text
+  durationMinutes Int      @map("duration_minutes")
+  priceCents      Int      @map("price_cents")
+  currency        String   @default("EUR") @db.VarChar(3)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([providerId], map: "ix_service_offers_provider_id")
+  @@map("service_offers")
+}
+
+model AvailabilitySlot {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  providerId String   @map("provider_id") @db.Uuid
+  startsAt   DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt     DateTime @map("ends_at") @db.Timestamptz(6)
+  isBooked   Boolean  @default(false) @map("is_booked")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId], map: "ix_availability_slots_provider_id")
+  @@map("availability_slots")
+}
+
+model Booking {
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference             String?       @unique @db.VarChar(32)
+  clientId              String        @map("client_id") @db.Uuid
+  providerId            String        @map("provider_id") @db.Uuid
+  chefUserId            String?       @map("chef_user_id") @db.Uuid
+  serviceOfferId        String        @map("service_offer_id") @db.Uuid
+  formuleId             String?       @map("formule_id") @db.VarChar(32)
+  startsAt              DateTime      @map("starts_at") @db.Timestamptz(6)
+  endsAt                DateTime      @map("ends_at") @db.Timestamptz(6)
+  bookingDate           DateTime?     @map("booking_date") @db.Date
+  timeSlot              String?       @map("time_slot") @db.VarChar(64)
+  persons               Int?
+  status                BookingStatus @default(pending)
+  priceCents            Int           @map("price_cents")
+  amountTtc             Int?          @map("amount_ttc")
+  amountAfterTax        Int?          @map("amount_after_tax")
+  currency              String        @default("EUR") @db.VarChar(3)
+  shoppingByClient      Boolean       @default(false) @map("shopping_by_client")
+  addressLine           String?       @map("address_line") @db.VarChar(255)
+  notes                 String?       @db.Text
+  stripePaymentIntentId String?       @map("stripe_payment_intent_id") @db.VarChar(128)
+  cronofyEventId        String?       @map("cronofy_event_id") @db.VarChar(128)
+  paymentId             String?       @unique @map("payment_id") @db.Uuid
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client       User            @relation("BookingClient", fields: [clientId], references: [id], onDelete: Restrict)
+  chef         User?           @relation("BookingChef", fields: [chefUserId], references: [id], onDelete: SetNull)
+  provider     ProviderProfile @relation("BookingProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  serviceOffer ServiceOffer    @relation(fields: [serviceOfferId], references: [id], onDelete: Restrict)
+  formule      Formule?        @relation(fields: [formuleId], references: [id], onDelete: SetNull)
+  payment      Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  bookingMeals BookingMeal[]
+  shoppingList ShoppingList?
+
+  @@index([clientId], map: "ix_bookings_client_id")
+  @@index([providerId], map: "ix_bookings_provider_id")
+  @@map("bookings")
+}
+
+model CmsPage {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug             String   @unique @db.VarChar(255)
+  title            String   @db.VarChar(255)
+  hero             Json
+  introBlocks      Json     @map("intro_blocks")
+  howItWorks       Json     @map("how_it_works")
+  reassuranceItems Json     @map("reassurance_items")
+  status           String   @default("published") @db.VarChar(32)
+  updatedByUserId  String?  @map("updated_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  updatedBy User? @relation("CmsPageUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("cms_pages")
+}
+
+// --- SPEC-BACKEND domain ---
+
+model ClientProfile {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String              @unique @map("user_id") @db.Uuid
+  dietaryPreferences String[]            @default([]) @map("dietary_preferences")
+  allergies          String[]            @default([])
+  dislikes           String[]            @default([])
+  favorites          String[]            @default([])
+  spiceLevel         Int?                @map("spice_level")
+  householdAdults    Int                 @default(1) @map("household_adults")
+  householdKids      Int                 @default(0) @map("household_kids")
+  kitchenNotes       String?             @map("kitchen_notes") @db.Text
+  addressStreet      String?             @map("address_street") @db.VarChar(255)
+  addressCity        String?             @map("address_city") @db.VarChar(120)
+  addressPostalCode  String?             @map("address_postal_code") @db.VarChar(16)
+  status             ClientProfileStatus @default(active)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("client_profiles")
+}
+
+model Meal {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String         @db.VarChar(255)
+  description String?        @db.Text
+  imageUrl    String?        @map("image_url") @db.VarChar(512)
+  continent   MealContinent?
+  country     String?        @db.VarChar(120)
+  portions    Int            @default(4)
+  prepTime    Int            @map("prep_time")
+  dietaryTags String[]       @default([]) @map("dietary_tags")
+  allergens   String[]       @default([])
+  calories    Int?
+  difficulty  MealDifficulty?
+  ingredients Json           @default("[]")
+  steps       String[]       @default([])
+  isFeatured  Boolean        @default(false) @map("is_featured")
+  status      MealStatus     @default(draft)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  menuWeeks    MenuWeekMeal[]
+  bookingMeals BookingMeal[]
+
+  @@map("meals")
+}
+
+model MenuWeek {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  weekNumber  Int       @map("week_number")
+  year        Int
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  meals MenuWeekMeal[]
+
+  @@unique([year, weekNumber], map: "uq_menu_weeks_year_week")
+  @@map("menu_weeks")
+}
+
+model MenuWeekMeal {
+  menuWeekId String @map("menu_week_id") @db.Uuid
+  mealId     String @map("meal_id") @db.Uuid
+
+  menuWeek MenuWeek @relation(fields: [menuWeekId], references: [id], onDelete: Cascade)
+  meal     Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
+
+  @@id([menuWeekId, mealId])
+  @@map("menu_week_meals")
+}
+
+model Formule {
+  id            String   @id @db.VarChar(32)
+  name          String   @db.VarChar(120)
+  priceTtc      Int      @map("price_ttc")
+  priceAfterTax Int      @map("price_after_tax")
+  duration      String   @db.VarChar(64)
+  mealsCount    Int      @map("meals_count")
+  persons       String   @db.VarChar(64)
+  features      String[] @default([])
+  popular       Boolean  @default(false)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  bookings Booking[]
+
+  @@map("formules")
+}
+
+model BookingMeal {
+  bookingId String @map("booking_id") @db.Uuid
+  mealId    String @map("meal_id") @db.Uuid
+  portions  Int    @default(4)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  meal    Meal    @relation(fields: [mealId], references: [id], onDelete: Restrict)
+
+  @@id([bookingId, mealId])
+  @@map("booking_meals")
+}
+
+model ShoppingList {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId   String   @unique @map("booking_id") @db.Uuid
+  generatedAt DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  booking Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  items   ShoppingItem[]
+
+  @@map("shopping_lists")
+}
+
+model ShoppingItem {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shoppingListId String @map("shopping_list_id") @db.Uuid
+  aisle          String @db.VarChar(120)
+  name           String @db.VarChar(255)
+  quantity       String @db.VarChar(64)
+
+  shoppingList ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+
+  @@index([shoppingListId], map: "ix_shopping_items_list_id")
+  @@map("shopping_items")
+}
+
+model Quote {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference          String      @unique @db.VarChar(32)
+  clientId           String      @map("client_id") @db.Uuid
+  title              String      @db.VarChar(255)
+  persons            Int
+  mealsCount         Int         @map("meals_count")
+  cuisine            String      @db.VarChar(120)
+  diet               String[]    @default([])
+  brief              String      @db.Text
+  status             QuoteStatus @default(submitted)
+  assignedChefUserId String?     @map("assigned_chef_user_id") @db.Uuid
+  quoteAmountTtc     Int?        @map("quote_amount_ttc")
+  quoteAmountAfterTax Int?       @map("quote_amount_after_tax")
+  quoteNote          String?     @map("quote_note") @db.Text
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client       User  @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade)
+  assignedChef User? @relation("QuoteChef", fields: [assignedChefUserId], references: [id], onDelete: SetNull)
+
+  @@index([clientId], map: "ix_quotes_client_id")
+  @@map("quotes")
+}
+
+model ChatThread {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  topic         String   @db.VarChar(255)
+  lastMessageAt DateTime @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client   User          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([clientId], map: "ix_chat_threads_client_id")
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId  String          @map("thread_id") @db.Uuid
+  from      ChatMessageFrom
+  text      String          @db.Text
+  read      Boolean         @default(false)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId], map: "ix_chat_messages_thread_id")
+  @@map("chat_messages")
+}
+
+model Payment {
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  stripePaymentIntentId String        @unique @map("stripe_payment_intent_id") @db.VarChar(128)
+  amount                Int
+  status                PaymentStatus @default(pending)
+  userId                String?       @map("user_id") @db.Uuid
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  booking Booking?
+
+  @@map("payments")
+}
+
+model Notification {
+  id        String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  channel   NotificationChannel
+  type      String              @db.VarChar(64)
+  payload   Json                @default("{}")
+  readAt    DateTime?           @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ix_notifications_user_id")
+  @@map("notifications")
+}
+
+// --- SPEC-ADMIN / main site ---
+
+model TeamMember {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String           @db.VarChar(255)
+  avatarUrl    String?          @map("avatar_url") @db.VarChar(512)
+  role         TeamMemberRole
+  specialty    String           @db.VarChar(120)
+  city         String           @db.VarChar(120)
+  phone        String?          @db.VarChar(32)
+  email        String?          @db.VarChar(320)
+  rating       Float            @default(0)
+  reviewCount  Int              @default(0) @map("review_count")
+  sessionsDone Int              @default(0) @map("sessions_done")
+  status       TeamMemberStatus @default(active)
+  badges       String[]         @default([])
+  bio          String?          @db.Text
+  joinedAt     DateTime         @map("joined_at") @db.Date
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("team_members")
+}
+
+model ServiceZone {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(255)
+  region       String   @db.VarChar(120)
+  postalCodes  String[] @default([]) @map("postal_codes")
+  active       Boolean  @default(true)
+  chefsCount   Int      @default(0) @map("chefs_count")
+  clientsCount Int      @default(0) @map("clients_count")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("service_zones")
+}
+
+model KossamOrder {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference       String              @unique @db.VarChar(32)
+  customerName    String              @map("customer_name") @db.VarChar(255)
+  customerEmail   String              @map("customer_email") @db.VarChar(320)
+  customerPhone   String              @map("customer_phone") @db.VarChar(32)
+  totalCents      Int                 @map("total_cents")
+  deliveryFeeCents Int                @default(0) @map("delivery_fee_cents")
+  status          KossamOrderStatus   @default(new)
+  paymentStatus   KossamPaymentStatus @default(pending) @map("payment_status")
+  paymentMethod   String?             @map("payment_method") @db.VarChar(64)
+  deliveryZone    String              @map("delivery_zone") @db.VarChar(120)
+  deliveryAddress String              @map("delivery_address") @db.Text
+  deliveryDate    DateTime            @map("delivery_date") @db.Date
+  deliverySlot    String              @map("delivery_slot") @db.VarChar(64)
+  notes           String?             @db.Text
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items KossamOrderItem[]
+
+  @@map("kossam_orders")
+}
+
+model KossamOrderItem {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId      String @map("order_id") @db.Uuid
+  format       String @db.VarChar(16)
+  quantity     Int
+  unitPriceCents Int  @map("unit_price_cents")
+
+  order KossamOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "ix_kossam_order_items_order_id")
+  @@map("kossam_order_items")
+}
+
+model ChefApplication {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String                @db.VarChar(255)
+  email           String                @db.VarChar(320)
+  phone           String                @db.VarChar(32)
+  city            String                @db.VarChar(120)
+  birthYear       Int                   @map("birth_year")
+  experienceYears Int                   @map("experience_years")
+  currentRole     String                @map("current_role") @db.VarChar(255)
+  specialties     String[]              @default([])
+  cuisines        String[]              @default([])
+  languages       String[]              @default([])
+  availability    String                @db.VarChar(255)
+  hasVehicle      Boolean               @default(false) @map("has_vehicle")
+  expectedRateCents Int                   @map("expected_rate_cents")
+  motivation      String                @db.Text
+  hasHaccp        Boolean               @default(false) @map("has_haccp")
+  status          ChefApplicationStatus @default(new)
+  interviewDate   DateTime?             @map("interview_date") @db.Date
+  internalNotes   String?               @map("internal_notes") @db.Text
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  documents ApplicationDocument[]
+
+  @@map("chef_applications")
+}
+
+model ApplicationDocument {
+  id            String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String                    @map("application_id") @db.Uuid
+  type          ApplicationDocumentType
+  name          String                    @db.VarChar(255)
+  format        ApplicationDocumentFormat
+  sizeKb        Int                       @map("size_kb")
+  url           String                    @db.VarChar(1024)
+  pages         Int?
+  uploadedAt    DateTime                  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  application ChefApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId], map: "ix_application_documents_application_id")
+  @@map("application_documents")
+}
+
+model ContactMessage {
+  id        String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String               @db.VarChar(255)
+  email     String               @db.VarChar(320)
+  subject   String               @db.VarChar(255)
+  message   String               @db.Text
+  channel   ContactChannel
+  status    ContactMessageStatus @default(new)
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("contact_messages")
+}
+
+model Review {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  author    String        @db.VarChar(255)
+  city      String        @db.VarChar(120)
+  rating    Int
+  text      String        @db.Text
+  service   ReviewService
+  source    String        @db.VarChar(120)
+  verified  Boolean       @default(false)
+  published Boolean       @default(false)
+  reviewDate DateTime     @map("review_date") @db.Date
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("reviews")
+}
+
+model AdminSettings {
+  id            String   @id @default("default") @db.VarChar(32)
+  companyName   String   @map("company_name") @db.VarChar(255)
+  contactEmail  String   @map("contact_email") @db.VarChar(320)
+  serviceArea   String   @map("service_area") @db.VarChar(255)
+  vatRate       Int      @default(20) @map("vat_rate")
+  taxCreditRate Int      @default(50) @map("tax_credit_rate")
+  currency      String   @default("EUR") @db.VarChar(3)
+  notifications Json     @default("{}")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("admin_settings")
+}

@@ -15,7 +15,7 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 
 | Topic | Decision | Notes |
 |-------|----------|-------|
-| ORM | **Prisma** (target) | Codebase still uses TypeORM until the Prisma migration branch; new schema work should target Prisma models |
+| ORM | **Prisma** | `PrismaService` + `apps/prisma/schema.prisma` |
 | Auth | **Clerk** | No first-party `/auth/register` or password routes; JWT from Clerk on protected routes |
 | Booking aggregate | **`bookings`** | Spec “reservation” maps to existing booking module/table naming |
 | Chef role | **`chef`** replaces `provider` | Enum/schema rename deferred to a dedicated branch — document only for now |
@@ -30,7 +30,7 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 | PostgreSQL | Docker / Supabase | Primary data store | 5432 |
 | Redis | Docker | Cache + async queues (module not enabled yet) | 6379 |
 
-Database bootstrap today: TypeORM `migrationsRun: true` on API startup. After Prisma adoption: `prisma migrate deploy` (or equivalent) in container entrypoint.
+Database: **Prisma** (`apps/prisma/schema.prisma`). Local/Docker: `npm run db:migrate` or `prisma migrate deploy` in the API container entrypoint.
 
 ## Current module layout (implemented)
 
@@ -39,11 +39,14 @@ apps/src/
 ├── main.ts
 ├── app.module.ts
 ├── config/                    # env validation (Joi), config loader
-├── supabase/                  # DB module (interim TypeORM); rename/target Prisma client here
-│   ├── database.module.ts
-│   ├── data-source.ts         # CLI migrations (interim)
-│   ├── entities/              # User, ProviderProfile, ServiceOffer, AvailabilitySlot, Booking, CmsPage
-│   └── migrations/
+├── prisma/
+│   ├── schema.prisma
+│   ├── migrations/
+│   └── seed.ts
+├── supabase/                  # DB module wrapper + shared types
+│   ├── database.module.ts     # imports PrismaModule
+│   ├── types/                 # CMS JSON shapes
+│   └── enums.ts
 ├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser
 ├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (CMS assets)
 ├── redis/                     # scaffold (commented out of AppModule)

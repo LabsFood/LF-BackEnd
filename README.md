@@ -8,7 +8,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | ------------------------------- | ------------------------------------------------------------------ |
 | Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                 |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)           |
-| ORM / migrations                | **Prisma** (target); interim **TypeORM** in `apps/` until migration branch |
+| ORM / migrations                | **Prisma** (`apps/prisma/`) |
 | Database                        | PostgreSQL 16                                                      |
 | Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
 | Containers                      | Docker / Docker Compose                                            |
@@ -89,7 +89,7 @@ graph TD
 
 ## Repository layout
 
-```
+``` bash
 apps/                  # NestJS + Fastify primary API (src/, package.json)
 docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
