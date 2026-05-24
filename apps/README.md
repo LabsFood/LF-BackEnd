@@ -1,7 +1,9 @@
 # lf-api-nestjs
 
 Primary backend for Labs Food: **NestJS 11 + Fastify** REST API documented via
-OpenAPI/Swagger, backed by **Prisma** + Supabase Postgres. Redis is scaffolded but not enabled yet.
+OpenAPI/Swagger, backed by **Prisma 7** + `@prisma/adapter-pg` + Supabase Postgres. Redis is scaffolded but not enabled yet.
+
+Prisma CLI config: [`prisma.config.ts`](./prisma.config.ts). Generated client: `src/generated/prisma/` (created by `prisma generate`).
 
 Product specs: [`../docs/SPEC-BACKEND.md`](../docs/SPEC-BACKEND.md), [`../docs/SPEC-ADMIN-DASHBOARD.md`](../docs/SPEC-ADMIN-DASHBOARD.md). Backlog: [`../docs/evolution/platform-spec-alignment-evolution.md`](../docs/evolution/platform-spec-alignment-evolution.md).
 
@@ -67,7 +69,8 @@ The `api` container runs `prisma migrate deploy` before starting the API.
 | `npm run start:prod` | Run the compiled `dist/main.js` |
 | `npm run lint` | ESLint + Prettier check |
 | `npm test` | Jest unit tests |
-| `npm run db:migrate` | Apply pending Prisma migrations |
+| `npm run db:migrate` | Apply pending Prisma migrations (`deploy`) |
+| `npm run db:resolve` | Mark a migration applied (TypeORM baseline) |
 | `npm run db:seed` | Seed CMS concept page |
 | `npm run db:migrate:dev` | Create/apply migrations in dev |
 | `npm run db:studio` | Prisma Studio |

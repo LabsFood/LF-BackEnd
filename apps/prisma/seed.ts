@@ -1,12 +1,20 @@
-import { PrismaClient } from '@prisma/client';
-
+import { loadRepoEnv } from '../src/config/env-files';
+import { createPrismaClient } from '../src/prisma/create-prisma-client';
 import {
   CONCEPT_SLUG,
   DEFAULT_CONCEPT_CONTENT,
 } from '../src/modules/content-cms/concept-defaults';
 import { toInputJson } from './json-helpers';
 
-const prisma = new PrismaClient();
+loadRepoEnv();
+
+const migrationUrl =
+  process.env.SUPABASE_DB_MIGRATION_URL ?? process.env.SUPABASE_DB_URL ?? '';
+if (!migrationUrl) {
+  throw new Error('SUPABASE_DB_URL is required to run the seed.');
+}
+
+const { prisma, pool } = createPrismaClient(migrationUrl);
 
 async function main(): Promise<void> {
   await prisma.cmsPage.upsert({
@@ -24,10 +32,15 @@ async function main(): Promise<void> {
   });
 }
 
+async function shutdown(): Promise<void> {
+  await prisma.$disconnect();
+  await pool.end();
+}
+
 main()
-  .then(() => prisma.$disconnect())
+  .then(() => shutdown())
   .catch(async (error: unknown) => {
     console.error(error);
-    await prisma.$disconnect();
+    await shutdown();
     process.exit(1);
   });

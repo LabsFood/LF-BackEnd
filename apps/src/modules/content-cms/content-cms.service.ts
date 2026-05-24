@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '../../generated/prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CmsPageStatus } from '../../supabase/types/cms-content';

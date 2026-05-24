@@ -5,7 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../generated/prisma/client';
 
 import { UsersService } from '../modules/users/users.service';
 import type { ClerkUser } from './clerk-auth.guard';

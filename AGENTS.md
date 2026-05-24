@@ -58,12 +58,13 @@ npm run start:dev        # listens on 8000
 ```bash
 cd apps
 npm run db:migrate                    # apply pending migrations (deploy)
+npm run db:resolve -- --applied <name>  # baseline: mark migration applied without DDL
 npm run db:seed                       # seed CMS concept page
 npm run db:migrate:dev                # dev: create/apply migrations
 npm run db:studio                     # Prisma Studio
 ```
 
-Docker `api` runs `prisma migrate deploy` on container start. Schema: `apps/prisma/schema.prisma`.
+Docker `api` runs `prisma migrate deploy` on container start. Config: `apps/prisma.config.ts`. Schema: `apps/prisma/schema.prisma`.
 
 ### Linting and testing
 

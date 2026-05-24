@@ -53,32 +53,45 @@ Copy both strings from the Supabase dashboard: **Project → Connect → ORMs / 
 
 Commands run from `cd apps` still read repo-root env files automatically.
 
-## Prisma commands
+## Prisma commands (ORM 7)
+
+Configuration lives in **`apps/prisma.config.ts`** (database URL for CLI, migrations path, seed command). The schema is at `apps/prisma/schema.prisma`; URLs are no longer defined in the schema file.
 
 ```bash
 cd apps
 npm install
 npm run db:migrate      # apply migrations (deploy)
-npm run db:seed         # seed F19 concept page (optional; API has defaults)
+npm run db:seed         # seed F19 concept page (explicit in v7 — not auto after migrate)
 npm run db:migrate:dev  # create/apply migrations in development
 npm run db:studio       # Prisma Studio GUI
 ```
 
-Schema: `apps/prisma/schema.prisma`. Migrations: `apps/prisma/migrations/`.
+`prisma generate` runs on `postinstall` and `npm run build`. The client is emitted to `apps/src/generated/prisma/` (gitignored; regenerated locally/CI).
 
 ## Prisma baseline (existing TypeORM databases)
 
 If the database was created with the former TypeORM migrations (`typeorm_migrations` table) and already has `users`, `bookings`, `cms_pages`, etc.:
 
 1. Ensure `SUPABASE_DB_MIGRATION_URL` points at the **direct** session.
-2. Mark the Prisma baseline as applied without re-running DDL:
+2. Mark existing Prisma migrations as applied **without** re-running DDL (`db:migrate` only runs `deploy` — use `db:resolve` for this):
 
 ```bash
 cd apps
-npm run db:migrate -- migrate resolve --applied 20250522120000_init
+# TypeORM baseline already has Phase 1 + cms_pages tables:
+npm run db:resolve -- --applied 20250522120000_init
+
+# If spec_domain tables also already exist, mark that migration too:
+npm run db:resolve -- --applied 20250522130000_spec_domain
 ```
 
-3. Optionally drop the legacy table: `DROP TABLE IF EXISTS typeorm_migrations;`
+3. Apply any remaining migrations, then seed:
+
+```bash
+npm run db:migrate
+npm run db:seed
+```
+
+4. Optionally drop the legacy table: `DROP TABLE IF EXISTS typeorm_migrations;`
 
 For a **fresh** Postgres volume, run `npm run db:migrate` then `npm run db:seed`.
 

@@ -1,4 +1,4 @@
-import { BookingStatus, UserRole } from '@prisma/client';
+import { BookingStatus, UserRole } from '../generated/prisma/client';
 
 /** App-level aliases matching legacy `UserRole.ADMIN` style until chef-role branch. */
 export const UserRoleEnum = {

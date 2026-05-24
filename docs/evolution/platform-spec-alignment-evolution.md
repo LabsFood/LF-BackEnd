@@ -204,3 +204,4 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-22 | Recorded Prisma, Clerk, bookings, chef (deferred), Cronofy, Stream decisions | Team resolution on spec tensions |
 | 2026-05-22 | **E0 done:** Prisma schema, migration, PrismaService, removed TypeORM | User-requested ORM switch |
 | 2026-05-22 | Spec domain models + migration; seed JSON fix via `toInputJson` | Phase 1 + cms_pages todo cleared |
+| 2026-05-22 | Prisma **7.6.0** + `prisma.config.ts`; `@prisma/adapter-pg`; generated client path | Replaces deprecated `package.json#prisma` + v6 client |

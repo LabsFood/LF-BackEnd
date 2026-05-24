@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
-import { User, UserRole } from '@prisma/client';
+import { User, UserRole } from '../generated/prisma/client';
 import { UsersService } from '../modules/users/users.service';
 import { AdminGuard } from './admin.guard';
 import type { ClerkUser } from './clerk-auth.guard';

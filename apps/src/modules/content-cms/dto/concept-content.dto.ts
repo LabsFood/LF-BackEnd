@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
-import { CmsPage } from '@prisma/client';
+import { CmsPage } from '../../../generated/prisma/client';
 
 import {
   CmsHeroContent,

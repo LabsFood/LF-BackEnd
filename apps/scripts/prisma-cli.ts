@@ -1,5 +1,6 @@
 /**
- * Runs Prisma CLI with repo-root `.env` loaded and migration URL fallback.
+ * @deprecated Prisma 7 reads `prisma.config.ts` directly. Prefer `npm run db:*` scripts.
+ * Kept for backwards compatibility with custom CLI argument forwarding.
  */
 import { execSync } from 'child_process';
 import { resolve } from 'path';
@@ -10,13 +11,6 @@ loadRepoEnv();
 
 if (!process.env.SUPABASE_DB_MIGRATION_URL && process.env.SUPABASE_DB_URL) {
   process.env.SUPABASE_DB_MIGRATION_URL = process.env.SUPABASE_DB_URL;
-}
-
-if (!process.env.SUPABASE_DB_URL) {
-  console.error(
-    'SUPABASE_DB_URL is required. Set it in repo-root .env (see docs/database-connection.md).',
-  );
-  process.exit(1);
 }
 
 const args = process.argv.slice(2).join(' ');
