@@ -1,4 +1,3 @@
--- E1: provider -> chef terminology migration
 -- Keep existing provider_id columns for backward compatibility in booking flow.
 
 DO $$
