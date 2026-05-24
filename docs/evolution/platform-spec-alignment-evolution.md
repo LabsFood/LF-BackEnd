@@ -13,7 +13,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | ORM | **Prisma** replaces TypeORM | Dedicated migration branch; **no Prisma code in repo until that branch** |
 | Auth | **Clerk** (not spec email/password JWT) | Frontends use Clerk; API keeps `ClerkAuthGuard` + user upsert |
 | Booking naming | Keep **`bookings`** module/table | Spec “reservation” is logical only unless API aliases are added |
-| Chef role | **`chef`** replaces **`provider`** in `user_role` | **Dedicated branch later — do not change enums/files in other work** |
+| Chef role | **`chef`** replaces **`provider`** in `user_role` | E1 migrated enum + profile table naming, API aliases kept backward compatible |
 | Calendar | **Cronofy** | Wire to chef availability / booking scheduling |
 | Messaging | **Stream** | Wire to client↔chef threads alongside persisted thread metadata if needed |
 
@@ -47,9 +47,9 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Prisma enum / DB enum `chef` | Todo | **Separate branch only** |
-| Rename `provider_profiles` → chef profile or merge into `TeamMember` | Todo | Design in architecture.md |
-| Update guards, tests, seeds | Todo | |
+| Prisma enum / DB enum `chef` | Done | Migration `20260524173000_provider_role_to_chef` renames enum value safely for Postgres |
+| Rename `provider_profiles` → `chef_profiles` | Done | Table + FK/index rename migration; `provider_id` columns intentionally kept for flow compatibility |
+| Update guards, tests, seeds | Done | Runtime enums now expose `CHEF`; booking DTOs expose `chefId` alias |
 
 ### E2 — Bookings lifecycle (spec states)
 
@@ -68,33 +68,33 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Entities: `Meal`, `MenuWeek`, `Formule` | Todo | |
-| `GET /menus/current` (public) | Todo | |
-| Admin CRUD meals, menu-weeks, formules | Todo | |
+| Entities: `Meal`, `MenuWeek`, `Formule` | Done | Uses Prisma models from generated client |
+| `GET /menus/current` (public) | Done | Added in `catalog` module |
+| Admin CRUD meals, menu-weeks, formules | Done | Added `GET/POST/PATCH` handlers under `/admin/*` |
 
 ### E4 — Client profile & CRM (`users`)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `ClientProfile` 1-1 `User` | Todo | |
-| `GET/PATCH /me/profile` | Todo | |
+| `ClientProfile` 1-1 `User` | Done | Upsert flow wired via Clerk subject |
+| `GET/PATCH /me/profile` | Done | Added authenticated profile endpoints |
 | Account, notifications, GDPR export/delete | Todo | |
-| `GET/PATCH /admin/clients/:id` | Todo | |
+| `GET/PATCH /admin/clients/:id` | Done | Added with `AdminGuard` + optional status filter |
 
 ### E5 — Quotes (`quotes`)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `Quote` entity + lifecycle | Todo | |
-| Client submit/list/accept | Todo | |
-| Admin quote + assign chef | Todo | |
+| `Quote` entity + lifecycle | Done | `DEM-YYYY-NNNN` reference generator + status transitions |
+| Client submit/list/accept | Done | `POST /quotes`, `GET /me/quotes`, `POST /me/quotes/:id/accept` |
+| Admin quote + assign chef | Done | `GET /admin/quotes`, `PATCH /admin/quotes/:id` |
 
 ### E6 — Shopping lists (`shopping-lists`)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Generate from meal ingredients × portions | Todo | |
-| Expose on booking detail (client + admin) | Todo | |
+| Generate from meal ingredients × portions | Done | `ShoppingListsService.regenerateForBooking()` aggregation by aisle |
+| Expose on booking detail (client + admin) | Done | Added `/me/bookings/:id` + `/admin/bookings/:id` and regenerate endpoint |
 
 ### E7 — Messaging (`messaging`)
 
@@ -126,8 +126,8 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `GET /me/dashboard`, `GET /me/stats` | Todo | |
-| `GET /admin/dashboard` aggregations | Todo | |
+| `GET /me/dashboard`, `GET /me/stats` | Done | Added in `stats` module |
+| `GET /admin/dashboard` aggregations | Done | Revenue, sessions, formule split, top meals |
 
 ### E11 — Main site / admin-only domains
 
@@ -205,3 +205,5 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-22 | **E0 done:** Prisma schema, migration, PrismaService, removed TypeORM | User-requested ORM switch |
 | 2026-05-22 | Spec domain models + migration; seed JSON fix via `toInputJson` | Phase 1 + cms_pages todo cleared |
 | 2026-05-22 | Prisma **7.6.0** + `prisma.config.ts`; `@prisma/adapter-pg`; generated client path | Replaces deprecated `package.json#prisma` + v6 client |
+| 2026-05-24 | E1 delivered: enum rename + `chef_profiles` migration; kept `provider_id` DB columns for compatibility, added API `chefId` alias | Avoid breaking existing booking flow while aligning role terminology |
+| 2026-05-24 | E3/E4/E5/E6/E10 endpoints added (`catalog`, users profile/CRM, quotes, shopping lists, stats) | Phase 1 spec-alignment backend surface implemented |

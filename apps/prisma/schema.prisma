@@ -18,14 +18,16 @@ model User {
   updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingsAsClient Booking[]        @relation("BookingClient")
   cmsPagesUpdated  CmsPage[]        @relation("CmsPageUpdatedBy")
-  providerProfile  ProviderProfile?
+  chefProfile      ChefProfile?
+  clientProfile    ClientProfile?
+  quotes           Quote[]          @relation("QuoteClient")
 
   @@map("users")
 }
 
-model ProviderProfile {
+model ChefProfile {
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId            String             @unique(map: "uq_provider_profiles_user_id") @map("user_id") @db.Uuid
+  userId            String             @unique(map: "uq_chef_profiles_user_id") @map("user_id") @db.Uuid
   displayName       String             @map("display_name") @db.VarChar(255)
   bio               String?
   city              String?            @db.VarChar(120)
@@ -37,16 +39,16 @@ model ProviderProfile {
   createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   availabilitySlots AvailabilitySlot[]
-  bookings          Booking[]          @relation("BookingProvider")
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_provider_profiles_user_id")
+  bookings          Booking[]          @relation("BookingChefProfile")
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_profiles_user_id")
   serviceOffers     ServiceOffer[]
 
-  @@map("provider_profiles")
+  @@map("chef_profiles")
 }
 
 model ServiceOffer {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  providerId      String          @map("provider_id") @db.Uuid
+  chefProfileId   String          @map("provider_id") @db.Uuid
   name            String          @db.VarChar(160)
   description     String?
   durationMinutes Int             @map("duration_minutes")
@@ -56,48 +58,59 @@ model ServiceOffer {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookings        Booking[]
-  provider        ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_provider_id")
+  chefProfile     ChefProfile     @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_chef_profile_id")
 
-  @@index([providerId], map: "ix_service_offers_provider_id")
+  @@index([chefProfileId], map: "ix_service_offers_chef_profile_id")
   @@map("service_offers")
 }
 
 model AvailabilitySlot {
   id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  providerId String          @map("provider_id") @db.Uuid
+  chefProfileId String       @map("provider_id") @db.Uuid
   startsAt   DateTime        @map("starts_at") @db.Timestamptz(6)
   endsAt     DateTime        @map("ends_at") @db.Timestamptz(6)
   isBooked   Boolean         @default(false) @map("is_booked")
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  provider   ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_availability_slots_provider_id")
+  chefProfile ChefProfile    @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_availability_slots_chef_profile_id")
 
-  @@index([providerId], map: "ix_availability_slots_provider_id")
+  @@index([chefProfileId], map: "ix_availability_slots_chef_profile_id")
   @@map("availability_slots")
 }
 
 model Booking {
   id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference             String?         @unique(map: "bookings_reference_key") @db.VarChar(32)
   clientId              String          @map("client_id") @db.Uuid
-  providerId            String          @map("provider_id") @db.Uuid
+  chefProfileId         String          @map("provider_id") @db.Uuid
   serviceOfferId        String          @map("service_offer_id") @db.Uuid
+  formuleId             String?         @map("formule_id") @db.VarChar(32)
+  bookingDate           DateTime?       @map("booking_date") @db.Date
+  timeSlot              String?         @map("time_slot") @db.VarChar(64)
+  persons               Int?
   startsAt              DateTime        @map("starts_at") @db.Timestamptz(6)
   endsAt                DateTime        @map("ends_at") @db.Timestamptz(6)
   status                BookingStatus   @default(pending)
   priceCents            Int             @map("price_cents")
+  amountTtc             Int?            @map("amount_ttc")
+  amountAfterTax        Int?            @map("amount_after_tax")
   currency              String          @default("EUR") @db.VarChar(3)
+  shoppingByClient      Boolean         @default(false) @map("shopping_by_client")
   addressLine           String?         @map("address_line") @db.VarChar(255)
   notes                 String?
   stripePaymentIntentId String?         @map("stripe_payment_intent_id") @db.VarChar(128)
   cronofyEventId        String?         @map("cronofy_event_id") @db.VarChar(128)
   createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals          BookingMeal[]
   client                User            @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
-  provider              ProviderProfile @relation("BookingProvider", fields: [providerId], references: [id], onUpdate: NoAction, map: "fk_bookings_provider_id")
+  chefProfile           ChefProfile     @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
+  formule               Formule?        @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
+  shoppingList          ShoppingList?
   serviceOffer          ServiceOffer    @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
 
   @@index([clientId], map: "ix_bookings_client_id")
-  @@index([providerId], map: "ix_bookings_provider_id")
+  @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
   @@map("bookings")
 }
 
@@ -116,6 +129,150 @@ model CmsPage {
   updatedBy        User?    @relation("CmsPageUpdatedBy", fields: [updatedByUserId], references: [id], onUpdate: NoAction, map: "fk_cms_pages_updated_by_user_id")
 
   @@map("cms_pages")
+}
+
+model ClientProfile {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
+  dietaryPreferences String[]            @default([]) @map("dietary_preferences")
+  allergies          String[]            @default([])
+  dislikes           String[]            @default([])
+  favorites          String[]            @default([])
+  spiceLevel         Int?                @map("spice_level")
+  householdAdults    Int                 @default(1) @map("household_adults")
+  householdKids      Int                 @default(0) @map("household_kids")
+  kitchenNotes       String?             @map("kitchen_notes")
+  addressStreet      String?             @map("address_street") @db.VarChar(255)
+  addressCity        String?             @map("address_city") @db.VarChar(120)
+  addressPostalCode  String?             @map("address_postal_code") @db.VarChar(16)
+  status             ClientProfileStatus @default(active)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_profiles_user_id_fkey")
+
+  @@map("client_profiles")
+}
+
+model Meal {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String          @db.VarChar(255)
+  description String?
+  imageUrl    String?         @map("image_url") @db.VarChar(512)
+  continent   MealContinent?
+  country     String?         @db.VarChar(120)
+  portions    Int             @default(4)
+  prepTime    Int             @map("prep_time")
+  dietaryTags String[]        @default([]) @map("dietary_tags")
+  allergens   String[]        @default([])
+  calories    Int?
+  difficulty  MealDifficulty?
+  ingredients Json            @default("[]")
+  steps       String[]        @default([])
+  isFeatured  Boolean         @default(false) @map("is_featured")
+  status      MealStatus      @default(draft)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals BookingMeal[]
+  menuWeeks   MenuWeekMeal[]
+
+  @@map("meals")
+}
+
+model MenuWeek {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  weekNumber Int           @map("week_number")
+  year       Int
+  publishedAt DateTime?    @map("published_at") @db.Timestamptz(6)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  meals      MenuWeekMeal[]
+
+  @@unique([year, weekNumber], map: "uq_menu_weeks_year_week")
+  @@map("menu_weeks")
+}
+
+model MenuWeekMeal {
+  menuWeekId String   @map("menu_week_id") @db.Uuid
+  mealId     String   @map("meal_id") @db.Uuid
+  meal       Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "menu_week_meals_meal_id_fkey")
+  menuWeek   MenuWeek @relation(fields: [menuWeekId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "menu_week_meals_menu_week_id_fkey")
+
+  @@id([menuWeekId, mealId])
+  @@map("menu_week_meals")
+}
+
+model Formule {
+  id            String    @id @db.VarChar(32)
+  name          String    @db.VarChar(120)
+  priceTtc      Int       @map("price_ttc")
+  priceAfterTax Int       @map("price_after_tax")
+  duration      String    @db.VarChar(64)
+  mealsCount    Int       @map("meals_count")
+  persons       String    @db.VarChar(64)
+  features      String[]  @default([])
+  popular       Boolean   @default(false)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookings      Booking[]
+
+  @@map("formules")
+}
+
+model BookingMeal {
+  bookingId String  @map("booking_id") @db.Uuid
+  mealId    String  @map("meal_id") @db.Uuid
+  portions  Int     @default(4)
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
+  meal      Meal    @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
+
+  @@id([bookingId, mealId])
+  @@map("booking_meals")
+}
+
+model ShoppingList {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId   String         @unique(map: "shopping_lists_booking_id_key") @map("booking_id") @db.Uuid
+  generatedAt DateTime       @default(now()) @map("generated_at") @db.Timestamptz(6)
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
+  items       ShoppingItem[]
+
+  @@map("shopping_lists")
+}
+
+model ShoppingItem {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shoppingListId String       @map("shopping_list_id") @db.Uuid
+  aisle          String       @db.VarChar(120)
+  name           String       @db.VarChar(255)
+  quantity       String       @db.VarChar(64)
+  shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_items_shopping_list_id_fkey")
+
+  @@index([shoppingListId], map: "ix_shopping_items_list_id")
+  @@map("shopping_items")
+}
+
+model Quote {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference          String      @unique(map: "quotes_reference_key") @db.VarChar(32)
+  clientId           String      @map("client_id") @db.Uuid
+  title              String      @db.VarChar(255)
+  persons            Int
+  mealsCount         Int         @map("meals_count")
+  cuisine            String      @db.VarChar(120)
+  diet               String[]    @default([])
+  brief              String
+  status             QuoteStatus @default(submitted)
+  assignedChefUserId String?     @map("assigned_chef_user_id") @db.Uuid
+  quoteAmountTtc     Int?        @map("quote_amount_ttc")
+  quoteAmountAfterTax Int?       @map("quote_amount_after_tax")
+  quoteNote          String?     @map("quote_note")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  client             User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
+
+  @@index([clientId], map: "ix_quotes_client_id")
+  @@map("quotes")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -140,4 +297,49 @@ enum BookingStatus {
   completed
 
   @@map("booking_status")
+}
+
+enum ClientProfileStatus {
+  vip
+  active
+  prospect
+  inactive
+
+  @@map("client_profile_status")
+}
+
+enum MealContinent {
+  europe
+  africa
+  asia
+  americas
+  middle_east
+
+  @@map("meal_continent")
+}
+
+enum MealDifficulty {
+  easy
+  medium
+  hard
+
+  @@map("meal_difficulty")
+}
+
+enum MealStatus {
+  published
+  draft
+  archived
+
+  @@map("meal_status")
+}
+
+enum QuoteStatus {
+  submitted
+  in_review
+  quoted
+  accepted
+  declined
+
+  @@map("quote_status")
 }

@@ -1,8 +1,8 @@
 export type {
   AvailabilitySlot,
   Booking,
+  ChefProfile,
   CmsPage,
-  ProviderProfile,
   ServiceOffer,
   User,
 } from '../../generated/prisma/client';

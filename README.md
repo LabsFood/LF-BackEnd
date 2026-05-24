@@ -34,7 +34,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, profiles, providers, bookings, availability; **Redis** caches hot paths and backs async work.
+2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** caches hot paths and backs async work.
 3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 

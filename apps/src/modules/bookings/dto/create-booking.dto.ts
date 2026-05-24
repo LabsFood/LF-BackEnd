@@ -1,11 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDate, IsInt, IsString, IsUUID, Length, Min } from 'class-validator';
+import { IsDate, IsInt, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
 
 export class CreateBookingDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
   providerId!: string;
+
+  @ApiProperty({
+    format: 'uuid',
+    required: false,
+    description:
+      'Preferred API field name for Phase 1+ (`providerId` remains accepted for compatibility).',
+  })
+  @IsOptional()
+  @IsUUID()
+  chefId?: string;
 
   @ApiProperty({ format: 'uuid' })
   @IsUUID()

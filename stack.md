@@ -19,7 +19,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Topic | Choice |
 |-------|--------|
 | Auth provider | [Clerk](https://clerk.com/) (OAuth2 / sessions); API validates Bearer tokens via `ClerkAuthGuard` |
-| Roles (target) | `client`, `chef`, `admin` — rename `provider` → `chef` on a **dedicated branch** (not started in repo code yet) |
+| Roles | `client`, `chef`, `admin` |
 | Admin authorization | `AdminGuard` + persisted `UserRole.ADMIN` |
 
 ## Integrations
@@ -39,7 +39,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Spec / legacy term | Backend choice |
 |--------------------|----------------|
 | `Reservation` (spec) | Keep **`bookings`** table/module naming |
-| `provider` (Phase 1 enum) | Migrate to **`chef`** later (docs only until branch lands) |
+| `provider` (legacy) | Migrated to **`chef`** (E1) |
 | Spec email/password JWT | **Clerk** remains the auth source; no `/auth/register` routes in API |
 | Spec Prisma examples | **Prisma** is the target ORM (replacing interim TypeORM in `apps/`) |
 

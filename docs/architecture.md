@@ -18,7 +18,7 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 | ORM | **Prisma** | `PrismaService` + `apps/prisma/schema.prisma` |
 | Auth | **Clerk** | No first-party `/auth/register` or password routes; JWT from Clerk on protected routes |
 | Booking aggregate | **`bookings`** | Spec “reservation” maps to existing booking module/table naming |
-| Chef role | **`chef`** replaces `provider` | Enum/schema rename deferred to a dedicated branch — document only for now |
+| Chef role | **`chef`** replaces `provider` | E1 migration landed; `provider_id` columns kept temporarily for compatibility |
 | Calendar / chat | **Cronofy** + **Stream** | Kept per stack; wire to booking lifecycle and messaging modules |
 | Tracking | [`evolution/platform-spec-alignment-evolution.md`](./evolution/platform-spec-alignment-evolution.md) | Gap list and delivery status |
 
@@ -52,8 +52,12 @@ apps/src/
 ├── redis/                     # scaffold (commented out of AppModule)
 └── modules/
     ├── health/                # GET /health, GET /ready
-    ├── users/                 # GET /thisUser, GET /me
-    ├── bookings/              # GET /bookings, POST /bookings (create not wired)
+    ├── users/                 # GET /thisUser, /me, /me/profile, /admin/clients/*
+    ├── bookings/              # GET /bookings + detail routes with shopping list
+    ├── catalog/               # /menus/current + admin meals/menu-weeks/formules
+    ├── quotes/                # client/admin quote lifecycle
+    ├── shopping-lists/        # ingredient aggregation service
+    ├── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
     └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
 ```
 
@@ -102,11 +106,11 @@ Phase 1 enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/
 
 ```mermaid
 erDiagram
-    users ||--o| provider_profiles : "chef_profile_pending_rename"
+    users ||--o| chef_profiles : "chef_profile"
     users ||--o{ bookings : "client"
-    provider_profiles ||--o{ service_offers : "offers"
-    provider_profiles ||--o{ availability_slots : "exposes"
-    provider_profiles ||--o{ bookings : "fulfills"
+    chef_profiles ||--o{ service_offers : "offers"
+    chef_profiles ||--o{ availability_slots : "exposes"
+    chef_profiles ||--o{ bookings : "fulfills"
     service_offers ||--o{ bookings : "priced_as"
     users ||--o{ cms_pages : "updated_by"
 
@@ -149,14 +153,14 @@ erDiagram
     chat_threads ||--o{ chat_messages : "contains"
 ```
 
-`provider_profiles` evolves into chef/team modeling (`TeamMember`, chef assignment on `bookings`) on the chef-role branch.
+`chef_profiles` can later converge with team modeling (`TeamMember`, chef assignment on `bookings`) in a later design pass.
 
 ## Authentication
 
 - `ClerkAuthGuard` — Bearer JWT, payload decode (JWKS verification planned).
 - `@CurrentClerkUser()` — exposes Clerk `sub` and email in controllers.
 - `AdminGuard` — requires persisted `UserRole.ADMIN` after Clerk auth.
-- Future: `ChefGuard` or scoped queries for `UserRole.CHEF` (after enum migration).
+- Future: `ChefGuard` or scoped queries for `UserRole.CHEF`.
 
 Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current` (when implemented).
 
