@@ -31,7 +31,8 @@ services:
 
   api:
     build:
-      context: ./apps
+      context: .
+      dockerfile: apps/Dockerfile
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       ENVIRONMENT: ${ENVIRONMENT:-development}

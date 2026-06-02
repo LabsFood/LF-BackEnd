@@ -81,7 +81,7 @@ cd apps && npm run db:seed
 
 On each deploy Railway:
 
-1. Builds `apps/Dockerfile` (context: `apps/`).
+1. Builds `apps/Dockerfile` (context: repository root `.`).
 2. Starts container → entrypoint runs **`prisma migrate deploy`** → **`node dist/main.js`**.
 3. Probes **`/health`** until success.
 
