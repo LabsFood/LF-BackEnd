@@ -22,6 +22,8 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:resolve": "prisma migrate resolve",
     "db:seed": "prisma db seed",
+    "db:seed:demo": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-demo.ts",
+    "db:unseed:demo": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/unseed-demo.ts",
     "db:studio": "prisma studio"
   },
   "keywords": [],
