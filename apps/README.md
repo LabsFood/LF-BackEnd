@@ -23,10 +23,26 @@ npm run db:seed   # optional — F19 concept page
 npm run start:dev
 ```
 
-- Swagger UI:    http://localhost:8000/docs
-- OpenAPI JSON:  http://localhost:8000/openapi.json
-- Health:        http://localhost:8000/health
-- Readiness:     http://localhost:8000/ready
+**Local**
+
+| Endpoint | URL |
+|----------|-----|
+| Swagger UI | http://localhost:8000/docs |
+| OpenAPI JSON | http://localhost:8000/openapi.json |
+| Health | http://localhost:8000/health |
+| Readiness | http://localhost:8000/ready |
+
+**Production (Railway)** — use the **public** domain from Railway → **Networking** (`https://<public-domain>/…`).  
+`https://lf-backend.railway.internal/…` is private and will not work from your browser.
+
+| Endpoint | URL |
+|----------|-----|
+| Swagger UI | `https://lf-api.labsfood.fr/docs` |
+| OpenAPI JSON | `https://lf-api.labsfood.fr/openapi.json` |
+| Health | `https://lf-api.labsfood.fr/health` |
+| Readiness | `https://lf-api.labsfood.fr/ready` |
+
+See [`../docs/deploy/railway.md`](../docs/deploy/railway.md) for deploy and smoke-test commands.
 
 ## F19 — Concept CMS (`/content/concept`)
 

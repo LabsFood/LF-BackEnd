@@ -21,7 +21,7 @@ Set these on the **API service** (Production). Mark secrets as **secret** in Rai
 | `DEBUG` | `false` |
 | `API_HOST` | `0.0.0.0` |
 | `SUPABASE_DB_URL` | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`. |
-| `SUPABASE_DB_MIGRATION_URL` | **Direct** session (port **5432**). Used only at container start for `prisma migrate deploy`. |
+| `SUPABASE_DB_MIGRATION_URL` | **Session pooler** or **direct** (port **5432**). Used only at container start for `prisma migrate deploy`. If direct `db.<ref>.supabase.co` is unreachable from Railway (P1001), use the **session pooler** string on port 5432 instead. |
 | `CLERK_SECRET_KEY` | Production Clerk secret (`sk_live_…`). |
 
 ### Port (Railway networking)
@@ -53,10 +53,10 @@ Copy URI formats from [`docs/database-connection.md`](../database-connection.md)
 
 ## 3. Database URLs (Supabase)
 
-1. Supabase → **Connect** → **Transaction pooler** → `SUPABASE_DB_URL`.
-2. **Direct connection** → `SUPABASE_DB_MIGRATION_URL`.
+1. Supabase → **Connect** → **Transaction pooler** (port **6543**, `?pgbouncer=true`) → `SUPABASE_DB_URL` (runtime + `/ready`).
+2. **Session pooler** or **Direct connection** (port **5432**) → `SUPABASE_DB_MIGRATION_URL` (migrations only).
 
-Never run migrations through the pooler. The container entrypoint runs `prisma migrate deploy` once per deploy using `SUPABASE_DB_MIGRATION_URL` (see `apps/scripts/docker-entrypoint.sh`).
+Never run migrations through the **transaction** pooler (6543). The container entrypoint runs `prisma migrate deploy` once per deploy using `SUPABASE_DB_MIGRATION_URL` (see `apps/scripts/docker-entrypoint.sh`).
 
 Optional one-off seed (not run on deploy):
 
@@ -65,11 +65,44 @@ Optional one-off seed (not run on deploy):
 cd apps && npm run db:seed
 ```
 
-## 4. Public domain & health checks
+## 4. Public domain & API URLs
 
-1. Service → **Settings** → **Networking** → **Generate domain** (or attach custom domain).
-2. **Health check** (from `railway.toml`): path **`/health`** (liveness, no DB).
-3. For manual verification after deploy: `GET https://<your-domain>/ready` (Postgres via pooler).
+### Public vs private networking
+
+| URL type | Example | Who can call it |
+|----------|---------|-----------------|
+| **Public domain** | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
+| **Private internal** | `http://lf-backend.railway.internal:<PORT>` | Other Railway services in the same project only |
+
+`*.railway.internal` is **not** reachable from the public internet. If Swagger or `/ready` return nothing in a browser, you are likely using the internal hostname — use the **public domain** from Networking instead.
+
+### Generate the public domain
+
+1. Service → **Settings** → **Networking** → **Generate domain** (or attach a custom domain).
+2. Copy the HTTPS URL (e.g. `https://lf-backend-production-xxxx.up.railway.app`). This is `<public-domain>` below.
+3. **Health check** (from `railway.toml`): path **`/health`** (liveness, no DB).
+
+### Endpoints (production)
+
+Replace `<public-domain>` with your Railway public hostname (no trailing slash).
+
+| Endpoint | URL | Notes |
+|----------|-----|--------|
+| Swagger UI | `https://<public-domain>/docs` | Interactive API explorer |
+| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec |
+| Health | `https://<public-domain>/health` | Liveness; Railway probes this |
+| Readiness | `https://<public-domain>/ready` | DB ping via `SUPABASE_DB_URL` (pooler) |
+
+### Smoke test after deploy
+
+```bash
+export API_BASE="https://<public-domain>"
+
+curl -s "$API_BASE/health"
+curl -s "$API_BASE/ready"
+curl -s "$API_BASE/openapi.json" | head -c 200
+curl -s "$API_BASE/content/concept"
+```
 
 | Path | Use |
 |------|-----|

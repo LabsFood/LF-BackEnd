@@ -120,7 +120,21 @@ Readiness checks Postgres via the **runtime** URL (`SUPABASE_DB_URL`).
 
 Hosted API on Railway uses **Supabase** (not Compose Postgres). Set both URLs in the Railway service:
 
-- `SUPABASE_DB_URL` — pooler (6543) for the running app and `/ready`
-- `SUPABASE_DB_MIGRATION_URL` — direct (5432) for `prisma migrate deploy` on each deploy
+- `SUPABASE_DB_URL` — **transaction** pooler (6543) for the running app and `/ready`
+- `SUPABASE_DB_MIGRATION_URL` — **session** pooler or **direct** (5432) for `prisma migrate deploy` on each deploy
 
 The container entrypoint runs migrations then starts the API. Full steps: [`docs/deploy/railway.md`](deploy/railway.md).
+
+### Verify production (public URL)
+
+Use the **public** Railway domain from **Networking** :
+
+```bash
+export API_BASE="https://<public-domain>"   # e.g. https://lf-backend-production-xxxx.up.railway.app
+
+curl -s "$API_BASE/health"
+curl -s "$API_BASE/ready"
+```
+
+- Swagger: `$API_BASE/docs`
+- OpenAPI: `$API_BASE/openapi.json`

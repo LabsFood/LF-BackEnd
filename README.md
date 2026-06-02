@@ -1,30 +1,34 @@
 # LF BackEnd
 
-Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and integrations fixed in [`stack.md`](./stack.md).
+Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and integrations fixed in `[stack.md](./stack.md)`.
 
 ## Stack summary
 
-| Layer                           | Choice                                                             |
-| ------------------------------- | ------------------------------------------------------------------ |
-| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                 |
-| REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)           |
-| ORM / migrations                | **Prisma** (`apps/prisma/`) |
-| Database                        | PostgreSQL 16                                                      |
+
+| Layer                           | Choice                                                               |
+| ------------------------------- | -------------------------------------------------------------------- |
+| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                   |
+| REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)             |
+| ORM / migrations                | **Prisma** (`apps/prisma/`)                                          |
+| Database                        | PostgreSQL 16                                                        |
 | Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
-| Containers                      | Docker / Docker Compose                                            |
-| Hosting                         | **Railway**                                                        |
+| Containers                      | Docker / Docker Compose                                              |
+| Hosting                         | **Railway**                                                          |
+
 
 ## Third-party services
 
-| Domain                              | Service                             |
-| ----------------------------------- | ----------------------------------- |
-| Auth (OAuth2 Google/Apple)          | [Clerk](https://clerk.com/)         |
-| Calendar / chef availability        | [Cronofy](https://www.cronofy.com/) |
-| Realtime chat (clients ↔ chefs)     | [Stream](https://getstream.io/)     |
-| Transactional email                 | [Brevo](https://www.brevo.com/)     |
-| Payments                            | [Stripe](https://stripe.com/)       |
-| Maps & routing                      | Google Maps API                     |
-| Object storage                      | AWS S3                              |
+
+| Domain                          | Service                             |
+| ------------------------------- | ----------------------------------- |
+| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)         |
+| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/) |
+| Realtime chat (clients ↔ chefs) | [Stream](https://getstream.io/)     |
+| Transactional email             | [Brevo](https://www.brevo.com/)     |
+| Payments                        | [Stripe](https://stripe.com/)       |
+| Maps & routing                  | Google Maps API                     |
+| Object storage                  | AWS S3                              |
+
 
 ## Frontends (outside this repo)
 
@@ -101,6 +105,26 @@ docker-compose.yml     # postgres, api (local); Railway uses apps/Dockerfile
 stack.md               # backend stack and decisions
 ```
 
+## API endpoints
+
+Use the **public Railway domain** for production (browser, Swagger, frontends, `curl` from your machine).  
+Do **not** use `https://<service>.railway.internal` — that hostname is **private** (service-to-service inside Railway only).
+
+
+| Endpoint                      | Local                                                                          | Production (public)                       |
+| ----------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
+| Base API                      | [http://localhost:8000](http://localhost:8000)                                 | `https://lf-api.labsfood.fr`      |
+| Swagger UI                    | [http://localhost:8000/docs](http://localhost:8000/docs)                       | `https://lf-api.labsfood.fr/docs`            |
+| OpenAPI JSON                  | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)       | `https://lf-api.labsfood.fr/openapi.json`    |
+| Health (liveness)             | [http://localhost:8000/health](http://localhost:8000/health)                   | `https://lf-api.labsfood.fr/health`          |
+| Readiness (DB)                | [http://localhost:8000/ready](http://localhost:8000/ready)                     | `https://lf-api.labsfood.fr/ready`           |
+| Concept CMS (public read) | [http://localhost:8000/content/concept](http://localhost:8000/content/concept) | `https://lf-api.labsfood.fr/content/concept` |
+
+
+**Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
+
+**Private (Railway only):** `http://lf-backend.railway.internal:<PORT>/…` — reachable from other services in the same Railway project, not from the public internet.
+
 ## Getting started
 
 ### 1. Configure environment
@@ -126,19 +150,24 @@ docker compose up --build api
 docker-compose build api && docker-compose up api
 ```
 
-Put `SUPABASE_DB_URL` (and optional `SUPABASE_DB_MIGRATION_URL`) in repo-root `.env` — for Compose Postgres use `postgresql://lf:lf@postgres:5432/lf_backend` as the host **`postgres`**, not `localhost`.
+Put `SUPABASE_DB_URL` (and optional `SUPABASE_DB_MIGRATION_URL`) in repo-root `.env` — for Compose Postgres use `postgresql://lf:lf@postgres:5432/lf_backend` as the host `**postgres**`, not `localhost`.
 
-- API:           http://localhost:8000
-- Health:        http://localhost:8000/health
-- Readiness:     http://localhost:8000/ready
-- Swagger UI:    http://localhost:8000/docs
-- OpenAPI JSON:  http://localhost:8000/openapi.json
+Local URLs: see [API endpoints](#api-endpoints) above.
 
-The `api` container runs **`prisma migrate deploy`** on startup, then starts the API.
+The `api` container runs `**prisma migrate deploy**` on startup, then starts the API.
 
 ### 3. Production on Railway
 
-See **[`docs/deploy/railway.md`](./docs/deploy/railway.md)** — link GitHub repo, set Supabase pooler + direct URLs, Clerk, CORS, health check `/health`. Config: [`railway.toml`](./railway.toml), image [`apps/Dockerfile`](./apps/Dockerfile).
+See `**[docs/deploy/railway.md](./docs/deploy/railway.md)**` — link GitHub repo, set Supabase pooler + migration URLs, Clerk, CORS, health check `/health`. Config: `[railway.toml](./railway.toml)`, image `[apps/Dockerfile](./apps/Dockerfile)`.
+
+After deploy, open Swagger at `**https://<public-domain>/docs**`. Smoke test:
+
+```bash
+export API_BASE="https://<custom-domain>"   # from Railway → Networking
+curl -s "$API_BASE/health"
+curl -s "$API_BASE/ready"
+curl -s "$API_BASE/content/concept"
+```
 
 ### 4. Run locally (without Docker API image)
 
@@ -166,15 +195,16 @@ npm test          # jest unit tests
 
 ## Documentation
 
-- [`stack.md`](./stack.md) — backend stack, integrations, resolved decisions.
-- [`docs/SPEC-BACKEND.md`](./docs/SPEC-BACKEND.md) — client API & domain spec.
-- [`docs/SPEC-ADMIN-DASHBOARD.md`](./docs/SPEC-ADMIN-DASHBOARD.md) — admin API spec.
-- [`docs/architecture.md`](./docs/architecture.md) — backend architecture (spec-aligned).
-- [`docs/evolution/platform-spec-alignment-evolution.md`](./docs/evolution/platform-spec-alignment-evolution.md) — spec gap backlog & decisions.
-- [`docs/features/f19-concept-cms.md`](./docs/features/f19-concept-cms.md) — F19 concept CMS analysis and implementation scope.
-- [`docs/testing/f19-concept-cms-cahier-de-test.md`](./docs/testing/f19-concept-cms-cahier-de-test.md) — F19 test book and acceptance qualification cases.
-- [`docs/testing/f19-concept-cms-test-execution.md`](./docs/testing/f19-concept-cms-test-execution.md) — F19 execution evidence and blocked/passed status.
-- [`docs/evolution/f19-concept-cms-evolution.md`](./docs/evolution/f19-concept-cms-evolution.md) — F19 variables, functions, files, and route evolution register.
-- [`docs/deploy/railway.md`](./docs/deploy/railway.md) — Railway production deploy checklist.
-- [`docs/database-connection.md`](./docs/database-connection.md) — Supabase pooler vs direct URLs, Prisma migrations.
-- [`AGENTS.md`](./AGENTS.md) — Cursor Cloud development instructions.
+- `[stack.md](./stack.md)` — backend stack, integrations, resolved decisions.
+- `[docs/SPEC-BACKEND.md](./docs/SPEC-BACKEND.md)` — client API & domain spec.
+- `[docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md)` — admin API spec.
+- `[docs/architecture.md](./docs/architecture.md)` — backend architecture (spec-aligned).
+- `[docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md)` — spec gap backlog & decisions.
+- `[docs/features/f19-concept-cms.md](./docs/features/f19-concept-cms.md)` — F19 concept CMS analysis and implementation scope.
+- `[docs/testing/f19-concept-cms-cahier-de-test.md](./docs/testing/f19-concept-cms-cahier-de-test.md)` — F19 test book and acceptance qualification cases.
+- `[docs/testing/f19-concept-cms-test-execution.md](./docs/testing/f19-concept-cms-test-execution.md)` — F19 execution evidence and blocked/passed status.
+- `[docs/evolution/f19-concept-cms-evolution.md](./docs/evolution/f19-concept-cms-evolution.md)` — F19 variables, functions, files, and route evolution register.
+- `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
+- `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
+- `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.
+

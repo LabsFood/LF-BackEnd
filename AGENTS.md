@@ -50,10 +50,19 @@ npm run db:seed          # optional: seed CMS concept page
 npm run start:dev        # listens on 8000
 ```
 
+**Local**
+
 - Swagger UI:  http://localhost:8000/docs
 - OpenAPI:     http://localhost:8000/openapi.json
 - Health:      http://localhost:8000/health
 - Readiness:   http://localhost:8000/ready (pings Postgres)
+
+**Production (Railway public domain)** — copy from Railway → service → **Networking**; do not use `*.railway.internal` in a browser:
+
+- Swagger UI:  `https://lf-api.labsfood.fr/docs`
+- OpenAPI:     `https://lf-api.labsfood.fr/openapi.json`
+- Health:      `https://lf-api.labsfood.fr/health`
+- Readiness:   `https://lf-api.labsfood.fr/ready`
 
 ### Database (Prisma)
 
@@ -70,7 +79,7 @@ Docker `api` runs `prisma migrate deploy` on container start (`apps/scripts/dock
 
 ### Railway production
 
-Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Config-as-code: [`railway.toml`](railway.toml). Set `SUPABASE_DB_URL` (pooler), `SUPABASE_DB_MIGRATION_URL` (direct), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`.
+Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Config-as-code: [`railway.toml`](railway.toml). Set `SUPABASE_DB_URL` (transaction pooler :6543), `SUPABASE_DB_MIGRATION_URL` (session or direct :5432), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`. Public API base URL: Railway **Networking** domain (see README **API endpoints**).
 
 ### Linting and testing
 
