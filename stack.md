@@ -1,118 +1,86 @@
-# Schema
+# Labs Food — Backend stack
 
-Architecture monolith, backend mise à dispostion
+Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, shared by all Lab's Food web clients. Product scope and API contracts are defined in [`docs/SPEC-BACKEND.md`](./docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](./docs/SPEC-ADMIN-DASHBOARD.md) (backend sections only).
 
-- FastAPI model-controller + route via swagger API, et
-- conteneurisation docker
+## Application
 
-### Technos
+| Layer | Choice |
+|-------|--------|
+| Runtime | Node.js 20 |
+| Framework | NestJS 11 + **Fastify** adapter |
+| API style | REST controllers, `@nestjs/swagger` |
+| Persistence | PostgreSQL 16 (Supabase-hosted or local Docker) |
+| ORM / migrations | **Prisma 7.6** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
+| Cache / queues | Redis 7 (scaffolded, not wired yet) |
+| Repo path | [`apps/`](./apps/) — NestJS source (`apps/src/`) |
 
-- GitHub
-- Authentification OAuth2 (par services Google/apple) => Clerk
-- Agenda => Cronofy
-- Communication => Stream
-- Envoi mail => Brevo 300mails/jrs **gratuit** .
+## Authentication & roles
 
-### Infra et services tiers
+| Topic | Choice |
+|-------|--------|
+| Auth provider | [Clerk](https://clerk.com/) (OAuth2 / sessions); API validates Bearer tokens via `ClerkAuthGuard` |
+| Roles | `client`, `chef`, `admin` |
+| Admin authorization | `AdminGuard` + persisted `UserRole.ADMIN` |
 
-- Hébergement => Railway
-- Paiement (Stripe)
-- Cartographie (GoogleMaps API)
-- Stockage images (AWS S3)
+## Integrations
 
-### Langages
+| Domain | Service | Role in backend |
+|--------|---------|-----------------|
+| Payments | [Stripe](https://stripe.com/) | Booking/checkout payment intents, webhooks |
+| Calendar | [Cronofy](https://www.cronofy.com/) | Chef availability / scheduling |
+| Messaging | [Stream](https://getstream.io/) | Client ↔ chef realtime threads |
+| Email | [Brevo](https://www.brevo.com/) | Transactional notifications |
+| Maps | Google Maps API | Zones, routing (when needed) |
+| Object storage | AWS S3 (+ optional Supabase Storage for CMS assets) | Meal images, application documents |
+| Hosting | Railway | API + Postgres + Redis containers |
 
-- Frontend
-  - Web Framework: NextJS
-  - Mobile: React Native
-  - Styles : TailwindCSS
-- Backend
-  - API => FastAPI in REST
-  - Runtime/langage => NodeJs
-  - Framework => NestJS + FastifyAdapter NestJS(long-term)
+## Domain naming (resolved)
 
-### Base de données
+| Spec / legacy term | Backend choice |
+|--------------------|----------------|
+| `Reservation` (spec) | Keep **`bookings`** table/module naming |
+| `provider` (legacy) | Migrated to **`chef`** (E1) |
+| Spec email/password JWT | **Clerk** remains the auth source; no `/auth/register` routes in API |
+| Spec Prisma examples | **Prisma** is the target ORM (replacing interim TypeORM in `apps/`) |
 
-- BDD (PostgreSQL)
-- Gestion cache (Redis)
+## Runtime flow
 
-### Flow Diagram
+```mermaid
+flowchart TD
+    clients[WebAndMobileClients]
+    clerk[Clerk]
+    api[NestJS_API_apps]
+    pg[PostgreSQL]
+    redis[Redis]
+    stripe[Stripe]
+    cronofy[Cronofy]
+    brevo[Brevo]
+    stream[Stream]
+    maps[GoogleMaps]
+    s3[AWSS3]
 
-How the flow works
-
- 1. User
-  • Uses Next.js (web) or React Native (mobile).
-  • Signs in via Clerk (OAuth2: Google/Apple).
-  • Creates/updates bookings → API → FastAPI.
- 2. Backend (FastAPI / Django / NestJS)
-  • FastAPI serves REST API (Swagger docs).
-  • Uses PostgreSQL (Django ORM or SQLAlchemy) for: users, profiles, providers, bookings, availability.
-  • Uses Redis for caching (slots, availability) and async job queues (sending emails, notifications).
- 3. External services
-  • Clerk: manages auth, sessions, OAuth, and user data.
-  • Stripe: handles payments for bookings.
-  • Cronofy: calendar sync for provider availability.
-  • Brevo / Postmark: sends confirmation, reminders, and promo emails.
-  • Stream / Firebase: real‑time chat between clients and masseurs.
-  • Google Maps API: shows nearby providers and routes.
-  • AWS S3: stores provider photos, IDs, document scans, etc.
- 4. Deployment
-  • All backend + DB + Redis run in Docker containers on Render or Railway.
-  • Frontend (Next.js) is deployed separately (Vercel, Netlify, or Render).
-  ![[Stack flow diagram.png]]
-
-``` mermaid
-graph TD
-    subgraph Frontend
-        A([User])
-        B[Next.js Web]
-        C[React Native Mobile]
-    end
-
-    subgraph Auth & API
-        D[Clerk Auth]
-        E[FastAPI REST API]
-        F[Docker]
-        G[Redis cache / queue]
-        H[PostgreSQL]
-    end
-
-    subgraph External Services
-        I[Stripe]
-        J[Cronofy Calendar]
-        K[Brevo / Postmark]
-        L[Stream]
-        M[Google Maps API]
-        N[AWS S3 images]
-    end
-
-    subgraph Infra
-        O[Render / Railway]
-    end
-
-    %% Flow
-    A --> B
-    A --> C
-    B --> D
-    C --> D
-    D --> E
-
-    E --> H
-    E --> G
-
-    E --> I
-    E --> J
-    E --> K
-    E --> L
-    E --> M
-    E --> N
-
-    G --> K
-    G --> L
-    G --> I
-
-    H --> G
-
-    F --> O
-
+    clients --> clerk
+    clerk --> api
+    api --> pg
+    api --> redis
+    api --> stripe
+    api --> cronofy
+    api --> brevo
+    api --> stream
+    api --> maps
+    api --> s3
 ```
+
+1. Clients authenticate with **Clerk** and call the NestJS API with a Bearer token.
+2. The API persists domain data in **PostgreSQL** (bookings, catalog, CRM, Kossam, etc. per specs).
+3. **Redis** will back cache and async jobs (email, notifications) when enabled.
+4. **Stripe**, **Cronofy**, **Brevo**, and **Stream** are invoked from integration services under `apps/src/integrations/`.
+
+## Related documentation
+
+| Document | Purpose |
+|----------|---------|
+| [`docs/architecture.md`](./docs/architecture.md) | Backend modules, data model direction, endpoints (no frontend UI) |
+| [`docs/evolution/platform-spec-alignment-evolution.md`](./docs/evolution/platform-spec-alignment-evolution.md) | Spec gap analysis, decisions, backlog |
+| [`AGENTS.md`](./AGENTS.md) | Local dev and agent instructions |
+| [`docs/database-connection.md`](./docs/database-connection.md) | Supabase pooler vs direct URLs |
