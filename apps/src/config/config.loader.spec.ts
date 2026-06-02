@@ -20,7 +20,14 @@ describe('configLoader', () => {
 
   it('coerces API_PORT to a number', () => {
     process.env.API_PORT = '9090';
+    delete process.env.PORT;
     expect(configLoader().api.port).toBe(9090);
+  });
+
+  it('falls back to PORT when API_PORT is unset (Railway)', () => {
+    delete process.env.API_PORT;
+    process.env.PORT = '3000';
+    expect(configLoader().api.port).toBe(3000);
   });
 
   it('defaults Cronofy data centre to us', () => {

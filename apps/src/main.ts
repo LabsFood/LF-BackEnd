@@ -40,8 +40,8 @@ async function bootstrap(): Promise<void> {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Labs Food API')
-    .setDescription('Home massage booking backend (NestJS + Fastify).')
-    .setVersion('0.1.0')
+    .setDescription("Lab's Food API backend (NestJS + Fastify).")
+    .setVersion('1.1.0')
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
-import { User, UserRole } from '../supabase/entities';
+import { User, UserRole } from '../generated/prisma/client';
 import { UsersService } from '../modules/users/users.service';
 import { AdminGuard } from './admin.guard';
 import type { ClerkUser } from './clerk-auth.guard';
@@ -22,7 +22,7 @@ describe('AdminGuard', () => {
   const adminUser = {
     id: 'user-uuid',
     clerkUserId: 'clerk_admin',
-    role: UserRole.ADMIN,
+    role: UserRole.admin,
   } as User;
 
   const buildGuard = (user: User | null) => {
@@ -42,7 +42,7 @@ describe('AdminGuard', () => {
   it('rejects non-admin persisted users', async () => {
     const { guard } = buildGuard({
       ...adminUser,
-      role: UserRole.CLIENT,
+      role: UserRole.client,
     });
     await expect(
       guard.canActivate(buildContext({ clerkUser: { userId: 'clerk_admin' } })),

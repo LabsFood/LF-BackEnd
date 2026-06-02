@@ -8,7 +8,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | ------------------------------- | ------------------------------------------------------------------ |
 | Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                 |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)           |
-| ORM / migrations                | **Prisma** (target); interim **TypeORM** in `apps/` until migration branch |
+| ORM / migrations                | **Prisma** (`apps/prisma/`) |
 | Database                        | PostgreSQL 16                                                      |
 | Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
 | Containers                      | Docker / Docker Compose                                            |
@@ -34,7 +34,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, profiles, providers, bookings, availability; **Redis** caches hot paths and backs async work.
+2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** caches hot paths and backs async work.
 3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
@@ -89,14 +89,14 @@ graph TD
 
 ## Repository layout
 
-```
+``` bash
 apps/                  # NestJS + Fastify primary API (src/, package.json)
 docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
   SPEC-ADMIN-DASHBOARD.md
   architecture.md      # backend architecture (spec-aligned)
   evolution/           # change registers (platform + F19)
-docker-compose.yml     # postgres, redis, api
+docker-compose.yml     # postgres, api (local); Railway uses apps/Dockerfile
 .env.example           # template for required environment variables
 stack.md               # backend stack and decisions
 ```
@@ -110,11 +110,23 @@ cp .env.example .env
 # fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, … as needed
 ```
 
-### 2. Run with Docker Compose (recommended)
+### 2. Run with Docker Compose (local)
+
+Requires **Docker Compose v2** (`docker compose`, plugin bundled with Docker Desktop / recent Engine). If `docker compose up --build` fails with `unknown flag: --build`, use a two-step build or the legacy hyphenated CLI:
 
 ```bash
-docker compose up --build
+# Compose v2 (recommended)
+docker compose build api
+docker compose up api
+
+# Or one shot when your CLI supports it:
+docker compose up --build api
+
+# Legacy docker-compose v1 (hyphenated binary)
+docker-compose build api && docker-compose up api
 ```
+
+Put `SUPABASE_DB_URL` (and optional `SUPABASE_DB_MIGRATION_URL`) in repo-root `.env` — for Compose Postgres use `postgresql://lf:lf@postgres:5432/lf_backend` as the host **`postgres`**, not `localhost`.
 
 - API:           http://localhost:8000
 - Health:        http://localhost:8000/health
@@ -122,17 +134,24 @@ docker compose up --build
 - Swagger UI:    http://localhost:8000/docs
 - OpenAPI JSON:  http://localhost:8000/openapi.json
 
-The `api` container runs database migrations on startup (interim TypeORM), so the schema is created automatically against a fresh Postgres volume.
+The `api` container runs **`prisma migrate deploy`** on startup, then starts the API.
 
-### 3. Run locally (without Docker)
+### 3. Production on Railway
+
+See **[`docs/deploy/railway.md`](./docs/deploy/railway.md)** — link GitHub repo, set Supabase pooler + direct URLs, Clerk, CORS, health check `/health`. Config: [`railway.toml`](./railway.toml), image [`apps/Dockerfile`](./apps/Dockerfile).
+
+### 4. Run locally (without Docker API image)
 
 ```bash
 # Start backing services only
-docker compose up -d postgres redis
+docker compose up -d postgres
 
 cd apps
 npm install
-npm run migration:run     # apply DB migrations (interim TypeORM)
+export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
+export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
+export CLERK_SECRET_KEY="sk_test_placeholder"
+npm run db:migrate
 npm run start:dev         # watch mode on port 8000
 ```
 
@@ -156,4 +175,6 @@ npm test          # jest unit tests
 - [`docs/testing/f19-concept-cms-cahier-de-test.md`](./docs/testing/f19-concept-cms-cahier-de-test.md) — F19 test book and acceptance qualification cases.
 - [`docs/testing/f19-concept-cms-test-execution.md`](./docs/testing/f19-concept-cms-test-execution.md) — F19 execution evidence and blocked/passed status.
 - [`docs/evolution/f19-concept-cms-evolution.md`](./docs/evolution/f19-concept-cms-evolution.md) — F19 variables, functions, files, and route evolution register.
+- [`docs/deploy/railway.md`](./docs/deploy/railway.md) — Railway production deploy checklist.
+- [`docs/database-connection.md`](./docs/database-connection.md) — Supabase pooler vs direct URLs, Prisma migrations.
 - [`AGENTS.md`](./AGENTS.md) — Cursor Cloud development instructions.

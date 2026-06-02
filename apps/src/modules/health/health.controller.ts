@@ -1,11 +1,9 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import {
-  HealthCheck,
-  HealthCheckService,
-  TypeOrmHealthIndicator,
-} from '@nestjs/terminus';
+import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import type { HealthCheckResult } from '@nestjs/terminus';
+
+import { PrismaService } from '../../prisma/prisma.service';
 
 // Redis not implemented yet — re-enable ping in readiness when RedisModule is on.
 // import { RedisService } from '../../redis/redis.service';
@@ -15,7 +13,7 @@ import type { HealthCheckResult } from '@nestjs/terminus';
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
-    private readonly db: TypeOrmHealthIndicator,
+    private readonly prisma: PrismaService,
     // private readonly redis: RedisService,
   ) {}
 
@@ -30,13 +28,14 @@ export class HealthController {
   @ApiOkResponse({ description: 'Readiness probe (database).' })
   async readiness(): Promise<HealthCheckResult> {
     return this.health.check([
-      () => this.db.pingCheck('database', { timeout: 1500 }),
+      async () => {
+        await this.prisma.$queryRaw`SELECT 1`;
+        return { database: { status: 'up' } };
+      },
       // async () => {
-      //   const ok = await this.redis.ping();
-      //   return {
-      //     redis: { status: ok ? 'up' : 'down' },
-      //   };
-      // },
+      //   await this.redis.$queryRaw`SELECT 1`;
+      //   return { database: { status: 'up' } };
+      // }
     ]);
   }
 }

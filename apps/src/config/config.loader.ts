@@ -45,7 +45,7 @@ export interface AppConfig {
   supabase: {
     /** Runtime app connection — Supabase pooler (6543) in cloud; direct OK locally. */
     dbUrl: string;
-    /** TypeORM CLI / one-off migrations — direct session (5432) on Supabase. */
+    /** Prisma migrate — direct session (5432) on Supabase; falls back to dbUrl locally. */
     migrationDbUrl: string;
     url?: string;
     serviceRoleKey?: string;
@@ -65,7 +65,7 @@ export const configLoader = (): AppConfig => ({
   debug: (process.env.DEBUG ?? 'true').toLowerCase() === 'true',
   api: {
     host: process.env.API_HOST ?? '0.0.0.0',
-    port: Number(process.env.API_PORT ?? 8000),
+    port: Number(process.env.API_PORT ?? process.env.PORT ?? 8000),
   },
   // redisUrl: process.env.REDIS_URL ?? '',
   cors: {

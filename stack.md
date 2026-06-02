@@ -10,7 +10,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Framework | NestJS 11 + **Fastify** adapter |
 | API style | REST controllers, `@nestjs/swagger` |
 | Persistence | PostgreSQL 16 (Supabase-hosted or local Docker) |
-| ORM / migrations | **Prisma** (target; see [`docs/evolution/platform-spec-alignment-evolution.md`](./docs/evolution/platform-spec-alignment-evolution.md)) |
+| ORM / migrations | **Prisma 7.6** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
 | Cache / queues | Redis 7 (scaffolded, not wired yet) |
 | Repo path | [`apps/`](./apps/) — NestJS source (`apps/src/`) |
 
@@ -19,7 +19,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Topic | Choice |
 |-------|--------|
 | Auth provider | [Clerk](https://clerk.com/) (OAuth2 / sessions); API validates Bearer tokens via `ClerkAuthGuard` |
-| Roles (target) | `client`, `chef`, `admin` — rename `provider` → `chef` on a **dedicated branch** (not started in repo code yet) |
+| Roles | `client`, `chef`, `admin` |
 | Admin authorization | `AdminGuard` + persisted `UserRole.ADMIN` |
 
 ## Integrations
@@ -39,7 +39,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Spec / legacy term | Backend choice |
 |--------------------|----------------|
 | `Reservation` (spec) | Keep **`bookings`** table/module naming |
-| `provider` (Phase 1 enum) | Migrate to **`chef`** later (docs only until branch lands) |
+| `provider` (legacy) | Migrated to **`chef`** (E1) |
 | Spec email/password JWT | **Clerk** remains the auth source; no `/auth/register` routes in API |
 | Spec Prisma examples | **Prisma** is the target ORM (replacing interim TypeORM in `apps/`) |
 

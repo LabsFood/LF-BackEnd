@@ -1,24 +1,30 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine3.22 AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY apps/package.json apps/package-lock.json ./
+COPY apps/prisma ./prisma
 RUN npm ci
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json tsconfig.json tsconfig.build.json nest-cli.json ./
-COPY src ./src
-RUN npm run build
+COPY apps/package.json apps/package-lock.json apps/tsconfig.json apps/tsconfig.build.json apps/nest-cli.json ./
+COPY apps/prisma ./prisma
+COPY apps/src ./src
+RUN npx prisma generate && npm run build
 
-FROM node:20-alpine AS prod-deps
+FROM node:22-alpine AS prod-deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY apps/package.json apps/package-lock.json ./
+COPY apps/prisma ./prisma
+RUN npm ci --omit=dev && npx prisma generate && npm cache clean --force
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
+
+RUN apk update && apk upgrade --no-cache
+
 ENV NODE_ENV=production \
     NPM_CONFIG_LOGLEVEL=warn
 
@@ -26,10 +32,16 @@ RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY package.json ./
+COPY apps/package.json apps/package-lock.json ./
+COPY apps/prisma ./prisma
+COPY apps/prisma.config.ts ./
+COPY apps/src/config/env-files.ts ./src/config/env-files.ts
+COPY apps/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+
+RUN chmod +x ./scripts/docker-entrypoint.sh
 
 USER nodeapp
 
 EXPOSE 8000
 
-CMD ["node", "dist/main.js"]
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]

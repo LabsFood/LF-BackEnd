@@ -1,8 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { CmsPage } from '../../../generated/prisma/client';
 
-import { CmsPage } from '../../../supabase/entities';
+import {
+  CmsHeroContent,
+  CmsHowItWorksStep,
+  CmsIntroBlock,
+  CmsReassuranceItem,
+} from '../../../supabase/types/cms-content';
 import {
   CmsHeroContentDto,
   CmsHowItWorksStepDto,
@@ -44,10 +50,10 @@ export class ConceptContentDto {
   static fromEntity(page: CmsPage): ConceptContentDto {
     return ConceptContentDto.fromContent({
       title: page.title,
-      hero: page.hero,
-      introBlocks: page.introBlocks,
-      howItWorks: page.howItWorks,
-      reassuranceItems: page.reassuranceItems,
+      hero: page.hero as unknown as CmsHeroContent,
+      introBlocks: page.introBlocks as unknown as CmsIntroBlock[],
+      howItWorks: page.howItWorks as unknown as CmsHowItWorksStep[],
+      reassuranceItems: page.reassuranceItems as unknown as CmsReassuranceItem[],
     });
   }
 

@@ -12,6 +12,12 @@ export class BookingReadDto {
   @ApiProperty({ format: 'uuid' })
   providerId!: string;
 
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Preferred API field name (alias of providerId).',
+  })
+  chefId!: string;
+
   @ApiProperty({ format: 'uuid' })
   serviceOfferId!: string;
 
@@ -34,7 +40,8 @@ export class BookingReadDto {
     return {
       id: b.id,
       clientId: b.clientId,
-      providerId: b.providerId,
+      providerId: b.chefProfileId,
+      chefId: b.chefProfileId,
       serviceOfferId: b.serviceOfferId,
       startsAt: b.startsAt,
       endsAt: b.endsAt,

@@ -1,7 +1,9 @@
 # lf-api-nestjs
 
 Primary backend for Labs Food: **NestJS 11 + Fastify** REST API documented via
-OpenAPI/Swagger, backed by Supabase Postgres. **Target ORM:** Prisma; interim migrations use TypeORM under `src/supabase/`. Redis is scaffolded but not enabled yet.
+OpenAPI/Swagger, backed by **Prisma 7** + `@prisma/adapter-pg` + Supabase Postgres. Redis is scaffolded but not enabled yet.
+
+Prisma CLI config: [`prisma.config.ts`](./prisma.config.ts). Generated client: `src/generated/prisma/` (created by `prisma generate`).
 
 Product specs: [`../docs/SPEC-BACKEND.md`](../docs/SPEC-BACKEND.md), [`../docs/SPEC-ADMIN-DASHBOARD.md`](../docs/SPEC-ADMIN-DASHBOARD.md). Backlog: [`../docs/evolution/platform-spec-alignment-evolution.md`](../docs/evolution/platform-spec-alignment-evolution.md).
 
@@ -15,8 +17,9 @@ cd apps
 npm install
 cp ../../.env.example ../../.env   # if not done yet, fill values (see docs/database-connection.md)
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-# export REDIS_URL="redis://localhost:6379/0"
-npm run migration:run   # uses SUPABASE_DB_MIGRATION_URL when set, else SUPABASE_DB_URL
+export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
+npm run db:migrate
+npm run db:seed   # optional — F19 concept page
 npm run start:dev
 ```
 
@@ -55,17 +58,19 @@ From the repo root:
 docker compose up --build api
 ```
 
-The `api` container runs TypeORM migrations on startup.
+The `api` container runs `prisma migrate deploy` before starting the API.
 
 ## Scripts
 
 | Command | Purpose |
 |---------|---------|
-| `npm run build` | Compile to `dist/` via `@nestjs/cli` |
+| `npm run build` | `prisma generate` + compile to `dist/` |
 | `npm run start:dev` | Watch mode with hot reload |
 | `npm run start:prod` | Run the compiled `dist/main.js` |
 | `npm run lint` | ESLint + Prettier check |
 | `npm test` | Jest unit tests |
-| `npm run migration:run` | Apply pending TypeORM migrations |
-| `npm run migration:revert` | Roll back the most recent migration |
-| `npm run migration:generate -- src/supabase/migrations/<name>` | Generate a new migration from current entities |
+| `npm run db:migrate` | Apply pending Prisma migrations (`deploy`) |
+| `npm run db:resolve` | Mark a migration applied (TypeORM baseline) |
+| `npm run db:seed` | Seed CMS concept page |
+| `npm run db:migrate:dev` | Create/apply migrations in dev |
+| `npm run db:studio` | Prisma Studio |

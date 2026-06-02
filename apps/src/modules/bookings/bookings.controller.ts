@@ -5,6 +5,8 @@ import {
   HttpCode,
   HttpException,
   HttpStatus,
+  NotFoundException,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -16,8 +18,10 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
+import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { BookingsService } from './bookings.service';
 import { BookingReadDto } from './dto/booking-read.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -27,7 +31,10 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 @Controller('bookings')
 @UseGuards(ClerkAuthGuard)
 export class BookingsController {
-  constructor(private readonly bookings: BookingsService) {}
+  constructor(
+    private readonly bookings: BookingsService,
+    private readonly shoppingLists: ShoppingListsService,
+  ) {}
 
   @Get()
   @ApiOkResponse({ type: BookingReadDto, isArray: true })
@@ -52,5 +59,36 @@ export class BookingsController {
       `Booking creation is not wired yet (Phase 1 scaffold). Authenticated as Clerk user ${user.userId}.`,
       HttpStatus.NOT_IMPLEMENTED,
     );
+  }
+
+  @Get('me/bookings/:id')
+  @ApiOkResponse({ description: 'Authenticated client booking detail with shopping list.' })
+  async meBookingDetail(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id') bookingId: string,
+  ): Promise<unknown> {
+    const booking = await this.bookings.getMyBookingDetail(user.userId, bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found.');
+    }
+    return booking;
+  }
+
+  @Get('admin/bookings/:id')
+  @UseGuards(AdminGuard)
+  @ApiOkResponse({ description: 'Admin booking detail with shopping list.' })
+  async adminBookingDetail(@Param('id') bookingId: string): Promise<unknown> {
+    const booking = await this.bookings.getAdminBookingDetail(bookingId);
+    if (!booking) {
+      throw new NotFoundException('Booking not found.');
+    }
+    return booking;
+  }
+
+  @Post('admin/bookings/:id/shopping-list/regenerate')
+  @UseGuards(AdminGuard)
+  @ApiOkResponse({ description: 'Regenerates shopping list from selected meals and portions.' })
+  regenerateShoppingList(@Param('id') bookingId: string) {
+    return this.shoppingLists.regenerateForBooking(bookingId);
   }
 }

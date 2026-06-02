@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { User, UserRole } from '../../generated/prisma/client';
 
-import { User, UserRole } from '../../supabase/entities';
+import { PrismaService } from '../../prisma/prisma.service';
+import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
   clerkUserId: string;
@@ -12,39 +12,89 @@ export interface UpsertFromClerkInput {
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectRepository(User)
-    private readonly users: Repository<User>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findByClerkId(clerkUserId: string): Promise<User | null> {
-    return this.users.findOne({ where: { clerkUserId } });
+    return this.prisma.user.findUnique({ where: { clerkUserId } });
   }
 
   /** Get-or-create a `users` row keyed by Clerk subject. */
   async upsertFromClerk(input: UpsertFromClerkInput): Promise<User> {
     const existing = await this.findByClerkId(input.clerkUserId);
     if (existing) {
-      let dirty = false;
-      if (input.email && existing.email !== input.email) {
-        existing.email = input.email;
-        dirty = true;
-      }
-      if (input.fullName !== undefined && existing.fullName !== input.fullName) {
-        existing.fullName = input.fullName ?? null;
-        dirty = true;
-      }
-      if (dirty) {
-        return this.users.save(existing);
+      const email = input.email && existing.email !== input.email ? input.email : undefined;
+      const fullName =
+        input.fullName !== undefined && existing.fullName !== input.fullName
+          ? (input.fullName ?? null)
+          : undefined;
+
+      if (email !== undefined || fullName !== undefined) {
+        return this.prisma.user.update({
+          where: { id: existing.id },
+          data: { email, fullName },
+        });
       }
       return existing;
     }
-    const created = this.users.create({
-      clerkUserId: input.clerkUserId,
-      email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
-      fullName: input.fullName ?? null,
-      role: UserRole.CLIENT,
+
+    return this.prisma.user.create({
+      data: {
+        clerkUserId: input.clerkUserId,
+        email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
+        fullName: input.fullName ?? null,
+        role: UserRole.client,
+      },
     });
-    return this.users.save(created);
+  }
+
+  async getProfileByClerkUserId(clerkUserId: string) {
+    const user = await this.upsertFromClerk({ clerkUserId });
+    const profile = await this.prisma.clientProfile.findUnique({
+      where: { userId: user.id },
+    });
+    return { user, profile };
+  }
+
+  async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateClientProfileDto) {
+    const user = await this.upsertFromClerk({ clerkUserId });
+    return this.prisma.clientProfile.upsert({
+      where: { userId: user.id },
+      update: payload,
+      create: {
+        userId: user.id,
+        dietaryPreferences: payload.dietaryPreferences ?? [],
+        allergies: payload.allergies ?? [],
+        dislikes: payload.dislikes ?? [],
+        favorites: payload.favorites ?? [],
+        spiceLevel: payload.spiceLevel,
+        kitchenNotes: payload.kitchenNotes,
+      },
+    });
+  }
+
+  listClients(status?: string) {
+    return this.prisma.clientProfile.findMany({
+      where: status ? { status: status as never } : undefined,
+      include: { user: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  getClientById(id: string) {
+    return this.prisma.clientProfile.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+  }
+
+  updateClientById(id: string, payload: UpdateAdminClientDto) {
+    return this.prisma.clientProfile.update({
+      where: { id },
+      data: {
+        ...payload,
+        status: payload.status as never,
+      },
+      include: { user: true },
+    });
   }
 }
