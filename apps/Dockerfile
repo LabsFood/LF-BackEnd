@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine3.22 AS deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/package.json apps/package-lock.json apps/tsconfig.json apps/tsconfig.build.json apps/nest-cli.json ./
@@ -14,14 +14,17 @@ COPY apps/prisma ./prisma
 COPY apps/src ./src
 RUN npx prisma generate && npm run build
 
-FROM node:20-alpine AS prod-deps
+FROM node:22-alpine AS prod-deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate && npm cache clean --force
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
+
+RUN apk update && apk upgrade --no-cache
+
 ENV NODE_ENV=production \
     NPM_CONFIG_LOGLEVEL=warn
 
