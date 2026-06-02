@@ -29,11 +29,16 @@ RUN addgroup -S nodeapp && adduser -S nodeapp -G nodeapp
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
+COPY src/config/env-files.ts ./src/config/env-files.ts
+COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+
+RUN chmod +x ./scripts/docker-entrypoint.sh
 
 USER nodeapp
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]

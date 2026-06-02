@@ -32,8 +32,10 @@ the dockerised Postgres (Redis optional).
 
 
 ``` bash
-# Option A — full stack in Docker
-sudo docker compose up --build api
+# Option A — full stack in Docker (Compose v2)
+# If `docker compose up --build` errors with unknown flag --build, use:
+#   docker compose build api && docker compose up api
+sudo docker compose build api && sudo docker compose up api
 
 # Option B — local dev with hot-reload (recommended while iterating)
 # Put secrets in repo-root `.env` (optional `.env.local` overrides). No `apps/.env` needed.
@@ -64,7 +66,11 @@ npm run db:migrate:dev                # dev: create/apply migrations
 npm run db:studio                     # Prisma Studio
 ```
 
-Docker `api` runs `prisma migrate deploy` on container start. Config: `apps/prisma.config.ts`. Schema: `apps/prisma/schema.prisma`.
+Docker `api` runs `prisma migrate deploy` on container start (`apps/scripts/docker-entrypoint.sh`, `apps/Dockerfile`). Config: `apps/prisma.config.ts`. Schema: `apps/prisma/schema.prisma`.
+
+### Railway production
+
+Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Config-as-code: [`railway.toml`](railway.toml). Set `SUPABASE_DB_URL` (pooler), `SUPABASE_DB_MIGRATION_URL` (direct), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`.
 
 ### Linting and testing
 

@@ -65,7 +65,7 @@ export const configLoader = (): AppConfig => ({
   debug: (process.env.DEBUG ?? 'true').toLowerCase() === 'true',
   api: {
     host: process.env.API_HOST ?? '0.0.0.0',
-    port: Number(process.env.API_PORT ?? 8000),
+    port: Number(process.env.API_PORT ?? process.env.PORT ?? 8000),
   },
   // redisUrl: process.env.REDIS_URL ?? '',
   cors: {

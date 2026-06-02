@@ -6,7 +6,9 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   DEBUG: Joi.boolean().truthy('true').falsy('false').default(true),
   API_HOST: Joi.string().default('0.0.0.0'),
-  API_PORT: Joi.number().port().default(8000),
+  API_PORT: Joi.number().port().optional(),
+  /** Injected by Railway and similar hosts when API_PORT is unset. */
+  PORT: Joi.number().port().optional(),
 
   SUPABASE_DB_URL: Joi.string()
     .uri({ scheme: ['postgres', 'postgresql'] }),
