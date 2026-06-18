@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { UserRole } from '../../generated/prisma/client';
+import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 import { UsersService } from './users.service';
 
@@ -13,6 +15,28 @@ import { UsersService } from './users.service';
 @UseGuards(ClerkAuthGuard)
 export class UsersController {
   constructor(private readonly users: UsersService) {}
+
+  private toUserResponse(user: {
+    id: string;
+    clerkUserId: string;
+    email: string;
+    fullName: string | null;
+    role: UserRole;
+  }): {
+    id: string;
+    clerkUserId: string;
+    email: string;
+    fullName: string | null;
+    role: string;
+  } {
+    return {
+      id: user.id,
+      clerkUserId: user.clerkUserId,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+    };
+  }
 
   @Get('thisUser')
   @ApiOkResponse({ description: 'Authenticated Clerk user identifiers.' })
@@ -63,6 +87,22 @@ export class UsersController {
     @Body() payload: UpdateClientProfileDto,
   ) {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Post('admin/users')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiCreatedResponse({ description: 'Creates a client user record.' })
+  async createUser(@Body() payload: CreateUserDto) {
+    return this.toUserResponse(await this.users.createUser(payload));
+  }
+
+  @Post('admin/admins')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiCreatedResponse({ description: 'Creates an admin user record.' })
+  async createAdmin(@Body() payload: CreateUserDto) {
+    return this.toUserResponse(await this.users.createAdmin(payload));
   }
 
   @Get('admin/clients')

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { User, UserRole } from '../../generated/prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
@@ -13,6 +14,27 @@ export interface UpsertFromClerkInput {
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private createPersistedUser(
+    input: CreateUserDto & { fullName?: string | null; role: UserRole },
+  ): Promise<User> {
+    return this.prisma.user.create({
+      data: {
+        clerkUserId: input.clerkUserId,
+        email: input.email,
+        fullName: input.fullName ?? null,
+        role: input.role,
+      },
+    });
+  }
+
+  createUser(input: CreateUserDto): Promise<User> {
+    return this.createPersistedUser({ ...input, role: UserRole.client });
+  }
+
+  createAdmin(input: CreateUserDto): Promise<User> {
+    return this.createPersistedUser({ ...input, role: UserRole.admin });
+  }
 
   findByClerkId(clerkUserId: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { clerkUserId } });
@@ -37,13 +59,11 @@ export class UsersService {
       return existing;
     }
 
-    return this.prisma.user.create({
-      data: {
-        clerkUserId: input.clerkUserId,
-        email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
-        fullName: input.fullName ?? null,
-        role: UserRole.client,
-      },
+    return this.createPersistedUser({
+      clerkUserId: input.clerkUserId,
+      email: input.email ?? `${input.clerkUserId}@unknown.invalid`,
+      fullName: input.fullName ?? null,
+      role: UserRole.client,
     });
   }
 
