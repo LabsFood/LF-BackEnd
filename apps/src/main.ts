@@ -8,6 +8,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
+import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -17,6 +18,20 @@ async function bootstrap(): Promise<void> {
   );
   const logger = new Logger('Bootstrap');
   const config = app.get(ConfigService);
+
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('preParsing', async (request, _reply, payload) => {
+    if (!request.url?.startsWith(CLERK_WEBHOOK_PATH)) {
+      return payload;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of payload) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const rawBody = Buffer.concat(chunks);
+    (request as { rawBody?: Buffer }).rawBody = rawBody;
+    return rawBody;
+  });
 
   await app.register(helmet, {
     contentSecurityPolicy: false,

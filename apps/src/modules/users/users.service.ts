@@ -1,6 +1,11 @@
+import type { UserJSON } from '@clerk/backend';
 import { Injectable } from '@nestjs/common';
 import { User, UserRole } from '../../generated/prisma/client';
 
+import {
+  fullNameFromClerkUser,
+  primaryEmailFromClerkUser,
+} from '../../auth/clerk-user-payload';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 
@@ -45,6 +50,18 @@ export class UsersService {
         role: UserRole.client,
       },
     });
+  }
+
+  upsertFromClerkUserJson(user: UserJSON): Promise<User> {
+    return this.upsertFromClerk({
+      clerkUserId: user.id,
+      email: primaryEmailFromClerkUser(user),
+      fullName: fullNameFromClerkUser(user),
+    });
+  }
+
+  async deleteByClerkId(clerkUserId: string): Promise<void> {
+    await this.prisma.user.deleteMany({ where: { clerkUserId } });
   }
 
   async getProfileByClerkUserId(clerkUserId: string) {

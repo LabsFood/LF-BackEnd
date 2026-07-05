@@ -4,8 +4,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { verifyToken } from '@clerk/backend';
 
-import { ClerkAuthGuard, ClerkUser } from './clerk-auth.guard';
+import {
+  ClerkAuthGuard,
+  ClerkUser,
+  shouldVerifyClerkJwt,
+} from './clerk-auth.guard';
+
+jest.mock('@clerk/backend', () => ({
+  verifyToken: jest.fn(),
+}));
+
+const mockedVerifyToken = verifyToken as jest.MockedFunction<typeof verifyToken>;
 
 interface FakeRequest {
   headers: Record<string, string | undefined>;
@@ -25,42 +36,70 @@ const buildJwt = (claims: Record<string, unknown>): string => {
   return `${header}.${payload}.signature`;
 };
 
+describe('shouldVerifyClerkJwt', () => {
+  it('skips verification in test environment', () => {
+    expect(shouldVerifyClerkJwt('sk_test_abc123', 'test')).toBe(false);
+  });
+
+  it('skips verification for the local placeholder secret', () => {
+    expect(shouldVerifyClerkJwt('sk_test_placeholder', 'development')).toBe(false);
+  });
+
+  it('enables verification for real Clerk secret keys outside test', () => {
+    expect(shouldVerifyClerkJwt('sk_test_abc123', 'development')).toBe(true);
+    expect(shouldVerifyClerkJwt('sk_live_abc123', 'production')).toBe(true);
+  });
+});
+
 describe('ClerkAuthGuard', () => {
-  const guardWithSecret = (secret: string | undefined) => {
+  const guardWithConfig = (options: {
+    secret?: string;
+    environment?: string;
+    corsOrigins?: string[];
+  }) => {
     const config = {
-      get: jest.fn().mockReturnValue(secret),
+      get: jest.fn((key: string) => {
+        if (key === 'clerk.secretKey') return options.secret;
+        if (key === 'environment') return options.environment ?? 'test';
+        if (key === 'cors.origins') return options.corsOrigins ?? ['http://localhost:3000'];
+        return undefined;
+      }),
     } as unknown as ConfigService;
     return new ClerkAuthGuard(config);
   };
 
-  it('throws ServiceUnavailableException when CLERK_SECRET_KEY is missing', () => {
-    const guard = guardWithSecret(undefined);
-    const ctx = buildContext({ headers: {} });
-    expect(() => guard.canActivate(ctx)).toThrow(ServiceUnavailableException);
+  beforeEach(() => {
+    mockedVerifyToken.mockReset();
   });
 
-  it('rejects requests missing a Bearer token', () => {
-    const guard = guardWithSecret('sk_test_anything');
+  it('throws ServiceUnavailableException when CLERK_SECRET_KEY is missing', async () => {
+    const guard = guardWithConfig({ secret: undefined });
     const ctx = buildContext({ headers: {} });
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('rejects malformed JWTs', () => {
-    const guard = guardWithSecret('sk_test_anything');
+  it('rejects requests missing a Bearer token', async () => {
+    const guard = guardWithConfig({ secret: 'sk_test_placeholder' });
+    const ctx = buildContext({ headers: {} });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects malformed JWTs', async () => {
+    const guard = guardWithConfig({ secret: 'sk_test_placeholder' });
     const ctx = buildContext({ headers: { authorization: 'Bearer not-a-jwt' } });
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
   });
 
-  it('rejects JWTs without a sub claim', () => {
-    const guard = guardWithSecret('sk_test_anything');
+  it('rejects JWTs without a sub claim', async () => {
+    const guard = guardWithConfig({ secret: 'sk_test_placeholder' });
     const ctx = buildContext({
       headers: { authorization: `Bearer ${buildJwt({ email: 'x@y.z' })}` },
     });
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
   });
 
-  it('attaches a ClerkUser when the token has a sub', () => {
-    const guard = guardWithSecret('sk_test_anything');
+  it('attaches a ClerkUser when the token has a sub (local decode path)', async () => {
+    const guard = guardWithConfig({ secret: 'sk_test_placeholder' });
     const req: FakeRequest = {
       headers: {
         authorization: `Bearer ${buildJwt({
@@ -71,11 +110,55 @@ describe('ClerkAuthGuard', () => {
       },
     };
     const ctx = buildContext(req);
-    expect(guard.canActivate(ctx)).toBe(true);
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(req.clerkUser).toEqual({
       userId: 'user_test_123',
       sessionId: 'sess_1',
       email: 'alice@example.com',
     });
+    expect(mockedVerifyToken).not.toHaveBeenCalled();
+  });
+
+  it('verifies tokens with @clerk/backend when a real secret is configured', async () => {
+    mockedVerifyToken.mockResolvedValue({
+      sub: 'user_live_1',
+      sid: 'sess_live_1',
+    } as Awaited<ReturnType<typeof verifyToken>>);
+
+    const guard = guardWithConfig({
+      secret: 'sk_test_realClerkKey1',
+      environment: 'development',
+    });
+    const req: FakeRequest = {
+      headers: { authorization: 'Bearer clerk.session.jwt' },
+    };
+    const ctx = buildContext(req);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(mockedVerifyToken).toHaveBeenCalledWith('clerk.session.jwt', {
+      secretKey: 'sk_test_realClerkKey1',
+      authorizedParties: ['http://localhost:3000'],
+    });
+    expect(req.clerkUser).toEqual({
+      userId: 'user_live_1',
+      sessionId: 'sess_live_1',
+      email: undefined,
+    });
+  });
+
+  it('rejects invalid tokens when strict verification is enabled', async () => {
+    mockedVerifyToken.mockRejectedValue(new Error('invalid'));
+
+    const guard = guardWithConfig({
+      secret: 'sk_test_realClerkKey1',
+      environment: 'production',
+    });
+    const ctx = buildContext({
+      headers: { authorization: 'Bearer bad.token.here' },
+    });
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(
+      new UnauthorizedException('Invalid or expired Clerk token.'),
+    );
   });
 });

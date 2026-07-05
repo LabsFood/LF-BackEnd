@@ -92,9 +92,10 @@ npm test            # jest unit tests
 
 ### Auth testing without Clerk
 
-`ClerkAuthGuard` decodes the JWT payload without signature verification, so any
-well-formed JWT with a `sub` claim works locally as long as `CLERK_SECRET_KEY`
-is set to a non-empty value. Generate a token with Node:
+With `CLERK_SECRET_KEY=sk_test_placeholder`, `ClerkAuthGuard` decodes the JWT
+payload without JWKS verification so any well-formed JWT with a `sub` claim works
+locally. When a real `sk_test_…` / `sk_live_…` key is set, tokens are verified
+via `@clerk/backend` (`verifyToken`). Generate a local stub token with Node:
 
 ```bash
 node -e '
@@ -106,6 +107,13 @@ node -e '
 
 Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
 `/bookings`.
+
+### Clerk webhooks and DB sync
+
+Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync.md).
+
+- Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
+- One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
 
 ### F19 concept CMS
 

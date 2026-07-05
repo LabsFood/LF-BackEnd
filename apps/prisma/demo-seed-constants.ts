@@ -13,12 +13,20 @@ export function demoChefClerkId(index: number): string {
   return `${DEMO_SEED_TAG}_chef_${pad(index)}`;
 }
 
+/** Reserved domain for demo users — Clerk rejects `.test` and other non-routable TLDs. */
+export const DEMO_EMAIL_DOMAIN = 'example.com';
+
 export function demoClientEmail(index: number): string {
-  return `demo-seed-client-${pad(index)}@labsfood.test`;
+  return `demo-seed-client-${pad(index)}@${DEMO_EMAIL_DOMAIN}`;
 }
 
 export function demoChefEmail(index: number): string {
-  return `demo-seed-chef-${pad(index)}@labsfood.test`;
+  return `demo-seed-chef-${pad(index)}@${DEMO_EMAIL_DOMAIN}`;
+}
+
+/** Map legacy `@labsfood.test` demo emails to a Clerk-accepted address. */
+export function normalizeEmailForClerk(email: string): string {
+  return email.replace(/@labsfood\.test$/i, `@${DEMO_EMAIL_DOMAIN}`);
 }
 
 export function demoBookingReference(index: number): string {

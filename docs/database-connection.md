@@ -109,7 +109,7 @@ docker compose up -d postgres
 cd apps
 npm run db:migrate
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-export CLERK_SECRET_KEY="sk_test_placeholder"
+export CLERK_SECRET_KEY="<sk_test_placeholder>"
 npm run start:dev
 curl -s http://localhost:8000/ready | jq .
 ```
