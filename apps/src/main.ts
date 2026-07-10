@@ -76,7 +76,7 @@ async function bootstrap(): Promise<void> {
         'See `docs/auth/clerk-integration-contract.md` for the full frontend ↔ backend contract.',
       ].join('\n'),
     )
-    .setVersion('1.1.0')
+    .setVersion('1.2.0')
     .addBearerAuth({
       type: 'http',
       scheme: 'bearer',
