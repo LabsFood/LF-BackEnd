@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import type { HealthCheckResult } from '@nestjs/terminus';
 
@@ -18,14 +18,29 @@ export class HealthController {
   ) {}
 
   @Get('health')
-  @ApiOkResponse({ description: 'Liveness probe.' })
+  @ApiOperation({
+    summary: 'Liveness probe',
+    description:
+      'Returns `{ status: "ok" }` when the process is running. ' +
+      'Used by Railway and load balancers; does not check database connectivity.',
+  })
+  @ApiOkResponse({
+    description: 'Process is alive.',
+    schema: { example: { status: 'ok' } },
+  })
   liveness(): { status: string } {
     return { status: 'ok' };
   }
 
   @Get('ready')
   @HealthCheck()
-  @ApiOkResponse({ description: 'Readiness probe (database).' })
+  @ApiOperation({
+    summary: 'Readiness probe',
+    description:
+      'Checks backing services before accepting traffic. Currently pings PostgreSQL via `SELECT 1`. ' +
+      'Returns `503` when the database is unreachable.',
+  })
+  @ApiOkResponse({ description: 'All configured dependencies are healthy.' })
   async readiness(): Promise<HealthCheckResult> {
     return this.health.check([
       async () => {

@@ -55,9 +55,41 @@ async function bootstrap(): Promise<void> {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Labs Food API')
-    .setDescription("Lab's Food API backend (NestJS + Fastify).")
+    .setDescription(
+      [
+        "Lab's Food backend API (NestJS + Fastify).",
+        '',
+        '## Authentication',
+        'Protected routes require `Authorization: Bearer <Clerk session JWT>`.',
+        'Sign-in and sign-up are handled by the Next.js frontend via Clerk; this API verifies tokens and owns application data.',
+        '',
+        '## Roles (Postgres `users.role`)',
+        '- `client` — default after first `GET /me`',
+        '- `chef` — kitchen / provider staff',
+        '- `admin` — back-office; required for `/admin/*` routes',
+        '',
+        '## Key flows',
+        '1. Frontend obtains Clerk JWT → `GET /me` upserts user and returns role',
+        '2. Admin promotes users → `PATCH /admin/users/:id/role` (`:id` = Postgres uuid)',
+        '3. Admin provisions accounts → `POST /admin/users` (requires real `CLERK_SECRET_KEY`)',
+        '',
+        'See `docs/auth/clerk-integration-contract.md` for the full frontend ↔ backend contract.',
+      ].join('\n'),
+    )
     .setVersion('1.1.0')
-    .addBearerAuth()
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
+      description: 'Clerk session JWT from the frontend (`getToken()`) or a dev session token.',
+    })
+    .addTag('users', 'Identity, profiles, and admin user management')
+    .addTag('bookings', 'Client and admin booking operations')
+    .addTag('catalog', 'Menus, meals, and formules')
+    .addTag('quotes', 'Custom quote requests')
+    .addTag('stats', 'Client and admin dashboards')
+    .addTag('content-cms', 'Public and admin CMS content')
+    .addTag('health', 'Liveness and readiness probes')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document, {

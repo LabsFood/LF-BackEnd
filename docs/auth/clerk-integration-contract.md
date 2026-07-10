@@ -154,6 +154,61 @@ See also: [`clerk-supabase-sync.md`](./clerk-supabase-sync.md).
 
 Generate a local stub JWT (see [`AGENTS.md`](../../AGENTS.md)), call `GET /me`, then promote role in DB for admin route testing.
 
+## Manual integration checklist (both sides)
+  Use this after unit tests pass, to validate the full flow before frontend E2E exists.
+
+### A. Sign-up → DB sync (simulates frontend)
+  User signs up in Clerk (frontend or Clerk Dashboard).
+  Either:
+    - Webhook user.created hits POST /webhooks/clerk, or
+    - Frontend calls GET /me with Bearer JWT.
+    - Verify in Postgres:
+    ```sql
+    SELECT id, clerk_user_id, email, role FROM users WHERE email = 'you@example.com';
+    ```
+    - Expected: row exists, role = 'client'.
+
+### B. Sign-in → protected API
+  Frontend getToken() (or dev BAPI session token).
+    Call:
+    ```bash
+    curl -s http://localhost:8000/thisUser -H "Authorization: Bearer $TOKEN" | jq .
+    curl -s http://localhost:8000/me -H "Authorization: Bearer $TOKEN" | jq .
+    ```
+    - Expected: 200 with user_id / clerkUserId.
+
+### C. Bootstrap first admin
+  There is no self-promote endpoint. One-time in Postgres:
+  
+  ```sql
+  UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+  ```
+  
+### D. Elevate another user to admin
+  
+  ```bash
+  curl -s -X PATCH "http://localhost:8000/admin/users/{postgres-uuid}/role" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{"role": "admin"}' | jq .
+  ```
+
+  - Expected progression:
+    - 401 → token invalid (fix Clerk key / JWT)
+    - 403 → caller is not admin in Postgres
+    - 200 → elevation works
+
+### E. Admin creates a user
+  
+  ```bash
+  curl -s -X POST http://localhost:8000/admin/users -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{
+      "email": "newclient@example.com",
+      "password": "StrongUniquePass123!",
+      "firstName": "New",
+      "lastName": "Client",
+      "role": "client"
+    }' | jq .
+  ```
+  - Requires a real CLERK_SECRET_KEY (not sk_test_placeholder).
+
+
 ## Code map
 
 
