@@ -66,6 +66,23 @@ curl -s -X PUT http://localhost:8000/content/concept \
 
 Optional Supabase Storage for CMS images: set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_CMS_ASSETS_BUCKET` in `.env` (see repo `.env.example`).
 
+## Admin users (`/admin/users`)
+
+Documented in [`../docs/auth/clerk-integration-contract.md`](../docs/auth/clerk-integration-contract.md). Sign-in/sign-up stay on the Next.js Clerk frontend; these routes are for admin provisioning and RBAC only.
+
+| Method | Path | Auth |
+|--------|------|------|
+| `POST` | `/admin/users` | Clerk bearer + persisted `admin` role + real `CLERK_SECRET_KEY` |
+| `PATCH` | `/admin/users/:id/role` | Clerk bearer + persisted `admin` role |
+
+```bash
+# Promote your test user to admin first (Prisma Studio or SQL), then:
+curl -s -X POST http://localhost:8000/admin/users \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"chef@example.com","firstName":"Chef","role":"chef"}'
+```
+
 ## Run with Docker Compose
 
 From the repo root:

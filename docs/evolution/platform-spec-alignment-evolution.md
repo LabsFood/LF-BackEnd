@@ -153,7 +153,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Area | Routes / artifacts |
 |------|-------------------|
 | Health | `GET /health`, `GET /ready` |
-| Users | `GET /thisUser`, `GET /me` |
+| Users | `GET /thisUser`, `GET /me`, `POST /admin/users`, `PATCH /admin/users/:id/role` |
 | Bookings | `GET /bookings`, `POST /bookings` (stub) |
 | F19 CMS | `GET/PUT /content/concept`, `CmsPage`, migration `1700000000001` |
 | Auth | `ClerkAuthGuard`, `AdminGuard` |
@@ -163,7 +163,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Spec module (SPEC-BACKEND §2.2) | NestJS module (target) | Status |
 |--------------------------------|------------------------|--------|
-| auth | Clerk + users upsert | Partial |
+| auth | Clerk + users upsert + admin provisioning | Partial |
 | users | `users` + profile | Partial |
 | catalog | `catalog` | Not started |
 | reservations | **`bookings`** | Scaffold |
@@ -192,7 +192,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Spec item | Backend choice |
 |-----------|----------------|
-| `POST /auth/register`, `/login`, `/refresh` | Clerk handles auth |
+| `POST /auth/register`, `/login`, `/refresh` | Clerk handles auth on Next.js frontend; no password routes on API |
 | Prisma in spec as illustration only | Adopted as real ORM target |
 | Route prefix `/me/reservations` | Use `/me/bookings` unless versioning adds alias |
 
@@ -207,3 +207,4 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-22 | Prisma **7.6.0** + `prisma.config.ts`; `@prisma/adapter-pg`; generated client path | Replaces deprecated `package.json#prisma` + v6 client |
 | 2026-05-24 | E1 delivered: enum rename + `chef_profiles` migration; kept `provider_id` DB columns for compatibility, added API `chefId` alias | Avoid breaking existing booking flow while aligning role terminology |
 | 2026-05-24 | E3/E4/E5/E6/E10 endpoints added (`catalog`, users profile/CRM, quotes, shopping lists, stats) | Phase 1 spec-alignment backend surface implemented |
+| 2026-07-05 | Admin user provisioning: `POST /admin/users`, `PATCH /admin/users/:id/role`; clerk-integration-contract | Backend-only scope; no FAPI auth BFF |

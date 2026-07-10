@@ -11,7 +11,7 @@ export class StatsService {
   ) {}
 
   async getMyDashboard(clerkUserId: string) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const [bookingsCount, quotesCount, latestBooking] = await Promise.all([
       this.prisma.booking.count({ where: { clientId: user.id } }),
       this.prisma.quote.count({ where: { clientId: user.id } }),
@@ -29,7 +29,7 @@ export class StatsService {
   }
 
   async getMyStats(clerkUserId: string) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const [bookingAgg, quoteAgg] = await Promise.all([
       this.prisma.booking.aggregate({
         where: { clientId: user.id },

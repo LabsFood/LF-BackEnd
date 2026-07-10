@@ -11,7 +11,8 @@ describe('QuotesService', () => {
       },
     } as unknown as PrismaService;
     const users = {
-      upsertFromClerk: jest.fn().mockResolvedValue({ id: 'u1' }),
+      upsertFromClerk: jest.fn(),
+      ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'u1' }),
     } as unknown as UsersService;
     const service = new QuotesService(prisma, users);
 

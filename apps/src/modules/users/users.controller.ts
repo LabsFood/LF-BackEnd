@@ -1,9 +1,24 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 import { UsersService } from './users.service';
 
@@ -35,10 +50,10 @@ export class UsersController {
     clerkUserId: string;
     email: string;
     fullName: string | null;
+    phone: string | null;
     role: string;
   }> {
-    const persisted = await this.users.upsertFromClerk({
-      clerkUserId: user.userId,
+    const persisted = await this.users.ensurePersistedFromClerk(user.userId, {
       email: user.email,
     });
     return {
@@ -46,12 +61,15 @@ export class UsersController {
       clerkUserId: persisted.clerkUserId,
       email: persisted.email,
       fullName: persisted.fullName,
+      phone: persisted.phone,
       role: persisted.role,
     };
   }
 
   @Get('me/profile')
-  @ApiOkResponse({ description: 'Returns authenticated user + client profile if present.' })
+  @ApiOkResponse({
+    description: 'Returns authenticated user + client profile if present.',
+  })
   meProfile(@CurrentClerkUser() user: ClerkUser) {
     return this.users.getProfileByClerkUserId(user.userId);
   }
@@ -63,6 +81,32 @@ export class UsersController {
     @Body() payload: UpdateClientProfileDto,
   ) {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Post('admin/users')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiCreatedResponse({
+    description: 'Provision a Clerk user and persist role in Postgres.',
+  })
+  createAdminUser(@Body() payload: CreateAdminUserDto) {
+    return this.users.provisionAdminUser({
+      email: payload.email,
+      password: payload.password,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      role: payload.role ? this.users.toUserRole(payload.role) : undefined,
+    });
+  }
+
+  @Patch('admin/users/:id/role')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiOkResponse({
+    description: 'Update persisted user role (Postgres source of truth).',
+  })
+  updateUserRole(@Param('id') id: string, @Body() payload: UpdateUserRoleDto) {
+    return this.users.updateRole(id, this.users.toUserRole(payload.role));
   }
 
   @Get('admin/clients')
