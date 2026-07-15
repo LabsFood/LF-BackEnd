@@ -1,4 +1,4 @@
-import { DEMO_SEED_TAG } from '../../prisma/demo-seed-constants';
+import { DEMO_SEED_TAG } from '../common/demo-seed-constants';
 
 /** Clerk user ids issued by Clerk (e.g. `user_2abc…`). */
 const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;

@@ -28,7 +28,7 @@ import {
   demoFormuleId,
   demoMealName,
   demoQuoteReference,
-} from './demo-seed-constants';
+} from '../src/common/demo-seed-constants';
 import { toInputJson } from './json-helpers';
 
 loadRepoEnv();

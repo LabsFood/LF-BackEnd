@@ -9,7 +9,7 @@ import {
   demoCmsSlug,
   demoFormuleId,
   demoMealName,
-} from './demo-seed-constants';
+} from '../src/common/demo-seed-constants';
 
 loadRepoEnv();
 

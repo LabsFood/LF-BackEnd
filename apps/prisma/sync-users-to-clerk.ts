@@ -8,7 +8,7 @@
 import { createClerkClient } from '@clerk/backend';
 
 import { isPlaceholderClerkUserId, isRealClerkSecretKey, splitFullName } from '../src/auth/clerk-ids';
-import { normalizeEmailForClerk } from './demo-seed-constants';
+import { normalizeEmailForClerk } from '../src/common/demo-seed-constants';
 import { loadRepoEnv } from '../src/config/env-files';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
 
