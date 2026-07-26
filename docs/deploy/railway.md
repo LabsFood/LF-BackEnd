@@ -40,7 +40,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 
 | Variable | When needed |
 |----------|-------------|
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments |
 | `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
 | `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
@@ -134,6 +134,7 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] `CORS_ORIGINS` for real frontend URLs
 - [ ] Stripe / Cronofy / Brevo / Stream / AWS keys when those flows ship
-- [ ] Clerk/Stripe webhook URLs pointed at `https://<api-domain>/…` (when implemented)
+- [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
+- [ ] Stripe webhook URL when payments ship
 
 Redis is **not** required yet (module disabled in repo).

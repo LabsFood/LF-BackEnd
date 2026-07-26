@@ -13,11 +13,18 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
+  ApiOperation,
+  ApiParam,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
+import {
+  ApiAdminAuthResponses,
+  ApiClerkAuthResponses,
+} from '../../common/swagger/auth-responses';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
@@ -37,7 +44,18 @@ export class BookingsController {
   ) {}
 
   @Get()
-  @ApiOkResponse({ type: BookingReadDto, isArray: true })
+  @ApiOperation({
+    summary: 'List all bookings (admin-style listing)',
+    description:
+      'Returns every booking in the database. Intended for internal/admin tooling during Phase 1; ' +
+      'client-scoped listing may be added later.',
+  })
+  @ApiOkResponse({
+    type: BookingReadDto,
+    isArray: true,
+    description: 'All bookings with client, chef, schedule, and price fields.',
+  })
+  @ApiClerkAuthResponses()
   async list(): Promise<BookingReadDto[]> {
     const rows = await this.bookings.list();
     return rows.map((row) => BookingReadDto.fromEntity(row));
@@ -45,8 +63,20 @@ export class BookingsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiCreatedResponse({ type: BookingReadDto })
-  @ApiUnprocessableEntityResponse({ description: 'ends_at must be after starts_at' })
+  @ApiOperation({
+    summary: 'Create a booking (not implemented)',
+    description:
+      'Phase 1 scaffold only — validates `endsAt > startsAt` then returns `501 Not Implemented`. ' +
+      'The authenticated Clerk user id is echoed in the error message for integration testing.',
+  })
+  @ApiCreatedResponse({
+    type: BookingReadDto,
+    description: 'Would return the created booking once persistence is wired.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'Validation error when `endsAt` is not strictly after `startsAt`.',
+  })
+  @ApiClerkAuthResponses()
   create(@Body() payload: CreateBookingDto, @CurrentClerkUser() user: ClerkUser): never {
     if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
       throw new HttpException(
@@ -62,7 +92,22 @@ export class BookingsController {
   }
 
   @Get('me/bookings/:id')
-  @ApiOkResponse({ description: 'Authenticated client booking detail with shopping list.' })
+  @ApiOperation({
+    summary: 'Get my booking detail with shopping list',
+    description:
+      'Returns a single booking owned by the authenticated client, including the generated shopping list. ' +
+      '`:id` is the booking uuid.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Booking uuid.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @ApiOkResponse({
+    description: 'Booking detail with nested shopping list items.',
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found or not owned by the caller.' })
+  @ApiClerkAuthResponses()
   async meBookingDetail(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id') bookingId: string,
@@ -76,7 +121,19 @@ export class BookingsController {
 
   @Get('admin/bookings/:id')
   @UseGuards(AdminGuard)
-  @ApiOkResponse({ description: 'Admin booking detail with shopping list.' })
+  @ApiOperation({
+    summary: 'Admin: get any booking detail with shopping list',
+    description:
+      'Returns a booking by id without client ownership check. Includes shopping list for kitchen prep.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Booking uuid.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @ApiOkResponse({ description: 'Booking detail with nested shopping list items.' })
+  @ApiNotFoundResponse({ description: 'Booking not found.' })
+  @ApiAdminAuthResponses()
   async adminBookingDetail(@Param('id') bookingId: string): Promise<unknown> {
     const booking = await this.bookings.getAdminBookingDetail(bookingId);
     if (!booking) {
@@ -87,7 +144,19 @@ export class BookingsController {
 
   @Post('admin/bookings/:id/shopping-list/regenerate')
   @UseGuards(AdminGuard)
-  @ApiOkResponse({ description: 'Regenerates shopping list from selected meals and portions.' })
+  @ApiOperation({
+    summary: 'Admin: regenerate shopping list for a booking',
+    description:
+      'Rebuilds the shopping list from the booking selected meals and portion counts. ' +
+      'Use after menu or portion changes.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Booking uuid.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @ApiOkResponse({ description: 'Regenerated shopping list for the booking.' })
+  @ApiAdminAuthResponses()
   regenerateShoppingList(@Param('id') bookingId: string) {
     return this.shoppingLists.regenerateForBooking(bookingId);
   }

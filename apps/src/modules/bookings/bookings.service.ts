@@ -16,7 +16,7 @@ export class BookingsService {
   }
 
   async getMyBookingDetail(clerkUserId: string, bookingId: string) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     return this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
       include: {

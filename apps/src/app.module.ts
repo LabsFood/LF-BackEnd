@@ -7,6 +7,7 @@ import { resolveEnvFilePaths } from './config/env-files';
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './supabase/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { HealthModule } from './modules/health/health.module';
@@ -31,6 +32,7 @@ import { UsersModule } from './modules/users/users.module';
     DatabaseModule,
     // RedisModule,
     AuthModule,
+    ClerkWebhooksModule,
     ContentCmsModule,
     IntegrationsModule,
     HealthModule,

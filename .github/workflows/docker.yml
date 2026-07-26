@@ -1,0 +1,160 @@
+name: Docker image
+
+# Build the production image (repo-root context + apps/Dockerfile, same as
+# Railway/Compose), run it on a standard GitHub runner against a throwaway
+# Postgres to prove it migrates and answers health checks, then publish it to
+# GitHub Container Registry (GHCR) on main and version tags.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # Local tag used only for the runner smoke test.
+  TEST_IMAGE: lf-api:ci
+
+jobs:
+  build-run-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name (lowercase for GHCR)
+        id: img
+        run: |
+          echo "image=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.img.outputs.image }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Build once, load into the runner's Docker so we can run it before
+      # pushing. GitHub Actions cache (type=gha) keeps rebuilds fast.
+      - name: Build image (load for testing)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/Dockerfile
+          load: true
+          tags: ${{ env.TEST_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — migrate + boot + health checks
+        run: |
+          set -euo pipefail
+
+          docker network create lf-ci
+
+          echo "::group::Start Postgres"
+          docker run -d --name postgres --network lf-ci \
+            -e POSTGRES_USER=lf \
+            -e POSTGRES_PASSWORD=lf \
+            -e POSTGRES_DB=lf_backend \
+            --health-cmd="pg_isready -U lf -d lf_backend" \
+            --health-interval=5s \
+            --health-timeout=5s \
+            --health-retries=10 \
+            postgres:16-alpine
+
+          echo "Waiting for Postgres to become healthy..."
+          for i in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' postgres)"
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$(docker inspect -f '{{.State.Health.Status}}' postgres)" = "healthy" ]
+          echo "::endgroup::"
+
+          echo "::group::Start API"
+          # docker-entrypoint.sh runs `prisma migrate deploy` then `node dist/main.js`.
+          docker run -d --name lf-api --network lf-ci -p 8000:8000 \
+            -e NODE_ENV=production \
+            -e ENVIRONMENT=production \
+            -e API_HOST=0.0.0.0 \
+            -e API_PORT=8000 \
+            -e SUPABASE_DB_URL="postgresql://lf:lf@postgres:5432/lf_backend" \
+            -e SUPABASE_DB_MIGRATION_URL="postgresql://lf:lf@postgres:5432/lf_backend" \
+            -e CLERK_SECRET_KEY=sk_test_placeholder \
+            -e CORS_ORIGINS="http://localhost:3000" \
+            "${TEST_IMAGE}"
+          echo "::endgroup::"
+
+          echo "Waiting for /health to return 200..."
+          ok=""
+          for i in $(seq 1 40); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health || true)"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' lf-api)" != "true" ]; then
+              echo "API container exited early."; break
+            fi
+            sleep 3
+          done
+
+          echo "::group::API logs"
+          docker logs lf-api || true
+          echo "::endgroup::"
+
+          if [ -z "${ok}" ]; then
+            echo "Health check failed."; exit 1
+          fi
+
+          echo "GET /health:"; curl -fsS http://localhost:8000/health; echo
+          echo "GET /ready:";  curl -fsS http://localhost:8000/ready;  echo
+          echo "Smoke test passed."
+
+      - name: Teardown smoke test
+        if: always()
+        run: |
+          docker rm -f lf-api postgres >/dev/null 2>&1 || true
+          docker network rm lf-ci >/dev/null 2>&1 || true
+
+      # Publish only for pushes to main / tags — never for PRs (no secrets on
+      # forks, and PRs shouldn't publish images).
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image (reuses build cache)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
