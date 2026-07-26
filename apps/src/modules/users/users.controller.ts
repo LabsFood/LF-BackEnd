@@ -44,6 +44,28 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  private toUserResponse(user: {
+    id: string;
+    clerkUserId: string;
+    email: string;
+    fullName: string | null;
+    role: UserRole;
+  }): {
+    id: string;
+    clerkUserId: string;
+    email: string;
+    fullName: string | null;
+    role: string;
+  } {
+    return {
+      id: user.id,
+      clerkUserId: user.clerkUserId,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+    };
+  }
+
   @Get('thisUser')
   @ApiOperation({
     summary: 'Read Clerk JWT claims (no database)',

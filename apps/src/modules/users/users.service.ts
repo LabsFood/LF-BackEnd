@@ -52,6 +52,27 @@ export class UsersService {
     private readonly clerk: ClerkService,
   ) {}
 
+  private createPersistedUser(
+    input: CreateUserDto & { fullName?: string | null; role: UserRole },
+  ): Promise<User> {
+    return this.prisma.user.create({
+      data: {
+        clerkUserId: input.clerkUserId,
+        email: input.email,
+        fullName: input.fullName ?? null,
+        role: input.role,
+      },
+    });
+  }
+
+  createUser(input: CreateUserDto): Promise<User> {
+    return this.createPersistedUser({ ...input, role: UserRole.client });
+  }
+
+  createAdmin(input: CreateUserDto): Promise<User> {
+    return this.createPersistedUser({ ...input, role: UserRole.admin });
+  }
+
   findByClerkId(clerkUserId: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { clerkUserId } });
   }
