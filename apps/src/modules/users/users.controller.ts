@@ -26,6 +26,7 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { UserRole } from '../../generated/prisma/client';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 import {

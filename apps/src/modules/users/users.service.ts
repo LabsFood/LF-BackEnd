@@ -16,6 +16,7 @@ import {
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AppUserRole } from './dto/admin-user.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
