@@ -7,7 +7,8 @@ export type AppUserRole = (typeof USER_ROLES)[number];
 export class CreateAdminUserDto {
   @ApiProperty({
     example: 'chef@labsfood.fr',
-    description: 'Primary email address for the new Clerk account. Must be unique in Clerk.',
+    description:
+      'Primary email address for the new Clerk account. Must be unique in Clerk.',
   })
   @IsEmail()
   email!: string;

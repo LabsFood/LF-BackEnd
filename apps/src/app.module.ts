@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
@@ -28,6 +29,20 @@ import { UsersModule } from './modules/users/users.module';
       validationSchema: envValidationSchema,
       validationOptions: { allowUnknown: true, abortEarly: false },
       cache: true,
+    }),
+    // Configured globally but enforced only where `ThrottlerGuard` is attached
+    // (currently the public `POST /auth/register`), so existing routes are unaffected.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'register',
+            ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
+            limit: config.get<number>('registerThrottle.limit', 5),
+          },
+        ],
+      }),
     }),
     DatabaseModule,
     // RedisModule,

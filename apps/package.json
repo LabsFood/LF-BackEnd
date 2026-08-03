@@ -26,6 +26,8 @@
     "db:unseed:demo": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/unseed-demo.ts",
     "db:sync:clerk": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-users-to-clerk.ts",
     "db:sync:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-users-to-clerk.ts --dry-run",
+    "db:backfill:clerk": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts",
+    "db:backfill:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts --dry-run",
     "db:studio": "prisma studio"
   },
   "keywords": [],
@@ -41,6 +43,7 @@
     "@nestjs/platform-fastify": "^11.1.6",
     "@nestjs/swagger": "^11.1.5",
     "@nestjs/terminus": "^11.0.0",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/adapter-pg": "7.6.0",
     "@prisma/client": "7.6.0",
     "@supabase/supabase-js": "^2.106.1",

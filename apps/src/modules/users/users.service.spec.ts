@@ -1,4 +1,9 @@
-import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UserRole } from '../../generated/prisma/client';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,11 +18,13 @@ describe('UsersService', () => {
       deleteMany: jest.Mock;
     };
     clientProfile: { findUnique: jest.Mock; upsert: jest.Mock };
+    chefProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
   };
   let clerk: {
     configured: boolean;
     getClient: jest.Mock;
   };
+  let config: { get: jest.Mock };
   let service: UsersService;
 
   beforeEach(() => {
@@ -29,14 +36,17 @@ describe('UsersService', () => {
         deleteMany: jest.fn(),
       },
       clientProfile: { findUnique: jest.fn(), upsert: jest.fn() },
+      chefProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     };
     clerk = {
       configured: false,
       getClient: jest.fn(),
     };
+    config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
+      config as unknown as ConfigService,
     );
   });
 
@@ -252,11 +262,13 @@ describe('UsersService', () => {
 
   describe('updateRole', () => {
     it('syncs Clerk profile before updating role', async () => {
-      const ensureSpy = jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
-        id: 'uuid-1',
-        clerkUserId: 'user_1',
-        role: UserRole.client,
-      } as never);
+      const ensureSpy = jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue({
+          id: 'uuid-1',
+          clerkUserId: 'user_1',
+          role: UserRole.client,
+        } as never);
       prisma.user.findUnique.mockResolvedValue({
         id: 'uuid-1',
         clerkUserId: 'user_1',
@@ -362,6 +374,275 @@ describe('UsersService', () => {
         role: UserRole.client,
       });
       expect(user.clerkUserId).toBe('user_clerk_new');
+    });
+  });
+
+  describe('registerClient', () => {
+    const configureClerk = (createUser: jest.Mock, createSignInToken: jest.Mock) => {
+      clerk.configured = true;
+      clerk.getClient.mockReturnValue({
+        users: { createUser },
+        signInTokens: { createSignInToken },
+      });
+    };
+
+    it('returns 503 when Clerk is not configured', async () => {
+      clerk.configured = false;
+      await expect(
+        service.registerClient({
+          email: 'new@example.com',
+          password: 'Str0ng!UniquePass',
+        }),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it('rejects an email already present in Postgres before creating in Clerk', async () => {
+      const createUser = jest.fn();
+      configureClerk(createUser, jest.fn());
+      prisma.user.findUnique.mockResolvedValue({ id: 'uuid-existing' });
+
+      await expect(
+        service.registerClient({
+          email: 'taken@example.com',
+          password: 'Str0ng!UniquePass',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      // The point of the pre-check: no orphaned Clerk account is left behind.
+      expect(createUser).not.toHaveBeenCalled();
+    });
+
+    it('always persists role client and returns a sign-in ticket', async () => {
+      const createUser = jest.fn().mockResolvedValue({ id: 'user_clerk_new' });
+      const createSignInToken = jest.fn().mockResolvedValue({ token: 'sit_abc123' });
+      configureClerk(createUser, createSignInToken);
+      prisma.user.findUnique.mockResolvedValue(null);
+      const createWithRoleSpy = jest.spyOn(service, 'createWithRole').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_clerk_new',
+        email: 'new@example.com',
+        role: UserRole.client,
+      } as never);
+
+      const result = await service.registerClient({
+        email: 'new@example.com',
+        password: 'Str0ng!UniquePass',
+      });
+
+      expect(createWithRoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.client }),
+      );
+      expect(createSignInToken).toHaveBeenCalledWith({
+        userId: 'user_clerk_new',
+        expiresInSeconds: 60,
+      });
+      expect(result).toEqual({
+        user: expect.objectContaining({ role: UserRole.client }),
+        signInToken: 'sit_abc123',
+        expiresInSeconds: 60,
+      });
+    });
+
+    it('ignores any role reaching the service and still persists client', async () => {
+      const createUser = jest.fn().mockResolvedValue({ id: 'user_clerk_new' });
+      configureClerk(createUser, jest.fn().mockResolvedValue({ token: 'sit_abc123' }));
+      prisma.user.findUnique.mockResolvedValue(null);
+      const createWithRoleSpy = jest.spyOn(service, 'createWithRole').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_clerk_new',
+        role: UserRole.client,
+      } as never);
+
+      await service.registerClient({
+        email: 'new@example.com',
+        password: 'Str0ng!UniquePass',
+        role: UserRole.admin,
+      } as never);
+
+      expect(createWithRoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.client }),
+      );
+    });
+  });
+
+  describe('updateProfileByClerkUserId', () => {
+    const currentUser = {
+      id: 'uuid-1',
+      clerkUserId: 'user_1',
+      email: 'a@example.com',
+      fullName: null,
+      phone: null,
+      role: UserRole.client,
+    };
+
+    it('splits user-level fields out of the client_profiles payload', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+
+      await service.updateProfileByClerkUserId('user_1', {
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        phone: '+33612345678',
+        addressStreet: '12 rue de la Paix',
+        addressCity: 'Paris',
+        addressPostalCode: '75002',
+        householdAdults: 2,
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        data: { fullName: 'Marie Dupont', phone: '+33612345678' },
+      });
+
+      // firstName/lastName/phone must never reach client_profiles — no such columns.
+      const upsertArg = prisma.clientProfile.upsert.mock.calls[0][0];
+      expect(upsertArg.update).not.toHaveProperty('firstName');
+      expect(upsertArg.update).not.toHaveProperty('lastName');
+      expect(upsertArg.update).not.toHaveProperty('phone');
+      expect(upsertArg.update).toMatchObject({
+        addressStreet: '12 rue de la Paix',
+        addressCity: 'Paris',
+        addressPostalCode: '75002',
+        householdAdults: 2,
+      });
+    });
+
+    it('rejects a client profile when a chef profile already exists', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+
+      await expect(
+        service.updateProfileByClerkUserId('user_1', { firstName: 'Marie' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.clientProfile.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateChefProfileByClerkUserId', () => {
+    const currentUser = {
+      id: 'uuid-1',
+      clerkUserId: 'user_1',
+      email: 'chef@example.com',
+      fullName: null,
+      phone: null,
+      role: UserRole.client,
+    };
+
+    it('promotes role to chef and forces the profile inactive and unverified', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
+
+      await service.updateChefProfileByClerkUserId('user_1', {
+        displayName: 'Chef Marie D.',
+        city: 'Paris',
+        serviceRadiusKm: 25,
+        firstName: 'Marie',
+        lastName: 'Dupont',
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        data: { fullName: 'Marie Dupont', role: UserRole.chef },
+      });
+      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
+        displayName: 'Chef Marie D.',
+        serviceRadiusKm: 25,
+        isActive: false,
+        isVerified: false,
+      });
+    });
+
+    it('cannot be tricked into self-verifying via the payload', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
+
+      await service.updateChefProfileByClerkUserId('user_1', {
+        displayName: 'Sneaky Chef',
+        isActive: true,
+        isVerified: true,
+      } as never);
+
+      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
+        isActive: false,
+        isVerified: false,
+      });
+    });
+
+    it('rejects a chef profile when a client profile already exists', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
+
+      await expect(
+        service.updateChefProfileByClerkUserId('user_1', { displayName: 'Chef' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.chefProfile.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setChefVerification', () => {
+    it('updates the vetting flags', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+      prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', isActive: true });
+
+      await service.setChefVerification('chef-1', { isVerified: true, isActive: true });
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { isVerified: true, isActive: true },
+        include: { user: true },
+      });
+    });
+
+    it('throws when the chef profile is missing', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      await expect(
+        service.setChefVerification('missing', { isActive: true }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('getProfileByClerkUserId', () => {
+    it('returns the chef profile for a chef user', async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        role: UserRole.chef,
+      } as never);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.profileType).toBe('chef');
+      expect(result.profile).toEqual({ id: 'chef-1' });
+      expect(prisma.clientProfile.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('reports none when the user has not completed onboarding', async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        role: UserRole.client,
+      } as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.profileType).toBe('none');
+      expect(result.profile).toBeNull();
     });
   });
 

@@ -6,11 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { verifyToken } from '@clerk/backend';
 
-import {
-  ClerkAuthGuard,
-  ClerkUser,
-  shouldVerifyClerkJwt,
-} from './clerk-auth.guard';
+import { ClerkAuthGuard, ClerkUser, shouldVerifyClerkJwt } from './clerk-auth.guard';
 
 jest.mock('@clerk/backend', () => ({
   verifyToken: jest.fn(),
@@ -61,7 +57,8 @@ describe('ClerkAuthGuard', () => {
       get: jest.fn((key: string) => {
         if (key === 'clerk.secretKey') return options.secret;
         if (key === 'environment') return options.environment ?? 'test';
-        if (key === 'cors.origins') return options.corsOrigins ?? ['http://localhost:3000'];
+        if (key === 'cors.origins')
+          return options.corsOrigins ?? ['http://localhost:3000'];
         return undefined;
       }),
     } as unknown as ConfigService;

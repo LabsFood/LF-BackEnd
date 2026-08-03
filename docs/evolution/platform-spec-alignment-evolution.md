@@ -192,9 +192,35 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Spec item | Backend choice |
 |-----------|----------------|
-| `POST /auth/register`, `/login`, `/refresh` | Clerk handles auth on Next.js frontend; no password routes on API |
+| `POST /auth/login`, `/refresh`, `/logout` | Clerk owns sign-in and session lifecycle on the Next.js frontend; no password login routes on the API |
 | Prisma in spec as illustration only | Adopted as real ORM target |
 | Route prefix `/me/reservations` | Use `/me/bookings` unless versioning adds alias |
+
+> **Reversed 2026-08-03:** `POST /auth/register` was previously listed here as out of scope.
+> It is now **implemented** — see the two-step sign-up flow below. Sign-**in** remains
+> frontend-only; only registration moved to the API.
+
+## Two-step sign-up (delivered 2026-08-03)
+
+| Step | Surface | Guard | Effect |
+|------|---------|-------|--------|
+| Form 1 | `POST /auth/register` | **none** (throttled) | Clerk BAPI user + `users` row, `role: client`; returns a single-use sign-in ticket |
+| — | frontend `signIn.create({ strategy: 'ticket', ticket })` | — | Activates the Clerk session; no manual sign-in screen |
+| Form 2 (client) | `PATCH /me/profile` | `ClerkAuthGuard` | Upserts `client_profiles` + user identity fields |
+| Form 2 (chef) | `PATCH /me/chef-profile` | `ClerkAuthGuard` | Upserts `chef_profiles`, promotes `users.role = chef`, always `is_active/is_verified = false` |
+| Vetting | `PATCH /admin/chefs/:id/verification` | `AdminGuard` | Only path that may set `is_active` / `is_verified` |
+
+**Role assignment rule:** the *route* selects the role; the request body never carries one.
+`role` is absent from every DTO on this path, so `forbidNonWhitelisted` turns a submitted
+`role` into a `400`. `admin` has no public surface and is set by SQL or by an existing admin.
+
+### Known follow-ups
+
+| Item | Status |
+|------|--------|
+| `is_active` / `is_verified` are **not read anywhere yet** | Chef listings, booking assignment, and any future `ChefGuard` **must** filter on both, or unvetted self-registered chefs leak into live booking flows |
+| Switching profile type (client ↔ chef) after onboarding | Blocked with `409` for now; needs reconciliation of the orphaned profile, bookings, and payouts. Planned as separate work |
+| Email verification | Off — BAPI auto-verifies. Nothing proves address ownership, so transactional mail will bounce on typo'd addresses. Revisit before payments go live |
 
 ## Change log
 
@@ -208,3 +234,4 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-24 | E1 delivered: enum rename + `chef_profiles` migration; kept `provider_id` DB columns for compatibility, added API `chefId` alias | Avoid breaking existing booking flow while aligning role terminology |
 | 2026-05-24 | E3/E4/E5/E6/E10 endpoints added (`catalog`, users profile/CRM, quotes, shopping lists, stats) | Phase 1 spec-alignment backend surface implemented |
 | 2026-07-05 | Admin user provisioning: `POST /admin/users`, `PATCH /admin/users/:id/role`; clerk-integration-contract | Backend-only scope; no FAPI auth BFF |
+| 2026-08-03 | **Reversed** the `POST /auth/register` out-of-scope decision; delivered public registration + two-step onboarding (`PATCH /me/profile`, `PATCH /me/chef-profile`, `PATCH /admin/chefs/:id/verification`); added `@nestjs/throttler` | Product needs self-serve sign-up before booking; API owns registration while Clerk keeps sign-in |

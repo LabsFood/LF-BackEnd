@@ -10,7 +10,9 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -28,9 +30,12 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { UserRole } from '../../generated/prisma/client';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
-import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
+import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
+import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
   AdminClientDto,
+  ChefProfileDto,
   ClerkJwtClaimsDto,
   ClientProfileDto,
   CurrentUserDto,
@@ -116,14 +121,17 @@ export class UsersController {
 
   @Get('me/profile')
   @ApiOperation({
-    summary: 'Get current user and client taste profile',
+    summary: 'Get current user and their profile',
     description:
-      'Returns the persisted user plus the linked `client_profiles` row when it exists. ' +
-      '`profile` is `null` until the client saves preferences via `PATCH /me/profile`.',
+      'Returns the persisted user plus whichever profile matches `users.role`: ' +
+      '`client_profiles` for clients, `chef_profiles` for chefs. Read `profileType` to ' +
+      'know which shape `profile` holds; it is `none` with a `null` profile until the ' +
+      'user completes onboarding form 2.',
   })
+  @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
     type: UserWithProfileDto,
-    description: 'User record and optional client profile.',
+    description: 'User record and the profile matching their role, if any.',
   })
   @ApiClerkAuthResponses()
   meProfile(@CurrentClerkUser() user: ClerkUser): Promise<UserWithProfileDto> {
@@ -132,22 +140,54 @@ export class UsersController {
 
   @Patch('me/profile')
   @ApiOperation({
-    summary: 'Create or update client taste profile',
+    summary: 'Create or update client profile (onboarding form 2)',
     description:
-      'Upserts `client_profiles` for the authenticated user. ' +
-      'Send only the fields you want to change (partial update). ' +
-      'Creates the profile on first call with defaults for omitted arrays.',
+      'Upserts `client_profiles` for the authenticated user and writes the shared ' +
+      'identity fields (`firstName`, `lastName`, `phone`) to `users`, mirroring names ' +
+      'into Clerk. Sets `users.role = client`. Send only the fields you want to change. ' +
+      'Chefs use `PATCH /me/chef-profile` instead — the route selects the role, ' +
+      'the body never carries one.',
   })
   @ApiOkResponse({
     type: ClientProfileDto,
     description: 'Saved client profile after upsert.',
   })
+  @ApiConflictResponse({
+    description:
+      'User already has a chef profile. Switching profile type is not supported yet.',
+  })
   @ApiClerkAuthResponses()
   patchMeProfile(
     @CurrentClerkUser() user: ClerkUser,
-    @Body() payload: UpdateClientProfileDto,
+    @Body() payload: UpdateMeProfileDto,
   ) {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Patch('me/chef-profile')
+  @ApiOperation({
+    summary: 'Create or update chef profile (onboarding form 2)',
+    description:
+      'Upserts `chef_profiles` for the authenticated user and promotes `users.role` to ' +
+      '`chef`. The profile is always created with `isActive: false` and ' +
+      '`isVerified: false` — those fields are not accepted here and can only be changed ' +
+      'by an admin via `PATCH /admin/chefs/:id/verification`. A self-registered chef is ' +
+      'therefore not bookable until vetted.',
+  })
+  @ApiOkResponse({
+    type: ChefProfileDto,
+    description: 'Saved chef profile after upsert, always unverified on first write.',
+  })
+  @ApiConflictResponse({
+    description:
+      'User already has a client profile. Switching profile type is not supported yet.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeChefProfile(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateMeChefProfileDto,
+  ) {
+    return this.users.updateChefProfileByClerkUserId(user.userId, payload);
   }
 
   @Post('admin/users')
@@ -201,6 +241,34 @@ export class UsersController {
   @ApiAdminAuthResponses()
   updateUserRole(@Param('id') id: string, @Body() payload: UpdateUserRoleDto) {
     return this.users.updateRole(id, this.users.toUserRole(payload.role));
+  }
+
+  @Patch('admin/chefs/:id/verification')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'Admin: vet a chef profile',
+    description:
+      'Sets `is_verified` and `is_active` on a chef profile. This is the only path that ' +
+      'may change these flags — self-registered chefs always start with both `false`, ' +
+      'so this endpoint is what makes a chef bookable. `:id` is the chef profile uuid ' +
+      '(`chef_profiles.id`), not the user uuid.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Chef profile uuid (`chef_profiles.id`).',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @ApiOkResponse({
+    type: ChefProfileDto,
+    description: 'Chef profile after the verification update.',
+  })
+  @ApiAdminAuthResponses()
+  updateChefVerification(
+    @Param('id') id: string,
+    @Body() payload: UpdateChefVerificationDto,
+  ) {
+    return this.users.setChefVerification(id, payload);
   }
 
   @Get('admin/clients')

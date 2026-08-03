@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -43,7 +52,8 @@ export class QuotesController {
   @UseGuards(ClerkAuthGuard)
   @ApiOperation({
     summary: 'List my quote requests',
-    description: 'Returns all quotes submitted by the authenticated client, newest first.',
+    description:
+      'Returns all quotes submitted by the authenticated client, newest first.',
   })
   @ApiOkResponse({ description: 'Array of quote records owned by the caller.' })
   @ApiClerkAuthResponses()
@@ -72,7 +82,8 @@ export class QuotesController {
   @UseGuards(ClerkAuthGuard, AdminGuard)
   @ApiOperation({
     summary: 'Admin: list quote requests',
-    description: 'Returns all client quote requests, optionally filtered by workflow status.',
+    description:
+      'Returns all client quote requests, optionally filtered by workflow status.',
   })
   @ApiQuery({
     name: 'status',

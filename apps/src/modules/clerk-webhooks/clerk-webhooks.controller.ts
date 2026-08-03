@@ -36,7 +36,9 @@ export class ClerkWebhooksController {
 
   @Post('clerk')
   @HttpCode(200)
-  async handleClerkWebhook(@Req() req: RawBodyFastifyRequest): Promise<{ received: true }> {
+  async handleClerkWebhook(
+    @Req() req: RawBodyFastifyRequest,
+  ): Promise<{ received: true }> {
     let rawBody: string;
     try {
       rawBody = getClerkWebhookRawBody(req);
@@ -53,7 +55,8 @@ export class ClerkWebhooksController {
       ) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : 'Webhook verification failed';
+      const message =
+        error instanceof Error ? error.message : 'Webhook verification failed';
       throw new BadRequestException(message);
     }
 

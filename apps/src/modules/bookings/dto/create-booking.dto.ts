@@ -1,11 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDate, IsInt, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
+import {
+  IsDate,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Min,
+} from 'class-validator';
 
 export class CreateBookingDto {
   @ApiProperty({
     format: 'uuid',
-    description: 'Chef profile id to assign. Accepted for backward compatibility; prefer `chefId`.',
+    description:
+      'Chef profile id to assign. Accepted for backward compatibility; prefer `chefId`.',
   })
   @IsUUID()
   providerId!: string;
@@ -39,7 +48,8 @@ export class CreateBookingDto {
   @ApiProperty({
     type: String,
     format: 'date-time',
-    description: 'When the in-home service should end. Must be strictly after `startsAt`.',
+    description:
+      'When the in-home service should end. Must be strictly after `startsAt`.',
     example: '2026-07-15T20:00:00.000Z',
   })
   @Type(() => Date)

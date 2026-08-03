@@ -20,9 +20,7 @@ export function primaryPhoneFromClerkUser(user: UserJSON): string | null {
   const numbers = user.phone_numbers ?? [];
   if (numbers.length === 0) return null;
   const primaryId = user.primary_phone_number_id;
-  const primary = primaryId
-    ? numbers.find((entry) => entry.id === primaryId)
-    : undefined;
+  const primary = primaryId ? numbers.find((entry) => entry.id === primaryId) : undefined;
   return primary?.phone_number ?? numbers[0]?.phone_number ?? null;
 }
 

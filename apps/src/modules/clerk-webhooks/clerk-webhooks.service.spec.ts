@@ -65,9 +65,9 @@ describe('ClerkWebhooksService', () => {
   describe('verifyAndHandle', () => {
     it('throws when signing secret is missing', async () => {
       config.get.mockReturnValue(undefined);
-      await expect(
-        service.verifyAndHandle('{}', new Headers()),
-      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(service.verifyAndHandle('{}', new Headers())).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
     });
 
     it('verifies Svix signature then dispatches', async () => {

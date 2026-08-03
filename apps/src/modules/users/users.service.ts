@@ -6,6 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { User, UserRole } from '../../generated/prisma/client';
 
 import {
@@ -17,7 +18,8 @@ import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateAdminClientDto, UpdateClientProfileDto } from './dto/profile.dto';
+import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
   clerkUserId: string;
@@ -46,11 +48,30 @@ export interface ProvisionAdminUserInput {
   role?: UserRole;
 }
 
+export interface RegisterClientInput {
+  email: string;
+  password: string;
+}
+
+export interface RegisterClientResult {
+  user: User;
+  signInToken: string;
+  expiresInSeconds: number;
+}
+
+/** Identity fields that live on `users`, shared by the client and chef onboarding forms. */
+export interface OwnUserFields {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+}
+
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
+    private readonly config: ConfigService,
   ) {}
 
   private createPersistedUser(
@@ -166,13 +187,26 @@ export class UsersService {
 
   /**
    * Create a Clerk user via BAPI and persist in Postgres with the requested role.
-   * BAPI auto-verifies email addresses (Clerk limitation for admin provisioning).
+   * BAPI auto-verifies email addresses (Clerk limitation for server-side creation).
    */
-  async provisionAdminUser(input: ProvisionAdminUserInput): Promise<User> {
+  private async createClerkUserAndPersist(
+    input: ProvisionAdminUserInput,
+    role: UserRole,
+  ): Promise<User> {
     if (!this.clerk.configured) {
       throw new ServiceUnavailableException(
-        'Clerk admin provisioning requires a real CLERK_SECRET_KEY (not sk_test_placeholder).',
+        'Clerk user creation requires a real CLERK_SECRET_KEY (not sk_test_placeholder).',
       );
+    }
+
+    // Check Postgres first: creating in Clerk before finding out the email is already
+    // taken locally would leave an orphaned Clerk account with no matching users row.
+    const existing = await this.prisma.user.findUnique({
+      where: { email: input.email },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(`Email ${input.email} is already registered.`);
     }
 
     const clerk = this.clerk.getClient();
@@ -195,8 +229,38 @@ export class UsersService {
       clerkUserId: clerkUser.id,
       email: input.email,
       fullName,
-      role: input.role ?? UserRole.client,
+      role,
     });
+  }
+
+  /** Admin-driven provisioning. Role comes from the authenticated admin's request. */
+  provisionAdminUser(input: ProvisionAdminUserInput): Promise<User> {
+    return this.createClerkUserAndPersist(input, input.role ?? UserRole.client);
+  }
+
+  /**
+   * Public self-service sign-up (`POST /auth/register`, form 1).
+   *
+   * The role is hard-coded to `client` and is never read from the request — chef and
+   * admin must not be self-assignable. A user who chooses "chef" in form 2 is promoted
+   * by `updateChefProfileByClerkUserId`, which lands them unverified and inactive.
+   *
+   * Server-side creation establishes no browser session, so a short-lived sign-in
+   * ticket is returned for the frontend to redeem.
+   */
+  async registerClient(input: RegisterClientInput): Promise<RegisterClientResult> {
+    const user = await this.createClerkUserAndPersist(
+      { email: input.email, password: input.password },
+      UserRole.client,
+    );
+
+    const expiresInSeconds = this.config.get<number>('clerk.signInTokenTtlSeconds', 60);
+    const { token } = await this.clerk.getClient().signInTokens.createSignInToken({
+      userId: user.clerkUserId,
+      expiresInSeconds,
+    });
+
+    return { user, signInToken: token, expiresInSeconds };
   }
 
   upsertFromClerkUserJson(user: UserJSON): Promise<User> {
@@ -210,29 +274,179 @@ export class UsersService {
     await this.prisma.user.deleteMany({ where: { clerkUserId } });
   }
 
+  /** Returns whichever profile matches `users.role`, so chefs do not always see `null`. */
   async getProfileByClerkUserId(clerkUserId: string) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
+
+    if (user.role === UserRole.chef) {
+      const profile = await this.prisma.chefProfile.findUnique({
+        where: { userId: user.id },
+      });
+      return {
+        user,
+        profileType: profile ? ('chef' as const) : ('none' as const),
+        profile,
+      };
+    }
+
     const profile = await this.prisma.clientProfile.findUnique({
       where: { userId: user.id },
     });
-    return { user, profile };
+    return {
+      user,
+      profileType: profile ? ('client' as const) : ('none' as const),
+      profile,
+    };
   }
 
-  async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateClientProfileDto) {
+  /**
+   * Client onboarding (`PATCH /me/profile`, form 2).
+   * Splits user-level identity fields out of the payload before touching
+   * `client_profiles`, which has no columns for them.
+   */
+  async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateMeProfileDto) {
+    const { firstName, lastName, phone, ...profileFields } = payload;
+
     const user = await this.ensurePersistedFromClerk(clerkUserId);
+    await this.assertNoConflictingProfile(user.id, 'client');
+    await this.applyOwnUserFields(user, { firstName, lastName, phone }, UserRole.client);
+
     return this.prisma.clientProfile.upsert({
       where: { userId: user.id },
-      update: payload,
+      update: profileFields,
       create: {
         userId: user.id,
-        dietaryPreferences: payload.dietaryPreferences ?? [],
-        allergies: payload.allergies ?? [],
-        dislikes: payload.dislikes ?? [],
-        favorites: payload.favorites ?? [],
-        spiceLevel: payload.spiceLevel,
-        kitchenNotes: payload.kitchenNotes,
+        dietaryPreferences: profileFields.dietaryPreferences ?? [],
+        allergies: profileFields.allergies ?? [],
+        dislikes: profileFields.dislikes ?? [],
+        favorites: profileFields.favorites ?? [],
+        spiceLevel: profileFields.spiceLevel,
+        kitchenNotes: profileFields.kitchenNotes,
+        addressStreet: profileFields.addressStreet,
+        addressCity: profileFields.addressCity,
+        addressPostalCode: profileFields.addressPostalCode,
+        householdAdults: profileFields.householdAdults,
+        householdKids: profileFields.householdKids,
       },
     });
+  }
+
+  /**
+   * Chef onboarding (`PATCH /me/chef-profile`, form 2).
+   *
+   * Promotes `users.role` to `chef` — the route is what selects the role, never the
+   * request body. The profile is always created inactive and unverified; only
+   * {@link setChefVerification} can change that.
+   */
+  async updateChefProfileByClerkUserId(
+    clerkUserId: string,
+    payload: UpdateMeChefProfileDto,
+  ) {
+    const { firstName, lastName, phone, ...profileFields } = payload;
+
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    await this.assertNoConflictingProfile(user.id, 'chef');
+    await this.applyOwnUserFields(user, { firstName, lastName, phone }, UserRole.chef);
+
+    return this.prisma.chefProfile.upsert({
+      where: { userId: user.id },
+      update: profileFields,
+      create: {
+        userId: user.id,
+        displayName: profileFields.displayName,
+        bio: profileFields.bio,
+        city: profileFields.city,
+        serviceRadiusKm: profileFields.serviceRadiusKm ?? 10,
+        // Never settable from a self-service request — admin vetting owns these.
+        isActive: false,
+        isVerified: false,
+      },
+    });
+  }
+
+  /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */
+  async setChefVerification(
+    chefProfileId: string,
+    input: { isVerified?: boolean; isActive?: boolean },
+  ) {
+    const profile = await this.prisma.chefProfile.findUnique({
+      where: { id: chefProfileId },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+
+    return this.prisma.chefProfile.update({
+      where: { id: chefProfileId },
+      data: input,
+      include: { user: true },
+    });
+  }
+
+  /**
+   * Switching profile type after onboarding is deliberately blocked for now; it needs
+   * reconciliation of the orphaned profile, bookings, and payouts. Tracked as separate
+   * work — the schema already supports both rows existing, so this is the only guard.
+   */
+  private async assertNoConflictingProfile(
+    userId: string,
+    target: 'client' | 'chef',
+  ): Promise<void> {
+    const other =
+      target === 'client'
+        ? await this.prisma.chefProfile.findUnique({
+            where: { userId },
+            select: { id: true },
+          })
+        : await this.prisma.clientProfile.findUnique({
+            where: { userId },
+            select: { id: true },
+          });
+
+    if (other) {
+      throw new ConflictException(
+        `User already has a ${target === 'client' ? 'chef' : 'client'} profile. ` +
+          'Switching profile type is not supported yet.',
+      );
+    }
+  }
+
+  /** Writes shared identity fields to `users` and mirrors names into Clerk. */
+  private async applyOwnUserFields(
+    user: User,
+    fields: OwnUserFields,
+    role: UserRole,
+  ): Promise<void> {
+    const fullName =
+      [fields.firstName, fields.lastName].filter(Boolean).join(' ') || undefined;
+
+    const data: { fullName?: string; phone?: string; role?: UserRole } = {};
+    if (fullName && fullName !== user.fullName) data.fullName = fullName;
+    if (fields.phone && fields.phone !== user.phone) data.phone = fields.phone;
+    if (user.role !== role) data.role = role;
+
+    if (Object.keys(data).length > 0) {
+      await this.prisma.user.update({ where: { id: user.id }, data });
+    }
+
+    if ((fields.firstName || fields.lastName) && this.clerk.configured) {
+      await this.syncClerkNames(user.clerkUserId, fields);
+    }
+  }
+
+  private async syncClerkNames(
+    clerkUserId: string,
+    fields: OwnUserFields,
+  ): Promise<void> {
+    try {
+      await this.clerk.getClient().users.updateUser(clerkUserId, {
+        ...(fields.firstName ? { firstName: fields.firstName } : {}),
+        ...(fields.lastName ? { lastName: fields.lastName } : {}),
+      });
+    } catch {
+      // Postgres is the source of truth; Clerk name sync is best-effort visibility.
+    }
   }
 
   listClients(status?: string) {

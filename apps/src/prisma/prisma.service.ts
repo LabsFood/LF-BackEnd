@@ -19,7 +19,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ...(ssl ? { ssl } : {}),
     });
     const adapter = new PrismaPg(pool);
-    const log = config.get<boolean>('debug') ? (['warn', 'error'] as const) : (['error'] as const);
+    const log = config.get<boolean>('debug')
+      ? (['warn', 'error'] as const)
+      : (['error'] as const);
     super({ adapter, log: [...log] });
     this.pool = pool;
   }

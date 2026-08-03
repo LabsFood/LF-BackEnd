@@ -5,11 +5,57 @@
 
 | Layer                      | Owns                                                                               | Does not own                               |
 | -------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------ |
-| **Next.js frontend**       | Sign-up, sign-in, session UI via `@clerk/nextjs` + Clerk FAPI                      | Postgres `users.role`, LF business data    |
-| **NestJS API (this repo)** | JWT verification, webhooks, `GET /me` upsert, admin provisioning, RBAC in Postgres | Password login/register routes, FAPI proxy |
+| **Next.js frontend**       | Sign-**in**, session UI via `@clerk/nextjs` + Clerk FAPI; redeeming sign-up tickets | Postgres `users.role`, LF business data    |
+| **NestJS API (this repo)** | Sign-**up** (`POST /auth/register`), JWT verification, webhooks, `GET /me` upsert, onboarding profiles, admin provisioning, RBAC in Postgres | Password **login**, refresh, FAPI proxy |
 
 
-Frontends **never** POST email/password to this API for authentication. After Clerk establishes a session, the client calls `getToken()` and sends `Authorization: Bearer <jwt>` on protected routes.
+Frontends **never** POST email/password to this API to *authenticate*. Registration is the one exception — `POST /auth/register` accepts a password to create the account, then hands back a sign-in ticket. After Clerk establishes a session, the client calls `getToken()` and sends `Authorization: Bearer <jwt>` on protected routes.
+
+## Public sign-up (two forms)
+
+`POST /auth/register` is the only unauthenticated write endpoint on the API. It is IP rate-limited (`REGISTER_THROTTLE_LIMIT`, default 5 per hour).
+
+```mermaid
+sequenceDiagram
+  participant UI as NextJS
+  participant API as LF_API
+  participant BAPI as Clerk_BAPI
+  participant Clerk as Clerk_FAPI
+  participant DB as Postgres
+
+  UI->>API: POST /auth/register (email, password)
+  API->>BAPI: users.createUser (auto-verified email)
+  API->>DB: users row, role=client
+  API->>BAPI: signInTokens.createSignInToken (60s)
+  API-->>UI: user + signInToken
+  UI->>Clerk: signIn.create({ strategy ticket })
+  Clerk-->>UI: active session
+  UI->>API: PATCH /me/profile or /me/chef-profile (Bearer JWT)
+  API->>DB: upsert profile + users identity fields
+  API-->>UI: saved profile
+```
+
+| Form | Endpoint | Guard | Notes |
+| ---- | -------- | ----- | ----- |
+| 1 — credentials | `POST /auth/register` | none | `email` + `password` only. Always creates `role: client`. Returns `{ user, signInToken, expiresInSeconds }` |
+| 2 — client profile | `PATCH /me/profile` | `ClerkAuthGuard` | Taste prefs, address, household, plus `firstName` / `lastName` / `phone` |
+| 2 — chef profile | `PATCH /me/chef-profile` | `ClerkAuthGuard` | `displayName` (required), `bio`, `city`, `serviceRadiusKm`. Promotes `users.role = chef` |
+
+**The route selects the role — never the request body.** `role` is absent from every DTO on this path, so a submitted `role` is rejected with `400 property role should not exist`. A sign-up form may show a client/chef choice, but it must map to the endpoint, not to a body field. `admin` is not reachable from any public route; promote via SQL or `PATCH /admin/users/:id/role`.
+
+### `signInToken` handling
+
+Single-use, 60s TTL (`CLERK_SIGN_IN_TOKEN_TTL_SECONDS`). Treat it as a credential: redeem immediately, never log it, never persist it, never put it in a URL or query string.
+
+### Chef vetting
+
+Self-registered chefs are always created with `is_active: false` and `is_verified: false`; neither field is accepted by `PATCH /me/chef-profile`. Only `PATCH /admin/chefs/:id/verification` (admin) can flip them.
+
+> **Not yet enforced:** no code reads these flags today. Chef listings, booking assignment, and any future `ChefGuard` **must** filter on `is_active && is_verified`, or unvetted self-registered chefs will appear in live booking flows.
+
+### Not supported yet
+
+Switching profile type after onboarding returns `409`. A user with a client profile cannot call `PATCH /me/chef-profile` (and vice versa) — reconciling the orphaned profile, bookings, and payouts is planned as separate work.
 
 ## First sign-in sync (frontend required)
 
@@ -114,7 +160,9 @@ Admins with `users.role = admin` (see bootstrap below) can:
 
 ### BAPI email verification note
 
-Clerk Backend API `users.createUser` **auto-verifies email addresses**. This is acceptable for admin-driven provisioning but is **not** used for self-service sign-up (handled entirely on the frontend via Clerk FAPI with your Dashboard verification settings).
+Clerk Backend API `users.createUser` **auto-verifies email addresses**. This applies to admin-driven provisioning **and**, since 2026-08-03, to public sign-up via `POST /auth/register` (see below), which uses the same BAPI call.
+
+> **Consequence:** users created through either path skip the email-verification step your Clerk Dashboard enforces on the frontend FAPI flow. Nothing proves the address belongs to the registrant, so typo'd and disposable addresses reach `users`. The registration endpoint is IP rate-limited to blunt bulk abuse, but if you need real address ownership — before transactional booking mail or payments — the endpoint must additionally trigger a Clerk verification flow, or sign-up must move back to frontend FAPI.
 
 ### Password optional
 

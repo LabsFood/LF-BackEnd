@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger';
 
 import { USER_ROLES } from './admin-user.dto';
 
@@ -28,7 +28,8 @@ export class ClerkJwtClaimsDto {
 export class CurrentUserDto {
   @ApiProperty({
     format: 'uuid',
-    description: 'Postgres primary key (`users.id`). Use this id for `PATCH /admin/users/:id/role`.',
+    description:
+      'Postgres primary key (`users.id`). Use this id for `PATCH /admin/users/:id/role`.',
     example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   id!: string;
@@ -123,17 +124,73 @@ export class ClientProfileDto {
   status?: string;
 }
 
-/** `GET /me/profile` — persisted user plus optional client profile. */
+/** Chef provider profile (`chef_profiles` table). */
+export class ChefProfileDto {
+  @ApiProperty({ format: 'uuid', description: 'Chef profile primary key.' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid', description: 'Linked Postgres user id (`users.id`).' })
+  userId!: string;
+
+  @ApiProperty({
+    description: 'Public display name shown to clients.',
+    example: 'Chef Marie D.',
+  })
+  displayName!: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Short public biography.' })
+  bio?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'City the chef operates from.' })
+  city?: string | null;
+
+  @ApiProperty({
+    description: 'Distance in kilometres the chef will travel for a session.',
+    example: 10,
+  })
+  serviceRadiusKm!: number;
+
+  @ApiProperty({
+    description:
+      'Whether the chef is live and bookable. Always `false` on self-registration; ' +
+      'only an admin can enable it via `PATCH /admin/chefs/:id/verification`.',
+    example: false,
+  })
+  isActive!: boolean;
+
+  @ApiProperty({
+    description:
+      'Whether an admin has vetted this chef. Always `false` on self-registration.',
+    example: false,
+  })
+  isVerified!: boolean;
+}
+
+/** `GET /me/profile` — persisted user plus whichever profile matches `users.role`. */
 export class UserWithProfileDto {
   @ApiProperty({ type: CurrentUserDto, description: 'Persisted application user.' })
   user!: CurrentUserDto;
 
-  @ApiPropertyOptional({
-    type: ClientProfileDto,
-    nullable: true,
-    description: 'Client taste profile. `null` until the client completes onboarding.',
+  @ApiProperty({
+    enum: ['client', 'chef', 'none'],
+    description:
+      'Which profile `profile` holds. `none` when the user has not completed onboarding. ' +
+      'Admins report the profile they hold as a user, if any.',
+    example: 'client',
   })
-  profile!: ClientProfileDto | null;
+  profileType!: 'client' | 'chef' | 'none';
+
+  @ApiPropertyOptional({
+    oneOf: [
+      { $ref: getSchemaPath(ClientProfileDto) },
+      { $ref: getSchemaPath(ChefProfileDto) },
+    ],
+    nullable: true,
+    description:
+      'Client taste profile or chef provider profile, selected by `users.role`. ' +
+      '`null` until the user completes onboarding.',
+  })
+  profile!: ClientProfileDto | ChefProfileDto | null;
 }
 
 /** Admin client list/detail item — profile with nested user. */

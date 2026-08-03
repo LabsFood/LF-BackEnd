@@ -1,10 +1,5 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { AdminGuard } from '../../auth/admin.guard';
