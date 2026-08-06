@@ -1,0 +1,11 @@
+# Voir https://docs.github.com/articles/about-code-owners
+# Ces regles s'appliquent aux Pull Requests une fois la protection de branche
+# activee sur `main` (et `develop`) avec "Require review from Code Owners".
+
+# Backend NestJS — proprietaire par defaut sur tout le repo
+*                       @sevendeadly
+
+# Infra / CI / deploiement — a relire par l'architecte avant merge
+/railway.toml           @ARCHITECT_GITHUB_HANDLE
+/docker-compose.yml     @ARCHITECT_GITHUB_HANDLE
+/.github/               @ARCHITECT_GITHUB_HANDLE
