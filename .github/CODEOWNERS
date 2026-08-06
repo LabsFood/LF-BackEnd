@@ -6,6 +6,6 @@
 *                       @sevendeadly
 
 # Infra / CI / deploiement — a relire par l'architecte avant merge
-/railway.toml           @ARCHITECT_GITHUB_HANDLE
-/docker-compose.yml     @ARCHITECT_GITHUB_HANDLE
-/.github/               @ARCHITECT_GITHUB_HANDLE
+/railway.toml           @duval-constyl
+/docker-compose.yml     @duval-constyl
+/.github/               @duval-constyl
