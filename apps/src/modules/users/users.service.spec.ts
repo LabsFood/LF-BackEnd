@@ -511,6 +511,53 @@ describe('UsersService', () => {
       });
     });
 
+    it('never writes users.role when saving a client profile', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+
+      await service.updateProfileByClerkUserId('user_1', {
+        firstName: 'Marie',
+        allergies: ['peanuts'],
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        data: { fullName: 'Marie' },
+      });
+      expect(prisma.user.update.mock.calls[0][0].data).not.toHaveProperty('role');
+    });
+
+    it('does not demote an admin who saves a client profile', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue({ ...currentUser, role: UserRole.admin } as never);
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+
+      await service.updateProfileByClerkUserId('user_1', { firstName: 'Marie' });
+
+      // Demoting here would strip the admin of back-office access, potentially
+      // locking out the only admin on the instance.
+      expect(prisma.user.update.mock.calls[0][0].data).not.toHaveProperty('role');
+    });
+
+    it('touches users at all only when identity fields change', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue(currentUser as never);
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+
+      await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('rejects a client profile when a chef profile already exists', async () => {
       jest
         .spyOn(service, 'ensurePersistedFromClerk')
@@ -560,6 +607,23 @@ describe('UsersService', () => {
         isActive: false,
         isVerified: false,
       });
+    });
+
+    it('does not demote an admin who saves a chef profile', async () => {
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue({ ...currentUser, role: UserRole.admin } as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue(currentUser);
+      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
+
+      await service.updateChefProfileByClerkUserId('user_1', {
+        displayName: 'Chef Admin',
+        firstName: 'Marie',
+      });
+
+      // Promotion is client -> chef only; admin must survive chef onboarding.
+      expect(prisma.user.update.mock.calls[0][0].data).not.toHaveProperty('role');
     });
 
     it('cannot be tricked into self-verifying via the payload', async () => {

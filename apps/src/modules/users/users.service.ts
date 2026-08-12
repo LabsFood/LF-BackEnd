@@ -274,28 +274,31 @@ export class UsersService {
     await this.prisma.user.deleteMany({ where: { clerkUserId } });
   }
 
-  /** Returns whichever profile matches `users.role`, so chefs do not always see `null`. */
+  /**
+   * Returns whichever profile row the user actually holds.
+   *
+   * Resolved from the data rather than from `users.role`: onboarding no longer forces
+   * the role to match the profile, so an admin may hold a chef profile while keeping
+   * `admin`. Branching on the role would report `none` for that user despite the row
+   * existing. The second query only runs when the first misses.
+   */
   async getProfileByClerkUserId(clerkUserId: string) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
 
-    if (user.role === UserRole.chef) {
-      const profile = await this.prisma.chefProfile.findUnique({
-        where: { userId: user.id },
-      });
-      return {
-        user,
-        profileType: profile ? ('chef' as const) : ('none' as const),
-        profile,
-      };
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { userId: user.id },
+    });
+    if (chef) {
+      return { user, profileType: 'chef' as const, profile: chef };
     }
 
-    const profile = await this.prisma.clientProfile.findUnique({
+    const client = await this.prisma.clientProfile.findUnique({
       where: { userId: user.id },
     });
     return {
       user,
-      profileType: profile ? ('client' as const) : ('none' as const),
-      profile,
+      profileType: client ? ('client' as const) : ('none' as const),
+      profile: client,
     };
   }
 
@@ -309,7 +312,8 @@ export class UsersService {
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'client');
-    await this.applyOwnUserFields(user, { firstName, lastName, phone }, UserRole.client);
+    // No role argument: saving a client profile must never change `users.role`.
+    await this.applyOwnUserFields(user, { firstName, lastName, phone });
 
     return this.prisma.clientProfile.upsert({
       where: { userId: user.id },
@@ -346,7 +350,10 @@ export class UsersService {
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'chef');
-    await this.applyOwnUserFields(user, { firstName, lastName, phone }, UserRole.chef);
+    // Promote out of `client` only. An admin filling in a chef profile keeps `admin`,
+    // and an existing chef is left alone — onboarding never demotes.
+    const promoteTo = user.role === UserRole.client ? UserRole.chef : undefined;
+    await this.applyOwnUserFields(user, { firstName, lastName, phone }, promoteTo);
 
     return this.prisma.chefProfile.upsert({
       where: { userId: user.id },
@@ -413,10 +420,18 @@ export class UsersService {
   }
 
   /** Writes shared identity fields to `users` and mirrors names into Clerk. */
+  /**
+   * Writes shared identity fields to `users` and mirrors names into Clerk.
+   *
+   * `role` is only written when a caller explicitly passes one. Onboarding must not
+   * assert a default role: `client` is already applied at row creation
+   * (`POST /auth/register` and the `upsertFromClerk` create path), so re-asserting it
+   * here would demote an existing admin or chef who edits their own profile.
+   */
   private async applyOwnUserFields(
     user: User,
     fields: OwnUserFields,
-    role: UserRole,
+    role?: UserRole,
   ): Promise<void> {
     const fullName =
       [fields.firstName, fields.lastName].filter(Boolean).join(' ') || undefined;
@@ -424,7 +439,7 @@ export class UsersService {
     const data: { fullName?: string; phone?: string; role?: UserRole } = {};
     if (fullName && fullName !== user.fullName) data.fullName = fullName;
     if (fields.phone && fields.phone !== user.phone) data.phone = fields.phone;
-    if (user.role !== role) data.role = role;
+    if (role !== undefined && user.role !== role) data.role = role;
 
     if (Object.keys(data).length > 0) {
       await this.prisma.user.update({ where: { id: user.id }, data });

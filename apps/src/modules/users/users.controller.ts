@@ -144,9 +144,9 @@ export class UsersController {
     description:
       'Upserts `client_profiles` for the authenticated user and writes the shared ' +
       'identity fields (`firstName`, `lastName`, `phone`) to `users`, mirroring names ' +
-      'into Clerk. Sets `users.role = client`. Send only the fields you want to change. ' +
-      'Chefs use `PATCH /me/chef-profile` instead — the route selects the role, ' +
-      'the body never carries one.',
+      'into Clerk. Send only the fields you want to change. ' +
+      '**Never changes `users.role`** — new accounts are already `client` from ' +
+      'registration, so an admin or chef editing their profile keeps their role.',
   })
   @ApiOkResponse({
     type: ClientProfileDto,
@@ -168,8 +168,9 @@ export class UsersController {
   @ApiOperation({
     summary: 'Create or update chef profile (onboarding form 2)',
     description:
-      'Upserts `chef_profiles` for the authenticated user and promotes `users.role` to ' +
-      '`chef`. The profile is always created with `isActive: false` and ' +
+      'Upserts `chef_profiles` for the authenticated user and promotes `users.role` from ' +
+      '`client` to `chef`. An existing `admin` or `chef` keeps their role — onboarding ' +
+      'never demotes. The profile is always created with `isActive: false` and ' +
       '`isVerified: false` — those fields are not accepted here and can only be changed ' +
       'by an admin via `PATCH /admin/chefs/:id/verification`. A self-registered chef is ' +
       'therefore not bookable until vetted.',
