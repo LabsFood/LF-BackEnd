@@ -27,6 +27,27 @@ Frontends authenticate with Clerk and call this API with `Authorization: Bearer 
 
 Webhooks are **eventually consistent**; do not block sign-in on webhook delivery.
 
+#### Backfill for accounts the webhook never saw
+
+A Clerk account created **before** the webhook was configured — or one that has never hit `GET /me` — has no `users` row, and nothing will create one until that person next signs in. `npm run db:backfill:clerk` pulls them across:
+
+```bash
+cd apps
+npm run db:backfill:clerk -- --email someone@example.com              # dry run
+npm run db:backfill:clerk -- --email someone@example.com --yes        # write
+npm run db:backfill:clerk -- --clerk-id user_2nGxK8abc123 --yes
+npm run db:backfill:clerk -- --all --yes                              # every missing Clerk user
+npm run db:backfill:clerk -- --email someone@example.com --role admin --yes
+```
+
+- **Writes require `--yes`.** Without it the script dry-runs and prints the target database host.
+- `--role` defaults to `client` on create. Existing rows **keep their role** unless `--role` is passed, so a backfill cannot silently demote an admin.
+- Clerk accounts with no email address are skipped (`users.email` is `NOT NULL`).
+- If the email already exists on a row with a *different* `clerk_user_id`, the script reports a conflict and skips rather than failing on `uq_users_email`. Fix the row's `clerk_user_id` by hand, then re-run.
+- Requires a real `CLERK_SECRET_KEY` for both dry run and write.
+
+> ⚠️ **Env precedence:** `loadRepoEnv()` lets repo-root `.env.local` **override shell-exported variables**. Exporting `SUPABASE_DB_URL` or `CLERK_SECRET_KEY` on the command line does **not** redirect this script — it will use `.env` / `.env.local`. Always read the `Database :` line the script prints before passing `--yes`.
+
 ### 2. Postgres → Clerk (migration / demo, one-off)
 
 There is **no** Clerk Dashboard action to “import Supabase users”. Options:
@@ -101,6 +122,7 @@ See `[docs/deploy/railway.md](../deploy/railway.md)`: set `CLERK_WEBHOOK_SIGNING
 | Admin routes           | `apps/src/modules/users/users.controller.ts` |
 | Webhook module         | `apps/src/modules/clerk-webhooks/`           |
 | DB → Clerk script      | `apps/prisma/sync-users-to-clerk.ts`         |
+| Clerk → DB backfill    | `apps/prisma/sync-clerk-to-db.ts`            |
 | Placeholder id helpers | `apps/src/auth/clerk-ids.ts`                 |
 | Integration contract   | `docs/auth/clerk-integration-contract.md`    |
 

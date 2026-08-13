@@ -53,7 +53,8 @@ export class CatalogController {
   @UseGuards(ClerkAuthGuard, AdminGuard)
   @ApiOperation({
     summary: 'Admin: create a meal',
-    description: 'Adds a new meal to the catalog. Defaults to `draft` status when omitted.',
+    description:
+      'Adds a new meal to the catalog. Defaults to `draft` status when omitted.',
   })
   @ApiOkResponse({ description: 'Created meal record.' })
   @ApiAdminAuthResponses()

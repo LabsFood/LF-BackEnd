@@ -10,9 +10,16 @@ export interface AppConfig {
   cors: {
     origins: string[];
   };
+  /** Rate limit applied to unauthenticated public writes (`POST /auth/register`). */
+  registerThrottle: {
+    ttlMs: number;
+    limit: number;
+  };
   clerk: {
     secretKey?: string;
     webhookSigningSecret?: string;
+    /** Lifetime of the sign-in ticket returned by `POST /auth/register`. */
+    signInTokenTtlSeconds: number;
   };
   stripe: {
     secretKey?: string;
@@ -71,9 +78,14 @@ export const configLoader = (): AppConfig => ({
   cors: {
     origins: parseOrigins(process.env.CORS_ORIGINS),
   },
+  registerThrottle: {
+    ttlMs: Number(process.env.REGISTER_THROTTLE_TTL_MS ?? 3_600_000),
+    limit: Number(process.env.REGISTER_THROTTLE_LIMIT ?? 5),
+  },
   clerk: {
     secretKey: process.env.CLERK_SECRET_KEY,
     webhookSigningSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
+    signInTokenTtlSeconds: Number(process.env.CLERK_SIGN_IN_TOKEN_TTL_SECONDS ?? 60),
   },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,

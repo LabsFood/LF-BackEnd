@@ -12,14 +12,18 @@ describe('ShoppingListsService', () => {
               portions: 4,
               meal: {
                 portions: 4,
-                ingredients: [{ name: 'Tomato', amount: 2, unit: 'pcs', aisle: 'produce' }],
+                ingredients: [
+                  { name: 'Tomato', amount: 2, unit: 'pcs', aisle: 'produce' },
+                ],
               },
             },
             {
               portions: 2,
               meal: {
                 portions: 2,
-                ingredients: [{ name: 'Tomato', amount: 1, unit: 'pcs', aisle: 'produce' }],
+                ingredients: [
+                  { name: 'Tomato', amount: 1, unit: 'pcs', aisle: 'produce' },
+                ],
               },
             },
           ],
@@ -27,7 +31,9 @@ describe('ShoppingListsService', () => {
       },
       shoppingList: {
         upsert: jest.fn().mockResolvedValue({ id: 'sl1', bookingId: 'b1' }),
-        findUnique: jest.fn().mockResolvedValue({ id: 'sl1', bookingId: 'b1', items: [] }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'sl1', bookingId: 'b1', items: [] }),
       },
       shoppingItem: {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
