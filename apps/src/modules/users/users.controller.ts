@@ -21,6 +21,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { UserRole } from '../../generated/prisma/client';
+
 import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,

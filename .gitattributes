@@ -1,0 +1,6 @@
+# Force LF regardless of local core.autocrlf — a Windows checkout with CRLF
+# breaks any script copied into a Linux container (exec format error at
+# runtime: "no such file or directory" despite the file existing).
+*.sh text eol=lf
+apps/scripts/* text eol=lf
+Dockerfile text eol=lf
