@@ -24,7 +24,7 @@ export const envValidationSchema = Joi.object({
   CLERK_SECRET_KEY: Joi.string().allow('').optional(),
   CLERK_WEBHOOK_SIGNING_SECRET: Joi.string().allow('').optional(),
   /** Sign-in ticket handed to the frontend after `POST /auth/register`. Keep it short. */
-  CLERK_SIGN_IN_TOKEN_TTL_SECONDS: Joi.number().min(600).max(6000).default(3600),
+  CLERK_SIGN_IN_TOKEN_TTL_SECONDS: Joi.number().min(30).max(600).default(60),
 
   /** Rate limit for the public registration endpoint. */
   REGISTER_THROTTLE_TTL_MS: Joi.number().min(1000).default(3_600_000),
@@ -57,9 +57,5 @@ export const envValidationSchema = Joi.object({
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
   SUPABASE_CMS_ASSETS_BUCKET: Joi.string().allow('').optional(),
 
-  /**
-   * Extra origins on top of the built-in allowlist (`config/allowed-origins.ts`).
-   * Left empty by default so production never inherits a localhost origin.
-   */
-  CORS_ORIGINS: Joi.string().allow('').optional(),
+  CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
 });
