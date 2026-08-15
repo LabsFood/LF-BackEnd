@@ -1,20 +1,6 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiConflictResponse,
-  ApiNoContentResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -28,7 +14,6 @@ import { CatalogService } from './catalog.service';
 import {
   CreateMealDto,
   CreateMenuWeekDto,
-  MealResponseDto,
   UpdateFormuleDto,
   UpdateMealDto,
 } from './dto/catalog-admin.dto';
@@ -57,10 +42,7 @@ export class CatalogController {
     summary: 'Admin: list all meals',
     description: 'Returns every meal in the catalog (draft and published).',
   })
-  @ApiOkResponse({
-    description: 'Array of meal records.',
-    type: [MealResponseDto],
-  })
+  @ApiOkResponse({ description: 'Array of meal records.' })
   @ApiAdminAuthResponses()
   listMeals() {
     return this.catalog.listMeals();
@@ -74,7 +56,7 @@ export class CatalogController {
     description:
       'Adds a new meal to the catalog. Defaults to `draft` status when omitted.',
   })
-  @ApiOkResponse({ description: 'Created meal record.', type: MealResponseDto })
+  @ApiOkResponse({ description: 'Created meal record.' })
   @ApiAdminAuthResponses()
   createMeal(@Body() payload: CreateMealDto) {
     return this.catalog.createMeal(payload);
@@ -85,36 +67,13 @@ export class CatalogController {
   @UseGuards(ClerkAuthGuard, AdminGuard)
   @ApiOperation({
     summary: 'Admin: update a meal',
-    description:
-      'Partial update of any meal attribute. Send `null` to clear an optional field ' +
-      '(`description`, `imageUrl`, `continent`, `country`, `calories`, `difficulty`).',
+    description: 'Partial update of name, prep time, allergens, ingredients, or status.',
   })
   @ApiParam({ name: 'id', description: 'Meal uuid.', format: 'uuid' })
-  @ApiOkResponse({ description: 'Updated meal record.', type: MealResponseDto })
+  @ApiOkResponse({ description: 'Updated meal record.' })
   @ApiAdminAuthResponses()
   updateMeal(@Param('id') id: string, @Body() payload: UpdateMealDto) {
     return this.catalog.updateMeal(id, payload);
-  }
-
-  @Delete('admin/meals/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
-  @UseGuards(ClerkAuthGuard, AdminGuard)
-  @ApiOperation({
-    summary: 'Admin: delete a meal',
-    description:
-      'Permanently removes a meal from the catalog and detaches it from any weekly ' +
-      'menus. Meals already used in a booking cannot be deleted — archive them instead.',
-  })
-  @ApiParam({ name: 'id', description: 'Meal uuid.', format: 'uuid' })
-  @ApiNoContentResponse({ description: 'Meal deleted.' })
-  @ApiNotFoundResponse({ description: 'Meal not found.' })
-  @ApiConflictResponse({
-    description: 'Meal is referenced by existing bookings; archive it instead.',
-  })
-  @ApiAdminAuthResponses()
-  deleteMeal(@Param('id') id: string) {
-    return this.catalog.deleteMeal(id);
   }
 
   @Get('admin/menu-weeks')

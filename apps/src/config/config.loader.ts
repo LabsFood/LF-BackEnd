@@ -1,5 +1,3 @@
-import { resolveAllowedOrigins } from './allowed-origins';
-
 export interface AppConfig {
   environment: string;
   debug: boolean;
@@ -63,6 +61,12 @@ export interface AppConfig {
   };
 }
 
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
 export const configLoader = (): AppConfig => ({
   environment: process.env.ENVIRONMENT ?? 'development',
   debug: (process.env.DEBUG ?? 'true').toLowerCase() === 'true',
@@ -72,11 +76,7 @@ export const configLoader = (): AppConfig => ({
   },
   // redisUrl: process.env.REDIS_URL ?? '',
   cors: {
-    origins: resolveAllowedOrigins(process.env.CORS_ORIGINS, process.env.ENVIRONMENT),
-  },
-  registerThrottle: {
-    ttlMs: Number(process.env.REGISTER_THROTTLE_TTL_MS ?? 3_600_000),
-    limit: Number(process.env.REGISTER_THROTTLE_LIMIT ?? 5),
+    origins: parseOrigins(process.env.CORS_ORIGINS),
   },
   registerThrottle: {
     ttlMs: Number(process.env.REGISTER_THROTTLE_TTL_MS ?? 3_600_000),

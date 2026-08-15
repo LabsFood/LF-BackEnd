@@ -1,4 +1,3 @@
-import { DEVELOPMENT_ORIGINS, PRODUCTION_ORIGINS } from './allowed-origins';
 import { configLoader } from './config.loader';
 
 describe('configLoader', () => {
@@ -8,22 +7,15 @@ describe('configLoader', () => {
     process.env = { ...originalEnv };
   });
 
-  it('appends CORS_ORIGINS to the built-in allowlist, trimmed', () => {
+  it('parses CORS_ORIGINS into a trimmed list', () => {
     process.env.CORS_ORIGINS = 'http://a.test, http://b.test ,http://c.test';
     const cfg = configLoader();
-    expect(cfg.cors.origins).toEqual(
-      expect.arrayContaining(['http://a.test', 'http://b.test', 'http://c.test']),
-    );
-    expect(cfg.cors.origins).toEqual(expect.arrayContaining([...PRODUCTION_ORIGINS]));
+    expect(cfg.cors.origins).toEqual(['http://a.test', 'http://b.test', 'http://c.test']);
   });
 
-  it('falls back to the built-in allowlist when CORS_ORIGINS is unset', () => {
+  it('falls back to localhost when CORS_ORIGINS is unset', () => {
     delete process.env.CORS_ORIGINS;
-    process.env.ENVIRONMENT = 'development';
-    expect(configLoader().cors.origins).toEqual([
-      ...PRODUCTION_ORIGINS,
-      ...DEVELOPMENT_ORIGINS,
-    ]);
+    expect(configLoader().cors.origins).toEqual(['http://localhost:3000']);
   });
 
   it('coerces API_PORT to a number', () => {
