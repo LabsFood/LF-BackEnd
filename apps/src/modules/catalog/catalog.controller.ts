@@ -72,7 +72,7 @@ export class CatalogController {
   @ApiOperation({
     summary: 'Admin: create a meal',
     description:
-      'Adds a new meal to the catalog. Defaults to `draft` status when omitted. ',
+      'Adds a new meal to the catalog. Defaults to `draft` status when omitted.',
   })
   @ApiOkResponse({ description: 'Created meal record.', type: MealResponseDto })
   @ApiAdminAuthResponses()

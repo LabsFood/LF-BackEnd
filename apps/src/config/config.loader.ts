@@ -78,6 +78,10 @@ export const configLoader = (): AppConfig => ({
     ttlMs: Number(process.env.REGISTER_THROTTLE_TTL_MS ?? 3_600_000),
     limit: Number(process.env.REGISTER_THROTTLE_LIMIT ?? 5),
   },
+  registerThrottle: {
+    ttlMs: Number(process.env.REGISTER_THROTTLE_TTL_MS ?? 3_600_000),
+    limit: Number(process.env.REGISTER_THROTTLE_LIMIT ?? 5),
+  },
   clerk: {
     secretKey: process.env.CLERK_SECRET_KEY,
     webhookSigningSecret: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
