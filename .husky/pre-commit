@@ -1,0 +1,1 @@
+cd apps && npx lint-staged

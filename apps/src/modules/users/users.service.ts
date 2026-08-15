@@ -254,7 +254,7 @@ export class UsersService {
       UserRole.client,
     );
 
-    const expiresInSeconds = this.config.get<number>('clerk.signInTokenTtlSeconds', 60);
+    const expiresInSeconds = this.config.get<number>('clerk.signInTokenTtlSeconds', 3600);
     const { token } = await this.clerk.getClient().signInTokens.createSignInToken({
       userId: user.clerkUserId,
       expiresInSeconds,
