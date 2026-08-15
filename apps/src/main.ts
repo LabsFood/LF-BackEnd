@@ -9,6 +9,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
+import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -37,8 +38,17 @@ async function bootstrap(): Promise<void> {
     contentSecurityPolicy: false,
   });
 
+  // Exact origins (site + port) from config/allowed-origins.ts, plus CORS_ORIGINS.
+  const allowedOrigins = config.get<string[]>('cors.origins', resolveAllowedOrigins());
   app.enableCors({
-    origin: config.get<string[]>('cors.origins', ['http://localhost:3000']),
+    origin: (origin: string | undefined, callback) => {
+      if (isOriginAllowed(origin, allowedOrigins)) {
+        callback(null, true);
+        return;
+      }
+      logger.warn(`CORS: rejected origin ${origin} (not in the allowlist)`);
+      callback(null, false);
+    },
     credentials: true,
   });
 
@@ -109,6 +119,7 @@ async function bootstrap(): Promise<void> {
   const port = config.get<number>('api.port', 8000);
   await app.listen(port, host);
   logger.log(`Labs Food API listening on http://${host}:${port}`);
+  logger.log(`CORS allowlist:  ${allowedOrigins.join(', ')}`);
   logger.log(`Swagger UI:     http://${host}:${port}/docs`);
   logger.log(`OpenAPI JSON:   http://${host}:${port}/openapi.json`);
 }
