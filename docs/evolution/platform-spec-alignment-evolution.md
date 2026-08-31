@@ -80,6 +80,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | `GET/PATCH /me/profile` | Done | Added authenticated profile endpoints |
 | Account, notifications, GDPR export/delete | Todo | |
 | `GET/PATCH /admin/clients/:id` | Done | Added with `AdminGuard` + optional status filter |
+| `GET /admin/clients` pagination | Done | `page`/`limit` (default 20, max 100); returns `{ data, meta }` instead of a bare array — **breaking** for existing callers. Shared primitives in `apps/src/common/dto/pagination.dto.ts` for the other admin lists |
 
 ### E5 — Quotes (`quotes`)
 

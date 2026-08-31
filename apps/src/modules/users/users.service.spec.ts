@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { UserRole } from '../../generated/prisma/client';
+import { ClientProfileStatus, UserRole } from '../../generated/prisma/client';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
@@ -17,8 +17,14 @@ describe('UsersService', () => {
       update: jest.Mock;
       deleteMany: jest.Mock;
     };
-    clientProfile: { findUnique: jest.Mock; upsert: jest.Mock };
+    clientProfile: {
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
+    };
     chefProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+    $transaction: jest.Mock;
   };
   let clerk: {
     configured: boolean;
@@ -35,8 +41,14 @@ describe('UsersService', () => {
         update: jest.fn(),
         deleteMany: jest.fn(),
       },
-      clientProfile: { findUnique: jest.fn(), upsert: jest.fn() },
+      clientProfile: {
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
       chefProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+      $transaction: jest.fn((operations: unknown[]) => Promise.all(operations)),
     };
     clerk = {
       configured: false,
@@ -734,6 +746,97 @@ describe('UsersService', () => {
         email: 'marie@example.com',
         fullName: 'Marie Curie',
         phone: null,
+      });
+    });
+  });
+
+  describe('listClients', () => {
+    const clientRow = { id: 'client-1', user: { id: 'uuid-1' } };
+
+    beforeEach(() => {
+      prisma.clientProfile.findMany.mockResolvedValue([clientRow]);
+      prisma.clientProfile.count.mockResolvedValue(41);
+    });
+
+    it('applies default page and limit when the query is empty', async () => {
+      const result = await service.listClients();
+
+      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith({
+        where: undefined,
+        include: { user: true },
+        // `id` is the tiebreaker that keeps paging stable across equal timestamps.
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        skip: 0,
+        take: 20,
+      });
+      expect(result).toEqual({
+        data: [clientRow],
+        meta: {
+          page: 1,
+          limit: 20,
+          total: 41,
+          totalPages: 3,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+      });
+    });
+
+    it('translates page/limit into skip/take and reports the last page', async () => {
+      const result = await service.listClients({ page: 3, limit: 20 });
+
+      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 40, take: 20 }),
+      );
+      expect(result.meta).toMatchObject({
+        page: 3,
+        hasNextPage: false,
+        hasPreviousPage: true,
+      });
+    });
+
+    it('counts with the same status filter it queries with', async () => {
+      prisma.clientProfile.count.mockResolvedValue(1);
+
+      const result = await service.listClients({
+        status: ClientProfileStatus.vip,
+        limit: 5,
+      });
+
+      const where = { status: ClientProfileStatus.vip };
+      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where }),
+      );
+      expect(prisma.clientProfile.count).toHaveBeenCalledWith({ where });
+      expect(result.meta).toMatchObject({ total: 1, totalPages: 1, limit: 5 });
+    });
+
+    it('reads rows and total in one transaction so the count matches the page', async () => {
+      await service.listClients();
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(2);
+    });
+
+    it('clamps an oversized limit from a direct (non-HTTP) caller', async () => {
+      await service.listClients({ page: 0, limit: 5_000 });
+
+      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 100 }),
+      );
+    });
+
+    it('reports zero pages when no client matches', async () => {
+      prisma.clientProfile.findMany.mockResolvedValue([]);
+      prisma.clientProfile.count.mockResolvedValue(0);
+
+      const result = await service.listClients();
+
+      expect(result.meta).toMatchObject({
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
     });
   });

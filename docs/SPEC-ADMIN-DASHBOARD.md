@@ -135,6 +135,8 @@ admin-labsfood/
   KPI (sessions, dépensé, ancienneté), historique des sessions, demandes sur-mesure,
   note interne.
 - **API** : `GET /admin/clients`, `GET /admin/clients/:id`, `PATCH /admin/clients/:id`.
+- **Pagination** : `GET /admin/clients?page=1&limit=20&status=vip` — `limit` plafonné à 100.
+  Réponse `{ data: AdminClient[], meta: { page, limit, total, totalPages, hasNextPage, hasPreviousPage } }`.
 
 ### 3.6 Plats & menus (`/menus`)
 - Bandeau « menu de la semaine » avec les plats publiés.

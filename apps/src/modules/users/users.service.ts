@@ -7,15 +7,21 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { User, UserRole } from '../../generated/prisma/client';
+import { ClientProfile, User, UserRole } from '../../generated/prisma/client';
 
 import {
   clerkProfileFromBapiUser,
   clerkProfileFromUserJson,
   type ClerkProfileFields,
 } from '../../auth/clerk-user-payload';
+import {
+  buildPaginationMeta,
+  resolvePageBounds,
+  type Paginated,
+} from '../../common/dto/pagination.dto';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
@@ -52,6 +58,9 @@ export interface RegisterClientInput {
   email: string;
   password: string;
 }
+
+/** Row shape returned by the admin client endpoints (profile + nested user). */
+export type ClientProfileWithUser = ClientProfile & { user: User };
 
 export interface RegisterClientResult {
   user: User;
@@ -464,12 +473,34 @@ export class UsersService {
     }
   }
 
-  listClients(status?: string) {
-    return this.prisma.clientProfile.findMany({
-      where: status ? { status: status as never } : undefined,
-      include: { user: true },
-      orderBy: { updatedAt: 'desc' },
-    });
+  /**
+   * One page of client profiles, newest first, with the total for the same filters.
+   *
+   * `findMany` and `count` run in a single transaction so `meta.total` can never
+   * disagree with the rows served — otherwise a concurrent signup between the two
+   * queries makes the admin table jump a row mid-pagination.
+   *
+   * `id` breaks ties on `updatedAt`: without it Postgres may order rows sharing a
+   * timestamp differently per query, so a row could appear on two pages or on none.
+   */
+  async listClients(
+    query: ListAdminClientsQueryDto = {},
+  ): Promise<Paginated<ClientProfileWithUser>> {
+    const bounds = resolvePageBounds(query);
+    const where = query.status ? { status: query.status } : undefined;
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.clientProfile.findMany({
+        where,
+        include: { user: true },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        skip: bounds.skip,
+        take: bounds.take,
+      }),
+      this.prisma.clientProfile.count({ where }),
+    ]);
+
+    return { data, meta: buildPaginationMeta(bounds, total) };
   }
 
   getClientById(id: string) {

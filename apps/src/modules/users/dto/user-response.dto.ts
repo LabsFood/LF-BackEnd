@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger';
 
+import { PaginationMetaDto } from '../../../common/dto/pagination.dto';
 import { USER_ROLES } from './admin-user.dto';
 
 /** Claims extracted from the Clerk session JWT (no database lookup). */
@@ -197,4 +198,19 @@ export class UserWithProfileDto {
 export class AdminClientDto extends ClientProfileDto {
   @ApiProperty({ type: CurrentUserDto, description: 'Linked application user record.' })
   user!: CurrentUserDto;
+}
+
+/** `GET /admin/clients` — one page of client profiles plus its page descriptor. */
+export class PaginatedAdminClientsDto {
+  @ApiProperty({
+    type: [AdminClientDto],
+    description: 'Client profiles for the requested page, newest first.',
+  })
+  data!: AdminClientDto[];
+
+  @ApiProperty({
+    type: PaginationMetaDto,
+    description: 'Page descriptor for the current filters.',
+  })
+  meta!: PaginationMetaDto;
 }
