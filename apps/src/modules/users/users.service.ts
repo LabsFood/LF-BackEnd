@@ -25,6 +25,7 @@ import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { UpdateMeSapProfileDto } from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
@@ -378,6 +379,71 @@ export class UsersService {
         isVerified: false,
       },
     });
+  }
+
+  /**
+   * Reads the chef's own SAP declaration (`GET /me/chef-profile/sap`).
+   * Returns `null` when the chef has not declared yet; a user without a chef profile
+   * is a `ConflictException`, same as on write.
+   */
+  async getSapProfileByClerkUserId(clerkUserId: string) {
+    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
+    return this.prisma.sapProfile.findUnique({
+      where: { chefProfileId: chefProfile.id },
+    });
+  }
+
+  /**
+   * Chef self-declaration of their "service à la personne" route
+   * (`PATCH /me/chef-profile/sap`).
+   *
+   * Only the declarative fields are writable here. `urssafTiersPrestationStatus` and
+   * `crcesuAffiliationStatus` are owned by the (not yet built) URSSAF/CRCESU
+   * integrations — the same split as `isActive`/`isVerified` on `chef_profiles`.
+   *
+   * Fields belonging to the other declaration type are cleared, so switching from
+   * type A to type B cannot leave a stale NOVA code attached to a cooperative chef.
+   */
+  async updateSapProfileByClerkUserId(
+    clerkUserId: string,
+    payload: UpdateMeSapProfileDto,
+  ) {
+    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
+    const isTypeA = payload.declarationType === 'type_a_nova';
+
+    const fields = {
+      declarationType: payload.declarationType,
+      novaCode: isTypeA ? (payload.novaCode ?? null) : null,
+      cooperativeName: isTypeA ? null : (payload.cooperativeName ?? null),
+      cooperativeMembershipProof: isTypeA
+        ? null
+        : (payload.cooperativeMembershipProof ?? null),
+      crcesuNan: payload.crcesuNan ?? null,
+    };
+
+    return this.prisma.sapProfile.upsert({
+      where: { chefProfileId: chefProfile.id },
+      update: fields,
+      create: { chefProfileId: chefProfile.id, ...fields },
+    });
+  }
+
+  /**
+   * The SAP declaration hangs off `chef_profiles`, so onboarding form 2
+   * (`PATCH /me/chef-profile`) has to come first.
+   */
+  private async requireOwnChefProfile(clerkUserId: string): Promise<{ id: string }> {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const chefProfile = await this.prisma.chefProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    });
+    if (!chefProfile) {
+      throw new ConflictException(
+        'No chef profile yet. Complete `PATCH /me/chef-profile` first.',
+      );
+    }
+    return chefProfile;
   }
 
   /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */

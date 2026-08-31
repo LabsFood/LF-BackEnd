@@ -27,6 +27,16 @@ export interface AppConfig {
     secretKey?: string;
     webhookSecret?: string;
   };
+  payments: {
+    /** Platform commission on the pre-VAT amount, in basis points (1500 = 15 %). */
+    commissionRateBps: number;
+    /** VAT applied on top of the commission, in basis points (2000 = 20 %). */
+    commissionVatRateBps: number;
+    /** Where Stripe sends a chef whose onboarding link expired. */
+    stripeConnectRefreshUrl: string;
+    /** Where Stripe sends a chef who finished (or abandoned) onboarding. */
+    stripeConnectReturnUrl: string;
+  };
   cronofy: {
     clientId?: string;
     clientSecret?: string;
@@ -87,6 +97,18 @@ export const configLoader = (): AppConfig => ({
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  },
+  payments: {
+    // 15 % HT is a placeholder until the negotiated rate is confirmed.
+    commissionRateBps: Number(process.env.PAYMENTS_COMMISSION_RATE_BPS ?? 1500),
+    commissionVatRateBps: Number(process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS ?? 2000),
+    // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
+    stripeConnectRefreshUrl:
+      process.env.STRIPE_CONNECT_REFRESH_URL ??
+      'http://localhost:3005/chef/onboarding/stripe/refresh',
+    stripeConnectReturnUrl:
+      process.env.STRIPE_CONNECT_RETURN_URL ??
+      'http://localhost:3005/chef/onboarding/stripe/return',
   },
   cronofy: {
     clientId: process.env.CRONOFY_CLIENT_ID,

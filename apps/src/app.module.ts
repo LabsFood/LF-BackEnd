@@ -12,9 +12,11 @@ import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.mod
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { HealthModule } from './modules/health/health.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
+import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { ContentCmsModule } from './modules/content-cms/content-cms.module';
 import { UsersModule } from './modules/users/users.module';
 // Redis not implemented yet — re-enable when cache/queues are wired.
@@ -48,6 +50,7 @@ import { UsersModule } from './modules/users/users.module';
     // RedisModule,
     AuthModule,
     ClerkWebhooksModule,
+    StripeWebhooksModule,
     ContentCmsModule,
     IntegrationsModule,
     HealthModule,
@@ -57,6 +60,7 @@ import { UsersModule } from './modules/users/users.module';
     QuotesModule,
     StatsModule,
     BookingsModule,
+    PaymentsModule,
   ],
 })
 export class AppModule {}

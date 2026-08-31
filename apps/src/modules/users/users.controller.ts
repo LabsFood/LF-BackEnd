@@ -32,6 +32,7 @@ import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { SapProfileDto, UpdateMeSapProfileDto } from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
@@ -191,6 +192,48 @@ export class UsersController {
     @Body() payload: UpdateMeChefProfileDto,
   ) {
     return this.users.updateChefProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Get('me/chef-profile/sap')
+  @ApiOperation({
+    summary: 'Get my "service à la personne" declaration',
+    description:
+      "Returns the authenticated chef's `sap_profiles` row, or `null` when they have " +
+      'not declared yet. Requires an existing chef profile.',
+  })
+  @ApiOkResponse({
+    type: SapProfileDto,
+    description: 'The chef SAP declaration, or `null` when not declared yet.',
+  })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeSapProfile(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getSapProfileByClerkUserId(user.userId);
+  }
+
+  @Patch('me/chef-profile/sap')
+  @ApiOperation({
+    summary: 'Declare my "service à la personne" route',
+    description:
+      'Upserts `sap_profiles` for the authenticated chef. `type_a_nova` requires ' +
+      '`novaCode`; `type_b_cooperative` requires `cooperativeName` and ' +
+      '`cooperativeMembershipProof`. Fields of the other type are cleared on switch. ' +
+      'The URSSAF and CRCESU status fields are not accepted here — they stay ' +
+      '`not_started` until those integrations exist, mirroring `isActive`/`isVerified` ' +
+      'on the chef profile.',
+  })
+  @ApiOkResponse({ type: SapProfileDto, description: 'Saved SAP declaration.' })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeSapProfile(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateMeSapProfileDto,
+  ) {
+    return this.users.updateSapProfileByClerkUserId(user.userId, payload);
   }
 
   @Post('admin/users')

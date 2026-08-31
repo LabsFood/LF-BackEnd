@@ -33,6 +33,14 @@ export const envValidationSchema = Joi.object({
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
 
+  /** Platform commission, in basis points. 1500 = 15 % HT (placeholder rate). */
+  PAYMENTS_COMMISSION_RATE_BPS: Joi.number().min(0).max(10_000).default(1500),
+  /** VAT on the commission, in basis points. 2000 = 20 % (French standard rate). */
+  PAYMENTS_COMMISSION_VAT_RATE_BPS: Joi.number().min(0).max(10_000).default(2000),
+  /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
+  STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
+  STRIPE_CONNECT_RETURN_URL: Joi.string().uri().optional(),
+
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
   CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
   CRONOFY_DATA_CENTER: Joi.string().default('us'),

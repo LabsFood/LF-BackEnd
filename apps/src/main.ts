@@ -8,7 +8,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
-import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
+import { WEBHOOK_RAW_BODY_PATHS } from './auth/fastify-raw-body';
 import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
 
 async function bootstrap(): Promise<void> {
@@ -22,7 +22,7 @@ async function bootstrap(): Promise<void> {
 
   const fastify = app.getHttpAdapter().getInstance();
   fastify.addHook('preParsing', async (request, _reply, payload) => {
-    if (!request.url?.startsWith(CLERK_WEBHOOK_PATH)) {
+    if (!WEBHOOK_RAW_BODY_PATHS.some((path) => request.url?.startsWith(path))) {
       return payload;
     }
     const chunks: Buffer[] = [];
@@ -108,6 +108,7 @@ async function bootstrap(): Promise<void> {
     .addTag('quotes', 'Custom quote requests')
     .addTag('stats', 'Client and admin dashboards')
     .addTag('content-cms', 'Public and admin CMS content')
+    .addTag('payments', 'Card payments, Stripe Connect, commissions, and SAP fiscal data')
     .addTag('health', 'Liveness and readiness probes')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

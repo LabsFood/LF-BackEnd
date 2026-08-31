@@ -64,20 +64,30 @@ export class BookingsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Create a booking (not implemented)',
+    summary: 'Create a booking',
     description:
-      'Phase 1 scaffold only — validates `endsAt > startsAt` then returns `501 Not Implemented`. ' +
-      'The authenticated Clerk user id is echoed in the error message for integration testing.',
+      'Persists a `pending` booking for the authenticated client and assigns a ' +
+      '`LF-<year>-NNNN` reference. `amountTtc` is the quoted `priceCents`; ' +
+      '`amountAfterTax` is half of it — the 50 % "service à la personne" tax credit. ' +
+      'Pay it with `POST /payments/intent`. Shopping-list generation and notifications ' +
+      'are not triggered here yet.',
   })
   @ApiCreatedResponse({
     type: BookingReadDto,
-    description: 'Would return the created booking once persistence is wired.',
+    description:
+      'The created booking, `status: pending`, with its reference and amounts.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Unknown chef profile or service offer.',
   })
   @ApiUnprocessableEntityResponse({
     description: 'Validation error when `endsAt` is not strictly after `startsAt`.',
   })
   @ApiClerkAuthResponses()
-  create(@Body() payload: CreateBookingDto, @CurrentClerkUser() user: ClerkUser): never {
+  async create(
+    @Body() payload: CreateBookingDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ): Promise<BookingReadDto> {
     if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
       throw new HttpException(
         'endsAt must be after startsAt',
@@ -85,10 +95,8 @@ export class BookingsController {
       );
     }
 
-    throw new HttpException(
-      `Booking creation is not wired yet (Phase 1 scaffold). Authenticated as Clerk user ${user.userId}.`,
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+    const booking = await this.bookings.create(user.userId, payload);
+    return BookingReadDto.fromEntity(booking);
   }
 
   @Get('me/bookings/:id')

@@ -42,4 +42,30 @@ describe('configLoader', () => {
     delete process.env.CRONOFY_DATA_CENTER;
     expect(configLoader().cronofy.dataCenter).toBe('us');
   });
+
+  it('defaults the commission to 15 % HT plus 20 % VAT', () => {
+    delete process.env.PAYMENTS_COMMISSION_RATE_BPS;
+    delete process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS;
+    expect(configLoader().payments).toMatchObject({
+      commissionRateBps: 1500,
+      commissionVatRateBps: 2000,
+    });
+  });
+
+  it('coerces the commission basis points to numbers', () => {
+    process.env.PAYMENTS_COMMISSION_RATE_BPS = '1200';
+    process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS = '550';
+    expect(configLoader().payments).toMatchObject({
+      commissionRateBps: 1200,
+      commissionVatRateBps: 550,
+    });
+  });
+
+  it('points Connect onboarding redirects at batchcooking-web by default', () => {
+    delete process.env.STRIPE_CONNECT_REFRESH_URL;
+    delete process.env.STRIPE_CONNECT_RETURN_URL;
+    const { payments } = configLoader();
+    expect(payments.stripeConnectRefreshUrl).toContain('localhost:3005');
+    expect(payments.stripeConnectReturnUrl).toContain('localhost:3005');
+  });
 });

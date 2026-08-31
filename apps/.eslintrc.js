@@ -15,7 +15,15 @@ module.exports = {
     node: true,
     jest: true,
   },
-  ignorePatterns: ['.eslintrc.js', 'dist/**', 'node_modules/**', 'coverage/**'],
+  // `src/generated/**` is the Prisma client, rewritten on every `prisma generate`:
+  // its formatting is the generator's business, not this repo's.
+  ignorePatterns: [
+    '.eslintrc.js',
+    'dist/**',
+    'node_modules/**',
+    'coverage/**',
+    'src/generated/**',
+  ],
   rules: {
     '@typescript-eslint/interface-name-prefix': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',

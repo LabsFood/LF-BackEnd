@@ -69,6 +69,28 @@ export class BookingReadDto {
   })
   currency!: string;
 
+  @ApiProperty({
+    nullable: true,
+    description: 'Human-readable booking reference, `LF-<year>-NNNN`.',
+    example: 'LF-2026-0001',
+  })
+  reference!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Amount charged to the client, VAT included, in minor units.',
+    example: 12500,
+  })
+  amountTtc!: number | null;
+
+  @ApiProperty({
+    nullable: true,
+    description:
+      'Net cost to the client after the 50 % "service à la personne" tax credit.',
+    example: 6250,
+  })
+  amountAfterTax!: number | null;
+
   static fromEntity(b: Booking): BookingReadDto {
     return {
       id: b.id,
@@ -81,6 +103,9 @@ export class BookingReadDto {
       status: b.status,
       priceCents: b.priceCents,
       currency: b.currency,
+      reference: b.reference,
+      amountTtc: b.amountTtc,
+      amountAfterTax: b.amountAfterTax,
     };
   }
 }
