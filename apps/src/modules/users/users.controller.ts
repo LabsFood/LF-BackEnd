@@ -16,7 +16,6 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
-  ApiQuery,
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -28,7 +27,9 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dto';
 import { UserRole } from '../../generated/prisma/client';
+import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
@@ -39,6 +40,7 @@ import {
   ClerkJwtClaimsDto,
   ClientProfileDto,
   CurrentUserDto,
+  PaginatedAdminClientsDto,
   UserWithProfileDto,
 } from './dto/user-response.dto';
 import { UsersService } from './users.service';
@@ -276,25 +278,21 @@ export class UsersController {
   @ApiBearerAuth()
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: list client profiles',
+    summary: 'Admin: list client profiles (paginated)',
     description:
-      'Returns all `client_profiles` rows with nested `user`, newest first. ' +
+      'Returns one page of `client_profiles` rows with nested `user`, newest first, ' +
+      'under `data`, plus a `meta` page descriptor (`total`, `totalPages`, ' +
+      '`hasNextPage`, `hasPreviousPage`). Defaults to `page=1` and ' +
+      `\`limit=${DEFAULT_PAGE_SIZE}\`; \`limit\` is capped at ${MAX_PAGE_SIZE}. ` +
       'Filter by CRM `status` when the query parameter is provided.',
   })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    enum: ['vip', 'active', 'prospect', 'inactive'],
-    description: 'Optional CRM status filter.',
-  })
   @ApiOkResponse({
-    type: AdminClientDto,
-    isArray: true,
-    description: 'Client profiles with linked user records.',
+    type: PaginatedAdminClientsDto,
+    description: 'One page of client profiles with linked user records.',
   })
   @ApiAdminAuthResponses()
-  listClients(@Query('status') status?: string) {
-    return this.users.listClients(status);
+  listClients(@Query() query: ListAdminClientsQueryDto) {
+    return this.users.listClients(query);
   }
 
   @Get('admin/clients/:id')

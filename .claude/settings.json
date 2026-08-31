@@ -3,7 +3,16 @@
     "allow": [
       "Bash(npx eslint *)",
       "Bash(npx tsc *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(cd /Users/josue-danielkoanga/Labs_Food/LF_Codespace && grep -ril \"client\" --include=\"*.tsx\" --include=\"*.ts\" --include=\"*.jsx\" --include=\"*.js\" --include=\"*.java\" --include=\"*.kt\" labsfood-web/src batchcooking-web/src 2>/dev/null | head -50)",
+      "Read(//Users/josue-danielkoanga/Labs_Food/LF_Codespace/**)",
+      "Bash(cd /Users/josue-danielkoanga/Labs_Food/LF_Codespace && find labsfood-web/app batchcooking-web/app -type d -iname \"*admin*\" 2>/dev/null; echo \"---clients dirs---\"; find labsfood-web batchcooking-web -type d \\\\\\( -iname \"*client*\" -o -iname \"*customer*\" \\\\\\) -not -path \"*/node_modules/*\" 2>/dev/null)",
+      "Bash(cd /Users/josue-danielkoanga/Labs_Food/LF_Codespace && grep -rn \"admin/clients\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.md\" . 2>/dev/null | grep -v node_modules | grep -v \"/.next/\" | grep -v \"/dist/\" | head -30)",
+      "Bash(sed -n '125,150p' ../../docs/SPEC-ADMIN-DASHBOARD.md)",
+      "Read(//Users/josue-danielkoanga/Labs_Food/docs/**)",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\({d:p.dependencies,s:p.scripts},null,1\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.jest,null,1\\)\\)\")",
+      "Bash(npx nest *)"
     ]
   }
 }
