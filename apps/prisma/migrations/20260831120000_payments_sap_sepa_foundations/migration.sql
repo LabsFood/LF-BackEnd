@@ -1,8 +1,17 @@
 -- CreateEnum
 CREATE TYPE "payment_method" AS ENUM ('cb', 'avance_immediate', 'cesu');
 
--- CreateEnum
-CREATE TYPE "payment_status" AS ENUM ('pending', 'succeeded', 'failed', 'refunded', 'partially_refunded');
+-- AlterEnum
+-- "payment_status" already exists from 20250522130000_spec_domain ('pending', 'paid', 'refunded').
+-- Only the missing values are added; 'pending', 'paid' and 'refunded' are reused as-is.
+-- Placement is explicit so the stored order matches the PaymentStatus enum in schema.prisma and
+-- reads as the actual flow: pending -> succeeded (Stripe OK) -> paid (invoiceable), with
+-- failed / refunded / partially_refunded as the exit states.
+-- Safe inside Prisma's migration transaction (PG 12+): none of the values added below is *used*
+-- later in this file — reading the existing "status" column is unrestricted.
+ALTER TYPE "payment_status" ADD VALUE IF NOT EXISTS 'succeeded' AFTER 'pending';
+ALTER TYPE "payment_status" ADD VALUE IF NOT EXISTS 'failed' AFTER 'paid';
+ALTER TYPE "payment_status" ADD VALUE IF NOT EXISTS 'partially_refunded' AFTER 'refunded';
 
 -- CreateEnum
 CREATE TYPE "commission_collection_method" AS ENUM ('stripe_application_fee', 'sepa_direct_debit');
@@ -24,27 +33,69 @@ ALTER TABLE "chef_profiles" ADD COLUMN     "stripe_charges_enabled" BOOLEAN NOT 
 ADD COLUMN     "stripe_details_submitted" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN     "stripe_payouts_enabled" BOOLEAN NOT NULL DEFAULT false;
 
--- CreateTable
-CREATE TABLE "payments" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "booking_id" UUID NOT NULL,
-    "method" "payment_method" NOT NULL DEFAULT 'cb',
-    "status" "payment_status" NOT NULL DEFAULT 'pending',
-    "amount_ttc" INTEGER NOT NULL,
-    "currency" VARCHAR(3) NOT NULL DEFAULT 'EUR',
-    "stripe_payment_intent_id" VARCHAR(128),
-    "stripe_charge_id" VARCHAR(128),
-    "tax_credit_eligible_amount" INTEGER,
-    "paid_at" TIMESTAMPTZ(6),
-    "refunded_amount" INTEGER,
-    "refunded_at" TIMESTAMPTZ(6),
-    "failure_reason" TEXT,
-    "metadata" JSONB,
-    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- AlterTable
+-- "payments" already exists from 20250522130000_spec_domain, in a different shape:
+--   (id, stripe_payment_intent_id NOT NULL, amount, status, user_id, created_at, updated_at)
+-- It is transformed in place rather than dropped and recreated, so existing rows and their ids
+-- survive and the "bookings"."payment_id" FK stays valid for the duration of the backfill below.
+-- Every new column starts nullable; NOT NULL is enforced only once the data is in place.
+ALTER TABLE "payments"
+    ADD COLUMN     "booking_id" UUID,
+    ADD COLUMN     "method" "payment_method" NOT NULL DEFAULT 'cb',
+    ADD COLUMN     "currency" VARCHAR(3) NOT NULL DEFAULT 'EUR',
+    ADD COLUMN     "stripe_charge_id" VARCHAR(128),
+    ADD COLUMN     "tax_credit_eligible_amount" INTEGER,
+    ADD COLUMN     "paid_at" TIMESTAMPTZ(6),
+    ADD COLUMN     "refunded_amount" INTEGER,
+    ADD COLUMN     "refunded_at" TIMESTAMPTZ(6),
+    ADD COLUMN     "failure_reason" TEXT,
+    ADD COLUMN     "metadata" JSONB;
 
-    CONSTRAINT "payments_pkey" PRIMARY KEY ("id")
-);
+ALTER TABLE "payments" RENAME COLUMN "amount" TO "amount_ttc";
+
+-- Backfill "booking_id" by inverting the old 1:1 link "bookings"."payment_id" -> "payments"."id".
+-- The new model is the other way round (a booking carries several payment attempts, so a failed
+-- CB attempt can be retried with a fresh PaymentIntent).
+UPDATE "payments" p
+SET "booking_id" = b."id"
+FROM "bookings" b
+WHERE b."payment_id" = p."id";
+
+-- Fallback for rows the old FK never captured: match on the Stripe PaymentIntent that
+-- 20250522120000_init put on "bookings". That column has no unique constraint, so collapse it to
+-- one booking per intent first — otherwise a single payment could match several bookings.
+UPDATE "payments" p
+SET "booking_id" = b."id"
+FROM (
+    SELECT DISTINCT ON ("stripe_payment_intent_id") "id", "stripe_payment_intent_id"
+    FROM "bookings"
+    WHERE "stripe_payment_intent_id" IS NOT NULL
+    ORDER BY "stripe_payment_intent_id", "created_at"
+) b
+WHERE p."booking_id" IS NULL
+  AND b."stripe_payment_intent_id" = p."stripe_payment_intent_id";
+
+-- Anything still unattached belongs to no booking and cannot satisfy "booking_id" NOT NULL.
+DELETE FROM "payments" WHERE "booking_id" IS NULL;
+
+ALTER TABLE "payments" ALTER COLUMN "booking_id" SET NOT NULL;
+
+-- A payment row now exists before its PaymentIntent is created, so the intent id starts null.
+ALTER TABLE "payments" ALTER COLUMN "stripe_payment_intent_id" DROP NOT NULL;
+
+-- The payer is reachable through "bookings"."client_id"; the direct link is redundant.
+ALTER TABLE "payments" DROP CONSTRAINT "payments_user_id_fkey";
+ALTER TABLE "payments" DROP COLUMN "user_id";
+
+-- Same index, name expected by schema.prisma — renaming avoids a pointless rebuild.
+ALTER INDEX "payments_stripe_payment_intent_id_key" RENAME TO "uq_payments_stripe_payment_intent_id";
+
+-- AlterTable
+-- "bookings"."payment_id" is superseded by "payments"."booking_id". Dropped only now, after the
+-- backfill above has consumed it.
+ALTER TABLE "bookings" DROP CONSTRAINT "bookings_payment_id_fkey";
+DROP INDEX "bookings_payment_id_key";
+ALTER TABLE "bookings" DROP COLUMN "payment_id";
 
 -- CreateTable
 CREATE TABLE "commissions" (
@@ -100,9 +151,8 @@ CREATE TABLE "sepa_mandates" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "uq_payments_stripe_payment_intent_id" ON "payments"("stripe_payment_intent_id");
-
--- CreateIndex
+-- "uq_payments_stripe_payment_intent_id" is not created here: it is the pre-existing unique index
+-- from 20250522130000_spec_domain, renamed above.
 CREATE INDEX "ix_payments_booking_id" ON "payments"("booking_id");
 
 -- CreateIndex

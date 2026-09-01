@@ -457,6 +457,7 @@ enum PaymentMethod {
 enum PaymentStatus {
   pending
   succeeded
+  paid
   failed
   refunded
   partially_refunded
