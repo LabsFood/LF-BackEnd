@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -30,7 +30,11 @@ describe('BookingsService', () => {
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn(),
       },
-      chefProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'chef-1' }) },
+      chefProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'chef-1', isActive: true, isVerified: true }),
+      },
       serviceOffer: {
         findUnique: jest
           .fn()
@@ -87,13 +91,30 @@ describe('BookingsService', () => {
     });
 
     it('prefers chefId over the legacy providerId', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-2' });
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-2',
+        isActive: true,
+        isVerified: true,
+      });
 
       await service.create('clerk_1', { ...payload, chefId: 'chef-2' });
 
       expect(prisma.chefProfile.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'chef-2' } }),
       );
+    });
+
+    it.each([
+      ['unverified', { isActive: true, isVerified: false }],
+      ['inactive', { isActive: false, isVerified: true }],
+      ['neither', { isActive: false, isVerified: false }],
+    ])('refuses to book a chef who is %s', async (_label, flags) => {
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1', ...flags });
+
+      await expect(service.create('clerk_1', payload)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.booking.create).not.toHaveBeenCalled();
     });
 
     it('404s on an unknown chef profile', async () => {

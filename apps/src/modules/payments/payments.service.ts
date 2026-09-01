@@ -78,6 +78,14 @@ export class PaymentsService {
     }
 
     const chef = booking.chefProfile;
+    // Re-checked here, not just at booking time: vetting can be revoked between the
+    // booking and the payment, and this is the last gate before money moves to the
+    // chef's connected account. Finishing Stripe onboarding is not admin approval.
+    if (!chef.isActive || !chef.isVerified) {
+      throw new ConflictException(
+        'The chef is not verified by an admin, so this booking cannot be paid.',
+      );
+    }
     if (
       !chef.stripeAccountId ||
       !chef.stripeChargesEnabled ||

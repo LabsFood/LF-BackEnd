@@ -9,6 +9,8 @@ import { PaymentsService } from './payments.service';
 
 const CONNECT_READY_CHEF = {
   id: 'chef-1',
+  isActive: true,
+  isVerified: true,
   stripeAccountId: 'acct_123',
   stripeChargesEnabled: true,
   stripePayoutsEnabled: true,
@@ -160,6 +162,22 @@ describe('PaymentsService', () => {
         Record<string, unknown>,
       ];
       expect(args).not.toHaveProperty('application_fee_amount');
+    });
+
+    it.each([
+      ['unverified', { isActive: true, isVerified: false }],
+      ['deactivated', { isActive: false, isVerified: true }],
+    ])('refuses to move money to a chef who is %s', async (_label, flags) => {
+      // Connect-ready but not admin-approved: finishing Stripe onboarding is not vetting.
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        chefProfile: { ...CONNECT_READY_CHEF, ...flags },
+      });
+
+      await expect(
+        service.createIntentForBooking('clerk_1', 'booking-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
     it('rejects a chef who has not finished Connect onboarding', async () => {

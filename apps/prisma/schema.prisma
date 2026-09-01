@@ -454,9 +454,17 @@ enum PaymentMethod {
   @@map("payment_method")
 }
 
+/// Order matches the stored Postgres labels: pending -> succeeded (Stripe settled) ->
+/// paid (invoiceable), with failed / refunded / partially_refunded as exit states.
 enum PaymentStatus {
   pending
   succeeded
+  /// Reserved for invoicing — **no code path sets this today**. A CB payment stops at
+  /// `succeeded`, which is what the fiscal attestation totals count. Kept because the
+  /// label predates this branch (`20250522130000_spec_domain`) and Prisma throws on an
+  /// enum value it does not know, so dropping it here would break reads of any legacy
+  /// row. Give it a writer or retire it deliberately — do not treat it as a synonym
+  /// for `succeeded`.
   paid
   failed
   refunded

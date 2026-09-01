@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Booking } from '../../generated/prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -36,10 +36,18 @@ export class BookingsService {
 
     const chefProfile = await this.prisma.chefProfile.findUnique({
       where: { id: chefProfileId },
-      select: { id: true },
+      select: { id: true, isActive: true, isVerified: true },
     });
     if (!chefProfile) {
       throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+    // Admin vetting gates bookability. Without this a self-registered chef is
+    // bookable the moment they save a profile, and the booking is a dead end —
+    // `POST /payments/intent` refuses to move money to an unvetted chef.
+    if (!chefProfile.isActive || !chefProfile.isVerified) {
+      throw new ConflictException(
+        `Chef profile ${chefProfileId} is not open for bookings yet (pending admin verification).`,
+      );
     }
 
     const serviceOffer = await this.prisma.serviceOffer.findUnique({
