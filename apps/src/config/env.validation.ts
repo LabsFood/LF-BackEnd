@@ -31,7 +31,14 @@ export const envValidationSchema = Joi.object({
   REGISTER_THROTTLE_LIMIT: Joi.number().min(1).default(5),
 
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
+  /** Signing secret of the "Your account" Stripe webhook endpoint. */
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  /**
+   * Signing secret of the "Connected accounts" endpoint. Required in deployed
+   * environments for `account.updated`; the Stripe CLI uses one secret for both
+   * scopes locally, so this can stay empty in dev.
+   */
+  STRIPE_CONNECT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
 
   /** Platform commission, in basis points. 1500 = 15 % HT (placeholder rate). */
   PAYMENTS_COMMISSION_RATE_BPS: Joi.number().min(0).max(10_000).default(1500),

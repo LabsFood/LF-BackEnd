@@ -25,7 +25,10 @@ export interface AppConfig {
   };
   stripe: {
     secretKey?: string;
+    /** Signing secret of the "Your account" webhook endpoint. */
     webhookSecret?: string;
+    /** Signing secret of the "Connected accounts" endpoint (`account.updated`). */
+    connectWebhookSecret?: string;
   };
   payments: {
     /** Platform commission on the pre-VAT amount, in basis points (1500 = 15 %). */
@@ -97,6 +100,7 @@ export const configLoader = (): AppConfig => ({
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    connectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
   },
   payments: {
     // 15 % HT is a placeholder until the negotiated rate is confirmed.

@@ -43,6 +43,15 @@ describe('configLoader', () => {
     expect(configLoader().cronofy.dataCenter).toBe('us');
   });
 
+  it('reads both Stripe webhook signing secrets', () => {
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_account';
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect';
+    expect(configLoader().stripe).toMatchObject({
+      webhookSecret: 'whsec_account',
+      connectWebhookSecret: 'whsec_connect',
+    });
+  });
+
   it('defaults the commission to 15 % HT plus 20 % VAT', () => {
     delete process.env.PAYMENTS_COMMISSION_RATE_BPS;
     delete process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS;

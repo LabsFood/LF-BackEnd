@@ -43,6 +43,12 @@ export class StripeWebhooksService {
    * Verifies the `stripe-signature` header against the raw request bytes, then
    * dispatches. Handlers are idempotent because Stripe delivers each event at least
    * once and retries anything that does not return 2xx.
+   *
+   * Each configured signing secret is tried in turn. A Connect platform serves two
+   * Dashboard endpoints on this one URL — "Your account" (payments, refunds, setup
+   * intents) and "Connected accounts" (`account.updated`) — and Stripe signs each with
+   * its own secret. Verifying against only the first would reject every delivery from
+   * the other, silently stranding chefs at `chargesEnabled: false`.
    */
   async verifyAndHandle(rawBody: string, signature: string): Promise<void> {
     if (!this.stripe.configured) {
@@ -50,16 +56,34 @@ export class StripeWebhooksService {
         'Stripe is not configured (STRIPE_SECRET_KEY missing).',
       );
     }
-    const webhookSecret = this.stripe.webhookSecret;
-    if (!webhookSecret) {
+    const secrets = this.stripe.webhookSecrets;
+    if (secrets.length === 0) {
       throw new ServiceUnavailableException(
         'Stripe webhooks are not configured (STRIPE_WEBHOOK_SECRET missing).',
       );
     }
 
-    const event = this.stripe
-      .getClient()
-      .webhooks.constructEvent(rawBody, signature, webhookSecret);
+    const client = this.stripe.getClient();
+    let event: Stripe.Event | undefined;
+    let lastError: unknown;
+    for (const secret of secrets) {
+      try {
+        event = client.webhooks.constructEvent(rawBody, signature, secret);
+        break;
+      } catch (error) {
+        // Wrong secret for this endpoint — try the next one before giving up.
+        lastError = error;
+      }
+    }
+    if (!event) {
+      throw lastError;
+    }
+
+    if (event.account) {
+      this.logger.debug(
+        `Stripe event ${event.type} from connected account ${event.account}`,
+      );
+    }
     await this.handleVerifiedEvent(event);
   }
 }
