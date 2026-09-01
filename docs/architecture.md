@@ -64,6 +64,9 @@ apps/src/
     ├── quotes/                # client/admin quote lifecycle
     ├── shopping-lists/        # ingredient aggregation service
     ├── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
+    ├── payments/              # /payments/intent, Stripe Connect, SEPA mandate, fiscal attestations
+    ├── stripe-webhooks/       # POST /webhooks/stripe (raw-body signature check)
+    ├── clerk-webhooks/        # POST /webhooks/clerk (Svix)
     └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
 ```
 
@@ -83,7 +86,7 @@ Modules below are the **planned** NestJS boundaries. None except those in “Cur
 | `shopping-lists` | Ingredient aggregation by aisle                       | Embedded in booking detail + admin                              |
 | `quotes`         | Sur-mesure requests & quotes                          | `POST /quotes`, `/me/quotes`, admin `/admin/quotes`             |
 | `messaging`      | Threads + Stream realtime                             | `/me/thread`, `/admin/threads`                                  |
-| `payments`       | Stripe intents & webhooks, tax credit fields          | `/payments/intent`, `/webhooks/stripe`                          |
+| `payments`       | **Done** — Connect destination charges, commissions, SAP/SEPA, tax credit | `/payments/intent`, `/webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, fiscal attestations |
 | `kossam`         | Kossam product orders                                 | Admin `/admin/kossam-orders`; public submit from main site      |
 | `recruitment`    | Chef applications + documents                         | `/admin/applications`                                           |
 | `contact`        | Site contact inbox                                    | `/admin/contact-messages`                                       |
@@ -107,6 +110,11 @@ pending → confirmed → shopping → cooking → delivered
 ```
 
 Phase 1 enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/rename toward spec on the bookings epic.
+
+`POST /bookings` creates the booking as `pending`. The only automatic transition wired today is
+`pending → confirmed`, driven by the Stripe `payment_intent.succeeded` webhook — the API never
+confirms a booking on the client's word. A failed payment leaves the booking `pending` so the
+client can retry. `shopping` / `cooking` / `delivered` remain unimplemented.
 
 ## Data model direction
 
@@ -167,6 +175,37 @@ erDiagram
 
 `chef_profiles` can later converge with team modeling (`TeamMember`, chef assignment on `bookings`) in a later design pass.
 
+### Payments (implemented — `20260831120000_payments_sap_sepa_foundations`)
+
+```mermaid
+erDiagram
+    bookings ||--o{ payments : "attempts"
+    payments ||--o| commissions : "platform_fee"
+    chef_profiles ||--o{ commissions : "earns_on"
+    chef_profiles ||--o| sap_profiles : "declares"
+    chef_profiles ||--o| sepa_mandates : "mandates"
+
+    payments {
+      uuid booking_id
+      enum method
+      enum status
+      int amount_ttc
+      int tax_credit_eligible_amount
+      string stripe_payment_intent_id
+    }
+    commissions {
+      uuid payment_id
+      int rate_bps
+      int amount_ttc_cents
+      enum collection_method
+    }
+```
+
+`payments` is **1:N** on `bookings` (a failed card attempt is retried with a fresh PaymentIntent),
+and `commissions` freezes the rate and VAT in force so a later rate change cannot rewrite history.
+`chef_profiles` carries three Stripe flags mirrored from `account.updated`. Full rationale:
+[`payments/stripe-payments-contract.md`](./payments/stripe-payments-contract.md).
+
 ## Authentication
 
 - `ClerkAuthGuard` — Bearer JWT, payload decode (JWKS verification planned).
@@ -209,14 +248,16 @@ flowchart TB
 ```
 
 
-Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current` (when implemented).
+Protected today: `/thisUser`, `/me`, `/bookings`, `/payments/*`, `/me/chef-profile/*`, `/me/fiscal-attestations/*`, `PUT /content/concept`; `/admin/*` additionally requires the persisted `admin` role. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current`.
+
+`POST /webhooks/clerk` and `POST /webhooks/stripe` are public but **signature-verified** against the raw request bytes (Svix and Stripe respectively). The Fastify `preParsing` hook in `apps/src/main.ts` captures the raw body for the paths listed in `apps/src/auth/fastify-raw-body.ts` — a re-serialised JSON body would fail verification.
 
 ## Integrations
 
 
 | Service      | Config                                       | Status                                          |
 | ------------ | -------------------------------------------- | ----------------------------------------------- |
-| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending |
+| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENTS_COMMISSION_*_BPS`, `STRIPE_CONNECT_*_URL` | **Live** — Connect destination charges, commissions, `POST /webhooks/stripe`, SEPA mandates |
 | Cronofy      | `CRONOFY_*`                                  | Scaffold; link to chef availability             |
 | Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
 | Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
@@ -241,12 +282,20 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public
 | PUT    | `/content/concept`  | admin                    |
 | GET    | `/thisUser`, `/me`  | Clerk                    |
 | GET    | `/bookings`         | Clerk                    |
-| POST   | `/bookings`         | Clerk (stub — not wired) |
+| POST   | `/bookings`         | Clerk                    |
+| POST   | `/payments/intent`  | Clerk (booking owner)    |
+| POST   | `/me/chef-profile/stripe-connect/link`, GET `…/status` | Clerk (chef) |
+| POST   | `/me/chef-profile/sepa-mandate/setup-intent`, GET `/me/chef-profile/sepa-mandate` | Clerk (chef) |
+| GET/PATCH | `/me/chef-profile/sap` | Clerk (chef)          |
+| GET    | `/me/fiscal-attestations/:year` | Clerk           |
+| GET    | `/admin/fiscal-attestations[/:clientId]` | admin  |
+| POST   | `/webhooks/stripe`  | Stripe signature (public) |
+| POST   | `/webhooks/clerk`   | Svix signature (public)  |
 
 
 ### Client / public backlog (SPEC-BACKEND)
 
-`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/GDPR routes.
+`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, account/GDPR routes. Payments (`/payments/intent`, `/webhooks/stripe`) are **delivered** — see above.
 
 ### Admin backlog (SPEC-ADMIN-DASHBOARD)
 
@@ -260,6 +309,8 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public
 | `[features/f19-concept-cms.md](./features/f19-concept-cms.md)`                                       | F19 scope (shipped)         |
 | `[evolution/f19-concept-cms-evolution.md](./evolution/f19-concept-cms-evolution.md)`                 | F19 change register         |
 | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Platform spec gap & backlog |
+| `[payments/stripe-payments-contract.md](./payments/stripe-payments-contract.md)`                     | Payment flow, webhooks, commission |
+| `[evolution/payments-stripe-cb-evolution.md](./evolution/payments-stripe-cb-evolution.md)`           | Payments change register    |
 | `[database-connection.md](./database-connection.md)`                                                 | Supabase URLs               |
 | `[Revisions_followup.md](./Revisions_followup.md)`                                                   | Release register            |
 

@@ -83,6 +83,36 @@ curl -s -X POST http://localhost:8000/admin/users \
   -d '{"email":"chef@example.com","firstName":"Chef","role":"chef"}'
 ```
 
+## Payments (`/payments`, `/webhooks/stripe`)
+
+`PaymentsModule` (`src/modules/payments/`) + `StripeWebhooksModule` (`src/modules/stripe-webhooks/`).
+Full contract: [`../docs/payments/stripe-payments-contract.md`](../docs/payments/stripe-payments-contract.md).
+
+| Method | Path | Auth |
+|--------|------|------|
+| `POST` | `/payments/intent` | Clerk bearer (booking owner) |
+| `POST` / `GET` | `/me/chef-profile/stripe-connect/link` · `/status` | Clerk bearer (chef) |
+| `POST` / `GET` | `/me/chef-profile/sepa-mandate/setup-intent` · `/me/chef-profile/sepa-mandate` | Clerk bearer (chef) |
+| `GET` / `PATCH` | `/me/chef-profile/sap` | Clerk bearer (chef) |
+| `GET` | `/me/fiscal-attestations/:year` | Clerk bearer |
+| `GET` | `/admin/fiscal-attestations[/:clientId]` | Clerk bearer + persisted `admin` role |
+| `POST` | `/webhooks/stripe` | Stripe signature (public, hidden from Swagger) |
+
+```bash
+# Create a PaymentIntent for a pending booking you own
+curl -s -X POST http://localhost:8000/payments/intent \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"bookingId":"<uuid>"}'
+
+# Replay webhooks locally
+stripe listen --forward-to localhost:8000/webhooks/stripe
+stripe trigger payment_intent.succeeded
+```
+
+Needs `STRIPE_SECRET_KEY` (else `503`) and `STRIPE_WEBHOOK_SECRET` for the webhook. Commission
+rate: `PAYMENTS_COMMISSION_RATE_BPS` (default `1500` — **a placeholder**).
+
 ## Run with Docker Compose
 
 From the repo root:

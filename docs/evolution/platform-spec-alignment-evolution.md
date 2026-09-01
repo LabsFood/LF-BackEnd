@@ -29,6 +29,8 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | `docs/features/f19-concept-cms.md` | Done | Paths `apps/src/…` (was `apps/api-nestjs/…`) |
 | `docs/testing/f19-concept-cms-*.md` | Done | Commands use `cd apps` |
 | `docs/database-connection.md` | Done | Notes Prisma as target ORM |
+| `docs/payments/stripe-payments-contract.md` | Created | Payment flow, webhook events, commission arithmetic, config (2026-09-01) |
+| `docs/evolution/payments-stripe-cb-evolution.md` | Created | E8 detail register (2026-09-01) |
 
 ## Epic backlog
 
@@ -56,10 +58,10 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Item | Status | Notes |
 |------|--------|-------|
 | Extend `booking_status`: `shopping`, `cooking`, `delivered` | Todo | Map away from `completed` if needed |
-| Reference generator `LF-YYYY-NNNN` | Todo | |
-| Fields: `formuleId`, `chefId`, `persons`, `amountTTC`, `amountAfterTax`, `shoppingByClient` | Todo | |
+| Reference generator `LF-YYYY-NNNN` | Done | `BookingsService.nextReference()`, same scheme as quotes |
+| Fields: `formuleId`, `chefId`, `persons`, `amountTTC`, `amountAfterTax`, `shoppingByClient` | Partial | Columns exist; `POST /bookings` sets `amountTtc`, `amountAfterTax` (50 % tax credit) and `chefId`. `formuleId`, `persons`, `shoppingByClient` not accepted on create yet |
 | `booking_meals` junction | Todo | |
-| `POST /bookings` create + Stripe | Todo | Replace scaffold throw |
+| `POST /bookings` create + Stripe | Done | Scaffold `501` replaced; payment via `POST /payments/intent` (E8). **Breaking for callers that asserted `501`** |
 | Client: list, detail, cancel | Todo | Prefer `/me/bookings` |
 | Admin: list, detail, PATCH status, cancel | Todo | `/admin/bookings` or `/admin/reservations` alias |
 | Notifications on transitions | Todo | Brevo + in-app |
@@ -107,12 +109,24 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 ### E8 — Payments (`payments`)
 
+Delivered 2026-08-31 → 2026-09-01. Detail register:
+[`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md).
+Working contract: [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md).
+
 | Item | Status | Notes |
 |------|--------|-------|
-| `Payment` entity | Todo | |
-| `POST /payments/intent` | Todo | |
-| `POST /webhooks/stripe` | Todo | |
-| Tax credit fields on booking/payment | Todo | |
+| `Payment` entity | Done | `payments` reshaped (1:N on bookings so a failed card attempt is retryable); migration `20260831120000_payments_sap_sepa_foundations` |
+| `POST /payments/intent` | Done | Stripe Connect **destination charge**; commission withheld as `application_fee_amount`; reuses a live pending intent instead of double-charging |
+| `POST /webhooks/stripe` | Done | Raw-body signature check; handles `payment_intent.succeeded` / `.payment_failed`, `charge.refunded`, `account.updated`, `setup_intent.succeeded`; all handlers idempotent |
+| Tax credit fields on booking/payment | Done | `bookings.amount_after_tax` (50 %) and `payments.tax_credit_eligible_amount` |
+| `Commission` entity + bps arithmetic | Done | Rate and VAT frozen on the row; clamped to the charge; `computeCommission()` |
+| Chef Stripe Connect onboarding | Done | Express (FR); `POST/GET /me/chef-profile/stripe-connect/*`; flags mirrored from `account.updated` |
+| SEPA commission mandate | Foundation | `POST/GET /me/chef-profile/sepa-mandate*` records a CORE mandate — **never debits**. Groundwork for avance immédiate / CESU |
+| SAP declaration (`sap_profiles`) | Done | `GET/PATCH /me/chef-profile/sap`; type A NOVA vs type B cooperative; URSSAF/CRCESU statuses inert and not chef-writable |
+| Fiscal attestations | Partial | JSON totals — `/me/fiscal-attestations/:year`, `/admin/fiscal-attestations[/:clientId]`. **No signed PDF** (legal template pending) |
+| Refund flow | Todo | Webhook records refunds; no API refund route, and the commission is not clawed back |
+| Admin payments/commissions list | Todo | No `/admin/payments`, `/admin/commissions` |
+| `avance immédiate` / CESU flows | Todo | Enums, `payments.metadata`, and the mandate exist; no flow implemented |
 
 ### E9 — Notifications (`notifications`)
 
@@ -155,10 +169,11 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 |------|-------------------|
 | Health | `GET /health`, `GET /ready` |
 | Users | `GET /thisUser`, `GET /me`, `POST /admin/users`, `PATCH /admin/users/:id/role` |
-| Bookings | `GET /bookings`, `POST /bookings` (stub) |
+| Bookings | `GET /bookings`, `POST /bookings`, `/me/bookings/:id` |
+| Payments | `POST /payments/intent`, `POST /webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, `/me/chef-profile/sepa-mandate*`, `/me/chef-profile/sap`, fiscal attestations |
 | F19 CMS | `GET/PUT /content/concept`, `CmsPage`, migration `1700000000001` |
 | Auth | `ClerkAuthGuard`, `AdminGuard` |
-| Integrations | Stripe, Cronofy, Stream, Brevo, Supabase scaffolds |
+| Integrations | **Stripe live** (Connect + webhooks); Cronofy, Stream, Brevo, Supabase scaffolds |
 
 ## Module → spec traceability
 
@@ -167,11 +182,11 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | auth | Clerk + users upsert + admin provisioning | Partial |
 | users | `users` + profile | Partial |
 | catalog | `catalog` | Not started |
-| reservations | **`bookings`** | Scaffold |
+| reservations | **`bookings`** | Partial (create + detail + shopping list; lifecycle transitions pending) |
 | quotes | `quotes` | Not started |
 | shopping-lists | `shopping-lists` | Not started |
 | messaging | `messaging` + Stream | Not started |
-| payments | `payments` | Not started |
+| payments | `payments` + `stripe-webhooks` | **Done** (CB, Connect, commissions, SAP/SEPA foundations) |
 | kossam | `kossam` | Not started |
 | recruitment | `recruitment` | Not started |
 | contact | `contact` | Not started |
@@ -187,7 +202,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 ## Client API checklist (Todo except noted)
 
-`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/settings/GDPR — plus **Done:** `GET /content/concept`, `GET /me`, `GET /thisUser`.
+`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, account/settings/GDPR — plus **Done:** `GET /content/concept`, `GET /me`, `GET /thisUser`, `POST /bookings`, `POST /payments/intent`, `POST /webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, `/me/chef-profile/sepa-mandate*`, `/me/chef-profile/sap`, `/me/fiscal-attestations/:year`.
 
 ## Intentionally out of scope (spec vs stack)
 
@@ -219,9 +234,9 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item | Status |
 |------|--------|
-| `is_active` / `is_verified` are **not read anywhere yet** | Chef listings, booking assignment, and any future `ChefGuard` **must** filter on both, or unvetted self-registered chefs leak into live booking flows |
+| `is_active` / `is_verified` are **not read anywhere yet** | Chef listings, booking assignment, and any future `ChefGuard` **must** filter on both, or unvetted self-registered chefs leak into live booking flows. **Now money-bearing:** an unvetted chef who completes Stripe Connect onboarding is payable (E8) |
 | Switching profile type (client ↔ chef) after onboarding | Blocked with `409` for now; needs reconciliation of the orphaned profile, bookings, and payouts. Planned as separate work |
-| Email verification | Off — BAPI auto-verifies. Nothing proves address ownership, so transactional mail will bounce on typo'd addresses. Revisit before payments go live |
+| Email verification | Off — BAPI auto-verifies. Nothing proves address ownership, so transactional mail will bounce on typo'd addresses. **Payments shipped first (E8, 2026-08-31) and this is still open** |
 
 ## Change log
 
@@ -236,3 +251,4 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-24 | E3/E4/E5/E6/E10 endpoints added (`catalog`, users profile/CRM, quotes, shopping lists, stats) | Phase 1 spec-alignment backend surface implemented |
 | 2026-07-05 | Admin user provisioning: `POST /admin/users`, `PATCH /admin/users/:id/role`; clerk-integration-contract | Backend-only scope; no FAPI auth BFF |
 | 2026-08-03 | **Reversed** the `POST /auth/register` out-of-scope decision; delivered public registration + two-step onboarding (`PATCH /me/profile`, `PATCH /me/chef-profile`, `PATCH /admin/chefs/:id/verification`); added `@nestjs/throttler` | Product needs self-serve sign-up before booking; API owns registration while Clerk keeps sign-in |
+| 2026-08-31 | **E8 delivered:** Stripe Connect destination charges, commissions, `POST /webhooks/stripe`, SEPA mandate + SAP declaration foundations, fiscal attestations; **E2 partial:** `POST /bookings` implemented with `LF-YYYY-NNNN` references and tax-credit amounts. Migration `20260831120000_payments_sap_sepa_foundations` (idempotent) | Card payment flow required end to end before booking can convert; see [`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md) |

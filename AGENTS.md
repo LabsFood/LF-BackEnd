@@ -122,6 +122,40 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 - Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
 - First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
 
+### Payments (Stripe)
+
+Contract and rationale: [`docs/payments/stripe-payments-contract.md`](docs/payments/stripe-payments-contract.md).
+Change register: [`docs/evolution/payments-stripe-cb-evolution.md`](docs/evolution/payments-stripe-cb-evolution.md).
+
+- Modules: `modules/payments/` (`PaymentsModule`) + `modules/stripe-webhooks/` (`StripeWebhooksModule`).
+- A card payment is a **Stripe Connect destination charge**: the platform keeps the commission as
+  `application_fee_amount`, the chef's connected account gets the rest. The booking becomes
+  `confirmed` **only** on the `payment_intent.succeeded` webhook.
+- Client: `POST /payments/intent` → `{ clientSecret, … }`, confirmed with Stripe.js on the frontend.
+  Requires a `pending` booking owned by the caller **and** a chef with `chargesEnabled` +
+  `payoutsEnabled`, otherwise `409`.
+- Chef: `POST/GET /me/chef-profile/stripe-connect/{link,status}` (Express onboarding — links are
+  single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (**records a mandate,
+  never debits**), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
+- Fiscal attestation totals: `GET /me/fiscal-attestations/:year`, `GET /admin/fiscal-attestations[/:clientId]`.
+  JSON only — no PDF.
+- Without `STRIPE_SECRET_KEY` every payment route answers `503`; the webhook also needs
+  `STRIPE_WEBHOOK_SECRET`. Commission defaults: `PAYMENTS_COMMISSION_RATE_BPS=1500` (**placeholder
+  rate**), `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`.
+
+Local webhook loop:
+
+```bash
+stripe listen --forward-to localhost:8000/webhooks/stripe   # prints the whsec_… secret
+stripe trigger payment_intent.succeeded
+```
+
+Put the printed secret in repo-root `.env` as `STRIPE_WEBHOOK_SECRET` (mind the env-precedence
+warning above — `.env.local` overrides shell exports). Signature verification runs against the
+**raw** request bytes captured by the `preParsing` hook in `apps/src/main.ts`; any new
+signature-verified webhook path must be added to `WEBHOOK_RAW_BODY_PATHS` in
+`apps/src/auth/fastify-raw-body.ts`.
+
 ### F19 concept CMS
 
 - Module: `modules/content-cms/` (`ContentCmsModule`)

@@ -23,6 +23,7 @@ Examples:
 | v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | JDK        | -                         |
 | v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | JDK         |      -                     |
 | v2.0.0  | SignIn and SignUp - Authenfication via clerk         |   2026-08-15           |   JDK       |          -                 |
+| v2.1.0  | Paiement CB Stripe — Connect destination charges, commission plateforme, fondations SAP/SEPA, attestations fiscales, `POST /bookings` |              | JDK         | -                         |
 | v1.x.0  | ISSUE_TYPE — ISSUE_DESC                                   |              |             |                           |
 
 

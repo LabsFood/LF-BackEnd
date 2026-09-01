@@ -95,6 +95,33 @@ npm run db:seed
 
 For a **fresh** Postgres volume, run `npm run db:migrate` then `npm run db:seed`.
 
+## Partially applied migrations
+
+**Prisma does not wrap a migration file in a transaction.** If a statement fails half-way
+through, everything before it is already committed, the migration is recorded as *failed*, and
+the next `migrate deploy` replays the file **from the top** — straight into
+`type "x" already exists` on the objects the first attempt created.
+
+Migrations in this repo that alter pre-existing objects are therefore written to be
+**idempotent**: `CREATE TYPE` inside a `DO $$ … EXCEPTION WHEN duplicate_object $$`, `IF EXISTS` /
+`IF NOT EXISTS` on every `ALTER`, and `ADD VALUE IF NOT EXISTS` on enum values. See
+`20260524173000_provider_role_to_chef` and `20260831120000_payments_sap_sepa_foundations` — the
+latter failed this way twice during development before it was made idempotent.
+
+If a deploy still leaves a migration in the failed state:
+
+```bash
+cd apps
+npx prisma migrate status                                  # which migration is failed
+npm run db:resolve -- --rolled-back <migration_name>       # after undoing its effects by hand
+# or, when the file is idempotent and its effects are already in place:
+npm run db:resolve -- --applied <migration_name>
+npm run db:migrate
+```
+
+Write new migrations that touch existing tables or enums the same way, or a single production
+failure will need manual SQL to unblock.
+
 ## Behavior in this repo
 
 - `PrismaService` connects with `SUPABASE_DB_URL` at API startup.
