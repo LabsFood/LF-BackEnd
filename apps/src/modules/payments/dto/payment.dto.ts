@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUUID } from 'class-validator';
 
+import { SapDeclarationType } from '../../../generated/prisma/client';
+
 export class CreatePaymentIntentDto {
   @ApiProperty({
     format: 'uuid',
@@ -41,7 +43,74 @@ export class PaymentIntentDto {
   commissionTtc!: number;
 }
 
-/** `GET /me/fiscal-attestations/:year` and the admin detail route. */
+/**
+ * One provider's share of a client's yearly total.
+ *
+ * The chef is the declared "service à la personne" provider (prestataire), so the
+ * attestation a client files is issued **per chef**, carrying that chef's own
+ * declaration — a NOVA code for `type_a_nova`, the cooperative for
+ * `type_b_cooperative`. A chef with no `SapProfile` cannot issue one at all.
+ */
+export class FiscalAttestationProviderDto {
+  @ApiProperty({ format: 'uuid', description: 'Issuing chef (`chef_profiles.id`).' })
+  chefProfileId!: string;
+
+  @ApiProperty({ description: 'Chef display name.', example: 'Chef Marie D.' })
+  chefDisplayName!: string;
+
+  @ApiProperty({
+    description:
+      'Whether the chef has declared a SAP route. `false` means they cannot legally ' +
+      'issue an attestation for these amounts yet.',
+    example: true,
+  })
+  sapDeclared!: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['type_a_nova', 'type_b_cooperative'],
+    nullable: true,
+    description: 'The chef SAP declaration route, when declared.',
+  })
+  declarationType?: SapDeclarationType | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'NOVA declaration number, for `type_a_nova` chefs.',
+    example: 'SAP123456789',
+  })
+  novaCode?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Cooperative issuing on the chef behalf, for `type_b_cooperative`.',
+    example: 'Unipros',
+  })
+  cooperativeName?: string | null;
+
+  @ApiProperty({
+    description:
+      'Amount paid to this chef that is eligible for the credit, in minor units.',
+    example: 30000,
+  })
+  eligibleAmountCents!: number;
+
+  @ApiProperty({
+    description: 'Succeeded payments to this chef in the year.',
+    example: 3,
+  })
+  paymentsCount!: number;
+
+  @ApiProperty({ description: 'ISO 4217 currency code.', example: 'EUR' })
+  currency!: string;
+}
+
+/**
+ * `GET /me/fiscal-attestations/:year` and the admin routes.
+ *
+ * The client-level totals are a **dashboard summary, not an attestation**: each entry
+ * in `providers` is the unit a real attestation is issued for, because each chef is an
+ * independent declared provider.
+ */
 export class FiscalAttestationDto {
   @ApiProperty({ format: 'uuid', description: 'Postgres `users.id` of the client.' })
   clientId!: string;
@@ -57,18 +126,25 @@ export class FiscalAttestationDto {
 
   @ApiProperty({
     description:
-      'Sum of amounts eligible for the 50 % "service à la personne" tax credit, in ' +
-      'minor units, across succeeded payments of the year.',
+      'Sum across every provider, in minor units. Informational only — no single ' +
+      'document covers amounts from several independent providers.',
     example: 48000,
   })
   eligibleAmountCents!: number;
 
   @ApiProperty({
-    description: 'Number of succeeded payments counted in `eligibleAmountCents`.',
+    description: 'Succeeded payments counted across all providers.',
     example: 4,
   })
   paymentsCount!: number;
 
   @ApiProperty({ description: 'ISO 4217 currency code.', example: 'EUR' })
   currency!: string;
+
+  @ApiProperty({
+    type: FiscalAttestationProviderDto,
+    isArray: true,
+    description: 'Per-chef breakdown, largest amount first. One attestation per entry.',
+  })
+  providers!: FiscalAttestationProviderDto[];
 }

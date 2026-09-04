@@ -20,9 +20,13 @@ import { FiscalAttestationDto } from './dto/payment.dto';
 import { FiscalAttestationsService } from './fiscal-attestations.service';
 
 const ATTESTATION_DESCRIPTION =
-  'Sums the amounts eligible for the 50 % "service à la personne" tax credit across ' +
-  'succeeded payments of the year (refunded payments drop out automatically). ' +
-  'JSON only — the signed PDF attestation is a separate deliverable, pending the legal template.';
+  'Amounts eligible for the 50 % "service à la personne" tax credit across succeeded ' +
+  'payments of the year (refunded payments drop out automatically), broken down by ' +
+  'issuing chef in `providers`. **The chef is the declared provider (prestataire)**, so ' +
+  'one attestation is issued per entry in `providers`, carrying that chef NOVA code or ' +
+  'cooperative; the client-level totals are a dashboard summary, not a filable document. ' +
+  'A provider with `sapDeclared: false` has not declared a SAP route and cannot issue one. ' +
+  'JSON only — the rendered PDF is a separate deliverable, pending the legal template.';
 
 @ApiTags('payments')
 @ApiBearerAuth()

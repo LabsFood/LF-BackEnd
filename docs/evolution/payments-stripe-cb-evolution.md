@@ -26,6 +26,7 @@ Working contract for frontends and operators:
 | SAP declaration | Lives in `UsersModule`, not `PaymentsModule` | Self-declared profile data, carries no Stripe secrets |
 | External SAP statuses | Not writable by the chef | Same rule as `isActive` / `isVerified`: no self-habilitation |
 | Fiscal attestation | JSON aggregation, **no PDF** | Legal template not validated; nothing worth persisting until a rendering exists |
+| Attestation issuer | **The chef** (prestataire), one attestation per chef | Confirmed 2026-09-04. Each chef declares their own SAP route, so a single client-level document covering several independent providers would not be valid |
 
 ## File Evolution
 
@@ -42,7 +43,7 @@ Working contract for frontends and operators:
 | `apps/src/modules/payments/sepa-mandates.controller.ts` | Created | `POST/GET /me/chef-profile/sepa-mandate*` |
 | `apps/src/modules/payments/sepa-mandates.service.ts` | Created | Stripe customer + SetupIntent, `setup_intent.succeeded` completion |
 | `apps/src/modules/payments/fiscal-attestations.controller.ts` | Created | `/me/fiscal-attestations/:year` + two `/admin/fiscal-attestations` routes |
-| `apps/src/modules/payments/fiscal-attestations.service.ts` | Created | Yearly tax-credit aggregation keyed on `paidAt` |
+| `apps/src/modules/payments/fiscal-attestations.service.ts` | Created | Yearly tax-credit aggregation keyed on `paidAt`, grouped per issuing chef |
 | `apps/src/modules/payments/dto/payment.dto.ts` | Created | `CreatePaymentIntentDto`, `PaymentIntentDto`, `FiscalAttestationDto` |
 | `apps/src/modules/payments/dto/stripe-connect.dto.ts` | Created | Connect link/status + SEPA mandate DTOs |
 
@@ -86,7 +87,7 @@ Working contract for frontends and operators:
 | `GET /me/chef-profile/sepa-mandate` | Created | Clerk | `null` when no mandate started |
 | `GET /me/chef-profile/sap` | Created | Clerk | `null` when not declared yet |
 | `PATCH /me/chef-profile/sap` | Created | Clerk | Upsert; clears the other type's fields on switch |
-| `GET /me/fiscal-attestations/:year` | Created | Clerk | JSON totals, no PDF |
+| `GET /me/fiscal-attestations/:year` | Created | Clerk | JSON totals + per-chef `providers[]`, no PDF |
 | `GET /admin/fiscal-attestations` | Created | Admin | `?year=`, defaults to the current UTC year |
 | `GET /admin/fiscal-attestations/:clientId` | Created | Admin | `404` on unknown client |
 | `POST /webhooks/stripe` | Created | Signature | Public, raw-body verified, excluded from Swagger |
@@ -146,7 +147,9 @@ payment rows matter.
 | `StripeConnectLinkDto.url` | Created | Single-use hosted onboarding URL — must not be cached |
 | `SepaMandateSetupIntentDto.clientSecret` | Created | Confirmed with Stripe Elements; the IBAN never reaches the backend |
 | `SepaMandateStatusDto.ibanLast4` | Created | The only part of the bank details persisted |
-| `FiscalAttestationDto.eligibleAmountCents` | Created | Sum over `succeeded` payments of the year |
+| `FiscalAttestationDto.eligibleAmountCents` | Created | Sum over `succeeded` payments of the year, across all providers (dashboard only) |
+| `FiscalAttestationDto.providers` | Created | Per-chef breakdown — the unit an attestation is actually issued for |
+| `FiscalAttestationProviderDto.sapDeclared` | Created | `false` when the chef has no `SapProfile` and cannot issue an attestation |
 | `UpdateMeSapProfileDto.declarationType` | Created | `type_a_nova` requires `novaCode`; `type_b_cooperative` requires `cooperativeName` + `cooperativeMembershipProof` (`@ValidateIf`) |
 | `SapProfileDto.urssafTiersPrestationStatus` / `crcesuAffiliationStatus` | Created | Read-only; absent from the update DTO by design |
 | `BookingReadDto.reference` / `amountTtc` / `amountAfterTax` | Created | Reference `LF-<year>-NNNN`; `amountAfterTax = amountTtc / 2` |
@@ -171,7 +174,8 @@ payment rows matter.
 | `SepaMandatesService.createSetupIntent()` | Created | Stripe customer (reused) + `sepa_debit` SetupIntent, upserts the mandate row |
 | `SepaMandatesService.handleSetupIntentSucceeded()` | Created | Mandate `active`, stores mandate id + `ibanLast4`; a failed PaymentMethod read is non-fatal |
 | `FiscalAttestationsService.summarizeForClerkUser()` / `summarizeForClientId()` / `summarizeAllClients()` | Created | Yearly totals for self, one client, and all clients |
-| `FiscalAttestationsService.yearFilter()` | Created | `succeeded` + `paidAt` within the UTC year — settlement date, not creation date, decides the tax year |
+| `FiscalAttestationsService.buildAttestation()` | Created | Groups a client's payments by issuing chef and totals each side |
+| `FiscalAttestationsService.loadPayments()` | Created | `succeeded` + `paidAt` within the UTC year — settlement date, not creation date, decides the tax year — joined to client and chef SAP declaration |
 | `StripeWebhooksService.verifyAndHandle()` | Created | `constructEvent` against the raw bytes, then dispatch |
 | `BookingsService.create()` | Created | Persists the `pending` booking; `chefId` wins over the legacy `providerId` |
 | `BookingsService.nextReference()` | Created | `LF-<year>-NNNN`, same counting scheme as `QuotesService.nextReference()` |
@@ -188,7 +192,7 @@ payment rows matter.
 | `payments/payments.service.spec.ts` | Created | 18 | Guards, commission freeze, intent reuse, the three webhook handlers, idempotency |
 | `payments/stripe-connect.service.spec.ts` | Created | 7 | Account creation once, fresh links, flag mirroring, unknown account |
 | `payments/sepa-mandates.service.spec.ts` | Created | 8 | Customer reuse, upsert, mandate completion, IBAN read failure |
-| `payments/fiscal-attestations.service.spec.ts` | Created | 6 | Year boundaries on `paidAt`, refunded exclusion, admin aggregation |
+| `payments/fiscal-attestations.service.spec.ts` | Created | 9 | Per-chef grouping, SAP declaration carried per provider, undeclared chef flagged, year boundaries, admin aggregation |
 | `payments/commission.util.spec.ts` | Created | 5 | Rounding, `HT + VAT === TTC`, clamping, zero rate |
 | `stripe-webhooks/stripe-webhooks.service.spec.ts` | Created | 10 | Dispatch per event type, unknown types, missing config |
 | `users/dto/sap-profile.dto.spec.ts` | Created | 8 | Conditional required fields per declaration type |
@@ -204,7 +208,7 @@ no test exercises the migration's backfill against legacy rows.
 
 | Variable | Status | Default |
 |----------|--------|---------|
-| `PAYMENTS_COMMISSION_RATE_BPS` | Created | `1500` — **placeholder**, replace with the negotiated rate |
+| `PAYMENTS_COMMISSION_RATE_BPS` | Created | `1500` — the contracted 15 % HT (confirmed 2026-09-04) |
 | `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Created | `2000` |
 | `STRIPE_CONNECT_RETURN_URL` | Created | `http://localhost:3005/chef/onboarding/stripe/return` |
 | `STRIPE_CONNECT_REFRESH_URL` | Created | `http://localhost:3005/chef/onboarding/stripe/refresh` |
@@ -226,9 +230,8 @@ no test exercises the migration's backfill against legacy rows.
 
 | Item | Why it matters |
 |------|----------------|
-| **Commission rate is a placeholder** | 15 % HT is invented; the negotiated rate must be set before production |
 | **Refund flow** | No API refunds; the commission is not clawed back on a refund (Stripe keeps the fee unless asked) |
-| **PDF attestation** | Clients get JSON; the signed document is a separate deliverable pending the legal template |
+| **PDF attestation** | Clients get JSON; the signed document is a separate deliverable pending the legal template. The renderer must emit **one document per `providers[]` entry**, not one per client |
 | **`paid` status unused** | The enum carries an invoiceable state no code path sets — decide whether it stays |
 | **`avance immédiate` / CESU** | Enums, `payments.metadata`, and the SEPA mandate exist; no flow is implemented, and the mandate has never been debited end-to-end |
 | **URSSAF / CRCESU** | Statuses are inert and no admin route flips them |
@@ -245,3 +248,4 @@ no test exercises the migration's backfill against legacy rows.
 | 2026-08-31 | `payment_status` extended in place instead of recreated; `payments` altered rather than created (`dad2255`) | The enum and table already existed from `20250522130000_spec_domain` |
 | 2026-09-01 | Every migration statement made idempotent with guarded `DO` blocks (`9bf8456`) | Prisma runs migration files outside a transaction; two partial failures left debris that `migrate deploy` replayed into |
 | 2026-09-01 | Created this register and `docs/payments/stripe-payments-contract.md`; refreshed the platform register, architecture, deploy, and README docs | Document the branch |
+| 2026-09-04 | Attestation reshaped per issuing chef (`providers[]`); commission rate confirmed at 15 % HT (no longer a placeholder) | The chef is the declared provider (prestataire), so one attestation is issued per chef, carrying that chef's own SAP declaration |

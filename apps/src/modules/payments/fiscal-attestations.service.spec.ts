@@ -4,6 +4,50 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { FiscalAttestationsService } from './fiscal-attestations.service';
 
+const CLIENT = { id: 'user-1', fullName: 'Marie Client', email: 'marie@example.com' };
+
+/** A succeeded payment of `amount` to `chef`, by `client`. */
+function payment(
+  amount: number,
+  chef: {
+    id: string;
+    displayName: string;
+    sapProfile?: {
+      declarationType: string;
+      novaCode: string | null;
+      cooperativeName: string | null;
+    } | null;
+  },
+  client = CLIENT,
+) {
+  return {
+    amountTtc: amount,
+    currency: 'EUR',
+    taxCreditEligibleAmount: amount,
+    booking: { client, chefProfile: { sapProfile: null, ...chef } },
+  };
+}
+
+const CHEF_A = {
+  id: 'chef-a',
+  displayName: 'Chef Marie D.',
+  sapProfile: {
+    declarationType: 'type_a_nova',
+    novaCode: 'SAP123456789',
+    cooperativeName: null,
+  },
+};
+const CHEF_B = {
+  id: 'chef-b',
+  displayName: 'Chef Paul B.',
+  sapProfile: {
+    declarationType: 'type_b_cooperative',
+    novaCode: null,
+    cooperativeName: 'Unipros',
+  },
+};
+const CHEF_UNDECLARED = { id: 'chef-c', displayName: 'Chef Sans SAP', sapProfile: null };
+
 describe('FiscalAttestationsService', () => {
   let prisma: {
     user: { findUnique: jest.Mock };
@@ -14,36 +58,89 @@ describe('FiscalAttestationsService', () => {
 
   beforeEach(() => {
     prisma = {
-      user: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'user-1',
-          fullName: 'Marie Client',
-          email: 'marie@example.com',
-        }),
-      },
+      user: { findUnique: jest.fn().mockResolvedValue(CLIENT) },
       payment: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    users = {
-      ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }),
-    };
+    users = { ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }) };
     service = new FiscalAttestationsService(
       prisma as unknown as PrismaService,
       users as unknown as UsersService,
     );
   });
 
-  it('sums the eligible amounts of succeeded payments for the year', async () => {
+  it('issues one provider entry per chef, never a merged total', async () => {
     prisma.payment.findMany.mockResolvedValue([
-      { amountTtc: 12_500, currency: 'EUR', taxCreditEligibleAmount: 12_500 },
-      { amountTtc: 9_000, currency: 'EUR', taxCreditEligibleAmount: 9_000 },
+      payment(10_000, CHEF_A),
+      payment(30_000, CHEF_B),
+      payment(5_000, CHEF_A),
     ]);
 
-    await expect(service.summarizeForClerkUser('clerk_1', 2026)).resolves.toEqual({
+    const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+    expect(result.providers).toHaveLength(2);
+    // Largest first: chef B (30 000) before chef A (15 000).
+    expect(result.providers[0]).toMatchObject({
+      chefProfileId: 'chef-b',
+      eligibleAmountCents: 30_000,
+      paymentsCount: 1,
+    });
+    expect(result.providers[1]).toMatchObject({
+      chefProfileId: 'chef-a',
+      eligibleAmountCents: 15_000,
+      paymentsCount: 2,
+    });
+  });
+
+  it('carries each chef own SAP declaration onto their entry', async () => {
+    prisma.payment.findMany.mockResolvedValue([
+      payment(10_000, CHEF_A),
+      payment(10_000, CHEF_B),
+    ]);
+
+    const { providers } = await service.summarizeForClerkUser('clerk_1', 2026);
+    const a = providers.find((p) => p.chefProfileId === 'chef-a');
+    const b = providers.find((p) => p.chefProfileId === 'chef-b');
+
+    expect(a).toMatchObject({
+      sapDeclared: true,
+      declarationType: 'type_a_nova',
+      novaCode: 'SAP123456789',
+      cooperativeName: null,
+    });
+    expect(b).toMatchObject({
+      sapDeclared: true,
+      declarationType: 'type_b_cooperative',
+      novaCode: null,
+      cooperativeName: 'Unipros',
+    });
+  });
+
+  it('flags a chef who cannot legally issue an attestation', async () => {
+    prisma.payment.findMany.mockResolvedValue([payment(10_000, CHEF_UNDECLARED)]);
+
+    const { providers } = await service.summarizeForClerkUser('clerk_1', 2026);
+
+    expect(providers[0]).toMatchObject({
+      sapDeclared: false,
+      declarationType: null,
+      novaCode: null,
+    });
+  });
+
+  it('reports client-level totals as the sum of the providers', async () => {
+    prisma.payment.findMany.mockResolvedValue([
+      payment(10_000, CHEF_A),
+      payment(30_000, CHEF_B),
+    ]);
+
+    const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+    expect(result).toMatchObject({
       clientId: 'user-1',
       clientName: 'Marie Client',
       clientEmail: 'marie@example.com',
       year: 2026,
-      eligibleAmountCents: 21_500,
+      eligibleAmountCents: 40_000,
       paymentsCount: 2,
       currency: 'EUR',
     });
@@ -51,11 +148,12 @@ describe('FiscalAttestationsService', () => {
 
   it('falls back to amountTtc when no eligible amount was recorded', async () => {
     prisma.payment.findMany.mockResolvedValue([
-      { amountTtc: 12_500, currency: 'EUR', taxCreditEligibleAmount: null },
+      { ...payment(12_500, CHEF_A), taxCreditEligibleAmount: null },
     ]);
 
-    const summary = await service.summarizeForClerkUser('clerk_1', 2026);
-    expect(summary.eligibleAmountCents).toBe(12_500);
+    const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+    expect(result.eligibleAmountCents).toBe(12_500);
   });
 
   it('filters on succeeded payments settled inside the calendar year', async () => {
@@ -75,12 +173,14 @@ describe('FiscalAttestationsService', () => {
     );
   });
 
-  it('returns a zero total for a year with no payment', async () => {
-    const summary = await service.summarizeForClerkUser('clerk_1', 2025);
-    expect(summary).toMatchObject({
+  it('returns an empty provider list for a year with no payment', async () => {
+    const result = await service.summarizeForClerkUser('clerk_1', 2025);
+
+    expect(result).toMatchObject({
       eligibleAmountCents: 0,
       paymentsCount: 0,
       currency: 'EUR',
+      providers: [],
     });
   });
 
@@ -93,40 +193,19 @@ describe('FiscalAttestationsService', () => {
   });
 
   it('groups the admin listing per client, largest total first', async () => {
+    const other = { id: 'user-2', fullName: 'Big', email: 'big@example.com' };
     prisma.payment.findMany.mockResolvedValue([
-      {
-        amountTtc: 10_000,
-        currency: 'EUR',
-        taxCreditEligibleAmount: 10_000,
-        booking: { client: { id: 'user-1', fullName: 'Small', email: 's@example.com' } },
-      },
-      {
-        amountTtc: 30_000,
-        currency: 'EUR',
-        taxCreditEligibleAmount: 30_000,
-        booking: { client: { id: 'user-2', fullName: 'Big', email: 'b@example.com' } },
-      },
-      {
-        amountTtc: 5_000,
-        currency: 'EUR',
-        taxCreditEligibleAmount: 5_000,
-        booking: { client: { id: 'user-1', fullName: 'Small', email: 's@example.com' } },
-      },
+      payment(10_000, CHEF_A),
+      payment(30_000, CHEF_B, other),
+      payment(5_000, CHEF_B),
     ]);
 
     const rows = await service.summarizeAllClients(2026);
 
-    expect(rows).toEqual([
-      expect.objectContaining({
-        clientId: 'user-2',
-        eligibleAmountCents: 30_000,
-        paymentsCount: 1,
-      }),
-      expect.objectContaining({
-        clientId: 'user-1',
-        eligibleAmountCents: 15_000,
-        paymentsCount: 2,
-      }),
-    ]);
+    expect(rows.map((r) => r.clientId)).toEqual(['user-2', 'user-1']);
+    expect(rows[0]).toMatchObject({ eligibleAmountCents: 30_000, paymentsCount: 1 });
+    expect(rows[1]).toMatchObject({ eligibleAmountCents: 15_000, paymentsCount: 2 });
+    // The client with two chefs gets two attestations, not one merged figure.
+    expect(rows[1].providers).toHaveLength(2);
   });
 });

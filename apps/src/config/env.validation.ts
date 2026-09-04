@@ -40,7 +40,7 @@ export const envValidationSchema = Joi.object({
    */
   STRIPE_CONNECT_WEBHOOK_SECRET: Joi.string().allow('').optional(),
 
-  /** Platform commission, in basis points. 1500 = 15 % HT (placeholder rate). */
+  /** Platform commission, in basis points. 1500 = the contracted 15 % HT. */
   PAYMENTS_COMMISSION_RATE_BPS: Joi.number().min(0).max(10_000).default(1500),
   /** VAT on the commission, in basis points. 2000 = 20 % (French standard rate). */
   PAYMENTS_COMMISSION_VAT_RATE_BPS: Joi.number().min(0).max(10_000).default(2000),

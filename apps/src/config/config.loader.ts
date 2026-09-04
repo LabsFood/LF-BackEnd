@@ -31,7 +31,8 @@ export interface AppConfig {
     connectWebhookSecret?: string;
   };
   payments: {
-    /** Platform commission on the pre-VAT amount, in basis points (1500 = 15 %). */
+    /** Platform commission on the pre-VAT amount, in basis points. 1500 = the
+     * contracted 15 % HT; overridable per environment. */
     commissionRateBps: number;
     /** VAT applied on top of the commission, in basis points (2000 = 20 %). */
     commissionVatRateBps: number;
@@ -103,7 +104,6 @@ export const configLoader = (): AppConfig => ({
     connectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
   },
   payments: {
-    // 15 % HT is a placeholder until the negotiated rate is confirmed.
     commissionRateBps: Number(process.env.PAYMENTS_COMMISSION_RATE_BPS ?? 1500),
     commissionVatRateBps: Number(process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS ?? 2000),
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).

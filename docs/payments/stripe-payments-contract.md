@@ -156,9 +156,30 @@ habilitated. Both stay `not_started` until the URSSAF / CRCESU integrations exis
 ```jsonc
 {
   "clientId": "…", "clientName": "…", "clientEmail": "…",
-  "year": 2026, "eligibleAmountCents": 48000, "paymentsCount": 4, "currency": "EUR"
+  "year": 2026,
+  // Sum across providers — a dashboard figure, NOT a filable document.
+  "eligibleAmountCents": 48000, "paymentsCount": 4, "currency": "EUR",
+  "providers": [
+    {
+      "chefProfileId": "…", "chefDisplayName": "Chef Marie D.",
+      "sapDeclared": true, "declarationType": "type_a_nova",
+      "novaCode": "SAP123456789", "cooperativeName": null,
+      "eligibleAmountCents": 30000, "paymentsCount": 3, "currency": "EUR"
+    }
+  ]
 }
 ```
+
+**The chef is the declared provider (prestataire), so one attestation is issued per
+entry in `providers`** — each carrying that chef's own declaration (`novaCode` for
+`type_a_nova`, `cooperativeName` for `type_b_cooperative`). The client-level totals
+aggregate every provider and exist for dashboards only: no single document may cover
+amounts owed by several independent providers. `providers` is sorted by amount,
+largest first.
+
+A provider with `sapDeclared: false` has no `SapProfile` and **cannot issue an
+attestation at all** — surface that to the client rather than counting the amount as
+claimable.
 
 Only `succeeded` payments count, and the **tax year is decided by `paidAt`**, not
 `createdAt` — an intent created on 31 December and settled on 1 January belongs to the
@@ -166,8 +187,8 @@ later year. A refunded payment therefore drops out of the total on its own. `yea
 defaults to the current UTC year on the admin routes; clients with no succeeded payment
 that year are omitted from the list.
 
-**JSON only — no signed PDF is rendered yet.** That is a deliberate fast-follow, pending
-validation of the legal template.
+**JSON only — no signed PDF is rendered yet.** Pending validation of the legal
+template; the per-provider shape above is the unit that template must render.
 
 ### Booking creation (now live)
 
@@ -231,8 +252,9 @@ amountTtcCents = amountHtCents + amountVatCents   → application_fee_amount
 - `rateBps` and `vatRateBps` are **frozen onto the `commissions` row** at creation time,
   so changing the configured rate never rewrites history and an audit can replay the amounts.
 
-> The default **15 % HT** is a **placeholder**. Replace `PAYMENTS_COMMISSION_RATE_BPS`
-> with the negotiated rate before production.
+> **15 % HT** is the contracted rate, carried as the `PAYMENTS_COMMISSION_RATE_BPS`
+> default. Override it per environment only to model a different agreement — the rate
+> in force is frozen onto each `Commission` row, so a change never rewrites history.
 
 ## 6. Configuration
 
@@ -240,7 +262,7 @@ amountTtcCents = amountHtCents + amountVatCents   → application_fee_amount
 |----------|---------|---------|
 | `STRIPE_SECRET_KEY` | — | Platform secret key. Unset → payment routes answer `503` |
 | `STRIPE_WEBHOOK_SECRET` | — | `whsec_…` used to verify `POST /webhooks/stripe` |
-| `PAYMENTS_COMMISSION_RATE_BPS` | `1500` | Commission on the pre-VAT base, in bps (**placeholder**) |
+| `PAYMENTS_COMMISSION_RATE_BPS` | `1500` | Commission on the pre-VAT base, in bps (contracted 15 % HT) |
 | `PAYMENTS_COMMISSION_VAT_RATE_BPS` | `2000` | VAT on the commission, in bps (French standard rate) |
 | `STRIPE_CONNECT_RETURN_URL` | `http://localhost:3005/chef/onboarding/stripe/return` | Where Stripe sends a chef who finished (or abandoned) onboarding |
 | `STRIPE_CONNECT_REFRESH_URL` | `http://localhost:3005/chef/onboarding/stripe/refresh` | Where Stripe sends a chef whose onboarding link expired |
@@ -311,7 +333,6 @@ the migration for the full rationale.
 
 | Limitation | Consequence |
 |------------|-------------|
-| Commission rate is a **placeholder** (15 %) | Set the negotiated rate before production |
 | No PDF attestation | `GET …/fiscal-attestations` returns JSON only |
 | No refund endpoint | Refunds happen in the Stripe Dashboard; the webhook records them, the commission is not clawed back |
 | `avance immédiate` / CESU | Enums, `payments.metadata`, and the SEPA mandate exist; **no flow is implemented** |
