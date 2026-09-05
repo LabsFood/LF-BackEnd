@@ -239,6 +239,67 @@ no test exercises the migration's backfill against legacy rows.
 | **`is_active` / `is_verified` still unread** | An unvetted chef who finishes Connect onboarding is payable — inherited gap, now with money attached |
 | **Email verification off** | Flagged as a pre-payments risk in the Clerk contract; payments shipped first, the gap is still open |
 | **Legacy `payments` rows** | The migration deletes rows it cannot attach to a booking |
+| **Invoicing — two invoice types + S3 archival** | Not implemented. Business rule confirmed 2026-09-05 — see dedicated section below |
+
+### Invoicing — two invoice types (not yet implemented, confirmed 2026-09-05)
+
+Every booking needs **two separate invoices**, not one:
+
+**A — Service invoice, client-facing, issued in the prestataire's name**
+
+| Field | Value |
+|-------|-------|
+| Issuer (named party) | The chef/prestataire — the platform generates the document on their behalf |
+| Recipient | The client |
+| Content | Client name, prestataire name, the invoice line item(s) (the service/booking rendered) |
+| Payment method shown | Which `payment_method` was used for the booking: `cb`, `cesu` (shown as "CESU financé"), or — future — `avance_immediate` |
+| Trigger | When the prestataire has **delivered the service** — **to confirm**: this is not necessarily `payment_intent.succeeded` (that only means the client was charged). Check whether bookings have a "completed"/"delivered" status distinct from `confirmed`, or whether one needs to be added |
+
+**B — Commission invoice, chef-facing, issued by the platform**
+
+| Field | Value |
+|-------|-------|
+| Issuer | The platform |
+| Recipient ("client" of this invoice) | The chef/prestataire |
+| Object | The commission the platform collects on the booking (the existing `commissions` row — frozen `rate_bps` / `vat_rate_bps`) |
+| Role | This invoice is the **legal basis for collecting the commission** — the prélèvement is made against it, not just against the raw `application_fee_amount` |
+| Collection method | Depends on how the client paid, which already matches the existing `commission_collection_method` enum: `cb` → commission already withheld atomically as `application_fee_amount` on the destination charge (implemented; invoice B documents a collection that already happened); `cesu` / future `avance_immediate` → per the existing SEPA mandate decision ("the fee cannot be split at charge time"), the commission has to be collected afterward via a separate SEPA prélèvement, issued against invoice B |
+
+**Both invoice types get the S3 backup** from the follow-up above: whichever party the
+invoice is issued to (client for A, prestataire for B) is served directly by Stripe
+(or the platform's generated PDF) — never by S3. S3 only holds a private, write-only
+copy for the 10-year legal retention (Code de commerce), with the object key recorded
+in Postgres against the owning row (new `invoices` table, or columns on `payments` /
+`commissions` — shape TBD).
+
+**Confirmed 2026-09-05**: invoice B does show which underlying payment method the
+booking used (mirrors invoice A's field) — that's exactly what decides whether the
+commission was already taken via `stripe_application_fee` or still needs a
+`sepa_direct_debit` prélèvement.
+
+**Resolved 2026-09-05 — Stripe mechanism for invoice A's seller-of-record**: keep the
+existing **destination charge** (no switch to direct charges — the CB split stays
+exactly as implemented). Add **`on_behalf_of`** (the chef's Connect account id)
+alongside the existing `transfer_data.destination` and `application_fee_amount` on the
+PaymentIntent/charge, and the same trio on the Invoice object if/when a real Stripe
+`Invoice` is created for the document. This is Stripe's documented pattern for making
+the connected account the **merchant of record** on an indirect charge ("Indirect
+charges using the `on_behalf_of` parameter: the merchant of record is the connected
+account" — [Understand the merchant of record](https://docs.stripe.com/connect/merchant-of-record)):
+Stripe then uses the chef's account branding on the receipt/invoice instead of the
+platform's, satisfying "invoice A in the prestataire's name" with **one added
+parameter**, no restructuring.
+
+No re-onboarding needed: `on_behalf_of` requires the connected account to be under
+Stripe's `full` service agreement, and any account with the `card_payments` capability
+(which the chef Express accounts already request — see Scope decisions above) is
+already on `full` — `recipient`-agreement accounts can't request `card_payments` at
+all, so this isn't a gap here.
+
+Still not implemented: `PaymentsService.createIntentForBooking()` doesn't set
+`on_behalf_of` today. When this ships, add it there for invoice A; invoice B (the
+platform's own commission invoice) does **not** use `on_behalf_of` — the platform is
+already the seller on that one.
 
 ## Change Log
 
@@ -249,3 +310,5 @@ no test exercises the migration's backfill against legacy rows.
 | 2026-09-01 | Every migration statement made idempotent with guarded `DO` blocks (`9bf8456`) | Prisma runs migration files outside a transaction; two partial failures left debris that `migrate deploy` replayed into |
 | 2026-09-01 | Created this register and `docs/payments/stripe-payments-contract.md`; refreshed the platform register, architecture, deploy, and README docs | Document the branch |
 | 2026-09-04 | Attestation reshaped per issuing chef (`providers[]`); commission rate confirmed at 15 % HT (no longer a placeholder) | The chef is the declared provider (prestataire), so one attestation is issued per chef, carrying that chef's own SAP declaration |
+| 2026-09-05 | Added "Invoicing — two invoice types" follow-up: a client-facing service invoice issued in the prestataire's name, and a chef-facing commission invoice issued by the platform, both backed up (never served) to S3 for legal retention | Product decision: two distinct invoices per booking, not one — the service invoice and the commission invoice have different issuers, recipients, and objects, and the commission invoice's collection method (`stripe_application_fee` vs `sepa_direct_debit` prélèvement) depends on the booking's payment method. No code change — planned for after the payment-methods work on this branch |
+| 2026-09-05 | Resolved invoice A's seller-of-record mechanism: add `on_behalf_of` to the existing destination-charge PaymentIntent, keep `transfer_data.destination` + `application_fee_amount` unchanged | Confirmed via Stripe docs — `on_behalf_of` on an indirect (destination) charge makes the connected account the merchant of record without switching to direct charges; chef Express accounts already qualify (they hold `card_payments`, which requires the `full` service agreement). No code change yet |
