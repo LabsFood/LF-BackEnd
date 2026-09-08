@@ -1,0 +1,2651 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "description": "L’API Tiers de prestations facilite les echanges entre l’Urssaf et les prestataires ou mandataires de services a la personne. Le prestataire peut ainsi : inscrire son client sur la plateforme, transmettre a l’Urssaf la facturation d’un service a la personne afin que son client puisse beneficier de l’avance immediate de credit d’impot.",
+    "version": "1.30.14",
+    "title": "API Tiers de prestations",
+    "contact": {
+      "name": "Support JIRA ASE",
+      "url": "https://acoss-dsi.atlassian.net/servicedesk/customer/portal/2"
+    }
+  },
+  "host": "api-edi.urssaf.fr",
+  "basePath": "/atp/v1/tiersPrestations",
+  "tags": [
+    {
+      "name": "Demande de paiement",
+      "description": "Tout au sujet des Demande de paiement"
+    },
+    {
+      "name": "Particulier",
+      "description": "Tout au sujet des Particulier"
+    }
+  ],
+  "schemes": [
+    "http"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "securitySchemes": [
+        "homeplus.tiersprestations"
+      ]
+    }
+  ],
+  "paths": {
+    "/demandePaiement": {
+      "post": {
+        "tags": [
+          "Demande de paiement"
+        ],
+        "summary": "Methode 050 - Transmettre des demandes de paiement pour un tiers de prestation.",
+        "description": "Ce service permet, pour un tiers de prestation authentifie, d'effectuer des demandes de paiement.",
+        "operationId": "transmettreDemandePaiements",
+        "parameters": [
+          {
+            "name": "recouv.application.id",
+            "in": "header",
+            "description": "Identifiant d'application pour le recouvrement",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "request.id",
+            "in": "header",
+            "description": "Identifiant de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "description": "Identifiant unique de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "inputDemandePaiements",
+            "description": "Donnees d'entrees afin de pouvoir realiser une demande de paiement",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "dateDebutEmploi",
+                  "dateFacture",
+                  "dateFinEmploi",
+                  "dateNaissanceClient",
+                  "idClient",
+                  "idTiersFacturation",
+                  "inputPrestations",
+                  "mntFactureHT",
+                  "mntFactureTTC",
+                  "numFactureTiers"
+                ],
+                "properties": {
+                  "idTiersFacturation": {
+                    "type": "string",
+                    "example": "1081230",
+                    "title": "Identifiant du tiers de prestation qui recevra le paiement, identifiant SI ."
+                  },
+                  "idClient": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+                  },
+                  "dateNaissanceClient": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "1986-11-30T00:00:00Z",
+                    "title": "Date de naissance du client du tiers de prestation. Utilise pour verifier la coherence des informations."
+                  },
+                  "numFactureTiers": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Numero de la facture, identifiant SI Tiers de prestation.",
+                    "maxLength": 50
+                  },
+                  "dateFacture": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-12-01T00:00:00Z",
+                    "title": "Date a laquelle la facture a ete emise par le partenaire."
+                  },
+                  "dateDebutEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-01T00:00:00Z",
+                    "title": "Date de debut  de la premiere prestation de la demande de paiement."
+                  },
+                  "dateFinEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-30T00:00:00Z",
+                    "title": "Date de fin  de la derniere prestation de la demande de paiement."
+                  },
+                  "mntAcompte": {
+                    "type": "number",
+                    "example": 100,
+                    "title": "Montant de l'acompte que le client aurait pu verser au tiers de prestation"
+                  },
+                  "dateVersementAcompte": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-25T00:00:00Z",
+                    "title": "Date a laquelle le client aurait pu verser un acompte au tiers de prestation."
+                  },
+                  "mntFactureTTC": {
+                    "type": "number",
+                    "example": 2000,
+                    "title": "Montant total de la facture Toutes Taxes Comprises."
+                  },
+                  "mntFactureHT": {
+                    "type": "number",
+                    "example": 1800,
+                    "title": "Montant total de la facture Hors Taxes."
+                  },
+                  "inputPrestations": {
+                    "type": "array",
+                    "description": "Listes des prestations effectuees pour cette demande de paiement pour ce client.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "codeNature",
+                        "complement2",
+                        "mntPrestationHT",
+                        "mntPrestationTTC",
+                        "mntPrestationTVA",
+                        "mntUnitaireTTC",
+                        "quantite",
+                        "unite"
+                      ],
+                      "properties": {
+                        "codeActivite": {
+                          "type": "string",
+                          "example": "01",
+                          "description": "Code d'activite lie a la nature de l'emploi"
+                        },
+                        "codeNature": {
+                          "type": "string",
+                          "example": "ENF",
+                          "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+                        },
+                        "quantite": {
+                          "type": "number",
+                          "example": 1.75,
+                          "description": "Nombre d'unitee pour cette prestation."
+                        },
+                        "unite": {
+                          "type": "string",
+                          "example": "HEURE",
+                          "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+                        },
+                        "mntUnitaireTTC": {
+                          "type": "number",
+                          "example": 20,
+                          "title": "Montant du prix unitaire de la prestation."
+                        },
+                        "mntPrestationTTC": {
+                          "type": "number",
+                          "example": 120,
+                          "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+                        },
+                        "mntPrestationHT": {
+                          "type": "number",
+                          "example": 100,
+                          "title": "Montant Hors Taxes de cette prestation"
+                        },
+                        "mntPrestationTVA": {
+                          "type": "number",
+                          "example": 20,
+                          "title": "Montant des Taxes pour cette prestation"
+                        },
+                        "dateDebutEmploi": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2019-11-01T00:00:00Z",
+                          "title": "Date de debut  de cette prestation."
+                        },
+                        "dateFinEmploi": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2019-11-30T00:00:00Z",
+                          "title": "Date de fin  de cette  prestation de la demande de paiement."
+                        },
+                        "complement1": {
+                          "type": "string",
+                          "example": "Complement 1",
+                          "title": "Contenu informatif concernant cette prestation."
+                        },
+                        "complement2": {
+                          "type": "string",
+                          "example": "SAP530655042 ou SIR53065504200001",
+                          "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+                          "title": "Numero Nova ou SIRET de l’intervenant."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Les demandes de paiement ont ete traitees. Elles peuvent etre integrees ou rejetees.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "idClient": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+                  },
+                  "idDemandePaiement": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Identifiant de la demande de paiement. Renseignee si la demande a ete integree au SI ."
+                  },
+                  "numFactureTiers": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Numero de la facture, identifiant SI Tiers de prestation."
+                  },
+                  "statut": {
+                    "type": "string",
+                    "example": "10",
+                    "description": "Statut de la demande de paiement.",
+                    "title": "statut"
+                  },
+                  "errors": {
+                    "type": "array",
+                    "description": "Listes des erreurs non bloquantes pour la recherche.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "example": "PARAM_INVALIDE",
+                          "title": "Code d'erreur"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Requete incorrecte",
+                          "title": "Message d'erreur"
+                        },
+                        "description": {
+                          "type": "string",
+                          "example": "Le format du champ numDemandeExterne est incorrect",
+                          "title": "Description de l'erreur"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete incorrecte ou erreur fonctionnelle",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token d'authentification absent ou invalide"
+          },
+          "403": {
+            "description": "Authentification refusee"
+          },
+          "500": {
+            "description": "Erreur technique",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Utilisation de l'API interdite. Exemple : Le site est en maintenance."
+          }
+        },
+        "__originalOperationId": "transmettreDemandePaiements",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "security": [
+          {
+            "securitySchemes": [
+              "homeplus.tiersprestations"
+            ]
+          }
+        ]
+      }
+    },
+    "/demandePaiement/rechercher": {
+      "post": {
+        "tags": [
+          "Demande de paiement"
+        ],
+        "summary": "Methode 070 - Obtenir les informations des demandes de paiement par identifiants ou numeros de factures et/ou par periode de facturation.",
+        "description": "Ce service permet, pour un tiers de prestation authentifie, de recuperer les informations des demandes de paiement qui ont ete enregistrees. La recherche s'effectue par les identifiants de demande de paiement ou les numeros de factures et/ou par la periode de facturation.",
+        "operationId": "consulterInfoDemandePaiements",
+        "parameters": [
+          {
+            "name": "recouv.application.id",
+            "in": "header",
+            "description": "Identifiant d'application pour le recouvrement",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "request.id",
+            "in": "header",
+            "description": "Identifiant de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "description": "Identifiant unique de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "inputRechercheDemandePaiement",
+            "description": "Recherche par IDs ou date de facture",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "idDemandePaiements": {
+                  "type": "array",
+                  "description": "Listes des identifiants des demandes de paiement recherchees.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "numFactureTiers": {
+                  "type": "array",
+                  "description": "Listes des numeros de factures des demandes de paiement recherchees.Pas plus de 10 numeros de facture.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "dateDebut": {
+                  "type": "string",
+                  "format": "date",
+                  "example": "2019-11-01T00:00:00Z",
+                  "title": "Date de debut de la periode de recherche. Recherche effectuee sur la date de facturation."
+                },
+                "dateFin": {
+                  "type": "string",
+                  "format": "date",
+                  "example": "2019-11-30T00:00:00Z",
+                  "title": "Date de fin de la periode de recherche. Recherche effectuee sur la date de facturation."
+                }
+              },
+              "description": "Contient les elements qui permettent d'effectuer la recherche des demandes de paiement. Les criteres ne sont pas obligatoires. Si aucun critere n'est renseigne, la recherche ne sera pas effectuee."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La recherche a ete effectuee. Elle peut renvoyer ou non un resultat.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "description": "Listes des erreurs non bloquantes pour la recherche.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "example": "PARAM_INVALIDE",
+                        "title": "Code d'erreur"
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Requete incorrecte",
+                        "title": "Message d'erreur"
+                      },
+                      "description": {
+                        "type": "string",
+                        "example": "Le format du champ numDemandeExterne est incorrect",
+                        "title": "Description de l'erreur"
+                      }
+                    }
+                  }
+                },
+                "infoDemandePaiements": {
+                  "type": "array",
+                  "description": "Liste des resultats de la recherche. Contient les informations concernant les demandes de paiement trouvees.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "idDemandePaiement": {
+                        "type": "string",
+                        "example": "11000000000104",
+                        "title": "Identifiant de la demande de paiement."
+                      },
+                      "demandePaiement": {
+                        "type": "object",
+                        "required": [
+                          "dateDebutEmploi",
+                          "dateFacture",
+                          "dateFinEmploi",
+                          "dateNaissanceClient",
+                          "idClient",
+                          "idTiersFacturation",
+                          "inputPrestations",
+                          "mntFactureHT",
+                          "mntFactureTTC",
+                          "numFactureTiers"
+                        ],
+                        "properties": {
+                          "idTiersFacturation": {
+                            "type": "string",
+                            "example": "1081230",
+                            "title": "Identifiant du tiers de prestation qui recevra le paiement, identifiant SI ."
+                          },
+                          "idClient": {
+                            "type": "string",
+                            "example": "11000000000104",
+                            "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+                          },
+                          "dateNaissanceClient": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "1986-11-30T00:00:00Z",
+                            "title": "Date de naissance du client du tiers de prestation. Utilise pour verifier la coherence des informations."
+                          },
+                          "numFactureTiers": {
+                            "type": "string",
+                            "example": "11000000000104",
+                            "title": "Numero de la facture, identifiant SI Tiers de prestation.",
+                            "maxLength": 50
+                          },
+                          "dateFacture": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2019-12-01T00:00:00Z",
+                            "title": "Date a laquelle la facture a ete emise par le partenaire."
+                          },
+                          "dateDebutEmploi": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2019-11-01T00:00:00Z",
+                            "title": "Date de debut  de la premiere prestation de la demande de paiement."
+                          },
+                          "dateFinEmploi": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2019-11-30T00:00:00Z",
+                            "title": "Date de fin  de la derniere prestation de la demande de paiement."
+                          },
+                          "mntAcompte": {
+                            "type": "number",
+                            "example": 100,
+                            "title": "Montant de l'acompte que le client aurait pu verser au tiers de prestation"
+                          },
+                          "dateVersementAcompte": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2019-11-25T00:00:00Z",
+                            "title": "Date a laquelle le client aurait pu verser un acompte au tiers de prestation."
+                          },
+                          "mntFactureTTC": {
+                            "type": "number",
+                            "example": 2000,
+                            "title": "Montant total de la facture Toutes Taxes Comprises."
+                          },
+                          "mntFactureHT": {
+                            "type": "number",
+                            "example": 1800,
+                            "title": "Montant total de la facture Hors Taxes."
+                          },
+                          "inputPrestations": {
+                            "type": "array",
+                            "description": "Listes des prestations effectuees pour cette demande de paiement pour ce client.",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "codeNature",
+                                "complement2",
+                                "mntPrestationHT",
+                                "mntPrestationTTC",
+                                "mntPrestationTVA",
+                                "mntUnitaireTTC",
+                                "quantite",
+                                "unite"
+                              ],
+                              "properties": {
+                                "codeActivite": {
+                                  "type": "string",
+                                  "example": "01",
+                                  "description": "Code d'activite lie a la nature de l'emploi"
+                                },
+                                "codeNature": {
+                                  "type": "string",
+                                  "example": "ENF",
+                                  "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+                                },
+                                "quantite": {
+                                  "type": "number",
+                                  "example": 1.75,
+                                  "description": "Nombre d'unitee pour cette prestation."
+                                },
+                                "unite": {
+                                  "type": "string",
+                                  "example": "HEURE",
+                                  "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+                                },
+                                "mntUnitaireTTC": {
+                                  "type": "number",
+                                  "example": 20,
+                                  "title": "Montant du prix unitaire de la prestation."
+                                },
+                                "mntPrestationTTC": {
+                                  "type": "number",
+                                  "example": 120,
+                                  "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+                                },
+                                "mntPrestationHT": {
+                                  "type": "number",
+                                  "example": 100,
+                                  "title": "Montant Hors Taxes de cette prestation"
+                                },
+                                "mntPrestationTVA": {
+                                  "type": "number",
+                                  "example": 20,
+                                  "title": "Montant des Taxes pour cette prestation"
+                                },
+                                "dateDebutEmploi": {
+                                  "type": "string",
+                                  "format": "date",
+                                  "example": "2019-11-01T00:00:00Z",
+                                  "title": "Date de debut  de cette prestation."
+                                },
+                                "dateFinEmploi": {
+                                  "type": "string",
+                                  "format": "date",
+                                  "example": "2019-11-30T00:00:00Z",
+                                  "title": "Date de fin  de cette  prestation de la demande de paiement."
+                                },
+                                "complement1": {
+                                  "type": "string",
+                                  "example": "Complement 1",
+                                  "title": "Contenu informatif concernant cette prestation."
+                                },
+                                "complement2": {
+                                  "type": "string",
+                                  "example": "SAP530655042 ou SIR53065504200001",
+                                  "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+                                  "title": "Numero Nova ou SIRET de l’intervenant."
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "statut": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "example": "1",
+                            "title": "Code du statut."
+                          },
+                          "libelle": {
+                            "type": "string",
+                            "example": "integree",
+                            "title": "Libelle du statut de la demande de paiement"
+                          }
+                        }
+                      },
+                      "infoRejet": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "example": "PREST_ABS",
+                            "title": "Code du rejet."
+                          },
+                          "commentaire": {
+                            "type": "string",
+                            "example": "La prestation n'a pas ete honoree.",
+                            "title": "Commentaires laisses par le particulier lors du rejet de la demande de paiement."
+                          }
+                        }
+                      },
+                      "infoVirement": {
+                        "type": "object",
+                        "properties": {
+                          "mntVirement": {
+                            "type": "number",
+                            "example": 2000,
+                            "title": "Montant du virement effectue aux prestataires."
+                          },
+                          "dateVirement": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2019-12-05T00:00:00Z",
+                            "title": "Date de valeur du virement."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete incorrecte ou erreur fonctionnelle",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token d'authentification absent ou invalide"
+          },
+          "403": {
+            "description": "Authentification refusee"
+          },
+          "500": {
+            "description": "Erreur technique",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Utilisation de l'API interdite. Exemple : Le site est en maintenance."
+          }
+        },
+        "__originalOperationId": "consulterInfoDemandePaiements",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "security": [
+          {
+            "securitySchemes": [
+              "homeplus.tiersprestations"
+            ]
+          }
+        ]
+      }
+    },
+    "/particulier": {
+      "get": {
+        "tags": [
+          "Particulier"
+        ],
+        "summary": "Methode 020 - Obtenir le statut de transmission des demandes de paiement pour un particulier inscrit.",
+        "description": "Ce service permet, pour un tiers de prestation authentifie, de recuperer les informations sur l'etat de transmission des demandes de paiement pour un particulier. La recherche s’effectue par l'identifiant du particulier s'il est renseigne ou par l'adresse mail. Si les deux valeurs sont renseignees alors la recherche ne s'effectue que sur l'identifiant du particulier.",
+        "operationId": "getStatutTransmissionDP",
+        "parameters": [
+          {
+            "name": "recouv.application.id",
+            "in": "header",
+            "description": "Identifiant d'application pour le recouvrement",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "request.id",
+            "in": "header",
+            "description": "Identifiant de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "description": "Identifiant unique de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "adresseMail",
+            "in": "query",
+            "description": "Adresse mail du client. Exemple: pierre.martin@toto.fr",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "idClient",
+            "in": "query",
+            "description": "Identifiant unique du particulier. Exemple: af0be430-908a-11eb-a8b3-0242ac130003",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Statut de transmission renvoye par l'API.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "idClient": {
+                  "type": "string",
+                  "example": "af0be430-908a-11eb-a8b3-0242ac130003",
+                  "description": "Id unique du particulier."
+                },
+                "nomNaissance": {
+                  "type": "string",
+                  "example": "Ledru",
+                  "description": "Nom de naissance du client."
+                },
+                "nomUsage": {
+                  "type": "string",
+                  "example": "Rollin",
+                  "description": "Nom d’usage du client."
+                },
+                "prenoms": {
+                  "type": "string",
+                  "example": "Pierre Alexandre",
+                  "description": "Les prenoms du client separes un espace."
+                },
+                "statut": {
+                  "type": "object",
+                  "properties": {
+                    "etat": {
+                      "type": "string",
+                      "example": "KO",
+                      "description": "Valeurs possibles : OK : Les demandes de paiement peuvent etre transmises. KO : Les demandes de paiement ne peuvent pas etre transmises."
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "APPAREILLAGE_EC",
+                      "description": "Code du statut."
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "Transmission DP impossible, appareillage en cours de traitement",
+                      "description": "Detail du statut de transmission."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete incorrecte ou erreur fonctionnelle",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token d'authentification absent ou invalide"
+          },
+          "403": {
+            "description": "Authentification refusee"
+          },
+          "500": {
+            "description": "Erreur technique",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Utilisation de l'API interdite. Exemple : Le site est en maintenance."
+          }
+        },
+        "__originalOperationId": "getStatutTransmissionDP",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "security": [
+          {
+            "securitySchemes": [
+              "homeplus.tiersprestations"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Particulier"
+        ],
+        "summary": "Methode 010 - Inscrire un client",
+        "description": "Ce service permet aux organismes de prestation de service d'inscrire un client.",
+        "operationId": "InscrireClient",
+        "parameters": [
+          {
+            "name": "recouv.application.id",
+            "in": "header",
+            "description": "Identifiant d'application pour le recouvrement",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "request.id",
+            "in": "header",
+            "description": "Identifiant de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "description": "Identifiant unique de requete",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "InputParticulierDTO",
+            "description": "Donnees d'entrees necessaires pour l'inscription d'un particulier",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "adresseMail",
+                "adressePostale",
+                "civilite",
+                "coordonneeBancaire",
+                "dateNaissance",
+                "lieuNaissance",
+                "nomNaissance",
+                "numeroTelephonePortable",
+                "prenoms"
+              ],
+              "properties": {
+                "civilite": {
+                  "type": "string",
+                  "example": "\"1\"",
+                  "description": "Civilite du client, valeurs possibles : 1 = masculin (Monsieur) ou 2 = feminin (Madame). Obligatoire",
+                  "enum": [
+                    "1",
+                    "2"
+                  ]
+                },
+                "nomNaissance": {
+                  "type": "string",
+                  "example": "Durand",
+                  "description": "Nom de naissance du client. 100 caracteres maximum.  Obligatoire. Le nom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[\\pL]+(([\\pL'\\- ])*)+([\\pL])|(^[\\pL])$"
+                },
+                "nomUsage": {
+                  "type": "string",
+                  "example": "Martin",
+                  "description": "Nom d'usage du client. Facultatif si n’est pas different du nom de naissance, attendu si different. Le nom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+                  "maxLength": 80,
+                  "pattern": "^[\\pL]+(([\\pL'\\- ])*)+([\\pL])|(^[\\pL])$"
+                },
+                "prenoms": {
+                  "type": "string",
+                  "example": "Eric-Antoine Derc'hen Jean alain",
+                  "description": "Les prenoms du client separes par un espace. Il est attendu les prenoms d’usage du particulier s’il s’agit de prenom compose, le premier prenom sinon. Obligatoire. Le prenom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[\\pL]+(['\\-]*[\\pL]+)*((\\ ){1}[\\pL]+(['\\-]*[\\pL]+)*)*$"
+                },
+                "dateNaissance": {
+                  "type": "string",
+                  "format": "date",
+                  "example": "1980-03-29T00:00:00.000Z",
+                  "description": "Date de naissance du client. Obligatoire"
+                },
+                "lieuNaissance": {
+                  "type": "object",
+                  "required": [
+                    "codePaysNaissance"
+                  ],
+                  "properties": {
+                    "codePaysNaissance": {
+                      "type": "string",
+                      "example": "99100",
+                      "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire",
+                      "minLength": 5,
+                      "maxLength": 5,
+                      "pattern": "^[0-9]{5}$"
+                    },
+                    "departementNaissance": {
+                      "type": "string",
+                      "example": "069",
+                      "description": "Code INSEE du departement a la date de naissance ou TOM (si pays = France) Format : 3 caracteres alphanumeriques : 001, 040, 976. 02B pour le departement de Haute-Corse. Precision : cette donnee est obligatoire si et seulement si le code Pays de naissance correspond a celui de la France. Facultatif",
+                      "minLength": 3,
+                      "maxLength": 3,
+                      "pattern": "^[09][0-9][0-9abAB]$"
+                    },
+                    "communeNaissance": {
+                      "type": "object",
+                      "required": [
+                        "codeCommune"
+                      ],
+                      "properties": {
+                        "codeCommune": {
+                          "type": "string",
+                          "example": "001",
+                          "description": "Code INSEE de la commune de naissance, 3 caracteres numeriques (DOM), 2 caracteres numeriques (TOM) (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+                          "minLength": 3,
+                          "maxLength": 3,
+                          "pattern": "^[0-9]{3}$"
+                        },
+                        "libelleCommune": {
+                          "type": "string",
+                          "example": "Lyon",
+                          "description": "Libelle de la commune de naissance. Facultatif. Aucun controle n'est effectue  sur l'existence du libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+                          "maxLength": 50
+                        }
+                      }
+                    }
+                  }
+                },
+                "numeroTelephonePortable": {
+                  "type": "string",
+                  "example": "0605040302",
+                  "description": "Numero de telephone portable du client. Obligatoire. 10 chiffres (ou jusqu'a 12 caracteres si le premier caractere est un +), sans espaces. Commence par 06 ou 07 ou +33",
+                  "pattern": "^(0|\\+33)[6-7]([0-9]{2}){4}$"
+                },
+                "adresseMail": {
+                  "type": "string",
+                  "example": "jeanne.durand@contact.fr",
+                  "description": "Adresse mail du client. Obligatoire. Structure de l'adresse mail respectee (avec un @ et un nom de domaine)",
+                  "pattern": "^[a-zA-Z0-9%+_\\-]+(\\.[a-zA-Z0-9%+_\\-]+)*@([a-zA-Z0-9\\-]*[a-zA-Z0-9]\\.)+[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9]$"
+                },
+                "adressePostale": {
+                  "type": "object",
+                  "required": [
+                    "codeCommune",
+                    "codePays",
+                    "codePostal",
+                    "libelleCommune"
+                  ],
+                  "properties": {
+                    "numeroVoie": {
+                      "type": "string",
+                      "example": "8",
+                      "description": "Numero de la voie. Facultatif",
+                      "maxLength": 20,
+                      "pattern": "^(?!^0$)([0-9]){0,20}$"
+                    },
+                    "lettreVoie": {
+                      "type": "string",
+                      "example": "B",
+                      "description": "Lettre associee au numero de voie (B pour Bis, T pour Ter, Q pour Quater, C pour Quinquies). Facultatif",
+                      "maxLength": 1
+                    },
+                    "codeTypeVoie": {
+                      "type": "string",
+                      "example": "R",
+                      "description": "Code type de voie. Facultatif. 4 carateres alphanumeriques maximum.",
+                      "maxLength": 4,
+                      "pattern": "^([0-9A-Za-z]){0,4}$"
+                    },
+                    "libelleVoie": {
+                      "type": "string",
+                      "example": "du Soleil",
+                      "description": "Nom de la voie. Facultatif",
+                      "maxLength": 28
+                    },
+                    "complement": {
+                      "type": "string",
+                      "example": "Batiment A",
+                      "description": "Complement d'adresse. Facultatif",
+                      "maxLength": 38
+                    },
+                    "lieuDit": {
+                      "type": "string",
+                      "example": "Le Beyssat",
+                      "description": "Lieu-dit. Facultatif",
+                      "maxLength": 38
+                    },
+                    "libelleCommune": {
+                      "type": "string",
+                      "example": "LYON 01",
+                      "description": "Libelle de la commune. Obligatoire. Precision : les libelles attendus sont ceux du code officiel geographique INSEE. Aucun controle n'est effectue sur le libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+                      "minLength": 1,
+                      "maxLength": 50
+                    },
+                    "codeCommune": {
+                      "type": "string",
+                      "example": "69101",
+                      "description": "Code INSEE de la commune (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+                      "minLength": 5,
+                      "maxLength": 5,
+                      "pattern": "^[0-9][0-9a-bA-B][0-9]{3}$"
+                    },
+                    "codePostal": {
+                      "type": "string",
+                      "example": "69001",
+                      "description": "Code postal de la commune (exemple : 75001 pour Paris 1er arrondissement). Obligatoire",
+                      "minLength": 5,
+                      "maxLength": 5,
+                      "pattern": "^[0-9]{5}$"
+                    },
+                    "codePays": {
+                      "type": "string",
+                      "example": "99100",
+                      "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du partenaire.",
+                      "minLength": 5,
+                      "maxLength": 5,
+                      "pattern": "^[0-9]{5}$"
+                    }
+                  }
+                },
+                "coordonneeBancaire": {
+                  "type": "object",
+                  "required": [
+                    "bic",
+                    "iban",
+                    "titulaire"
+                  ],
+                  "properties": {
+                    "bic": {
+                      "type": "string",
+                      "example": "BNAPFRPPXXX",
+                      "description": "Identifiant BIC. Obligatoire. Le BIC est constitue : d’un code banque sur 4 caracteres, d’un code pays (ISO 3166) sur 2 caracteres, d’un code emplacement sur 2 caracteres, d’un code branche, optionnel, sur 3 caracteres. Celui-ci peut etre facultativement complete avec trois X pour que le BIC soit sur 11 caracteres",
+                      "minLength": 8,
+                      "maxLength": 11,
+                      "pattern": "^[a-zA-Z]{6}[0-9a-zA-Z]{2}([0-9a-zA-Z]{3})?$"
+                    },
+                    "iban": {
+                      "type": "string",
+                      "example": "FR7630006000011234567890189",
+                      "description": "identifiant IBAN. Obligatoire. L’IBAN est constitue : d’un code pays (ISO 3166) sur 2 caracteres,d’une cle de controle sur 2 caracteres, permettant de s’assurer de l’integrite du compte, d’un BBAN sur 11 a 30 caracteres (23 caracteres pour les comptes francais (ancien format du RIB))",
+                      "minLength": 15,
+                      "maxLength": 34,
+                      "pattern": "^[a-zA-Z]{2}[0-9]{2}[a-zA-Z0-9]{4}[a-zA-Z0-9]{7}([a-zA-Z0-9]?){0,19}$"
+                    },
+                    "titulaire": {
+                      "type": "string",
+                      "example": "Mme Jeanne Martin",
+                      "description": "titulaire du compte, civilite, nom et prenom. Obligatoire",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "L'inscription a ete effectuee. Elle renvoie un resultat.",
+            "schema": {
+              "type": "object",
+              "required": [
+                "idClient"
+              ],
+              "properties": {
+                "idClient": {
+                  "type": "string",
+                  "example": "af0be430-908a-11eb-a8b3-0242ac130003",
+                  "description": "Id unique du particulier"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete incorrecte ou erreur fonctionnelle",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token d'authentification absent ou invalide"
+          },
+          "403": {
+            "description": "Authentification refusee"
+          },
+          "500": {
+            "description": "Erreur technique",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PARAM_INVALIDE",
+                    "title": "Code d'erreur"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "Requete incorrecte",
+                    "title": "Message d'erreur"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Le format du champ numDemandeExterne est incorrect",
+                    "title": "Description de l'erreur"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Utilisation de l'API interdite. Exemple : Le site est en maintenance."
+          }
+        },
+        "__originalOperationId": "InscrireClient",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "security": [
+          {
+            "securitySchemes": [
+              "homeplus.tiersprestations"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "securityDefinitions": {
+    "securitySchemes": {
+      "type": "oauth2",
+      "tokenUrl": "https://api.urssaf.fr/api/oauth/v1/token",
+      "flow": "application",
+      "scopes": {
+        "homeplus.tiersprestations": "Acces a l'API ATP par les tiers de prestation"
+      }
+    }
+  },
+  "definitions": {
+    "Erreur": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "example": "PARAM_INVALIDE",
+          "title": "Code d'erreur"
+        },
+        "message": {
+          "type": "string",
+          "example": "Requete incorrecte",
+          "title": "Message d'erreur"
+        },
+        "description": {
+          "type": "string",
+          "example": "Le format du champ numDemandeExterne est incorrect",
+          "title": "Description de l'erreur"
+        }
+      }
+    },
+    "InputDemandePaiement": {
+      "type": "object",
+      "required": [
+        "dateDebutEmploi",
+        "dateFacture",
+        "dateFinEmploi",
+        "dateNaissanceClient",
+        "idClient",
+        "idTiersFacturation",
+        "inputPrestations",
+        "mntFactureHT",
+        "mntFactureTTC",
+        "numFactureTiers"
+      ],
+      "properties": {
+        "idTiersFacturation": {
+          "type": "string",
+          "example": "1081230",
+          "title": "Identifiant du tiers de prestation qui recevra le paiement, identifiant SI ."
+        },
+        "idClient": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+        },
+        "dateNaissanceClient": {
+          "type": "string",
+          "format": "date",
+          "example": "1986-11-30T00:00:00Z",
+          "title": "Date de naissance du client du tiers de prestation. Utilise pour verifier la coherence des informations."
+        },
+        "numFactureTiers": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Numero de la facture, identifiant SI Tiers de prestation.",
+          "maxLength": 50
+        },
+        "dateFacture": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-12-01T00:00:00Z",
+          "title": "Date a laquelle la facture a ete emise par le partenaire."
+        },
+        "dateDebutEmploi": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-01T00:00:00Z",
+          "title": "Date de debut  de la premiere prestation de la demande de paiement."
+        },
+        "dateFinEmploi": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-30T00:00:00Z",
+          "title": "Date de fin  de la derniere prestation de la demande de paiement."
+        },
+        "mntAcompte": {
+          "type": "number",
+          "example": 100,
+          "title": "Montant de l'acompte que le client aurait pu verser au tiers de prestation"
+        },
+        "dateVersementAcompte": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-25T00:00:00Z",
+          "title": "Date a laquelle le client aurait pu verser un acompte au tiers de prestation."
+        },
+        "mntFactureTTC": {
+          "type": "number",
+          "example": 2000,
+          "title": "Montant total de la facture Toutes Taxes Comprises."
+        },
+        "mntFactureHT": {
+          "type": "number",
+          "example": 1800,
+          "title": "Montant total de la facture Hors Taxes."
+        },
+        "inputPrestations": {
+          "type": "array",
+          "description": "Listes des prestations effectuees pour cette demande de paiement pour ce client.",
+          "items": {
+            "type": "object",
+            "required": [
+              "codeNature",
+              "complement2",
+              "mntPrestationHT",
+              "mntPrestationTTC",
+              "mntPrestationTVA",
+              "mntUnitaireTTC",
+              "quantite",
+              "unite"
+            ],
+            "properties": {
+              "codeActivite": {
+                "type": "string",
+                "example": "01",
+                "description": "Code d'activite lie a la nature de l'emploi"
+              },
+              "codeNature": {
+                "type": "string",
+                "example": "ENF",
+                "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+              },
+              "quantite": {
+                "type": "number",
+                "example": 1.75,
+                "description": "Nombre d'unitee pour cette prestation."
+              },
+              "unite": {
+                "type": "string",
+                "example": "HEURE",
+                "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+              },
+              "mntUnitaireTTC": {
+                "type": "number",
+                "example": 20,
+                "title": "Montant du prix unitaire de la prestation."
+              },
+              "mntPrestationTTC": {
+                "type": "number",
+                "example": 120,
+                "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+              },
+              "mntPrestationHT": {
+                "type": "number",
+                "example": 100,
+                "title": "Montant Hors Taxes de cette prestation"
+              },
+              "mntPrestationTVA": {
+                "type": "number",
+                "example": 20,
+                "title": "Montant des Taxes pour cette prestation"
+              },
+              "dateDebutEmploi": {
+                "type": "string",
+                "format": "date",
+                "example": "2019-11-01T00:00:00Z",
+                "title": "Date de debut  de cette prestation."
+              },
+              "dateFinEmploi": {
+                "type": "string",
+                "format": "date",
+                "example": "2019-11-30T00:00:00Z",
+                "title": "Date de fin  de cette  prestation de la demande de paiement."
+              },
+              "complement1": {
+                "type": "string",
+                "example": "Complement 1",
+                "title": "Contenu informatif concernant cette prestation."
+              },
+              "complement2": {
+                "type": "string",
+                "example": "SAP530655042 ou SIR53065504200001",
+                "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+                "title": "Numero Nova ou SIRET de l’intervenant."
+              }
+            }
+          }
+        }
+      }
+    },
+    "InputPrestation": {
+      "type": "object",
+      "required": [
+        "codeNature",
+        "complement2",
+        "mntPrestationHT",
+        "mntPrestationTTC",
+        "mntPrestationTVA",
+        "mntUnitaireTTC",
+        "quantite",
+        "unite"
+      ],
+      "properties": {
+        "codeActivite": {
+          "type": "string",
+          "example": "01",
+          "description": "Code d'activite lie a la nature de l'emploi"
+        },
+        "codeNature": {
+          "type": "string",
+          "example": "ENF",
+          "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+        },
+        "quantite": {
+          "type": "number",
+          "example": 1.75,
+          "description": "Nombre d'unitee pour cette prestation."
+        },
+        "unite": {
+          "type": "string",
+          "example": "HEURE",
+          "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+        },
+        "mntUnitaireTTC": {
+          "type": "number",
+          "example": 20,
+          "title": "Montant du prix unitaire de la prestation."
+        },
+        "mntPrestationTTC": {
+          "type": "number",
+          "example": 120,
+          "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+        },
+        "mntPrestationHT": {
+          "type": "number",
+          "example": 100,
+          "title": "Montant Hors Taxes de cette prestation"
+        },
+        "mntPrestationTVA": {
+          "type": "number",
+          "example": 20,
+          "title": "Montant des Taxes pour cette prestation"
+        },
+        "dateDebutEmploi": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-01T00:00:00Z",
+          "title": "Date de debut  de cette prestation."
+        },
+        "dateFinEmploi": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-30T00:00:00Z",
+          "title": "Date de fin  de cette  prestation de la demande de paiement."
+        },
+        "complement1": {
+          "type": "string",
+          "example": "Complement 1",
+          "title": "Contenu informatif concernant cette prestation."
+        },
+        "complement2": {
+          "type": "string",
+          "example": "SAP530655042 ou SIR53065504200001",
+          "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+          "title": "Numero Nova ou SIRET de l’intervenant."
+        }
+      }
+    },
+    "OutputDemandePaiement": {
+      "type": "object",
+      "properties": {
+        "idClient": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+        },
+        "idDemandePaiement": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Identifiant de la demande de paiement. Renseignee si la demande a ete integree au SI ."
+        },
+        "numFactureTiers": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Numero de la facture, identifiant SI Tiers de prestation."
+        },
+        "statut": {
+          "type": "string",
+          "example": "10",
+          "description": "Statut de la demande de paiement.",
+          "title": "statut"
+        },
+        "errors": {
+          "type": "array",
+          "description": "Listes des erreurs non bloquantes pour la recherche.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "PARAM_INVALIDE",
+                "title": "Code d'erreur"
+              },
+              "message": {
+                "type": "string",
+                "example": "Requete incorrecte",
+                "title": "Message d'erreur"
+              },
+              "description": {
+                "type": "string",
+                "example": "Le format du champ numDemandeExterne est incorrect",
+                "title": "Description de l'erreur"
+              }
+            }
+          }
+        }
+      }
+    },
+    "InputRechercheDemandePaiement": {
+      "type": "object",
+      "properties": {
+        "idDemandePaiements": {
+          "type": "array",
+          "description": "Listes des identifiants des demandes de paiement recherchees.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "numFactureTiers": {
+          "type": "array",
+          "description": "Listes des numeros de factures des demandes de paiement recherchees.Pas plus de 10 numeros de facture.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dateDebut": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-01T00:00:00Z",
+          "title": "Date de debut de la periode de recherche. Recherche effectuee sur la date de facturation."
+        },
+        "dateFin": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-11-30T00:00:00Z",
+          "title": "Date de fin de la periode de recherche. Recherche effectuee sur la date de facturation."
+        }
+      },
+      "description": "Contient les elements qui permettent d'effectuer la recherche des demandes de paiement. Les criteres ne sont pas obligatoires. Si aucun critere n'est renseigne, la recherche ne sera pas effectuee."
+    },
+    "OutputRechercheDemandePaiement": {
+      "type": "object",
+      "properties": {
+        "errors": {
+          "type": "array",
+          "description": "Listes des erreurs non bloquantes pour la recherche.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "PARAM_INVALIDE",
+                "title": "Code d'erreur"
+              },
+              "message": {
+                "type": "string",
+                "example": "Requete incorrecte",
+                "title": "Message d'erreur"
+              },
+              "description": {
+                "type": "string",
+                "example": "Le format du champ numDemandeExterne est incorrect",
+                "title": "Description de l'erreur"
+              }
+            }
+          }
+        },
+        "infoDemandePaiements": {
+          "type": "array",
+          "description": "Liste des resultats de la recherche. Contient les informations concernant les demandes de paiement trouvees.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "idDemandePaiement": {
+                "type": "string",
+                "example": "11000000000104",
+                "title": "Identifiant de la demande de paiement."
+              },
+              "demandePaiement": {
+                "type": "object",
+                "required": [
+                  "dateDebutEmploi",
+                  "dateFacture",
+                  "dateFinEmploi",
+                  "dateNaissanceClient",
+                  "idClient",
+                  "idTiersFacturation",
+                  "inputPrestations",
+                  "mntFactureHT",
+                  "mntFactureTTC",
+                  "numFactureTiers"
+                ],
+                "properties": {
+                  "idTiersFacturation": {
+                    "type": "string",
+                    "example": "1081230",
+                    "title": "Identifiant du tiers de prestation qui recevra le paiement, identifiant SI ."
+                  },
+                  "idClient": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+                  },
+                  "dateNaissanceClient": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "1986-11-30T00:00:00Z",
+                    "title": "Date de naissance du client du tiers de prestation. Utilise pour verifier la coherence des informations."
+                  },
+                  "numFactureTiers": {
+                    "type": "string",
+                    "example": "11000000000104",
+                    "title": "Numero de la facture, identifiant SI Tiers de prestation.",
+                    "maxLength": 50
+                  },
+                  "dateFacture": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-12-01T00:00:00Z",
+                    "title": "Date a laquelle la facture a ete emise par le partenaire."
+                  },
+                  "dateDebutEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-01T00:00:00Z",
+                    "title": "Date de debut  de la premiere prestation de la demande de paiement."
+                  },
+                  "dateFinEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-30T00:00:00Z",
+                    "title": "Date de fin  de la derniere prestation de la demande de paiement."
+                  },
+                  "mntAcompte": {
+                    "type": "number",
+                    "example": 100,
+                    "title": "Montant de l'acompte que le client aurait pu verser au tiers de prestation"
+                  },
+                  "dateVersementAcompte": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-25T00:00:00Z",
+                    "title": "Date a laquelle le client aurait pu verser un acompte au tiers de prestation."
+                  },
+                  "mntFactureTTC": {
+                    "type": "number",
+                    "example": 2000,
+                    "title": "Montant total de la facture Toutes Taxes Comprises."
+                  },
+                  "mntFactureHT": {
+                    "type": "number",
+                    "example": 1800,
+                    "title": "Montant total de la facture Hors Taxes."
+                  },
+                  "inputPrestations": {
+                    "type": "array",
+                    "description": "Listes des prestations effectuees pour cette demande de paiement pour ce client.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "codeNature",
+                        "complement2",
+                        "mntPrestationHT",
+                        "mntPrestationTTC",
+                        "mntPrestationTVA",
+                        "mntUnitaireTTC",
+                        "quantite",
+                        "unite"
+                      ],
+                      "properties": {
+                        "codeActivite": {
+                          "type": "string",
+                          "example": "01",
+                          "description": "Code d'activite lie a la nature de l'emploi"
+                        },
+                        "codeNature": {
+                          "type": "string",
+                          "example": "ENF",
+                          "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+                        },
+                        "quantite": {
+                          "type": "number",
+                          "example": 1.75,
+                          "description": "Nombre d'unitee pour cette prestation."
+                        },
+                        "unite": {
+                          "type": "string",
+                          "example": "HEURE",
+                          "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+                        },
+                        "mntUnitaireTTC": {
+                          "type": "number",
+                          "example": 20,
+                          "title": "Montant du prix unitaire de la prestation."
+                        },
+                        "mntPrestationTTC": {
+                          "type": "number",
+                          "example": 120,
+                          "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+                        },
+                        "mntPrestationHT": {
+                          "type": "number",
+                          "example": 100,
+                          "title": "Montant Hors Taxes de cette prestation"
+                        },
+                        "mntPrestationTVA": {
+                          "type": "number",
+                          "example": 20,
+                          "title": "Montant des Taxes pour cette prestation"
+                        },
+                        "dateDebutEmploi": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2019-11-01T00:00:00Z",
+                          "title": "Date de debut  de cette prestation."
+                        },
+                        "dateFinEmploi": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2019-11-30T00:00:00Z",
+                          "title": "Date de fin  de cette  prestation de la demande de paiement."
+                        },
+                        "complement1": {
+                          "type": "string",
+                          "example": "Complement 1",
+                          "title": "Contenu informatif concernant cette prestation."
+                        },
+                        "complement2": {
+                          "type": "string",
+                          "example": "SAP530655042 ou SIR53065504200001",
+                          "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+                          "title": "Numero Nova ou SIRET de l’intervenant."
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "statut": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "1",
+                    "title": "Code du statut."
+                  },
+                  "libelle": {
+                    "type": "string",
+                    "example": "integree",
+                    "title": "Libelle du statut de la demande de paiement"
+                  }
+                }
+              },
+              "infoRejet": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "PREST_ABS",
+                    "title": "Code du rejet."
+                  },
+                  "commentaire": {
+                    "type": "string",
+                    "example": "La prestation n'a pas ete honoree.",
+                    "title": "Commentaires laisses par le particulier lors du rejet de la demande de paiement."
+                  }
+                }
+              },
+              "infoVirement": {
+                "type": "object",
+                "properties": {
+                  "mntVirement": {
+                    "type": "number",
+                    "example": 2000,
+                    "title": "Montant du virement effectue aux prestataires."
+                  },
+                  "dateVirement": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-12-05T00:00:00Z",
+                    "title": "Date de valeur du virement."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "InfoDemandePaiement": {
+      "type": "object",
+      "properties": {
+        "idDemandePaiement": {
+          "type": "string",
+          "example": "11000000000104",
+          "title": "Identifiant de la demande de paiement."
+        },
+        "demandePaiement": {
+          "type": "object",
+          "required": [
+            "dateDebutEmploi",
+            "dateFacture",
+            "dateFinEmploi",
+            "dateNaissanceClient",
+            "idClient",
+            "idTiersFacturation",
+            "inputPrestations",
+            "mntFactureHT",
+            "mntFactureTTC",
+            "numFactureTiers"
+          ],
+          "properties": {
+            "idTiersFacturation": {
+              "type": "string",
+              "example": "1081230",
+              "title": "Identifiant du tiers de prestation qui recevra le paiement, identifiant SI ."
+            },
+            "idClient": {
+              "type": "string",
+              "example": "11000000000104",
+              "title": "Identifiant du client du tiers de prestation, identifiant SI ."
+            },
+            "dateNaissanceClient": {
+              "type": "string",
+              "format": "date",
+              "example": "1986-11-30T00:00:00Z",
+              "title": "Date de naissance du client du tiers de prestation. Utilise pour verifier la coherence des informations."
+            },
+            "numFactureTiers": {
+              "type": "string",
+              "example": "11000000000104",
+              "title": "Numero de la facture, identifiant SI Tiers de prestation.",
+              "maxLength": 50
+            },
+            "dateFacture": {
+              "type": "string",
+              "format": "date",
+              "example": "2019-12-01T00:00:00Z",
+              "title": "Date a laquelle la facture a ete emise par le partenaire."
+            },
+            "dateDebutEmploi": {
+              "type": "string",
+              "format": "date",
+              "example": "2019-11-01T00:00:00Z",
+              "title": "Date de debut  de la premiere prestation de la demande de paiement."
+            },
+            "dateFinEmploi": {
+              "type": "string",
+              "format": "date",
+              "example": "2019-11-30T00:00:00Z",
+              "title": "Date de fin  de la derniere prestation de la demande de paiement."
+            },
+            "mntAcompte": {
+              "type": "number",
+              "example": 100,
+              "title": "Montant de l'acompte que le client aurait pu verser au tiers de prestation"
+            },
+            "dateVersementAcompte": {
+              "type": "string",
+              "format": "date",
+              "example": "2019-11-25T00:00:00Z",
+              "title": "Date a laquelle le client aurait pu verser un acompte au tiers de prestation."
+            },
+            "mntFactureTTC": {
+              "type": "number",
+              "example": 2000,
+              "title": "Montant total de la facture Toutes Taxes Comprises."
+            },
+            "mntFactureHT": {
+              "type": "number",
+              "example": 1800,
+              "title": "Montant total de la facture Hors Taxes."
+            },
+            "inputPrestations": {
+              "type": "array",
+              "description": "Listes des prestations effectuees pour cette demande de paiement pour ce client.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "codeNature",
+                  "complement2",
+                  "mntPrestationHT",
+                  "mntPrestationTTC",
+                  "mntPrestationTVA",
+                  "mntUnitaireTTC",
+                  "quantite",
+                  "unite"
+                ],
+                "properties": {
+                  "codeActivite": {
+                    "type": "string",
+                    "example": "01",
+                    "description": "Code d'activite lie a la nature de l'emploi"
+                  },
+                  "codeNature": {
+                    "type": "string",
+                    "example": "ENF",
+                    "description": "Code nature qui correspond aux natures d'emploi definit pas le code du travail (article D7231-1)"
+                  },
+                  "quantite": {
+                    "type": "number",
+                    "example": 1.75,
+                    "description": "Nombre d'unitee pour cette prestation."
+                  },
+                  "unite": {
+                    "type": "string",
+                    "example": "HEURE",
+                    "description": "Correspond a l'unite de la prestation effectuee. Peut avoir deux valeurs : 'HEURE' si la prestation correspond a un nombre d'heures effectuees ou 'FORFAIT' s'il s'agit d'un forfait."
+                  },
+                  "mntUnitaireTTC": {
+                    "type": "number",
+                    "example": 20,
+                    "title": "Montant du prix unitaire de la prestation."
+                  },
+                  "mntPrestationTTC": {
+                    "type": "number",
+                    "example": 120,
+                    "title": "Montant TTC de cette prestation =  mntUnitaireTTC x quantite"
+                  },
+                  "mntPrestationHT": {
+                    "type": "number",
+                    "example": 100,
+                    "title": "Montant Hors Taxes de cette prestation"
+                  },
+                  "mntPrestationTVA": {
+                    "type": "number",
+                    "example": 20,
+                    "title": "Montant des Taxes pour cette prestation"
+                  },
+                  "dateDebutEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-01T00:00:00Z",
+                    "title": "Date de debut  de cette prestation."
+                  },
+                  "dateFinEmploi": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2019-11-30T00:00:00Z",
+                    "title": "Date de fin  de cette  prestation de la demande de paiement."
+                  },
+                  "complement1": {
+                    "type": "string",
+                    "example": "Complement 1",
+                    "title": "Contenu informatif concernant cette prestation."
+                  },
+                  "complement2": {
+                    "type": "string",
+                    "example": "SAP530655042 ou SIR53065504200001",
+                    "description": "Numero Nova ou SIRET de l’intervenant ayant effectue la prestation. <br/> Le champ doit satisfaire l’un des 2 formats suivants : <br/> * 12 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SAP <br/> Position 4 a 12 : chiffres correspondant au SIREN de l'intervenant<br/> * 17 caracteres alphanumeriques, se decomposant comme suit : <br/> Position 1 a 3 : caracteres SIR <br/> Position 4 a 12 : chiffres correspondant au SIRET de l'intervenant",
+                    "title": "Numero Nova ou SIRET de l’intervenant."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "statut": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "example": "1",
+              "title": "Code du statut."
+            },
+            "libelle": {
+              "type": "string",
+              "example": "integree",
+              "title": "Libelle du statut de la demande de paiement"
+            }
+          }
+        },
+        "infoRejet": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "example": "PREST_ABS",
+              "title": "Code du rejet."
+            },
+            "commentaire": {
+              "type": "string",
+              "example": "La prestation n'a pas ete honoree.",
+              "title": "Commentaires laisses par le particulier lors du rejet de la demande de paiement."
+            }
+          }
+        },
+        "infoVirement": {
+          "type": "object",
+          "properties": {
+            "mntVirement": {
+              "type": "number",
+              "example": 2000,
+              "title": "Montant du virement effectue aux prestataires."
+            },
+            "dateVirement": {
+              "type": "string",
+              "format": "date",
+              "example": "2019-12-05T00:00:00Z",
+              "title": "Date de valeur du virement."
+            }
+          }
+        }
+      }
+    },
+    "InfoRejet": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "example": "PREST_ABS",
+          "title": "Code du rejet."
+        },
+        "commentaire": {
+          "type": "string",
+          "example": "La prestation n'a pas ete honoree.",
+          "title": "Commentaires laisses par le particulier lors du rejet de la demande de paiement."
+        }
+      }
+    },
+    "Statut": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "example": "1",
+          "title": "Code du statut."
+        },
+        "libelle": {
+          "type": "string",
+          "example": "integree",
+          "title": "Libelle du statut de la demande de paiement"
+        }
+      }
+    },
+    "InfoVirement": {
+      "type": "object",
+      "properties": {
+        "mntVirement": {
+          "type": "number",
+          "example": 2000,
+          "title": "Montant du virement effectue aux prestataires."
+        },
+        "dateVirement": {
+          "type": "string",
+          "format": "date",
+          "example": "2019-12-05T00:00:00Z",
+          "title": "Date de valeur du virement."
+        }
+      }
+    },
+    "InputParticulierDTO": {
+      "type": "object",
+      "required": [
+        "adresseMail",
+        "adressePostale",
+        "civilite",
+        "coordonneeBancaire",
+        "dateNaissance",
+        "lieuNaissance",
+        "nomNaissance",
+        "numeroTelephonePortable",
+        "prenoms"
+      ],
+      "properties": {
+        "civilite": {
+          "type": "string",
+          "example": "\"1\"",
+          "description": "Civilite du client, valeurs possibles : 1 = masculin (Monsieur) ou 2 = feminin (Madame). Obligatoire",
+          "enum": [
+            "1",
+            "2"
+          ]
+        },
+        "nomNaissance": {
+          "type": "string",
+          "example": "Durand",
+          "description": "Nom de naissance du client. 100 caracteres maximum.  Obligatoire. Le nom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[\\pL]+(([\\pL'\\- ])*)+([\\pL])|(^[\\pL])$"
+        },
+        "nomUsage": {
+          "type": "string",
+          "example": "Martin",
+          "description": "Nom d'usage du client. Facultatif si n’est pas different du nom de naissance, attendu si different. Le nom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+          "maxLength": 80,
+          "pattern": "^[\\pL]+(([\\pL'\\- ])*)+([\\pL])|(^[\\pL])$"
+        },
+        "prenoms": {
+          "type": "string",
+          "example": "Eric-Antoine Derc'hen Jean alain",
+          "description": "Les prenoms du client separes par un espace. Il est attendu les prenoms d’usage du particulier s’il s’agit de prenom compose, le premier prenom sinon. Obligatoire. Le prenom ne doit pas comporter de chiffres, ni de caracteres speciaux a l’exception de l’apostrophe (‘), du tiret (-) et de l’espace ( ). Il ne doit ni commencer ni finir par un caractere special.",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[\\pL]+(['\\-]*[\\pL]+)*((\\ ){1}[\\pL]+(['\\-]*[\\pL]+)*)*$"
+        },
+        "dateNaissance": {
+          "type": "string",
+          "format": "date",
+          "example": "1980-03-29T00:00:00.000Z",
+          "description": "Date de naissance du client. Obligatoire"
+        },
+        "lieuNaissance": {
+          "type": "object",
+          "required": [
+            "codePaysNaissance"
+          ],
+          "properties": {
+            "codePaysNaissance": {
+              "type": "string",
+              "example": "99100",
+              "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^[0-9]{5}$"
+            },
+            "departementNaissance": {
+              "type": "string",
+              "example": "069",
+              "description": "Code INSEE du departement a la date de naissance ou TOM (si pays = France) Format : 3 caracteres alphanumeriques : 001, 040, 976. 02B pour le departement de Haute-Corse. Precision : cette donnee est obligatoire si et seulement si le code Pays de naissance correspond a celui de la France. Facultatif",
+              "minLength": 3,
+              "maxLength": 3,
+              "pattern": "^[09][0-9][0-9abAB]$"
+            },
+            "communeNaissance": {
+              "type": "object",
+              "required": [
+                "codeCommune"
+              ],
+              "properties": {
+                "codeCommune": {
+                  "type": "string",
+                  "example": "001",
+                  "description": "Code INSEE de la commune de naissance, 3 caracteres numeriques (DOM), 2 caracteres numeriques (TOM) (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+                  "minLength": 3,
+                  "maxLength": 3,
+                  "pattern": "^[0-9]{3}$"
+                },
+                "libelleCommune": {
+                  "type": "string",
+                  "example": "Lyon",
+                  "description": "Libelle de la commune de naissance. Facultatif. Aucun controle n'est effectue  sur l'existence du libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+                  "maxLength": 50
+                }
+              }
+            }
+          }
+        },
+        "numeroTelephonePortable": {
+          "type": "string",
+          "example": "0605040302",
+          "description": "Numero de telephone portable du client. Obligatoire. 10 chiffres (ou jusqu'a 12 caracteres si le premier caractere est un +), sans espaces. Commence par 06 ou 07 ou +33",
+          "pattern": "^(0|\\+33)[6-7]([0-9]{2}){4}$"
+        },
+        "adresseMail": {
+          "type": "string",
+          "example": "jeanne.durand@contact.fr",
+          "description": "Adresse mail du client. Obligatoire. Structure de l'adresse mail respectee (avec un @ et un nom de domaine)",
+          "pattern": "^[a-zA-Z0-9%+_\\-]+(\\.[a-zA-Z0-9%+_\\-]+)*@([a-zA-Z0-9\\-]*[a-zA-Z0-9]\\.)+[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9]$"
+        },
+        "adressePostale": {
+          "type": "object",
+          "required": [
+            "codeCommune",
+            "codePays",
+            "codePostal",
+            "libelleCommune"
+          ],
+          "properties": {
+            "numeroVoie": {
+              "type": "string",
+              "example": "8",
+              "description": "Numero de la voie. Facultatif",
+              "maxLength": 20,
+              "pattern": "^(?!^0$)([0-9]){0,20}$"
+            },
+            "lettreVoie": {
+              "type": "string",
+              "example": "B",
+              "description": "Lettre associee au numero de voie (B pour Bis, T pour Ter, Q pour Quater, C pour Quinquies). Facultatif",
+              "maxLength": 1
+            },
+            "codeTypeVoie": {
+              "type": "string",
+              "example": "R",
+              "description": "Code type de voie. Facultatif. 4 carateres alphanumeriques maximum.",
+              "maxLength": 4,
+              "pattern": "^([0-9A-Za-z]){0,4}$"
+            },
+            "libelleVoie": {
+              "type": "string",
+              "example": "du Soleil",
+              "description": "Nom de la voie. Facultatif",
+              "maxLength": 28
+            },
+            "complement": {
+              "type": "string",
+              "example": "Batiment A",
+              "description": "Complement d'adresse. Facultatif",
+              "maxLength": 38
+            },
+            "lieuDit": {
+              "type": "string",
+              "example": "Le Beyssat",
+              "description": "Lieu-dit. Facultatif",
+              "maxLength": 38
+            },
+            "libelleCommune": {
+              "type": "string",
+              "example": "LYON 01",
+              "description": "Libelle de la commune. Obligatoire. Precision : les libelles attendus sont ceux du code officiel geographique INSEE. Aucun controle n'est effectue sur le libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "codeCommune": {
+              "type": "string",
+              "example": "69101",
+              "description": "Code INSEE de la commune (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^[0-9][0-9a-bA-B][0-9]{3}$"
+            },
+            "codePostal": {
+              "type": "string",
+              "example": "69001",
+              "description": "Code postal de la commune (exemple : 75001 pour Paris 1er arrondissement). Obligatoire",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^[0-9]{5}$"
+            },
+            "codePays": {
+              "type": "string",
+              "example": "99100",
+              "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du partenaire.",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^[0-9]{5}$"
+            }
+          }
+        },
+        "coordonneeBancaire": {
+          "type": "object",
+          "required": [
+            "bic",
+            "iban",
+            "titulaire"
+          ],
+          "properties": {
+            "bic": {
+              "type": "string",
+              "example": "BNAPFRPPXXX",
+              "description": "Identifiant BIC. Obligatoire. Le BIC est constitue : d’un code banque sur 4 caracteres, d’un code pays (ISO 3166) sur 2 caracteres, d’un code emplacement sur 2 caracteres, d’un code branche, optionnel, sur 3 caracteres. Celui-ci peut etre facultativement complete avec trois X pour que le BIC soit sur 11 caracteres",
+              "minLength": 8,
+              "maxLength": 11,
+              "pattern": "^[a-zA-Z]{6}[0-9a-zA-Z]{2}([0-9a-zA-Z]{3})?$"
+            },
+            "iban": {
+              "type": "string",
+              "example": "FR7630006000011234567890189",
+              "description": "identifiant IBAN. Obligatoire. L’IBAN est constitue : d’un code pays (ISO 3166) sur 2 caracteres,d’une cle de controle sur 2 caracteres, permettant de s’assurer de l’integrite du compte, d’un BBAN sur 11 a 30 caracteres (23 caracteres pour les comptes francais (ancien format du RIB))",
+              "minLength": 15,
+              "maxLength": 34,
+              "pattern": "^[a-zA-Z]{2}[0-9]{2}[a-zA-Z0-9]{4}[a-zA-Z0-9]{7}([a-zA-Z0-9]?){0,19}$"
+            },
+            "titulaire": {
+              "type": "string",
+              "example": "Mme Jeanne Martin",
+              "description": "titulaire du compte, civilite, nom et prenom. Obligatoire",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        }
+      }
+    },
+    "InputLieuNaissanceDTO": {
+      "type": "object",
+      "required": [
+        "codePaysNaissance"
+      ],
+      "properties": {
+        "codePaysNaissance": {
+          "type": "string",
+          "example": "99100",
+          "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{5}$"
+        },
+        "departementNaissance": {
+          "type": "string",
+          "example": "069",
+          "description": "Code INSEE du departement a la date de naissance ou TOM (si pays = France) Format : 3 caracteres alphanumeriques : 001, 040, 976. 02B pour le departement de Haute-Corse. Precision : cette donnee est obligatoire si et seulement si le code Pays de naissance correspond a celui de la France. Facultatif",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[09][0-9][0-9abAB]$"
+        },
+        "communeNaissance": {
+          "type": "object",
+          "required": [
+            "codeCommune"
+          ],
+          "properties": {
+            "codeCommune": {
+              "type": "string",
+              "example": "001",
+              "description": "Code INSEE de la commune de naissance, 3 caracteres numeriques (DOM), 2 caracteres numeriques (TOM) (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+              "minLength": 3,
+              "maxLength": 3,
+              "pattern": "^[0-9]{3}$"
+            },
+            "libelleCommune": {
+              "type": "string",
+              "example": "Lyon",
+              "description": "Libelle de la commune de naissance. Facultatif. Aucun controle n'est effectue  sur l'existence du libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+              "maxLength": 50
+            }
+          }
+        }
+      }
+    },
+    "InputCommuneDTO": {
+      "type": "object",
+      "required": [
+        "codeCommune"
+      ],
+      "properties": {
+        "codeCommune": {
+          "type": "string",
+          "example": "001",
+          "description": "Code INSEE de la commune de naissance, 3 caracteres numeriques (DOM), 2 caracteres numeriques (TOM) (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[0-9]{3}$"
+        },
+        "libelleCommune": {
+          "type": "string",
+          "example": "Lyon",
+          "description": "Libelle de la commune de naissance. Facultatif. Aucun controle n'est effectue  sur l'existence du libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+          "maxLength": 50
+        }
+      }
+    },
+    "InputAdresseDTO": {
+      "type": "object",
+      "required": [
+        "codeCommune",
+        "codePays",
+        "codePostal",
+        "libelleCommune"
+      ],
+      "properties": {
+        "numeroVoie": {
+          "type": "string",
+          "example": "8",
+          "description": "Numero de la voie. Facultatif",
+          "maxLength": 20,
+          "pattern": "^(?!^0$)([0-9]){0,20}$"
+        },
+        "lettreVoie": {
+          "type": "string",
+          "example": "B",
+          "description": "Lettre associee au numero de voie (B pour Bis, T pour Ter, Q pour Quater, C pour Quinquies). Facultatif",
+          "maxLength": 1
+        },
+        "codeTypeVoie": {
+          "type": "string",
+          "example": "R",
+          "description": "Code type de voie. Facultatif. 4 carateres alphanumeriques maximum.",
+          "maxLength": 4,
+          "pattern": "^([0-9A-Za-z]){0,4}$"
+        },
+        "libelleVoie": {
+          "type": "string",
+          "example": "du Soleil",
+          "description": "Nom de la voie. Facultatif",
+          "maxLength": 28
+        },
+        "complement": {
+          "type": "string",
+          "example": "Batiment A",
+          "description": "Complement d'adresse. Facultatif",
+          "maxLength": 38
+        },
+        "lieuDit": {
+          "type": "string",
+          "example": "Le Beyssat",
+          "description": "Lieu-dit. Facultatif",
+          "maxLength": 38
+        },
+        "libelleCommune": {
+          "type": "string",
+          "example": "LYON 01",
+          "description": "Libelle de la commune. Obligatoire. Precision : les libelles attendus sont ceux du code officiel geographique INSEE. Aucun controle n'est effectue sur le libelle. La validite de l'information est de la responsabilite du tiers de prestation.",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "codeCommune": {
+          "type": "string",
+          "example": "69101",
+          "description": "Code INSEE de la commune (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du tiers de prestation.",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9][0-9a-bA-B][0-9]{3}$"
+        },
+        "codePostal": {
+          "type": "string",
+          "example": "69001",
+          "description": "Code postal de la commune (exemple : 75001 pour Paris 1er arrondissement). Obligatoire",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{5}$"
+        },
+        "codePays": {
+          "type": "string",
+          "example": "99100",
+          "description": "Code INSEE du pays sur 5 caracteres numeriques (cf nomenclature INSEE). Obligatoire. Aucun controle n'est effectue  sur l'existence du code. La validite de l'information est de la responsabilite du partenaire.",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{5}$"
+        }
+      }
+    },
+    "InputCoordonneeBancaireDTO": {
+      "type": "object",
+      "required": [
+        "bic",
+        "iban",
+        "titulaire"
+      ],
+      "properties": {
+        "bic": {
+          "type": "string",
+          "example": "BNAPFRPPXXX",
+          "description": "Identifiant BIC. Obligatoire. Le BIC est constitue : d’un code banque sur 4 caracteres, d’un code pays (ISO 3166) sur 2 caracteres, d’un code emplacement sur 2 caracteres, d’un code branche, optionnel, sur 3 caracteres. Celui-ci peut etre facultativement complete avec trois X pour que le BIC soit sur 11 caracteres",
+          "minLength": 8,
+          "maxLength": 11,
+          "pattern": "^[a-zA-Z]{6}[0-9a-zA-Z]{2}([0-9a-zA-Z]{3})?$"
+        },
+        "iban": {
+          "type": "string",
+          "example": "FR7630006000011234567890189",
+          "description": "identifiant IBAN. Obligatoire. L’IBAN est constitue : d’un code pays (ISO 3166) sur 2 caracteres,d’une cle de controle sur 2 caracteres, permettant de s’assurer de l’integrite du compte, d’un BBAN sur 11 a 30 caracteres (23 caracteres pour les comptes francais (ancien format du RIB))",
+          "minLength": 15,
+          "maxLength": 34,
+          "pattern": "^[a-zA-Z]{2}[0-9]{2}[a-zA-Z0-9]{4}[a-zA-Z0-9]{7}([a-zA-Z0-9]?){0,19}$"
+        },
+        "titulaire": {
+          "type": "string",
+          "example": "Mme Jeanne Martin",
+          "description": "titulaire du compte, civilite, nom et prenom. Obligatoire",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      }
+    },
+    "OutputParticulierDTO": {
+      "type": "object",
+      "required": [
+        "idClient"
+      ],
+      "properties": {
+        "idClient": {
+          "type": "string",
+          "example": "af0be430-908a-11eb-a8b3-0242ac130003",
+          "description": "Id unique du particulier"
+        }
+      }
+    },
+    "OutputParticulierSimpleDTO": {
+      "type": "object",
+      "properties": {
+        "idClient": {
+          "type": "string",
+          "example": "af0be430-908a-11eb-a8b3-0242ac130003",
+          "description": "Id unique du particulier."
+        },
+        "nomNaissance": {
+          "type": "string",
+          "example": "Ledru",
+          "description": "Nom de naissance du client."
+        },
+        "nomUsage": {
+          "type": "string",
+          "example": "Rollin",
+          "description": "Nom d’usage du client."
+        },
+        "prenoms": {
+          "type": "string",
+          "example": "Pierre Alexandre",
+          "description": "Les prenoms du client separes un espace."
+        },
+        "statut": {
+          "type": "object",
+          "properties": {
+            "etat": {
+              "type": "string",
+              "example": "KO",
+              "description": "Valeurs possibles : OK : Les demandes de paiement peuvent etre transmises. KO : Les demandes de paiement ne peuvent pas etre transmises."
+            },
+            "code": {
+              "type": "string",
+              "example": "APPAREILLAGE_EC",
+              "description": "Code du statut."
+            },
+            "description": {
+              "type": "string",
+              "example": "Transmission DP impossible, appareillage en cours de traitement",
+              "description": "Detail du statut de transmission."
+            }
+          }
+        }
+      }
+    },
+    "StatutTransmissionDTO": {
+      "type": "object",
+      "properties": {
+        "etat": {
+          "type": "string",
+          "example": "KO",
+          "description": "Valeurs possibles : OK : Les demandes de paiement peuvent etre transmises. KO : Les demandes de paiement ne peuvent pas etre transmises."
+        },
+        "code": {
+          "type": "string",
+          "example": "APPAREILLAGE_EC",
+          "description": "Code du statut."
+        },
+        "description": {
+          "type": "string",
+          "example": "Transmission DP impossible, appareillage en cours de traitement",
+          "description": "Detail du statut de transmission."
+        }
+      }
+    }
+  }
+}
