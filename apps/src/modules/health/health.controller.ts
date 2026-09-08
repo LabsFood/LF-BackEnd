@@ -5,7 +5,7 @@ import type { HealthCheckResult } from '@nestjs/terminus';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
-// Redis not implemented yet — re-enable ping in readiness when RedisModule is on.
+// ponytail: Redis not wired — see app.module.ts. Re-enable the readiness ping here too.
 // import { RedisService } from '../../redis/redis.service';
 
 @ApiTags('health')

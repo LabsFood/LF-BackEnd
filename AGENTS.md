@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+
 
 ### Application specifiactions
 
@@ -129,19 +129,36 @@ Change register: [`docs/evolution/payments-stripe-cb-evolution.md`](docs/evoluti
 
 - Modules: `modules/payments/` (`PaymentsModule`) + `modules/stripe-webhooks/` (`StripeWebhooksModule`).
 - A card payment is a **Stripe Connect destination charge**: the platform keeps the commission as
-  `application_fee_amount`, the chef's connected account gets the rest. The booking becomes
-  `confirmed` **only** on the `payment_intent.succeeded` webhook.
+  `application_fee_amount`, the chef's connected account gets the rest. A booking becomes
+  `confirmed` when its **settled** payments cover it — a booking can be part CESU, part card.
 - Client: `POST /payments/intent` → `{ clientSecret, … }`, confirmed with Stripe.js on the frontend.
-  Requires a `pending` booking owned by the caller **and** a chef with `chargesEnabled` +
-  `payoutsEnabled`, otherwise `409`.
+  It charges **what is left to pay**, not the booking total. Requires a `pending` booking owned by
+  the caller **and** a chef with `chargesEnabled` + `payoutsEnabled`, otherwise `409`.
+- **Prefinanced CESU** (`POST /payments/cesu`): the funds never transit through the platform. The
+  client pays from their issuer's beneficiary area (Pluxee, Edenred, UP, BIMPLI, Domiserve) using
+  the chef's CRCESU number (NAN), so nothing is programmatically verifiable and the **chef**
+  confirms (`POST /me/chef/cesu-payments/:id/confirm`), with a traced admin force-settle.
+  The NAN is published on `GET /chefs/:id/cesu-info` (public), the booking detail and each quote —
+  a client needs it *before* paying. `GET /me/bookings/:id/payment-status` gives the remaining
+  amount; a CESU declaration may never exceed it (CRCESU forbids any surcharge).
 - Chef: `POST/GET /me/chef-profile/stripe-connect/{link,status}` (Express onboarding — links are
   single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (**records a mandate,
   never debits**), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
+- **Commission on a CESU payment** cannot be withheld at charge time, so it is invoiced as
+  **facture B** (`commission_invoices`, `LF-COM-<year>-NNNN`) and collected by **SEPA Direct Debit**.
+  The invoice always precedes the debit — it is the legal basis it collects against — and a failed
+  debit adds an attempt without cancelling the receivable. Stripe supports the **CORE** scheme only
+  (not B2B), so a debit stays revocable for 8 weeks; a chef whose commission cannot be collected
+  stops receiving bookings and payments. Admin: `GET /admin/commission-invoices`,
+  `POST …/:id/retry-debit`, `POST …/run-due` (the `monthly_batch` trigger — **there is no cron**).
+  Never send `on_behalf_of` / `transfer_data` / `application_fee_amount` on a commission debit.
 - Fiscal attestation totals: `GET /me/fiscal-attestations/:year`, `GET /admin/fiscal-attestations[/:clientId]`.
-  JSON only — no PDF.
+  JSON only — no PDF. `platformAttestedAmountCents` is the narrower figure LAB'S FOOD attests:
+  it excludes type B providers and e-CESU payments (one predicate, `isPlatformAttestable`).
 - Without `STRIPE_SECRET_KEY` every payment route answers `503`; the webhook also needs
-  `STRIPE_WEBHOOK_SECRET`. Commission defaults: `PAYMENTS_COMMISSION_RATE_BPS=1500` (**placeholder
-  rate**), `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`.
+  `STRIPE_WEBHOOK_SECRET`. Commission defaults: `PAYMENTS_COMMISSION_RATE_BPS=1500`,
+  `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`, `PAYMENTS_COMMISSION_DEBIT_TRIGGER=on_payment`,
+  `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS=3`, `PAYMENTS_COMMISSION_INVOICE_PREFIX=LF-COM`.
 
 Local webhook loop:
 
@@ -156,8 +173,3 @@ warning above — `.env.local` overrides shell exports). Signature verification 
 signature-verified webhook path must be added to `WEBHOOK_RAW_BODY_PATHS` in
 `apps/src/auth/fastify-raw-body.ts`.
 
-### F19 concept CMS
-
-- Module: `modules/content-cms/` (`ContentCmsModule`)
-- Routes: `GET` / `PUT` `/content/concept` (public read; admin write)
-- General app content (non-CMS): `modules/content/` (`ContentModule`, reserved)

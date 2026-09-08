@@ -140,8 +140,11 @@ cp .env.example .env
 ```
 
 Payments need `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; without them the
-`/payments/*` routes answer `503`. The platform commission defaults to **15 % HT + 20 % VAT**
-(`PAYMENTS_COMMISSION_RATE_BPS=1500`) — **a placeholder, not the negotiated rate**. See
+`/payments/*` routes answer `503`. The platform commission is **15 % HT + 20 % VAT**
+(`PAYMENTS_COMMISSION_RATE_BPS=1500`). On a card payment Stripe withholds it at charge time;
+on a **prefinanced CESU** payment the funds never transit through the platform, so the
+commission is invoiced (facture B, `LF-COM-<year>-NNNN`) and collected by SEPA direct debit —
+see `PAYMENTS_COMMISSION_DEBIT_*` in `.env.example`. Details:
 [docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md).
 
 ### 2. Run with Docker Compose (local)

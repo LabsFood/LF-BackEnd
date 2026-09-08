@@ -1,6 +1,21 @@
 /** Basis points denominator — 10 000 bps = 100 %. */
 const BPS_DENOMINATOR = 10_000;
 
+/**
+ * Eight weeks, in days. Under the SEPA **CORE** scheme — the only one Stripe supports —
+ * the debtor may dispute a debit "no questions asked" for eight weeks and the bank
+ * honours it automatically. A collected commission is therefore never final before this
+ * window closes.
+ *
+ * **Hard-coded, and not configurable on purpose**: this is the scheme's rule, not the
+ * platform's. Exposing it as an environment variable would invite someone to "fix" a
+ * non-conformity by editing a value.
+ *
+ * Lives here rather than beside the debit engine so the seed script can import it without
+ * booting the Nest injection graph.
+ */
+export const SEPA_CLAWBACK_WINDOW_DAYS = 56;
+
 export interface CommissionRates {
   /** Commission on the pre-VAT base, in basis points (1500 = 15 %). */
   rateBps: number;

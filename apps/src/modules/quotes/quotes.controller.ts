@@ -53,9 +53,15 @@ export class QuotesController {
   @ApiOperation({
     summary: 'List my quote requests',
     description:
-      'Returns all quotes submitted by the authenticated client, newest first.',
+      'Returns all quotes submitted by the authenticated client, newest first. Each quote ' +
+      "carries `chefCesu` — the assigned chef's prefinanced-CESU coordinates, including the " +
+      'CRCESU number (NAN) a client needs to add them as an intervenant on their issuer ' +
+      'portal. `null` until a chef is assigned.',
   })
-  @ApiOkResponse({ description: 'Array of quote records owned by the caller.' })
+  @ApiOkResponse({
+    description:
+      'Array of quote records owned by the caller, each with a `chefCesu` block.',
+  })
   @ApiClerkAuthResponses()
   listMyQuotes(@CurrentClerkUser() user: ClerkUser) {
     return this.quotes.listMyQuotes(user.userId);

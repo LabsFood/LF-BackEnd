@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  CHEF_CESU_INFO_SELECT,
+  type ChefCesuInfo,
+  toChefCesuInfo,
+} from '../payments/chef-cesu-info';
 import { UsersService } from '../users/users.service';
 import { CreateQuoteDto, UpdateQuoteAdminDto } from './dto/quote.dto';
 
@@ -27,12 +32,47 @@ export class QuotesService {
     });
   }
 
+  /**
+   * Each quote carries the assigned chef's CESU coordinates under `chefCesu`, so a client
+   * who intends to pay in prefinanced CESU can add the chef as an intervenant on their
+   * issuer portal from the quote onwards — well before any invoice exists. `null` until a
+   * chef is assigned.
+   *
+   * `assignedChefUserId` is a bare column, not a Prisma relation, so the chefs are
+   * resolved in one extra query rather than through an include.
+   */
   async listMyQuotes(clerkUserId: string) {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    return this.prisma.quote.findMany({
+    const quotes = await this.prisma.quote.findMany({
       where: { clientId: user.id },
       orderBy: { createdAt: 'desc' },
     });
+
+    const chefUserIds = [
+      ...new Set(
+        quotes
+          .map((quote) => quote.assignedChefUserId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    if (chefUserIds.length === 0) {
+      return quotes.map((quote) => ({ ...quote, chefCesu: null }));
+    }
+
+    const chefs = await this.prisma.chefProfile.findMany({
+      where: { userId: { in: chefUserIds } },
+      select: { ...CHEF_CESU_INFO_SELECT, userId: true },
+    });
+    const byUserId = new Map<string, ChefCesuInfo>(
+      chefs.map((chef) => [chef.userId, toChefCesuInfo(chef)]),
+    );
+
+    return quotes.map((quote) => ({
+      ...quote,
+      chefCesu: quote.assignedChefUserId
+        ? (byUserId.get(quote.assignedChefUserId) ?? null)
+        : null,
+    }));
   }
 
   async acceptMyQuote(clerkUserId: string, id: string) {

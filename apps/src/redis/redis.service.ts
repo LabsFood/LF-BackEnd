@@ -1,4 +1,4 @@
-// Redis not implemented yet — uncomment when cache/queues are wired.
+// ponytail: Redis not wired — see app.module.ts for the full cluster of commented-out spots.
 //
 // import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 // import { ConfigService } from '@nestjs/config';

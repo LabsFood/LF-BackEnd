@@ -16,7 +16,7 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['postgres', 'postgresql'] })
     .optional(),
 
-  // Redis not implemented yet
+  // ponytail: Redis not wired — see app.module.ts. Uncomment alongside the module.
   // REDIS_URL: Joi.string()
   //   .uri({ scheme: ['redis', 'rediss'] })
   //   .required(),
@@ -44,6 +44,19 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_RATE_BPS: Joi.number().min(0).max(10_000).default(1500),
   /** VAT on the commission, in basis points. 2000 = 20 % (French standard rate). */
   PAYMENTS_COMMISSION_VAT_RATE_BPS: Joi.number().min(0).max(10_000).default(2000),
+  /**
+   * When the commission that Stripe could not withhold at charge time is invoiced and
+   * debited. `on_payment` (default) bills each CESU payment as it is confirmed;
+   * `monthly_batch` defers to `POST /admin/commission-invoices/run-due`.
+   */
+  PAYMENTS_COMMISSION_DEBIT_TRIGGER: Joi.string()
+    .valid('on_payment', 'monthly_batch')
+    .default('on_payment'),
+  /** Debit attempts per facture B before an admin has to step in. */
+  PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
+  /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
+  PAYMENTS_COMMISSION_INVOICE_PREFIX: Joi.string().max(16).default('LF-COM'),
+
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
   STRIPE_CONNECT_RETURN_URL: Joi.string().uri().optional(),

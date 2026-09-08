@@ -19,7 +19,9 @@ import { StatsModule } from './modules/stats/stats.module';
 import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { ContentCmsModule } from './modules/content-cms/content-cms.module';
 import { UsersModule } from './modules/users/users.module';
-// Redis not implemented yet — re-enable when cache/queues are wired.
+// ponytail: Redis not wired (cache/queues) — RedisModule/RedisService/env.REDIS_URL exist
+// commented out; re-enable across app.module.ts, config.loader.ts, env.validation.ts,
+// redis.module.ts, redis.service.ts and health.controller.ts when a cache or queue need shows up.
 // import { RedisModule } from './redis/redis.module';
 
 @Module({

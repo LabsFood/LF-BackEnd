@@ -64,7 +64,8 @@ apps/src/
     ├── quotes/                # client/admin quote lifecycle
     ├── shopping-lists/        # ingredient aggregation service
     ├── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
-    ├── payments/              # /payments/intent, Stripe Connect, SEPA mandate, fiscal attestations
+    ├── payments/              # /payments/intent, /payments/cesu, Stripe Connect, SEPA mandate
+    │                          # + commission debits (facture B), fiscal attestations
     ├── stripe-webhooks/       # POST /webhooks/stripe (raw-body signature check)
     ├── clerk-webhooks/        # POST /webhooks/clerk (Svix)
     └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
@@ -86,7 +87,7 @@ Modules below are the **planned** NestJS boundaries. None except those in “Cur
 | `shopping-lists` | Ingredient aggregation by aisle                       | Embedded in booking detail + admin                              |
 | `quotes`         | Sur-mesure requests & quotes                          | `POST /quotes`, `/me/quotes`, admin `/admin/quotes`             |
 | `messaging`      | Threads + Stream realtime                             | `/me/thread`, `/admin/threads`                                  |
-| `payments`       | **Done** — Connect destination charges, commissions, SAP/SEPA, tax credit | `/payments/intent`, `/webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, fiscal attestations |
+| `payments`       | **Done** — Connect destination charges, prefinanced CESU, commission invoices + SEPA debits, SAP/SEPA, tax credit | `/payments/intent`, `/payments/cesu`, `/webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, `/me/chef/cesu-payments/*`, `/admin/commission-invoices/*`, fiscal attestations |
 | `kossam`         | Kossam product orders                                 | Admin `/admin/kossam-orders`; public submit from main site      |
 | `recruitment`    | Chef applications + documents                         | `/admin/applications`                                           |
 | `contact`        | Site contact inbox                                    | `/admin/contact-messages`                                       |
@@ -206,6 +207,56 @@ and `commissions` freezes the rate and VAT in force so a later rate change canno
 `chef_profiles` carries three Stripe flags mirrored from `account.updated`. Full rationale:
 [`payments/stripe-payments-contract.md`](./payments/stripe-payments-contract.md).
 
+### CESU and commission debits (implemented — `20260905120000_payments_cesu_commission_debits`)
+
+```mermaid
+erDiagram
+    payments ||--o| cesu_settlements : "declared_as"
+    commission_invoices ||--o{ commissions : "bills"
+    commission_invoices ||--o{ commission_debits : "collected_by"
+    chef_profiles ||--o{ commission_invoices : "owes"
+
+    cesu_settlements {
+      uuid payment_id
+      enum medium
+      enum issuer
+      enum status
+      string client_proof_ref
+      uuid confirmed_by_user_id
+      bool admin_override
+    }
+    commission_invoices {
+      string invoice_number
+      enum payment_method
+      enum collection_method
+      enum status
+      int amount_ttc_cents
+    }
+    commission_debits {
+      uuid commission_invoice_id
+      string stripe_payment_intent_id
+      enum status
+      int attempt_number
+      timestamptz clawback_window_ends_at
+    }
+```
+
+On a **prefinanced CESU** payment the funds never transit through the platform: the client
+pays from their issuer's beneficiary area using the chef's CRCESU number (NAN), the issuer
+credits the chef directly, and no issuer exposes an API — so the **chef** confirms receipt,
+with a traced admin override. The commission cannot be withheld at charge time, so it is
+invoiced as **facture B** (`commission_invoices`, `LF-COM-<year>-NNNN`) and collected by
+SEPA direct debit. The invoice always precedes the debit — it is the legal basis it
+collects against — and a failed debit adds an attempt without cancelling the receivable, so
+numbers never develop holes.
+
+Stripe supports only the SEPA **CORE** scheme, whose 8-week "no questions asked" revocation
+is recorded on `commission_debits.clawback_window_ends_at`; a chef with an uncollectable
+commission stops receiving bookings and payments. `stripe_event_logs` de-duplicates webhook
+deliveries on **`processed_at`**, and a `payment_intent` event is routed to the commission
+engine or the client flow by a lookup in `commission_debits` — never by `metadata`, which a
+`Dispute` leaves empty and a `Mandate` does not carry at all.
+
 ## Authentication
 
 - `ClerkAuthGuard` — Bearer JWT, payload decode (JWKS verification planned).
@@ -257,7 +308,7 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `/payments/*`, `/me/chef-profi
 
 | Service      | Config                                       | Status                                          |
 | ------------ | -------------------------------------------- | ----------------------------------------------- |
-| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENTS_COMMISSION_*_BPS`, `STRIPE_CONNECT_*_URL` | **Live** — Connect destination charges, commissions, `POST /webhooks/stripe`, SEPA mandates |
+| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENTS_COMMISSION_*_BPS`, `PAYMENTS_COMMISSION_DEBIT_*`, `PAYMENTS_COMMISSION_INVOICE_PREFIX`, `STRIPE_CONNECT_*_URL` | **Live** — Connect destination charges, commissions, CESU commission invoices collected by SEPA direct debit, `POST /webhooks/stripe`, SEPA mandates |
 | Cronofy      | `CRONOFY_*`                                  | Scaffold; link to chef availability             |
 | Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
 | Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
@@ -284,6 +335,9 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `/payments/*`, `/me/chef-profi
 | GET    | `/bookings`         | Clerk                    |
 | POST   | `/bookings`         | Clerk                    |
 | POST   | `/payments/intent`  | Clerk (booking owner)    |
+| POST   | `/payments/cesu`, GET `/me/bookings/:id/payment-status` | Clerk (booking owner) |
+| GET    | `/chefs/:id/cesu-info` | **Public** (chef CRCESU number, needed before paying) |
+| GET/POST | `/me/chef/cesu-payments*`, GET `/me/chef/commission-invoices` | Clerk (chef) |
 | POST   | `/me/chef-profile/stripe-connect/link`, GET `…/status` | Clerk (chef) |
 | POST   | `/me/chef-profile/sepa-mandate/setup-intent`, GET `/me/chef-profile/sepa-mandate` | Clerk (chef) |
 | GET/PATCH | `/me/chef-profile/sap` | Clerk (chef)          |

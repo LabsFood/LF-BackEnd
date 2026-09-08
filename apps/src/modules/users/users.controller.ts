@@ -32,7 +32,11 @@ import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
-import { SapProfileDto, UpdateMeSapProfileDto } from './dto/sap-profile.dto';
+import {
+  SapProfileDto,
+  UpdateMeSapProfileDto,
+  UpdateSapExternalStatusDto,
+} from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
@@ -315,6 +319,33 @@ export class UsersController {
     @Body() payload: UpdateChefVerificationDto,
   ) {
     return this.users.setChefVerification(id, payload);
+  }
+
+  @Patch('admin/chefs/:id/sap-external-status')
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'Admin: set a chef external SAP statuses',
+    description:
+      'Writes `crcesu_affiliation_status` and `urssaf_tiers_prestation_status` on the ' +
+      "chef's `sap_profiles` row. Same split as `is_verified` / `is_active`: the chef " +
+      'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
+      "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
+      'only source this field can have. `:id` is the chef profile uuid ' +
+      '(`chef_profiles.id`); the chef must already have declared a SAP route.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Chef profile uuid (`chef_profiles.id`).',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @ApiOkResponse({ type: SapProfileDto, description: 'SAP profile after the update.' })
+  @ApiAdminAuthResponses()
+  updateSapExternalStatus(
+    @Param('id') id: string,
+    @Body() payload: UpdateSapExternalStatusDto,
+  ) {
+    return this.users.setSapExternalStatus(id, payload);
   }
 
   @Get('admin/clients')

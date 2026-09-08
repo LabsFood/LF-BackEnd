@@ -103,8 +103,11 @@ export class BookingsController {
   @ApiOperation({
     summary: 'Get my booking detail with shopping list',
     description:
-      'Returns a single booking owned by the authenticated client, including the generated shopping list. ' +
-      '`:id` is the booking uuid.',
+      'Returns a single booking owned by the authenticated client, including the generated shopping list ' +
+      "and, under `chefCesu`, the chef's prefinanced-CESU coordinates. The client needs the CRCESU " +
+      'number (NAN) **before** paying — it is what lets them add the chef as an intervenant on their ' +
+      'issuer portal — and invoice A cannot carry it, being issued only after the service. Use ' +
+      '`GET /me/bookings/:id/payment-status` for the amount still to pay. `:id` is the booking uuid.',
   })
   @ApiParam({
     name: 'id',

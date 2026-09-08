@@ -26,7 +26,13 @@ const ATTESTATION_DESCRIPTION =
   'one attestation is issued per entry in `providers`, carrying that chef NOVA code or ' +
   'cooperative; the client-level totals are a dashboard summary, not a filable document. ' +
   'A provider with `sapDeclared: false` has not declared a SAP route and cannot issue one. ' +
-  'JSON only — the rendered PDF is a separate deliverable, pending the legal template.';
+  'The aggregation is agnostic about how a booking was paid, so CESU amounts count in ' +
+  '`eligibleAmountCents` like any other. `platformAttestedAmountCents` is the narrower ' +
+  "figure LAB'S FOOD puts its own name to: it excludes `type_b_cooperative` providers " +
+  '(the cooperative issues invoice and attestation) and e-CESU payments (the issuer ' +
+  'already attests the share it financed); paper CESU stays attested. `notes` spells out ' +
+  'which exclusion applied. JSON only — the rendered PDF is a separate deliverable, ' +
+  'pending the legal template.';
 
 @ApiTags('payments')
 @ApiBearerAuth()

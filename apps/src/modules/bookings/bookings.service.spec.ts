@@ -1,4 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -19,6 +20,8 @@ describe('BookingsService', () => {
     booking: { create: jest.Mock; count: jest.Mock; findMany: jest.Mock };
     chefProfile: { findUnique: jest.Mock };
     serviceOffer: { findUnique: jest.Mock };
+    commissionInvoice: { findFirst: jest.Mock };
+    commission: { findFirst: jest.Mock };
   };
   let users: { ensurePersistedFromClerk: jest.Mock };
   let service: BookingsService;
@@ -40,13 +43,20 @@ describe('BookingsService', () => {
           .fn()
           .mockResolvedValue({ id: 'offer-1', chefProfileId: 'chef-1' }),
       },
+      commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
+      commission: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     users = {
       ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }),
     };
+    const get = jest.fn((key: string, fallback?: unknown) =>
+      key === 'payments.commissionDebitMaxAttempts' ? 3 : fallback,
+    );
+    const config = { get, getOrThrow: get };
     service = new BookingsService(
       prisma as unknown as PrismaService,
       users as unknown as UsersService,
+      config as unknown as ConfigService,
     );
   });
 
@@ -110,6 +120,26 @@ describe('BookingsService', () => {
       ['neither', { isActive: false, isVerified: false }],
     ])('refuses to book a chef who is %s', async (_label, flags) => {
       prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1', ...flags });
+
+      await expect(service.create('clerk_1', payload)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a chef whose commission invoice ran out of debit attempts', async () => {
+      prisma.commissionInvoice.findFirst.mockResolvedValue({
+        invoiceNumber: 'LF-COM-2026-0007',
+      });
+
+      await expect(service.create('clerk_1', payload)).rejects.toThrow(
+        /LF-COM-2026-0007/,
+      );
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a chef whose commission was reversed by a SEPA dispute', async () => {
+      prisma.commission.findFirst.mockResolvedValue({ id: 'commission-1' });
 
       await expect(service.create('clerk_1', payload)).rejects.toBeInstanceOf(
         ConflictException,

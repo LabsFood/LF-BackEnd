@@ -1,5 +1,12 @@
 import { resolveAllowedOrigins } from './allowed-origins';
 
+/**
+ * Both branches share `executeDebit()`; only the moment a `CommissionInvoice` is cut
+ * differs, so switching does not rewrite the engine.
+ */
+export const COMMISSION_DEBIT_TRIGGERS = ['on_payment', 'monthly_batch'] as const;
+export type CommissionDebitTrigger = (typeof COMMISSION_DEBIT_TRIGGERS)[number];
+
 export interface AppConfig {
   environment: string;
   debug: boolean;
@@ -7,7 +14,7 @@ export interface AppConfig {
     host: string;
     port: number;
   };
-  /** Redis not implemented yet — uncomment when enabling RedisModule. */
+  /** ponytail: Redis not wired — see app.module.ts. Uncomment when enabling RedisModule. */
   // redisUrl: string;
   cors: {
     origins: string[];
@@ -40,6 +47,17 @@ export interface AppConfig {
     stripeConnectRefreshUrl: string;
     /** Where Stripe sends a chef who finished (or abandoned) onboarding. */
     stripeConnectReturnUrl: string;
+    /**
+     * When a commission that Stripe could not withhold at charge time (CESU today,
+     * avance immédiate later) is invoiced and debited. `on_payment` bills and debits
+     * each payment as it settles; `monthly_batch` leaves commissions `pending` for
+     * `POST /admin/commission-invoices/run-due` to group per chef and per period.
+     */
+    commissionDebitTrigger: CommissionDebitTrigger;
+    /** Debit attempts allowed per facture B before an admin has to intervene. */
+    commissionDebitMaxAttempts: number;
+    /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
+    commissionInvoicePrefix: string;
   };
   cronofy: {
     clientId?: string;
@@ -106,6 +124,13 @@ export const configLoader = (): AppConfig => ({
   payments: {
     commissionRateBps: Number(process.env.PAYMENTS_COMMISSION_RATE_BPS ?? 1500),
     commissionVatRateBps: Number(process.env.PAYMENTS_COMMISSION_VAT_RATE_BPS ?? 2000),
+    // Joi (env.validation.ts) rejects any other value and defaults this.
+    commissionDebitTrigger: (process.env.PAYMENTS_COMMISSION_DEBIT_TRIGGER ??
+      'on_payment') as CommissionDebitTrigger,
+    commissionDebitMaxAttempts: Number(
+      process.env.PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS ?? 3,
+    ),
+    commissionInvoicePrefix: process.env.PAYMENTS_COMMISSION_INVOICE_PREFIX ?? 'LF-COM',
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
     stripeConnectRefreshUrl:
       process.env.STRIPE_CONNECT_REFRESH_URL ??

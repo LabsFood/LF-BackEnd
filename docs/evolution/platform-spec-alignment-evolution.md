@@ -26,8 +26,6 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | `AGENTS.md` | Done | Points to specs + evolution register; interim TypeORM note |
 | `README.md` | Done | `apps/` layout; links to evolution register |
 | `docs/SPEC-ADMIN-DASHBOARD.md` | Done | Fixed cross-ref to `SPEC-BACKEND.md` (was `SPEC-BACKEND-BATCH-COOKING.md`) |
-| `docs/features/f19-concept-cms.md` | Done | Paths `apps/src/…` (was `apps/api-nestjs/…`) |
-| `docs/testing/f19-concept-cms-*.md` | Done | Commands use `cd apps` |
 | `docs/database-connection.md` | Done | Notes Prisma as target ORM |
 | `docs/payments/stripe-payments-contract.md` | Created | Payment flow, webhook events, commission arithmetic, config (2026-09-01) |
 | `docs/evolution/payments-stripe-cb-evolution.md` | Created | E8 detail register (2026-09-01) |
@@ -109,24 +107,33 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 ### E8 — Payments (`payments`)
 
-Delivered 2026-08-31 → 2026-09-01. Detail register:
-[`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md).
+Delivered 2026-08-31 → 2026-09-01 (card), 
+2026-09-05 (prefinanced CESU + the SEPA commission-debit engine). 
+
+Detail register: [`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md).
 Working contract: [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md).
 
 | Item | Status | Notes |
 |------|--------|-------|
 | `Payment` entity | Done | `payments` reshaped (1:N on bookings so a failed card attempt is retryable); migration `20260831120000_payments_sap_sepa_foundations` |
 | `POST /payments/intent` | Done | Stripe Connect **destination charge**; commission withheld as `application_fee_amount`; reuses a live pending intent instead of double-charging |
-| `POST /webhooks/stripe` | Done | Raw-body signature check; handles `payment_intent.succeeded` / `.payment_failed`, `charge.refunded`, `account.updated`, `setup_intent.succeeded`; all handlers idempotent |
+| `POST /webhooks/stripe` | Done | Raw-body signature check; handles `payment_intent.succeeded` / `.processing` / `.payment_failed`, `charge.refunded`, `charge.dispute.created` / `.closed`, `account.updated`, `setup_intent.succeeded`, `mandate.updated`. A `payment_intent` event is routed to the commission engine or the client flow by a **lookup in `commission_debits`**, never by `metadata`. De-duplicated through `stripe_event_logs` on **`processed_at`** |
 | Tax credit fields on booking/payment | Done | `bookings.amount_after_tax` (50 %) and `payments.tax_credit_eligible_amount` |
 | `Commission` entity + bps arithmetic | Done | Rate and VAT frozen on the row; clamped to the charge; `computeCommission()` |
 | Chef Stripe Connect onboarding | Done | Express (FR); `POST/GET /me/chef-profile/stripe-connect/*`; flags mirrored from `account.updated` |
-| SEPA commission mandate | Foundation | `POST/GET /me/chef-profile/sepa-mandate*` records a CORE mandate — **never debits**. Groundwork for avance immédiate / CESU |
-| SAP declaration (`sap_profiles`) | Done | `GET/PATCH /me/chef-profile/sap`; type A NOVA vs type B cooperative; URSSAF/CRCESU statuses inert and not chef-writable |
-| Fiscal attestations | Partial | JSON totals — `/me/fiscal-attestations/:year`, `/admin/fiscal-attestations[/:clientId]`. **No signed PDF** (legal template pending) |
+| SEPA commission mandate | Done | `POST/GET /me/chef-profile/sepa-mandate*` records a CORE mandate; `CommissionDebitsService` now debits against it. Stripe supports **CORE only** — the "mandat SEPA B2B" of the commercial documentation is not buildable |
+| Commission invoice (facture B) | Done | `commission_invoices`, `LF-COM-<year>-NNNN`, issued **before** any debit — it is the legal basis of the collection. **PDF and S3 archival belong to the invoicing workstream**; `pdf_object_key` / `s3_archived_at` are laid down empty |
+| SEPA commission debit engine | Done | `commission_debits`, N attempts per invoice; webhook-driven (SEPA never answers `succeeded` synchronously); 10 000 € cap; 56-day CORE clawback window recorded; **never** `on_behalf_of` / `transfer_data` / `application_fee_amount` |
+| Unpaid-commission guard | Done | `POST /bookings`, `POST /payments/intent` and `POST /payments/cesu` refuse `409` for a chef with an uncollectable invoice or a reversed commission |
+| Mixed CESU + card on one booking | Done | Coverage counts `succeeded` payments only; the card intent charges the **remaining** amount; partial unique index on live CESU payments |
+| SAP declaration (`sap_profiles`) | Done | `GET/PATCH /me/chef-profile/sap`; type A NOVA vs type B cooperative; `acceptsCesu` opt-in. External statuses still not chef-writable but now have a writer: `PATCH /admin/chefs/:id/sap-external-status` |
+| CRCESU number (NAN) exposure | Done | Published on the public chef profile (`GET /chefs/:id/cesu-info`), the booking detail and each quote — a client needs it **before** paying, and invoice A arrives too late |
+| Fiscal attestations | Partial | JSON totals — `/me/fiscal-attestations/:year`, `/admin/fiscal-attestations[/:clientId]`. `platformAttestedAmountCents` excludes type B and e-CESU (**🔴 the paper/e-CESU split is open with the accountant**). **No signed PDF** (legal template pending) |
 | Refund flow | Todo | Webhook records refunds; no API refund route, and the commission is not clawed back |
 | Admin payments/commissions list | Todo | No `/admin/payments`, `/admin/commissions` |
-| `avance immédiate` / CESU flows | Todo | Enums, `payments.metadata`, and the mandate exist; no flow implemented |
+| CESU flow | Done | `POST /payments/cesu` declared by the client, confirmed or rejected by the chef, admin force-settle with a mandatory proof reference. e-CESU primary; paper deliberately unmanaged — deposit and reimbursement are the chef's responsibility, **still to be written into the chef terms** |
+| `avance immédiate` flow | Todo | The commission-debit engine it needs is now built and reusable as-is |
+| Cron scheduler | Todo | The repo has none. `monthly_batch` and debit retries run from admin endpoints (`POST /admin/commission-invoices/run-due`, advisory-locked for multi-instance Railway) |
 
 ### E9 — Notifications (`notifications`)
 
@@ -171,7 +178,6 @@ Working contract: [`../payments/stripe-payments-contract.md`](../payments/stripe
 | Users | `GET /thisUser`, `GET /me`, `POST /admin/users`, `PATCH /admin/users/:id/role` |
 | Bookings | `GET /bookings`, `POST /bookings`, `/me/bookings/:id` |
 | Payments | `POST /payments/intent`, `POST /webhooks/stripe`, `/me/chef-profile/stripe-connect/*`, `/me/chef-profile/sepa-mandate*`, `/me/chef-profile/sap`, fiscal attestations |
-| F19 CMS | `GET/PUT /content/concept`, `CmsPage`, migration `1700000000001` |
 | Auth | `ClerkAuthGuard`, `AdminGuard` |
 | Integrations | **Stripe live** (Connect + webhooks); Cronofy, Stream, Brevo, Supabase scaffolds |
 
@@ -252,3 +258,4 @@ Working contract: [`../payments/stripe-payments-contract.md`](../payments/stripe
 | 2026-07-05 | Admin user provisioning: `POST /admin/users`, `PATCH /admin/users/:id/role`; clerk-integration-contract | Backend-only scope; no FAPI auth BFF |
 | 2026-08-03 | **Reversed** the `POST /auth/register` out-of-scope decision; delivered public registration + two-step onboarding (`PATCH /me/profile`, `PATCH /me/chef-profile`, `PATCH /admin/chefs/:id/verification`); added `@nestjs/throttler` | Product needs self-serve sign-up before booking; API owns registration while Clerk keeps sign-in |
 | 2026-08-31 | **E8 delivered:** Stripe Connect destination charges, commissions, `POST /webhooks/stripe`, SEPA mandate + SAP declaration foundations, fiscal attestations; **E2 partial:** `POST /bookings` implemented with `LF-YYYY-NNNN` references and tax-credit amounts. Migration `20260831120000_payments_sap_sepa_foundations` (idempotent) | Card payment flow required end to end before booking can convert; see [`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md) |
+| 2026-09-05 | **E8 extended:** prefinanced CESU (e-CESU first) end to end, commission invoices (facture B) collected by SEPA direct debit, webhook routing by database lookup + `stripe_event_logs` de-duplication, unpaid-commission booking guard, mixed CESU + card coverage, NAN exposure, `platformAttestedAmountCents`. Migration `20260905120000_payments_cesu_commission_debits` (idempotent) | On CESU the funds never transit through the platform, so the commission cannot be withheld at charge time; the debit engine deferred out of the card phase had to be built, and it serves the avance immédiate unchanged. See [`payments-stripe-cb-evolution.md`](./payments-stripe-cb-evolution.md) |

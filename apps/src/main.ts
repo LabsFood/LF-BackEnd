@@ -96,7 +96,11 @@ async function bootstrap(): Promise<void> {
     .addTag('quotes', 'Custom quote requests')
     .addTag('stats', 'Client and admin dashboards')
     .addTag('content-cms', 'Public and admin CMS content')
-    .addTag('payments', 'Card payments, Stripe Connect, commissions, and SAP fiscal data')
+    .addTag(
+      'payments',
+      'Card payments, prefinanced CESU, Stripe Connect, commission invoices collected by ' +
+        'SEPA direct debit, and SAP fiscal data',
+    )
     .addTag('health', 'Liveness and readiness probes')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

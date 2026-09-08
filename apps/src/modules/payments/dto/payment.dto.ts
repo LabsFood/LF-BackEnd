@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsUUID } from 'class-validator';
 
-import { SapDeclarationType } from '../../../generated/prisma/client';
+import { PaymentMethod, SapDeclarationType } from '../../../generated/prisma/client';
 
 export class CreatePaymentIntentDto {
   @ApiProperty({
@@ -89,10 +89,39 @@ export class FiscalAttestationProviderDto {
 
   @ApiProperty({
     description:
-      'Amount paid to this chef that is eligible for the credit, in minor units.',
+      'Amount paid to this chef that is eligible for the credit, in minor units. The ' +
+      "client's own total, whoever issues the attestation for it.",
     example: 30000,
   })
   eligibleAmountCents!: number;
+
+  @ApiProperty({
+    description:
+      "The part of `eligibleAmountCents` **LAB'S FOOD** attests, in minor units. Two " +
+      'exclusions narrow it: a `type_b_cooperative` chef (the cooperative issues both ' +
+      'invoice and attestation) and e-CESU payments (the issuer already attests the share ' +
+      'it financed). Paper CESU stays attested here. `notes` says which applied.',
+    example: 18000,
+  })
+  platformAttestedAmountCents!: number;
+
+  @ApiProperty({
+    enum: ['cb', 'avance_immediate', 'cesu'],
+    isArray: true,
+    description: 'Payment methods used with this chef during the year.',
+    example: ['cb', 'cesu'],
+  })
+  paymentMethods!: PaymentMethod[];
+
+  @ApiProperty({
+    isArray: true,
+    type: String,
+    description:
+      'Plain-language reasons some of the amount is not attested by the platform. Empty ' +
+      'when the platform attests everything.',
+    example: ['Part réglée en e-CESU — attestation délivrée par votre émetteur.'],
+  })
+  notes!: string[];
 
   @ApiProperty({
     description: 'Succeeded payments to this chef in the year.',
@@ -131,6 +160,14 @@ export class FiscalAttestationDto {
     example: 48000,
   })
   eligibleAmountCents!: number;
+
+  @ApiProperty({
+    description:
+      "Sum of every provider's `platformAttestedAmountCents`, in minor units — what " +
+      "LAB'S FOOD itself attests, as opposed to what the client is entitled to claim.",
+    example: 30000,
+  })
+  platformAttestedAmountCents!: number;
 
   @ApiProperty({
     description: 'Succeeded payments counted across all providers.',
