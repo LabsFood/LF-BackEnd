@@ -10,13 +10,12 @@ export const envValidationSchema = Joi.object({
   /** Injected by Railway and similar hosts when API_PORT is unset. */
   PORT: Joi.number().port().optional(),
 
-  SUPABASE_DB_URL: Joi.string()
-    .uri({ scheme: ['postgres', 'postgresql'] }),
+  SUPABASE_DB_URL: Joi.string().uri({ scheme: ['postgres', 'postgresql'] }),
   /** Direct Postgres (5432) for `npm run migration:*`. Falls back to SUPABASE_DB_URL locally. */
   SUPABASE_DB_MIGRATION_URL: Joi.string()
     .uri({ scheme: ['postgres', 'postgresql'] })
     .optional(),
-    
+
   // Redis not implemented yet
   // REDIS_URL: Joi.string()
   //   .uri({ scheme: ['redis', 'rediss'] })
@@ -24,6 +23,12 @@ export const envValidationSchema = Joi.object({
 
   CLERK_SECRET_KEY: Joi.string().allow('').optional(),
   CLERK_WEBHOOK_SIGNING_SECRET: Joi.string().allow('').optional(),
+  /** Sign-in ticket handed to the frontend after `POST /auth/register`. Keep it short. */
+  CLERK_SIGN_IN_TOKEN_TTL_SECONDS: Joi.number().min(600).max(6000).default(3600),
+
+  /** Rate limit for the public registration endpoint. */
+  REGISTER_THROTTLE_TTL_MS: Joi.number().min(1000).default(3_600_000),
+  REGISTER_THROTTLE_LIMIT: Joi.number().min(1).default(5),
 
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional(),
@@ -52,5 +57,9 @@ export const envValidationSchema = Joi.object({
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
   SUPABASE_CMS_ASSETS_BUCKET: Joi.string().allow('').optional(),
 
-  CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
+  /**
+   * Extra origins on top of the built-in allowlist (`config/allowed-origins.ts`).
+   * Left empty by default so production never inherits a localhost origin.
+   */
+  CORS_ORIGINS: Joi.string().allow('').optional(),
 });

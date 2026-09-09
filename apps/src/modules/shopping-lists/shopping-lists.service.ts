@@ -63,12 +63,17 @@ export class ShoppingListsService {
       meal: { portions: number; ingredients: unknown };
     }>,
   ): AggregatedItem[] {
-    const grouped = new Map<string, { aisle: string; name: string; amount: number; unit: string }>();
+    const grouped = new Map<
+      string,
+      { aisle: string; name: string; amount: number; unit: string }
+    >();
 
     for (const bookingMeal of bookingMeals) {
       const base = bookingMeal.meal.portions || 1;
       const factor = bookingMeal.portions / base;
-      const ingredients = Array.isArray(bookingMeal.meal.ingredients) ? bookingMeal.meal.ingredients : [];
+      const ingredients = Array.isArray(bookingMeal.meal.ingredients)
+        ? bookingMeal.meal.ingredients
+        : [];
 
       for (const raw of ingredients) {
         const parsed = this.parseIngredient(raw, factor);

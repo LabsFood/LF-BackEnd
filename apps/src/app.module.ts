@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
@@ -7,6 +8,7 @@ import { resolveEnvFilePaths } from './config/env-files';
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './supabase/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { HealthModule } from './modules/health/health.module';
@@ -28,9 +30,24 @@ import { UsersModule } from './modules/users/users.module';
       validationOptions: { allowUnknown: true, abortEarly: false },
       cache: true,
     }),
+    // Configured globally but enforced only where `ThrottlerGuard` is attached
+    // (currently the public `POST /auth/register`), so existing routes are unaffected.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'register',
+            ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
+            limit: config.get<number>('registerThrottle.limit', 5),
+          },
+        ],
+      }),
+    }),
     DatabaseModule,
     // RedisModule,
     AuthModule,
+    ClerkWebhooksModule,
     ContentCmsModule,
     IntegrationsModule,
     HealthModule,

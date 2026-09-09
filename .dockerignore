@@ -1,0 +1,53 @@
+# Build context is the repo root (see apps/Dockerfile, docker-compose.yml,
+# railway.toml). Docker only reads .dockerignore from the context root, so this
+# file — not apps/.dockerignore — controls what is sent to the build daemon.
+
+# Dependencies (reinstalled inside the image)
+**/node_modules
+
+# Build outputs (rebuilt inside the image)
+dist
+apps/dist
+build
+apps/src/generated
+**/*.tsbuildinfo
+
+# Secrets & local env (never bake into an image)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# VCS & CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Tests & coverage
+coverage
+apps/coverage
+**/*.spec.ts
+apps/test
+
+# Docs & project meta (not needed at runtime)
+docs
+*.md
+!apps/README.md
+
+# Tooling / editors / OS
+.idea
+.vscode
+.cursor
+**/.DS_Store
+*.log
+*.swp
+.temp
+.tmp
+dump.rdb
+.cache_ggshield
+
+# Compose / local infra
+docker-compose.yml

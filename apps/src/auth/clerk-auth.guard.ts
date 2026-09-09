@@ -1,3 +1,4 @@
+import { verifyToken } from '@clerk/backend';
 import {
   CanActivate,
   ExecutionContext,
@@ -20,11 +21,17 @@ interface JwtClaims {
   [key: string]: unknown;
 }
 
+/** Local placeholder from AGENTS.md — skips JWKS verification. */
+const CLERK_LOCAL_STUB_SECRET = 'sk_test_placeholder';
+
+/** Real Clerk secret keys enable strict JWT verification. */
+const CLERK_SECRET_KEY_PATTERN = /^sk_(test|live)_[a-zA-Z0-9]+$/;
+
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>;
       clerkUser?: ClerkUser;
@@ -43,7 +50,7 @@ export class ClerkAuthGuard implements CanActivate {
     }
 
     const token = header.slice(7).trim();
-    const claims = decodeUnverifiedJwt(token);
+    const claims = await this.resolveClaims(token, secret);
     if (!claims?.sub) {
       throw new UnauthorizedException('Token missing subject claim.');
     }
@@ -51,17 +58,35 @@ export class ClerkAuthGuard implements CanActivate {
     req.clerkUser = {
       userId: claims.sub,
       sessionId: claims.sid,
-      email: claims.email,
+      email: typeof claims.email === 'string' ? claims.email : undefined,
     };
     return true;
   }
+
+  private async resolveClaims(token: string, secret: string): Promise<JwtClaims | null> {
+    if (shouldVerifyClerkJwt(secret, this.config.get<string>('environment'))) {
+      try {
+        const payload = await verifyToken(token, {
+          secretKey: secret,
+          authorizedParties: this.config.get<string[]>('cors.origins'),
+        });
+        return payload as JwtClaims;
+      } catch {
+        throw new UnauthorizedException('Invalid or expired Clerk token.');
+      }
+    }
+
+    return decodeUnverifiedJwt(token);
+  }
 }
 
-/** Decode a JWT payload without verifying the signature.
- *
- *  Phase 1 stub matching the FastAPI `jose.jwt.get_unverified_claims()` behaviour.
- *  Replace with full JWKS verification once the Clerk instance URL is provisioned.
- */
+export function shouldVerifyClerkJwt(secret: string, environment?: string): boolean {
+  if (environment === 'test') return false;
+  if (secret === CLERK_LOCAL_STUB_SECRET) return false;
+  return CLERK_SECRET_KEY_PATTERN.test(secret);
+}
+
+/** Decode a JWT payload without verifying the signature (local / test only). */
 function decodeUnverifiedJwt(token: string): JwtClaims | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;

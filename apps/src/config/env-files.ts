@@ -1,5 +1,5 @@
-import { existsSync } from 'fs';
-import { config } from 'dotenv';
+import { existsSync, readFileSync } from 'fs';
+import { parse } from 'dotenv';
 import { dirname, resolve } from 'path';
 
 /** Repo root (LF-BackEnd), whether cwd is repo root or `apps/`. */
@@ -29,10 +29,24 @@ export const resolveEnvFilePaths = (startDir = process.cwd()): string[] => {
   );
 };
 
-/** Load repo-root env files into `process.env` (Prisma CLI, scripts). */
+/**
+ * Load repo-root env files into `process.env` (Prisma CLI, scripts).
+ *
+ * `.env` then `.env.local` (later wins). Existing `process.env` (shell exports)
+ * is never clobbered by `.env`. A later file only overrides with a non-empty
+ * value, so a blank `KEY=` in `.env.local` cannot wipe a real value from `.env`.
+ */
 export const loadRepoEnv = (startDir = process.cwd()): void => {
   const paths = resolveEnvFilePaths(startDir);
   paths.forEach((path, index) => {
-    config({ path, override: index > 0, quiet: true });
+    const parsed = parse(readFileSync(path));
+    const isOverrideFile = index > 0;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      } else if (isOverrideFile && value.trim() !== '') {
+        process.env[key] = value;
+      }
+    }
   });
 };

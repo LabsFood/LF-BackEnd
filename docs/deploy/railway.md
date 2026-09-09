@@ -34,13 +34,13 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 
 | Variable | Example |
 |----------|---------|
-| `CORS_ORIGINS` | Comma-separated production frontends, no spaces required: `https://app.labsfood.com,https://admin.labsfood.com` |
+| `CORS_ORIGINS` | **Optional.** The product frontends (`https://labsfood.fr`, `https://www.labsfood.fr`, `https://batchcooking.labsfood.fr`) are already allowlisted in [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts). Set this only for extra origins — preview deploys, tunnels, staging: `https://preview-abc.vercel.app,https://staging.labsfood.fr`. Exact scheme + host + port, comma-separated, no wildcards. |
 
 ### Integrations (set when the feature is live)
 
 | Variable | When needed |
 |----------|-------------|
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments |
 | `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
 | `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
@@ -132,8 +132,9 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
-- [ ] `CORS_ORIGINS` for real frontend URLs
+- [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
 - [ ] Stripe / Cronofy / Brevo / Stream / AWS keys when those flows ship
-- [ ] Clerk/Stripe webhook URLs pointed at `https://<api-domain>/…` (when implemented)
+- [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
+- [ ] Stripe webhook URL when payments ship
 
 Redis is **not** required yet (module disabled in repo).

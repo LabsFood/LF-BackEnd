@@ -12,7 +12,7 @@ export class QuotesService {
   ) {}
 
   async createQuote(clerkUserId: string, payload: CreateQuoteDto) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     return this.prisma.quote.create({
       data: {
         reference: await this.nextReference(),
@@ -28,7 +28,7 @@ export class QuotesService {
   }
 
   async listMyQuotes(clerkUserId: string) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     return this.prisma.quote.findMany({
       where: { clientId: user.id },
       orderBy: { createdAt: 'desc' },
@@ -36,7 +36,7 @@ export class QuotesService {
   }
 
   async acceptMyQuote(clerkUserId: string, id: string) {
-    const user = await this.users.upsertFromClerk({ clerkUserId });
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const quote = await this.prisma.quote.findFirst({ where: { id, clientId: user.id } });
     if (!quote) {
       throw new NotFoundException('Quote not found.');

@@ -10,16 +10,19 @@
 | **Z**   | Minor fixes and patches (bugfixes, small corrections, security patches)                  |
 
 
-Examples: `v1.0.0` first stable epic; `v1.1.0` adds features on that line; `v1.1.3` three patch rounds after `v1.1.0`.
+Examples: 
+- `v1.0.0` first stable epic; 
+- `v1.1.0` adds features on that line; 
+- `v1.1.3` three patch rounds after `v1.1.0`.
 
 ## Release register
 
 
 | Version | Title & brief description                                 | Release date | Released by | Pre-release approval date |
 | ------- | --------------------------------------------------------- | ------------ | ----------- | ------------------------- |
-| v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | DKO         | -                         |
-| v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | DKO         |                           |
-| v1.x.0  | Platform spec alignment — Prisma, bookings domain, admin API |          |             | See `docs/evolution/platform-spec-alignment-evolution.md` |
+| v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | JDK        | -                         |
+| v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | JDK         |      -                     |
+| v2.0.0  | SignIn and SignUp - Authenfication via clerk         |   2026-08-15           |   JDK       |          -                 |
 | v1.x.0  | ISSUE_TYPE — ISSUE_DESC                                   |              |             |                           |
 
 

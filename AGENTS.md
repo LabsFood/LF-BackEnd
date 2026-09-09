@@ -92,9 +92,10 @@ npm test            # jest unit tests
 
 ### Auth testing without Clerk
 
-`ClerkAuthGuard` decodes the JWT payload without signature verification, so any
-well-formed JWT with a `sub` claim works locally as long as `CLERK_SECRET_KEY`
-is set to a non-empty value. Generate a token with Node:
+With `CLERK_SECRET_KEY=sk_test_placeholder`, `ClerkAuthGuard` decodes the JWT
+payload without JWKS verification so any well-formed JWT with a `sub` claim works
+locally. When a real `sk_test_…` / `sk_live_…` key is set, tokens are verified
+via `@clerk/backend` (`verifyToken`). Generate a local stub token with Node:
 
 ```bash
 node -e '
@@ -106,6 +107,20 @@ node -e '
 
 Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
 `/bookings`.
+
+### Clerk webhooks and DB sync
+
+Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync.md). Frontend/backend boundary: [`docs/auth/clerk-integration-contract.md`](docs/auth/clerk-integration-contract.md).
+
+- Public sign-up (no session): `POST /auth/register` — `email` + `password`, always `role: client`, IP rate-limited. Returns a 60s Clerk sign-in ticket the frontend redeems with `signIn.create({ strategy: 'ticket', ticket })`. Returns `503` with `sk_test_placeholder`.
+- Onboarding form 2 (authenticated): `PATCH /me/profile` (client) or `PATCH /me/chef-profile` (chef). **The route sets the role — the body never carries one**; a submitted `role` is a `400`. Chefs land `is_active/is_verified = false` until `PATCH /admin/chefs/:id/verification`.
+- Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
+- One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
+- One-off Clerk → Postgres backfill (real key only): `npm run db:backfill:clerk -- --email <addr> | --clerk-id <user_…> | --all`. **Writes require `--yes`**; without it the script dry-runs and prints the target database host. Use for Clerk accounts created before the webhook existed. Optional `--role <client|chef|admin>`; existing rows keep their role unless it is passed.
+
+> ⚠️ **Env precedence:** `loadRepoEnv()` lets repo-root `.env.local` **override shell-exported variables**. Exporting `SUPABASE_DB_URL` or `CLERK_SECRET_KEY` on a command line does **not** redirect these scripts — they will use `.env` / `.env.local` and can reach hosted Postgres when you believe you are on localhost. Check the `Database :` line the script prints before writing.
+- Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
+- First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
 
 ### F19 concept CMS
 

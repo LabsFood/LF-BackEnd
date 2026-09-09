@@ -2,6 +2,9 @@
 
 Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and integrations fixed in `[stack.md](./stack.md)`.
 
+> **Envie de lancer tout le projet LabsFood en local (les 4 repos, backend +
+> les 3 apps front) en une commande ?** Voir **[LOCAL_SETUP.md](./LOCAL_SETUP.md)**.
+
 ## Stack summary
 
 
