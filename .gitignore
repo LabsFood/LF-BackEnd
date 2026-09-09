@@ -4,31 +4,13 @@ node_modules/
 # Build outputs
 dist/
 build/
+apps/src/generated/
 *.tsbuildinfo
 
 # NestJS / Node
 /tmp
 /coverage
 .nyc_output
-
-# Python / FastAPI
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
-env/
-ENV/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-htmlcov/
-.coverage
-.coverage.*
-*.cover
-.hypothesis/
 
 # Package / wheel
 *.egg-info/
@@ -67,3 +49,6 @@ dump.rdb
 # Misc temp
 .temp/
 .tmp/
+
+# Added by ggshield
+.cache_ggshield
