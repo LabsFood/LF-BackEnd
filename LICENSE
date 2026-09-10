@@ -1,0 +1,70 @@
+LOGICIEL PROPRIÉTAIRE — TOUS DROITS RÉSERVÉS
+Lab's Food — API
+
+Copyright (c) 2026 SIYAPTZE Ivy EI, exerçant sous le nom commercial
+LAB'S FOOD (SIREN 100 715 036, RCS d'Évry), et les auteurs nommés
+ci-après.
+
+--------------------------------------------------------------------
+1. ABSENCE DE LICENCE
+--------------------------------------------------------------------
+
+Ce logiciel et l'ensemble des éléments qui le composent — code source,
+code objet, documentation, jeux de données, éléments graphiques,
+photographies, vidéos, polices, marques et noms de domaine associés —
+sont protégés par le droit d'auteur et constituent une œuvre
+propriétaire.
+
+AUCUNE LICENCE, AUCUN DROIT D'USAGE ET AUCUNE AUTORISATION ne sont
+concédés, à quelque titre que ce soit, à quiconque n'y a pas été
+expressément habilité par écrit par Lab's Food.
+
+Sont notamment interdits, en l'absence d'autorisation écrite préalable :
+la reproduction, la représentation, la diffusion, la mise à disposition,
+la traduction, l'adaptation, l'arrangement, la modification, la
+décompilation, l'ingénierie inverse, l'extraction ou la réutilisation
+de tout ou partie du logiciel et des bases de données qu'il exploite.
+
+Toute utilisation non autorisée engage la responsabilité de son auteur
+et constitue une contrefaçon au sens des articles L. 335-2 et suivants
+du Code de la propriété intellectuelle.
+
+--------------------------------------------------------------------
+2. AUTEURS ET TITULARITÉ
+--------------------------------------------------------------------
+
+Le logiciel a été développé pour le compte de Lab's Food par les
+contributeurs désignés à la Convention d'accompagnement Équipe IT du
+6 avril 2026 :
+
+  - TCHAKOUNTE TOUKOUR Amir
+  - KOANGA OUAFO Josué-Daniel
+  - FOTSO FOALENG Constyl Duval
+  - YONDJIN NGAMY Emmanuel
+
+Conformément à l'article 8 de cette convention, la cession des droits
+de propriété intellectuelle des contributeurs à l'entreprise fait
+l'objet de contrats de cession spécifiques. Le droit au nom des auteurs
+est réservé (article L. 121-7 du Code de la propriété intellectuelle).
+
+La présente mention vaut réserve de tous droits à l'égard des tiers.
+Elle ne préjuge pas de la répartition des droits entre l'entreprise et
+les contributeurs, laquelle est régie par la convention précitée et les
+actes pris pour son application.
+
+--------------------------------------------------------------------
+3. COMPOSANTS TIERS
+--------------------------------------------------------------------
+
+Ce logiciel intègre des composants tiers distribués sous leurs licences
+propres (notamment MIT, Apache-2.0, BSD et SIL Open Font License).
+Ces licences demeurent applicables à ces composants, dont la liste et
+les termes figurent dans les fichiers de dépendances du projet. La
+présente réserve de droits ne s'y étend pas.
+
+--------------------------------------------------------------------
+4. CONTACT
+--------------------------------------------------------------------
+
+Toute demande d'autorisation, de licence ou d'information :
+contact@labsfood.fr
