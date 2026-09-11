@@ -1,0 +1,21 @@
+meta {
+  name: Chef - reject a CESU payment
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/me/chef/cesu-payments/{{cesuPaymentId}}/reject
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}
+
+body:json {
+  {
+    "reason": "Aucun règlement Pluxee reçu à ce jour."
+  }
+}

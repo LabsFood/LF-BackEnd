@@ -1,0 +1,15 @@
+meta {
+  name: Client dashboard summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/me/dashboard
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

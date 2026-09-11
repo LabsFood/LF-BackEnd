@@ -1,0 +1,19 @@
+meta {
+  name: Chef - list CESU payments declared on my bookings
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/me/chef/cesu-payments?status=declared
+  body: none
+  auth: none
+}
+
+params:query {
+  status: declared
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

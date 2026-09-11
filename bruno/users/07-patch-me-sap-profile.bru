@@ -1,0 +1,24 @@
+meta {
+  name: Declare my SAP route (type A - NOVA)
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/me/chef-profile/sap
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}
+
+body:json {
+  {
+    "declarationType": "type_a_nova",
+    "novaCode": "SAP123456789",
+    "crcesuNan": "1234567",
+    "acceptsCesu": true
+  }
+}

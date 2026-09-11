@@ -1,0 +1,21 @@
+meta {
+  name: Create card PaymentIntent for booking
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/payments/intent
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}
+
+body:json {
+  {
+    "bookingId": "{{bookingId}}"
+  }
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Create Admin Session
+  type: http
+  seq: 1
+}
+
+post {
+  url: https://api.clerk.com/v1/sessions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkSecretKey}}
+}
+
+body:json {
+  {
+    "user_id": "{{adminClerkUserId}}"
+  }
+}
+
+script:post-response {
+  if (res.body?.id) {
+    bru.setVar("adminSessionId", res.body.id);
+  }
+}

@@ -1,0 +1,11 @@
+meta {
+  name: Public - chef CESU info
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/chefs/{{chefProfileId}}/cesu-info
+  body: none
+  auth: none
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Admin - list all CESU declarations
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/admin/cesu-payments
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}

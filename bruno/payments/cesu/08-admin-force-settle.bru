@@ -1,0 +1,21 @@
+meta {
+  name: Admin - force-settle a CESU payment
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/admin/cesu-payments/{{cesuPaymentId}}/force-settle
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "proofRef": "ZD-18422 / relevé Edenred 2026-09"
+  }
+}

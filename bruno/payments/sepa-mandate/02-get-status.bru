@@ -1,0 +1,15 @@
+meta {
+  name: Chef - get SEPA mandate status
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/me/chef-profile/sepa-mandate
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

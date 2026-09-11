@@ -1,0 +1,15 @@
+meta {
+  name: Chef - start/resume Stripe Connect onboarding
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/me/chef-profile/stripe-connect/link
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

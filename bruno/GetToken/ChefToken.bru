@@ -1,0 +1,27 @@
+meta {
+  name: Chef Token
+  type: http
+  seq: 6
+}
+
+post {
+  url: https://api.clerk.com/v1/sessions/{{chefSessionId}}/tokens
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkSecretKey}}
+}
+
+body:json {
+  {
+    "expires_in_seconds": 3600
+  }
+}
+
+script:post-response {
+  if (res.body?.jwt) {
+    bru.setVar("chefToken", res.body.jwt);
+  }
+}

@@ -1,0 +1,15 @@
+meta {
+  name: This user (Clerk claims only)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/thisUser
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

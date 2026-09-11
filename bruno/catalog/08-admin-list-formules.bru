@@ -1,0 +1,21 @@
+meta {
+  name: Admin - list formules
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/admin/formules
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+script:post-response {
+  if (Array.isArray(res.body) && res.body[0]?.id) {
+    bru.setVar("formuleId", res.body[0].id);
+  }
+}

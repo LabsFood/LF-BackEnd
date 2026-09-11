@@ -1,0 +1,22 @@
+meta {
+  name: Admin - set chef SAP external status
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/admin/chefs/{{chefProfileId}}/sap-external-status
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "crcesuAffiliationStatus": "active",
+    "urssafTiersPrestationStatus": "pending"
+  }
+}

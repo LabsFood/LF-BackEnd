@@ -1,0 +1,31 @@
+meta {
+  name: Admin - provision Clerk user
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/users
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "email": "chef@labsfood.fr",
+    "password": "Str0ng!UniquePass",
+    "firstName": "Marie",
+    "lastName": "Dupont",
+    "role": "chef"
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body?.id) {
+    bru.setVar("clientUserId", res.body.id);
+  }
+}

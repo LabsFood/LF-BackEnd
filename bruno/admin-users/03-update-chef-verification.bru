@@ -1,0 +1,22 @@
+meta {
+  name: Admin - vet a chef (verify + activate)
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/admin/chefs/{{chefProfileId}}/verification
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "isVerified": true,
+    "isActive": true
+  }
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Admin - update client profile
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/admin/clients/{{clientProfileId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "status": "vip",
+    "kitchenNotes": "Induction hob only, no oven."
+  }
+}

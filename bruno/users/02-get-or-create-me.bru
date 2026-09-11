@@ -1,0 +1,15 @@
+meta {
+  name: Get or create me
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Admin - get any booking detail
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/admin/bookings/{{bookingId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}

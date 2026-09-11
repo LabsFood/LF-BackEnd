@@ -1,0 +1,19 @@
+meta {
+  name: Admin - tax-credit total for one client
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/fiscal-attestations/{{clientUserId}}?year=2026
+  body: none
+  auth: none
+}
+
+params:query {
+  year: 2026
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}

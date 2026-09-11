@@ -1,0 +1,15 @@
+meta {
+  name: Admin - list menu weeks
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/admin/menu-weeks
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}

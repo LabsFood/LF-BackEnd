@@ -1,0 +1,32 @@
+meta {
+  name: Submit a custom catering quote request
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/quotes
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}
+
+body:json {
+  {
+    "title": "Birthday dinner for 12",
+    "persons": 12,
+    "mealsCount": 3,
+    "cuisine": "Mediterranean",
+    "diet": ["vegetarian"],
+    "brief": "Garden party, informal service, dessert required."
+  }
+}
+
+script:post-response {
+  if (res.body?.id) {
+    bru.setVar("quoteId", res.body.id);
+  }
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get my booking detail (with shopping list)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/me/bookings/{{bookingId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkToken}}
+}

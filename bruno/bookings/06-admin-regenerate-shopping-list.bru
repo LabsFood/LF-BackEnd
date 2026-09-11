@@ -1,0 +1,15 @@
+meta {
+  name: Admin - regenerate shopping list
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/admin/bookings/{{bookingId}}/shopping-list/regenerate
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}

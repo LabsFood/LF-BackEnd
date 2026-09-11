@@ -1,0 +1,28 @@
+meta {
+  name: Admin Token
+  type: http
+  seq: 2
+}
+
+post {
+  url: https://api.clerk.com/v1/sessions/{{adminSessionId}}/tokens
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{clerkSecretKey}}
+}
+
+body:json {
+  {
+    "expires_in_seconds": 3600
+  }
+}
+
+script:post-response {
+  if (res.body?.jwt) {
+    bru.setVar("adminToken", res.body.jwt);
+  }
+}
+​
