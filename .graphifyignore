@@ -1,9 +1,15 @@
 # .graphifyignore
+# Only index apps/src/ (code; there is no top-level src/) and docs/.
+# Gitignore rules: a `!` can't re-include a file whose parent dir is excluded,
+# so re-include directories first (`!*/`), then whitelist the files.
+*
+!*/
+!apps/src/**
+!docs/**
+
+# Excludes go after the whitelist so they win (last match wins).
 node_modules/
 dist/
+# Prisma client output: gitignored, but !apps/src/** above would re-include it.
+apps/src/generated/
 *.generated.py
-
-# only index src/, ignore everything else
-*
-!src/
-!src/**

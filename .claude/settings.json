@@ -10,9 +10,40 @@
       "Bash(cd /Users/josue-danielkoanga/Labs_Food/LF_Codespace && grep -rn \"admin/clients\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.md\" . 2>/dev/null | grep -v node_modules | grep -v \"/.next/\" | grep -v \"/dist/\" | head -30)",
       "Bash(sed -n '125,150p' ../../docs/SPEC-ADMIN-DASHBOARD.md)",
       "Read(//Users/josue-danielkoanga/Labs_Food/docs/**)",
-      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\({d:p.dependencies,s:p.scripts},null,1\\)\\)\")",
-      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.jest,null,1\\)\\)\")",
       "Bash(npx nest *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(sudo *)",
+      "Bash(chmod 777 *)",
+      "Bash(ssh *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash-guard.js\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-end-check.sh\""
+          }
+        ]
+      }
     ]
   }
 }

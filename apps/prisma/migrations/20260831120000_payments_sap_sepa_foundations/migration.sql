@@ -51,6 +51,13 @@ END $$;
 -- CreateEnum
 DO $$
 BEGIN
+  CREATE TYPE "type_b_cooperative" AS ENUM ('internal_labfood', 'unipros', 'coop_one', 'sops', 'access_sap', 'interservices');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- CreateEnum
+DO $$
+BEGIN
   CREATE TYPE "sap_external_status" AS ENUM ('not_started', 'pending', 'active');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;

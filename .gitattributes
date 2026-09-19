@@ -4,4 +4,3 @@
 *.sh text eol=lf
 apps/scripts/* text eol=lf
 Dockerfile text eol=lf
-graphify-out/graph.json merge=graphify
