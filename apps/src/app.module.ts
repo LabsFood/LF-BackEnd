@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+import { AuditModule } from './common/audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
 import { resolveEnvFilePaths } from './config/env-files';
@@ -15,6 +17,7 @@ import { HealthModule } from './modules/health/health.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
+import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
 import { ContentCmsModule } from './modules/content-cms/content-cms.module';
 import { UsersModule } from './modules/users/users.module';
 // Redis not implemented yet — re-enable when cache/queues are wired.
@@ -44,8 +47,12 @@ import { UsersModule } from './modules/users/users.module';
         ],
       }),
     }),
+    // In-process scheduler for the daily chef-dossier job. No queue: see
+    // ChefDossierCron for the multi-replica caveat.
+    ScheduleModule.forRoot(),
     DatabaseModule,
     // RedisModule,
+    AuditModule,
     AuthModule,
     ClerkWebhooksModule,
     ContentCmsModule,
@@ -57,6 +64,7 @@ import { UsersModule } from './modules/users/users.module';
     QuotesModule,
     StatsModule,
     BookingsModule,
+    ChefOnboardingModule,
   ],
 })
 export class AppModule {}

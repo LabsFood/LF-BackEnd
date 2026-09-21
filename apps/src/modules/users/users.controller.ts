@@ -31,7 +31,6 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dt
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
-import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
@@ -40,6 +39,7 @@ import {
   ClerkJwtClaimsDto,
   ClientProfileDto,
   CurrentUserDto,
+  MeResponseDto,
   PaginatedAdminClientsDto,
   UserWithProfileDto,
 } from './dto/user-response.dto';
@@ -99,26 +99,19 @@ export class UsersController {
     summary: 'Get or create the current application user',
     description:
       'Ensures a Postgres `users` row exists for the authenticated Clerk subject, ' +
-      'creating one with `role: client` on first access. Returns id, email, fullName, phone, and role. ' +
-      'Frontends should call this after sign-in to obtain the LF user id and RBAC role.',
+      'creating one with `role: client` on first access. Returns id, email, fullName, ' +
+      'phone, role, `hasPassword`, and `chefProfile` when there is one. ' +
+      'Clients and batch cookers share one sign-in page, so this is what tells the ' +
+      'frontend which space to open — it answers for an inactive chef too, since an ' +
+      'unpublished batch cooker still needs to reach their dossier.',
   })
   @ApiOkResponse({
-    type: CurrentUserDto,
+    type: MeResponseDto,
     description: 'Persisted user mapped from the Clerk JWT `sub` claim.',
   })
   @ApiClerkAuthResponses()
-  async me(@CurrentClerkUser() user: ClerkUser): Promise<CurrentUserDto> {
-    const persisted = await this.users.ensurePersistedFromClerk(user.userId, {
-      email: user.email,
-    });
-    return {
-      id: persisted.id,
-      clerkUserId: persisted.clerkUserId,
-      email: persisted.email,
-      fullName: persisted.fullName,
-      phone: persisted.phone,
-      role: persisted.role,
-    };
+  async me(@CurrentClerkUser() user: ClerkUser): Promise<MeResponseDto> {
+    return this.users.currentUser(user.userId, user.email);
   }
 
   @Get('me/profile')
@@ -164,33 +157,6 @@ export class UsersController {
     @Body() payload: UpdateMeProfileDto,
   ) {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
-  }
-
-  @Patch('me/chef-profile')
-  @ApiOperation({
-    summary: 'Create or update chef profile (onboarding form 2)',
-    description:
-      'Upserts `chef_profiles` for the authenticated user and promotes `users.role` from ' +
-      '`client` to `chef`. An existing `admin` or `chef` keeps their role — onboarding ' +
-      'never demotes. The profile is always created with `isActive: false` and ' +
-      '`isVerified: false` — those fields are not accepted here and can only be changed ' +
-      'by an admin via `PATCH /admin/chefs/:id/verification`. A self-registered chef is ' +
-      'therefore not bookable until vetted.',
-  })
-  @ApiOkResponse({
-    type: ChefProfileDto,
-    description: 'Saved chef profile after upsert, always unverified on first write.',
-  })
-  @ApiConflictResponse({
-    description:
-      'User already has a client profile. Switching profile type is not supported yet.',
-  })
-  @ApiClerkAuthResponses()
-  patchMeChefProfile(
-    @CurrentClerkUser() user: ClerkUser,
-    @Body() payload: UpdateMeChefProfileDto,
-  ) {
-    return this.users.updateChefProfileByClerkUserId(user.userId, payload);
   }
 
   @Post('admin/users')

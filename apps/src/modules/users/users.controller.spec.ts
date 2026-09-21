@@ -17,7 +17,6 @@ describe('UsersController', () => {
       | 'provisionAdminUser'
       | 'updateRole'
       | 'toUserRole'
-      | 'updateChefProfileByClerkUserId'
       | 'setChefVerification'
       | 'listClients'
     >
@@ -36,11 +35,6 @@ describe('UsersController', () => {
         role: UserRole.admin,
       }),
       toUserRole: jest.fn((role) => role as UserRole),
-      updateChefProfileByClerkUserId: jest.fn().mockResolvedValue({
-        id: 'chef-1',
-        isActive: false,
-        isVerified: false,
-      }),
       setChefVerification: jest.fn().mockResolvedValue({
         id: 'chef-1',
         isActive: true,
@@ -100,18 +94,11 @@ describe('UsersController', () => {
     expect(users.updateRole).toHaveBeenCalledWith('uuid-1', UserRole.admin);
   });
 
-  it('routes chef onboarding to the chef profile service, keyed by the session subject', async () => {
-    const result = await controller.patchMeChefProfile(
-      { userId: 'user_1' },
-      { displayName: 'Chef Marie D.', city: 'Paris' },
-    );
-
-    // The Clerk subject decides whose profile is written — never a body field.
-    expect(users.updateChefProfileByClerkUserId).toHaveBeenCalledWith('user_1', {
-      displayName: 'Chef Marie D.',
-      city: 'Paris',
-    });
-    expect(result).toMatchObject({ isActive: false, isVerified: false });
+  it('no longer exposes a self-service route to become a chef', () => {
+    // FLOW-01: a chef account exists only after an admin approves a candidature.
+    expect(
+      (controller as unknown as Record<string, unknown>).patchMeChefProfile,
+    ).toBeUndefined();
   });
 
   it('delegates chef vetting to the service', async () => {

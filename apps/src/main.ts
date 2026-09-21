@@ -1,21 +1,51 @@
 import 'reflect-metadata';
 
 import helmet from '@fastify/helmet';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
+import type { Http2ServerRequest } from 'node:http2';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
 import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
 
+/**
+ * Structured logging so Railway's log explorer can filter on fields rather than
+ * grep a text blob.
+ *
+ * Both halves are already paid for: Fastify bundles pino for access logs, and
+ * Nest 11's ConsoleLogger emits JSON natively. No logging dependency is added.
+ *
+ * `LOG_JSON` defaults to true in production and false locally, where readable
+ * lines beat parseable ones.
+ */
+const jsonLogging =
+  (process.env.LOG_JSON ?? String(process.env.ENVIRONMENT === 'production')) === 'true';
+const logLevel =
+  process.env.LOG_LEVEL ?? (process.env.ENVIRONMENT === 'production' ? 'info' : 'debug');
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false, trustProxy: true }),
-    { bufferLogs: true },
+    new FastifyAdapter({
+      // Access logs (method, path, status, duration) with a request id that also
+      // lands in `audit_log.request_id`, so a Railway line and a database row can
+      // be joined when debugging one candidature.
+      logger: jsonLogging ? { level: logLevel } : false,
+      // Honour an inbound id from the proxy so a trace survives across services.
+      genReqId: (req: IncomingMessage | Http2ServerRequest) =>
+        (req.headers['x-request-id'] as string | undefined)?.slice(0, 64) ?? randomUUID(),
+      trustProxy: true,
+    }),
+    {
+      bufferLogs: true,
+      logger: new ConsoleLogger({ json: jsonLogging, colors: !jsonLogging }),
+    },
   );
   const logger = new Logger('Bootstrap');
   const config = app.get(ConfigService);
@@ -32,6 +62,10 @@ async function bootstrap(): Promise<void> {
     const rawBody = Buffer.concat(chunks);
     (request as { rawBody?: Buffer }).rawBody = rawBody;
     return rawBody;
+  });
+
+  fastify.addHook('onRequest', async (request, reply) => {
+    reply.header('x-request-id', request.id);
   });
 
   await app.register(helmet, {

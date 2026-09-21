@@ -583,93 +583,9 @@ describe('UsersService', () => {
     });
   });
 
-  describe('updateChefProfileByClerkUserId', () => {
-    const currentUser = {
-      id: 'uuid-1',
-      clerkUserId: 'user_1',
-      email: 'chef@example.com',
-      fullName: null,
-      phone: null,
-      role: UserRole.client,
-    };
-
-    it('promotes role to chef and forces the profile inactive and unverified', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
-
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Chef Marie D.',
-        city: 'Paris',
-        serviceRadiusKm: 25,
-        firstName: 'Marie',
-        lastName: 'Dupont',
-      });
-
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-1' },
-        data: { fullName: 'Marie Dupont', role: UserRole.chef },
-      });
-      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
-        displayName: 'Chef Marie D.',
-        serviceRadiusKm: 25,
-        isActive: false,
-        isVerified: false,
-      });
-    });
-
-    it('does not demote an admin who saves a chef profile', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue({ ...currentUser, role: UserRole.admin } as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
-
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Chef Admin',
-        firstName: 'Marie',
-      });
-
-      // Promotion is client -> chef only; admin must survive chef onboarding.
-      expect(prisma.user.update.mock.calls[0][0].data).not.toHaveProperty('role');
-    });
-
-    it('cannot be tricked into self-verifying via the payload', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
-
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Sneaky Chef',
-        isActive: true,
-        isVerified: true,
-      } as never);
-
-      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
-        isActive: false,
-        isVerified: false,
-      });
-    });
-
-    it('rejects a chef profile when a client profile already exists', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
-
-      await expect(
-        service.updateChefProfileByClerkUserId('user_1', { displayName: 'Chef' }),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.chefProfile.upsert).not.toHaveBeenCalled();
-    });
-  });
+  // `updateChefProfileByClerkUserId` and its tests were removed with FLOW-01: a
+  // client can no longer promote themselves to chef. Account creation now happens
+  // only at candidature approval, covered in the chef-onboarding module.
 
   describe('setChefVerification', () => {
     it('updates the vetting flags', async () => {

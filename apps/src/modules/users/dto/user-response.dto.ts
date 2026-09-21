@@ -70,6 +70,32 @@ export class CurrentUserDto {
   role!: string;
 }
 
+/**
+ * `GET /me` — `CurrentUserDto` plus what the shared sign-in page needs to route
+ * the person to the right space (FLOW-01 §6).
+ *
+ * Kept separate from `CurrentUserDto`, which is the generic user shape reused by
+ * admin endpoints and by `UserWithProfileDto`.
+ */
+export class MeResponseDto extends CurrentUserDto {
+  @ApiProperty({
+    description:
+      'False until a batch cooker who signed in through their first-login link has ' +
+      'chosen a password. The frontend uses it to force that screen.',
+    example: false,
+  })
+  hasPassword!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    description:
+      'Present for a batch cooker. **Answered even when `isActive` is false**: an ' +
+      'unpublished chef must still reach their space to finish their dossier.',
+    example: { id: '9a77...', isVerified: true, isActive: false },
+  })
+  chefProfile!: { id: string; isVerified: boolean; isActive: boolean } | null;
+}
+
 /** Client taste/preferences profile (`client_profiles` table). */
 export class ClientProfileDto {
   @ApiProperty({ format: 'uuid', description: 'Client profile primary key.' })

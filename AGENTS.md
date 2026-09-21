@@ -127,3 +127,65 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 - Module: `modules/content-cms/` (`ContentCmsModule`)
 - Routes: `GET` / `PUT` `/content/concept` (public read; admin write)
 - General app content (non-CMS): `modules/content/` (`ContentModule`, reserved)
+
+### Chef onboarding (FLOW-01)
+
+Candidature → KYC documents → admin validation → chef account. Module:
+`modules/chef-onboarding/`. Spec: [`FLOW-01-candidature-batch-cooker.md`](../FLOW-01-candidature-batch-cooker.md),
+PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooker-chef-onboarding.prd.md).
+
+**A batch cooker account exists only after an admin approves a candidature.**
+`PATCH /me/chef-profile` and the client→chef self-promotion it performed were
+removed; `POST /chef-applications` → `POST /admin/chef-applications/:id/approve`
+is the only path, and approval is refused with `409 DOCUMENT_REQUIRED` unless
+every blocking document is `valid`.
+
+| Actor | Routes |
+|---|---|
+| Public | `POST /chef-applications`, `POST /chef-applications/:id/resend-link`, `GET /referentials/regions` |
+| Candidate (candidature token) | `GET /chef-applications/:id`, `POST /chef-applications/:id/documents/:type/upload-url`, `.../confirm` |
+| Admin | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
+| Chef | `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
+
+- **Candidate credential**: an opaque 32-byte token, SHA-256 hashed into
+  `chef_applications.token_hash`, 30 days, revoked at the decision by nulling
+  the column. Not a JWT — the flow requires revocation, which a JWT cannot do
+  without a blocklist.
+- **Documents** live in one append-only `chef_documents` table. A re-deposit adds
+  a version; approval sets `chef_profile_id` on the existing rows rather than
+  copying them, so history cannot drift. `missing` is derived, never stored.
+- **Storage**: private Supabase bucket (`SUPABASE_KYC_BUCKET`), signed PUT to
+  upload and 5-minute signed GET to read. Files never transit the API. Supabase
+  fixes the upload token at 2 h; that is not configurable.
+- **Daily job** (`ChefDossierCron`, 06:00): expiry warnings at J-60/30/7,
+  expiry + automatic suspension at J+0, retention purge. In-process and
+  idempotent — two API replicas would both fire it harmlessly. See the
+  `ponytail:` note in that file before adding a replica.
+- **Emails**: Brevo templates, ids in `BREVO_TPL_*`. An unset id is a logged
+  no-op, so an email outage never rolls back an approval.
+
+### Logging and debugging
+
+- `LOG_JSON=true` (default in production) makes both the Nest app logs and the
+  Fastify access logs JSON lines, which Railway's log explorer can filter by
+  field. `LOG_LEVEL` sets verbosity.
+- Every response carries `x-request-id` (honouring an inbound one from the
+  proxy). The same id is written to `audit_log.request_id`.
+- `audit_log` is the compliance journal **and** the debugging trail: document
+  reads, decisions, approvals, suspensions, and failures (`outcome = 'failed'`,
+  error in `metadata`). Railway log retention is short and cannot be queried by
+  candidature; this can:
+
+```sql
+SELECT created_at, actor_type, action, outcome, metadata
+FROM audit_log WHERE subject_id = '<application uuid>' ORDER BY created_at;
+```
+
+### Legacy tables renamed aside
+
+The `20260920120000_chef_onboarding` migration renames the unused
+`chef_applications` / `application_documents` tables (and the old
+`chef_application_status` enum) from `20250522130000_spec_domain` to
+`*_legacy`. They were never in `schema.prisma` and no code reads them, but they
+collided by name. **Renamed, not dropped** — drop them once production is
+confirmed empty.

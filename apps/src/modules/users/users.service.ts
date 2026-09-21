@@ -24,7 +24,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
@@ -251,8 +250,9 @@ export class UsersService {
    * Public self-service sign-up (`POST /auth/register`, form 1).
    *
    * The role is hard-coded to `client` and is never read from the request — chef and
-   * admin must not be self-assignable. A user who chooses "chef" in form 2 is promoted
-   * by `updateChefProfileByClerkUserId`, which lands them unverified and inactive.
+   * admin must not be self-assignable. Becoming a batch cooker goes through the
+   * candidature flow instead (`POST /chef-applications` then admin approval); there
+   * is no self-service promotion.
    *
    * Server-side creation establishes no browser session, so a short-lived sign-in
    * ticket is returned for the frontend to redeem.
@@ -351,34 +351,15 @@ export class UsersService {
    * request body. The profile is always created inactive and unverified; only
    * {@link setChefVerification} can change that.
    */
-  async updateChefProfileByClerkUserId(
-    clerkUserId: string,
-    payload: UpdateMeChefProfileDto,
-  ) {
-    const { firstName, lastName, phone, ...profileFields } = payload;
-
-    const user = await this.ensurePersistedFromClerk(clerkUserId);
-    await this.assertNoConflictingProfile(user.id, 'chef');
-    // Promote out of `client` only. An admin filling in a chef profile keeps `admin`,
-    // and an existing chef is left alone — onboarding never demotes.
-    const promoteTo = user.role === UserRole.client ? UserRole.chef : undefined;
-    await this.applyOwnUserFields(user, { firstName, lastName, phone }, promoteTo);
-
-    return this.prisma.chefProfile.upsert({
-      where: { userId: user.id },
-      update: profileFields,
-      create: {
-        userId: user.id,
-        displayName: profileFields.displayName,
-        bio: profileFields.bio,
-        city: profileFields.city,
-        serviceRadiusKm: profileFields.serviceRadiusKm ?? 10,
-        // Never settable from a self-service request — admin vetting owns these.
-        isActive: false,
-        isVerified: false,
-      },
-    });
-  }
+  /**
+   * Becoming a batch cooker no longer happens here.
+   *
+   * `PATCH /me/chef-profile` used to promote any signed-in client to `chef`, which
+   * contradicts FLOW-01: a chef account exists only once an admin has approved a
+   * candidature with a validated identity document. The candidature flow
+   * (`POST /chef-applications` → approval) is now the only path, and it is what
+   * creates both the `users` row and the chef profile.
+   */
 
   /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */
   async setChefVerification(
@@ -581,5 +562,56 @@ export class UsersService {
       }
     }
     throw error;
+  }
+
+  /**
+   * `GET /me` — identity plus whatever the frontend needs to route the person.
+   *
+   * Clients and batch cookers sign in at the same place, so until this responds the
+   * user is looking at a waiting screen; the frontend gives up after 6 seconds and
+   * falls back to the client space. It is therefore deliberately one indexed read
+   * with a single join, and nothing else.
+   */
+  async currentUser(clerkUserId: string, email?: string) {
+    const persisted = await this.ensurePersistedFromClerk(clerkUserId, { email });
+
+    const [chefProfile, hasPassword] = await Promise.all([
+      persisted.role === UserRole.chef
+        ? this.prisma.chefProfile.findUnique({
+            where: { userId: persisted.id },
+            select: { id: true, isVerified: true, isActive: true },
+          })
+        : Promise.resolve(null),
+      this.hasClerkPassword(persisted.clerkUserId),
+    ]);
+
+    return {
+      id: persisted.id,
+      clerkUserId: persisted.clerkUserId,
+      email: persisted.email,
+      fullName: persisted.fullName,
+      phone: persisted.phone,
+      role: persisted.role,
+      hasPassword,
+      chefProfile,
+    };
+  }
+
+  /**
+   * Whether the Clerk account has a password yet (FLOW-01 §6: a batch cooker who
+   * arrived through the first-login link has not set one).
+   *
+   * Reports `true` when Clerk is unreachable or unconfigured: the flag only decides
+   * whether to show a "choose a password" screen, and wrongly forcing that screen on
+   * every user during a Clerk outage is worse than skipping it.
+   */
+  private async hasClerkPassword(clerkUserId: string): Promise<boolean> {
+    if (!this.clerk.configured) return true;
+    try {
+      const clerkUser = await this.clerk.getClient().users.getUser(clerkUserId);
+      return Boolean(clerkUser.passwordEnabled);
+    } catch {
+      return true;
+    }
   }
 }

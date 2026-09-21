@@ -8,106 +8,122 @@ datasource db {
 }
 
 model User {
-  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clerkUserId      String           @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
-  email            String           @unique(map: "uq_users_email") @db.VarChar(320)
-  fullName         String?          @map("full_name") @db.VarChar(255)
-  role             UserRole         @default(client)
-  phone            String?          @db.VarChar(32)
-  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookingsAsClient Booking[]        @relation("BookingClient")
-  cmsPagesUpdated  CmsPage[]        @relation("CmsPageUpdatedBy")
-  chefProfile      ChefProfile?
-  clientProfile    ClientProfile?
-  quotes           Quote[]          @relation("QuoteClient")
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId         String            @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
+  email               String            @unique(map: "uq_users_email") @db.VarChar(320)
+  fullName            String?           @map("full_name") @db.VarChar(255)
+  role                UserRole          @default(client)
+  phone               String?           @db.VarChar(32)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingsAsClient    Booking[]         @relation("BookingClient")
+  cmsPagesUpdated     CmsPage[]         @relation("CmsPageUpdatedBy")
+  chefProfile         ChefProfile?
+  clientProfile       ClientProfile?
+  quotes              Quote[]           @relation("QuoteClient")
+  applicationsDecided ChefApplication[] @relation("ChefApplicationDecidedBy")
+  applicationApproved ChefApplication?  @relation("ChefApplicationApprovedUser")
+  documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
+  auditEntries        AuditLog[]        @relation("AuditLogActor")
 
   @@map("users")
 }
 
 model ChefProfile {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId            String             @unique(map: "uq_chef_profiles_user_id") @map("user_id") @db.Uuid
-  displayName       String             @map("display_name") @db.VarChar(255)
-  bio               String?
-  city              String?            @db.VarChar(120)
-  serviceRadiusKm   Int                @default(10) @map("service_radius_km")
-  isActive          Boolean            @default(false) @map("is_active")
-  isVerified        Boolean            @default(false) @map("is_verified")
-  cronofyProfileId  String?            @map("cronofy_profile_id") @db.VarChar(128)
-  stripeAccountId   String?            @map("stripe_account_id") @db.VarChar(128)
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  availabilitySlots AvailabilitySlot[]
-  bookings          Booking[]          @relation("BookingChefProfile")
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_profiles_user_id")
-  serviceOffers     ServiceOffer[]
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String             @unique(map: "uq_chef_profiles_user_id") @map("user_id") @db.Uuid
+  displayName          String             @map("display_name") @db.VarChar(255)
+  bio                  String?
+  city                 String?            @db.VarChar(120)
+  serviceRadiusKm      Int                @default(10) @map("service_radius_km")
+  isActive             Boolean            @default(false) @map("is_active")
+  isVerified           Boolean            @default(false) @map("is_verified")
+  cronofyProfileId     String?            @map("cronofy_profile_id") @db.VarChar(128)
+  stripeAccountId      String?            @map("stripe_account_id") @db.VarChar(128)
+  /// Zones the chef covers, copied from the approved candidature. Shape matches
+  /// `chef_applications.intervention_zones`.
+  interventionZones    Json               @default("[]") @map("intervention_zones")
+  /// Service-a-la-personne declaration route, carried over from the candidature.
+  sapPath              SapPath?           @map("sap_path")
+  sapDeclarationNumber String?            @map("sap_declaration_number") @db.VarChar(16)
+  /// Set by the daily dossier job when a blocking document expires, cleared when a
+  /// valid one is deposited. Distinguishes an automatic suspension from an admin
+  /// deactivation: only an automatic one may be undone automatically.
+  autoSuspendedAt      DateTime?          @map("auto_suspended_at") @db.Timestamptz(6)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  availabilitySlots    AvailabilitySlot[]
+  bookings             Booking[]          @relation("BookingChefProfile")
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_profiles_user_id")
+  serviceOffers        ServiceOffer[]
+  documents            ChefDocument[]
+  application          ChefApplication?   @relation("ChefProfileApplication")
 
   @@map("chef_profiles")
 }
 
 model ServiceOffer {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId   String          @map("provider_id") @db.Uuid
-  name            String          @db.VarChar(160)
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId   String      @map("provider_id") @db.Uuid
+  name            String      @db.VarChar(160)
   description     String?
-  durationMinutes Int             @map("duration_minutes")
-  priceCents      Int             @map("price_cents")
-  currency        String          @default("EUR") @db.VarChar(3)
-  isActive        Boolean         @default(true) @map("is_active")
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  durationMinutes Int         @map("duration_minutes")
+  priceCents      Int         @map("price_cents")
+  currency        String      @default("EUR") @db.VarChar(3)
+  isActive        Boolean     @default(true) @map("is_active")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookings        Booking[]
-  chefProfile     ChefProfile     @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_chef_profile_id")
+  chefProfile     ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_chef_profile_id")
 
   @@index([chefProfileId], map: "ix_service_offers_chef_profile_id")
   @@map("service_offers")
 }
 
 model AvailabilitySlot {
-  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId String       @map("provider_id") @db.Uuid
-  startsAt   DateTime        @map("starts_at") @db.Timestamptz(6)
-  endsAt     DateTime        @map("ends_at") @db.Timestamptz(6)
-  isBooked   Boolean         @default(false) @map("is_booked")
-  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  chefProfile ChefProfile    @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_availability_slots_chef_profile_id")
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId String      @map("provider_id") @db.Uuid
+  startsAt      DateTime    @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime    @map("ends_at") @db.Timestamptz(6)
+  isBooked      Boolean     @default(false) @map("is_booked")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_availability_slots_chef_profile_id")
 
   @@index([chefProfileId], map: "ix_availability_slots_chef_profile_id")
   @@map("availability_slots")
 }
 
 model Booking {
-  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reference             String?         @unique(map: "bookings_reference_key") @db.VarChar(32)
-  clientId              String          @map("client_id") @db.Uuid
-  chefProfileId         String          @map("provider_id") @db.Uuid
-  serviceOfferId        String          @map("service_offer_id") @db.Uuid
-  formuleId             String?         @map("formule_id") @db.VarChar(32)
-  bookingDate           DateTime?       @map("booking_date") @db.Date
-  timeSlot              String?         @map("time_slot") @db.VarChar(64)
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference             String?       @unique(map: "bookings_reference_key") @db.VarChar(32)
+  clientId              String        @map("client_id") @db.Uuid
+  chefProfileId         String        @map("provider_id") @db.Uuid
+  serviceOfferId        String        @map("service_offer_id") @db.Uuid
+  formuleId             String?       @map("formule_id") @db.VarChar(32)
+  bookingDate           DateTime?     @map("booking_date") @db.Date
+  timeSlot              String?       @map("time_slot") @db.VarChar(64)
   persons               Int?
-  startsAt              DateTime        @map("starts_at") @db.Timestamptz(6)
-  endsAt                DateTime        @map("ends_at") @db.Timestamptz(6)
-  status                BookingStatus   @default(pending)
-  priceCents            Int             @map("price_cents")
-  amountTtc             Int?            @map("amount_ttc")
-  amountAfterTax        Int?            @map("amount_after_tax")
-  currency              String          @default("EUR") @db.VarChar(3)
-  shoppingByClient      Boolean         @default(false) @map("shopping_by_client")
-  addressLine           String?         @map("address_line") @db.VarChar(255)
+  startsAt              DateTime      @map("starts_at") @db.Timestamptz(6)
+  endsAt                DateTime      @map("ends_at") @db.Timestamptz(6)
+  status                BookingStatus @default(pending)
+  priceCents            Int           @map("price_cents")
+  amountTtc             Int?          @map("amount_ttc")
+  amountAfterTax        Int?          @map("amount_after_tax")
+  currency              String        @default("EUR") @db.VarChar(3)
+  shoppingByClient      Boolean       @default(false) @map("shopping_by_client")
+  addressLine           String?       @map("address_line") @db.VarChar(255)
   notes                 String?
-  stripePaymentIntentId String?         @map("stripe_payment_intent_id") @db.VarChar(128)
-  cronofyEventId        String?         @map("cronofy_event_id") @db.VarChar(128)
-  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  stripePaymentIntentId String?       @map("stripe_payment_intent_id") @db.VarChar(128)
+  cronofyEventId        String?       @map("cronofy_event_id") @db.VarChar(128)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals          BookingMeal[]
-  client                User            @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
-  chefProfile           ChefProfile     @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
-  formule               Formule?        @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
+  client                User          @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
+  chefProfile           ChefProfile   @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
+  formule               Formule?      @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
   shoppingList          ShoppingList?
-  serviceOffer          ServiceOffer    @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
+  serviceOffer          ServiceOffer  @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
 
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
@@ -154,38 +170,38 @@ model ClientProfile {
 }
 
 model Meal {
-  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String          @db.VarChar(255)
-  description String?
-  imageUrl    String?         @map("image_url") @db.VarChar(512)
-  continent   MealContinent?
-  country     String?         @db.VarChar(120)
-  portions    Int             @default(4)
-  prepTime    Int             @map("prep_time")
-  dietaryTags String[]        @default([]) @map("dietary_tags")
-  allergens   String[]        @default([])
-  calories    Int?
-  difficulty  MealDifficulty?
-  ingredients Json            @default("[]")
-  steps       String[]        @default([])
-  isFeatured  Boolean         @default(false) @map("is_featured")
-  status      MealStatus      @default(draft)
-  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String          @db.VarChar(255)
+  description  String?
+  imageUrl     String?         @map("image_url") @db.VarChar(512)
+  continent    MealContinent?
+  country      String?         @db.VarChar(120)
+  portions     Int             @default(4)
+  prepTime     Int             @map("prep_time")
+  dietaryTags  String[]        @default([]) @map("dietary_tags")
+  allergens    String[]        @default([])
+  calories     Int?
+  difficulty   MealDifficulty?
+  ingredients  Json            @default("[]")
+  steps        String[]        @default([])
+  isFeatured   Boolean         @default(false) @map("is_featured")
+  status       MealStatus      @default(draft)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals BookingMeal[]
-  menuWeeks   MenuWeekMeal[]
+  menuWeeks    MenuWeekMeal[]
 
   @@map("meals")
 }
 
 model MenuWeek {
-  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  weekNumber Int           @map("week_number")
-  year       Int
-  publishedAt DateTime?    @map("published_at") @db.Timestamptz(6)
-  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  meals      MenuWeekMeal[]
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  weekNumber  Int            @map("week_number")
+  year        Int
+  publishedAt DateTime?      @map("published_at") @db.Timestamptz(6)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  meals       MenuWeekMeal[]
 
   @@unique([year, weekNumber], map: "uq_menu_weeks_year_week")
   @@map("menu_weeks")
@@ -253,23 +269,23 @@ model ShoppingItem {
 }
 
 model Quote {
-  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reference          String      @unique(map: "quotes_reference_key") @db.VarChar(32)
-  clientId           String      @map("client_id") @db.Uuid
-  title              String      @db.VarChar(255)
-  persons            Int
-  mealsCount         Int         @map("meals_count")
-  cuisine            String      @db.VarChar(120)
-  diet               String[]    @default([])
-  brief              String
-  status             QuoteStatus @default(submitted)
-  assignedChefUserId String?     @map("assigned_chef_user_id") @db.Uuid
-  quoteAmountTtc     Int?        @map("quote_amount_ttc")
-  quoteAmountAfterTax Int?       @map("quote_amount_after_tax")
-  quoteNote          String?     @map("quote_note")
-  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  client             User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference           String      @unique(map: "quotes_reference_key") @db.VarChar(32)
+  clientId            String      @map("client_id") @db.Uuid
+  title               String      @db.VarChar(255)
+  persons             Int
+  mealsCount          Int         @map("meals_count")
+  cuisine             String      @db.VarChar(120)
+  diet                String[]    @default([])
+  brief               String
+  status              QuoteStatus @default(submitted)
+  assignedChefUserId  String?     @map("assigned_chef_user_id") @db.Uuid
+  quoteAmountTtc      Int?        @map("quote_amount_ttc")
+  quoteAmountAfterTax Int?        @map("quote_amount_after_tax")
+  quoteNote           String?     @map("quote_note")
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  client              User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
 
   @@index([clientId], map: "ix_quotes_client_id")
   @@map("quotes")
@@ -342,4 +358,216 @@ enum QuoteStatus {
   declined
 
   @@map("quote_status")
+}
+
+/// A « devenir batch cooker » candidature (FLOW-01).
+///
+/// Deliberately **not** a user: no `users` row and no Clerk account exist until an
+/// admin approves. The candidate acts with a scoped token (`tokenHash`) instead.
+///
+/// Email uniqueness among undecided candidatures is enforced by a partial unique
+/// index created in the migration; Prisma cannot express `WHERE status IN (...)`.
+model ChefApplication {
+  id        String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference String                @unique(map: "uq_chef_applications_reference") @db.VarChar(32)
+  status    ChefApplicationStatus @default(submitted)
+
+  firstName String @map("first_name") @db.VarChar(120)
+  lastName  String @map("last_name") @db.VarChar(120)
+  email     String @db.VarChar(320)
+  phone     String @db.VarChar(32)
+
+  addressStreet   String  @map("address_street") @db.VarChar(255)
+  addressLine2    String? @map("address_line2") @db.VarChar(255)
+  addressPostcode String  @map("address_postcode") @db.VarChar(5)
+  addressCity     String  @map("address_city") @db.VarChar(120)
+  addressCountry  String  @default("FR") @map("address_country") @db.VarChar(2)
+
+  /// `[{ regionCode, regionLabel, scope, cities: [{ name, dept, insee }] }]`
+  interventionZones Json @map("intervention_zones")
+
+  workAuthorizationStatus  WorkAuthorizationStatus @map("work_authorization_status")
+  workAuthorizationDetails String?                 @map("work_authorization_details")
+
+  companyLegalForm     CompanyLegalForm @map("company_legal_form")
+  companySiret         String?          @map("company_siret") @db.VarChar(14)
+  sapPath              SapPath          @default(type_b) @map("sap_path")
+  sapDeclarationNumber String?          @map("sap_declaration_number") @db.VarChar(16)
+
+  /// Proof of consent, kept verbatim as sent by the form (FLOW-01 §8, 5 years).
+  consentPrivacyPolicy Boolean  @map("consent_privacy_policy")
+  consentTerms         Boolean  @map("consent_terms")
+  consentAcceptedAt    DateTime @map("consent_accepted_at") @db.Timestamptz(6)
+
+  /// SHA-256 of the candidate access token. Nulled on decision, which is what
+  /// "revoked" means — an opaque token revokes by deletion, a JWT could not.
+  tokenHash             String?   @map("token_hash") @db.VarChar(64)
+  tokenExpiresAt        DateTime? @map("token_expires_at") @db.Timestamptz(6)
+  /// Rolling 24 h window backing the 3-resends-per-day cap (FLOW-01 §4).
+  resendCount           Int       @default(0) @map("resend_count")
+  resendWindowStartedAt DateTime? @map("resend_window_started_at") @db.Timestamptz(6)
+
+  submittedAt        DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  /// Drives the 6-month purge of abandoned candidatures (FLOW-01 §8).
+  lastActivityAt     DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  decidedAt          DateTime? @map("decided_at") @db.Timestamptz(6)
+  decidedByUserId    String?   @map("decided_by_user_id") @db.Uuid
+  decisionReason     String?   @map("decision_reason")
+  decisionReasonCode String?   @map("decision_reason_code") @db.VarChar(64)
+  allowReapplyAfter  DateTime? @map("allow_reapply_after") @db.Date
+
+  /// Set by approval. Its presence is what makes `approve` idempotent — a second
+  /// call returns the first result instead of creating a second account.
+  approvedUserId String? @unique(map: "uq_chef_applications_approved_user_id") @map("approved_user_id") @db.Uuid
+  chefProfileId  String? @unique(map: "uq_chef_applications_chef_profile_id") @map("chef_profile_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  documents    ChefDocument[]
+  decidedBy    User?          @relation("ChefApplicationDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_decided_by")
+  approvedUser User?          @relation("ChefApplicationApprovedUser", fields: [approvedUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_approved_user")
+  chefProfile  ChefProfile?   @relation("ChefProfileApplication", fields: [chefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_chef_profile")
+
+  @@index([status, submittedAt], map: "ix_chef_applications_status_submitted_at")
+  @@index([email], map: "ix_chef_applications_email")
+  @@map("chef_applications")
+}
+
+/// One row per **deposit**, never updated in place on re-deposit (FLOW-01 §3.3).
+///
+/// The same row serves the candidature and, after approval, the chef dossier:
+/// approval sets `chefProfileId` rather than copying rows, so versions, refusal
+/// reasons and timestamps are preserved by construction instead of by a copy step
+/// that could drift.
+///
+/// There is no `missing` status and no placeholder row: a missing document is one
+/// the required-list computes but that has no row yet.
+model ChefDocument {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String?            @map("application_id") @db.Uuid
+  chefProfileId String?            @map("chef_profile_id") @db.Uuid
+  type          ChefDocumentType
+  status        ChefDocumentStatus @default(submitted)
+  /// 1-based, incremented per (owner, type) at confirm time.
+  version       Int                @default(1)
+
+  storagePath      String    @map("storage_path") @db.VarChar(512)
+  fileName         String    @map("file_name") @db.VarChar(255)
+  mimeType         String    @map("mime_type") @db.VarChar(120)
+  sizeBytes        Int       @map("size_bytes")
+  /// Only for documents that lapse (FLOW-01 §3.3).
+  expiresOn        DateTime? @map("expires_on") @db.Date
+  /// Last expiry notice sent, in days before `expiresOn` (60 | 30 | 7), so the
+  /// daily job never mails the same threshold twice.
+  expiryNoticeDays Int?      @map("expiry_notice_days")
+
+  submittedAt     DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  decidedAt       DateTime? @map("decided_at") @db.Timestamptz(6)
+  decidedByUserId String?   @map("decided_by_user_id") @db.Uuid
+  /// Read verbatim by the candidate, so it is stored exactly as the admin wrote it.
+  reason          String?
+  reasonCode      String?   @map("reason_code") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application ChefApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_documents_application")
+  chefProfile ChefProfile?     @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_documents_chef_profile")
+  decidedBy   User?            @relation("ChefDocumentDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_documents_decided_by")
+
+  @@unique([applicationId, type, version], map: "uq_chef_documents_application_type_version")
+  @@index([chefProfileId, type, version], map: "ix_chef_documents_chef_profile_type_version")
+  @@index([status, expiresOn], map: "ix_chef_documents_status_expires_on")
+  @@map("chef_documents")
+}
+
+/// Compliance journal **and** debugging trail.
+///
+/// FLOW-01 requires an audit record for document reads (§3.4), decisions (§5.2)
+/// and approval (§6). The same table carries failures, so one query by
+/// `subjectId` reconstructs a candidature's whole history — Railway's log
+/// retention is short and cannot be queried by application id. `requestId` joins
+/// a row here to its line in the Railway log stream.
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId   String?  @map("request_id") @db.VarChar(64)
+  /// `admin` | `candidate` | `chef` | `system`
+  actorType   String   @map("actor_type") @db.VarChar(24)
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  /// Dotted verb, e.g. `application.submitted`, `document.decided`, `chef.suspended`.
+  action      String   @db.VarChar(96)
+  subjectType String   @map("subject_type") @db.VarChar(48)
+  subjectId   String?  @map("subject_id") @db.Uuid
+  /// `ok` | `failed`
+  outcome     String   @default("ok") @db.VarChar(16)
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User? @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_audit_log_actor")
+
+  @@index([subjectId, createdAt], map: "ix_audit_log_subject")
+  @@index([action, createdAt], map: "ix_audit_log_action")
+  @@map("audit_log")
+}
+
+enum ChefApplicationStatus {
+  submitted
+  changes_requested
+  approved
+  rejected
+
+  @@map("chef_application_status")
+}
+
+/// `missing` is absent on purpose: it is derived from the computed required list,
+/// never stored.
+enum ChefDocumentStatus {
+  submitted
+  reviewing
+  valid
+  rejected
+  expiring
+  expired
+
+  @@map("chef_document_status")
+}
+
+enum ChefDocumentType {
+  identity
+  residence_permit
+  renewal_receipt
+  status_proof
+  registration
+  sap_declaration
+  rc_pro
+  haccp
+  ddpp
+  vigilance
+
+  @@map("chef_document_type")
+}
+
+enum WorkAuthorizationStatus {
+  eu_citizen
+  residence_permit
+  renewal_pending
+  other
+
+  @@map("work_authorization_status")
+}
+
+enum CompanyLegalForm {
+  micro
+  other_company
+  not_registered
+
+  @@map("company_legal_form")
+}
+
+enum SapPath {
+  type_a
+  type_b
+
+  @@map("sap_path")
 }
