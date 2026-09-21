@@ -90,14 +90,25 @@ against the first month of real publishing.
 | Decision | Rationale |
 |---|---|
 | **Extend `meals` into the chef-owned dish** rather than add a second table | `meals` already carries ~80% of the fields, and `booking_meals` references it. §4.3 requires a suspended dish to stay resolvable for prestations already booked — with one table that is automatic; with two, a booking would have to reference either table. |
-| `chef_profile_id IS NULL` **is** the Lab's Food catalogue | It is also exactly §6's "proposition". One concept, not two. |
+| **Ownership and authorship are separate columns** — `chef_profile_id` (owner) and `created_by_user_id` (author) | Conflating them would make whoever typed a row its owner. An admin creating or editing a Lab's Food meal or menu must not lock it to themselves: it stays unowned — public to every chef as a suggestion, or visible to one chef as an offer — and **any** admin may edit it until a chef owns it, not only its author. `created_by_user_id` is attribution only and never grants a permission — rights come from `chef_profile_id` and role. Who changed what afterwards is already in `audit_log`, so no `updated_by` column. |
+| A **suggestion** is a meal or menu authored by Lab's Food, owned by no chef, and offered to no one in particular | Lab's Food content not prepared for a specific chef is offered to every chef as a suggestion (§6's "proposition"); applies to menus as well as meals, since FLOW-02 §1 calls a proposition a menu and §6 treats it as dishes. Unowned content offered to one chef is an **offer**, not a suggestion: only that chef sees it. Existing `meals` rows predate `created_by_user_id`, were all written by Lab's Food, and count as suggestions. |
+| **A chef never reads or copies another chef's content** | Through the chef-facing API a chef reads and writes only their own menus and dishes, and can adopt only suggestions — never another chef's menu, meal or dish. §8 already withholds a recipe from every non-owner chef; this extends the rule to copying. The public vitrine is unaffected: its fields are public to everyone by definition, and it never carries a recipe. |
+| **Every adoption is written to the audit log** | §6 requires the consent to be proven — who, when, which version. The audit log already built for FLOW-01 is that proof: each adoption records the chef, the suggestion, its version, the copy created and the explicit consent, and is retained five years like the rest of the log. A menu adoption records the menu and each dish it copied. |
+| **A menu is composed of several dishes, and a dish may sit in several menus** | Menus and dishes are many-to-many: a dish is not owned by a menu, and a chef reuses the same dish across menus. This is also why adoption must reuse copies — adopting two suggested menus that share a dish gives the chef that dish once, in both. |
+| **An offered menu's dishes follow their own kind** | An offered menu may contain dishes offered to the same chef and public suggestions. On acceptance the offered dishes transfer with the menu, while suggestion dishes are **adopted** (copied, reusing any existing copy) so they stay available to every other chef. A public suggestion menu may contain only public suggestion dishes — it must never expose a dish offered privately to one chef. |
+| A chef takes ownership by **adopting**, which creates a copy | The copy is owned by the chef (`chef_profile_id`), authored by the chef (`created_by_user_id`), and points back to its source (`adopted_from_id`). The original stays unowned, so one chef adopting never takes it away from another. Adopting a Lab's Food **menu** also copies each of its dishes. The reason is §6 with §8, not §3.4: a proposition is previewed with "ni ingrédients ni étapes", and a non-owner chef has no access to a recipe — so without adoption a chef could not cook the dish, nor produce its fiche or shopping list. Adoption is what hands the recipe over. |
+| **An admin may prepare content for one chef; it becomes theirs only when they accept** | Lets Lab's Food build a menu for a batch cooker who has none yet, without imposing it (§6). The admin marks a meal or menu as **offered** to that chef: it stays unowned, is visible only to that chef and to admins, and never appears as a public suggestion. **Accepting transfers ownership of the row itself** — no copy, because no other chef needs the original — and writes the same audit-log consent record as an adoption. `created_by_user_id` keeps the admin as author while `chef_profile_id` makes the chef the owner, which is the case the two columns exist for. Declining leaves it with Lab's Food, free to re-offer or publish as a suggestion. |
+| **Ownership only ever changes through the chef's own act** | No admin write path sets `chef_profile_id`: an admin creates unowned content and may mark whom it is offered to, but ownership moves only when a chef creates, adopts or accepts. Moderation changes status and reason only. This is what keeps §6's "rien n'est imposé" true while letting admins prepare content for a specific chef. |
+| **Adoption is idempotent per (chef, source)** | A double-click, or two Lab's Food menus sharing a dish, would otherwise duplicate rows. Re-adopting returns the chef's existing copy; a dish shared between adopted menus is copied once, and the chef's edited version is the one reused. |
+| **Publishing a menu publishes its draft dishes with it** | Removes the friction of adoption — a 7-dish menu would otherwise need eight separate publications. §3.4 already forbids a published menu containing a draft dish, so publishing the menu already means making its dishes public. All-or-nothing, each dish still passes every §3.3 check, and the error lists each dish that failed. Lifts `draft` only: a `suspended` dish is never republished this way, or it would bypass a moderation decision. |
+| **A safety-relevant edit to a proposition flags every copy made from it** | The flip side of copying: copies are insulated from bad edits but also from corrections. An edit to allergens, diets or country — the fields §3.2 already treats as review-worthy — flags each adopted copy `source-changed`, notifies its chef, and places it in the admin review queue. Not applied to the copy automatically (§6), and not auto-suspended: FLOW-01 §7 keeps expiry the only unattended takedown. If the edit added a regulated allergen, the admin suspends affected copies through the existing §4.3 moderation. |
 | Legacy `/admin/meals` writes are **scoped to Lab's Food rows** | Otherwise an admin could overwrite a chef's dish through the old endpoint with no reason and no audit — the sharpest double-truth risk in the merge. |
 | `suspended` is valid **only** for chef-owned rows, enforced by a CHECK | Keeps `archived` (Lab's Food retired it) and `suspended` (a chef was moderated) from blurring into one column. |
 | Publication is **direct**, moderation is **after the fact** | Decided 20/09/2026. It makes the automatic checks the only barrier before a dish is public, so those checks are blocking (§3.3). |
 | **Explicit allergen declaration** — `allergens` non-empty **or** `allergensNone: true` | An empty array cannot distinguish "no allergens" from "not filled in". Without this, direct publication puts dishes online with no allergen information. |
 | Vitrine order: **rotation above a relevance floor, seeded monthly** | Filter to chefs who cover the area and are not fully booked — a chef with no slots configured still appears, as available on request — then rotate exposure with one order per calendar month, identical for every visitor. §9.6 notes this decides who receives demand; rating-first would entrench whoever arrived first. Monthly matches the "Vitrine du mois" cadence (§3.5) and keeps the order explainable and pagination stable. |
 | A chef with **no menu for the week is shown last, and marked** | Settles §9.7. They stay bookable with their published dishes — an oversight should not make an available chef invisible — but sort below chefs who composed a menu, and carry a flag so the frontend can present them differently. Rotation applies within each group. |
-| Dish photos on **Cloudflare R2**, presigned, moderated with the dish | Public storefront images are the high-egress case, unlike KYC documents. R2 has no egress fee; it speaks S3, so the presigned flow mirrors the KYC one. |
+| Dish photos on **Cloudflare R2**, presigned, moderated with the dish | Public storefront images are the high-egress case, unlike KYC documents. R2 has no egress fee; it speaks S3, so the presigned flow mirrors the KYC one — including its upload controls: a closed list of image types, a size cap, and every object stored under the owning chef, so the upload path cannot be used to host arbitrary files. |
 | Shopping lists are **computed deterministically** | `recipe.ingredients` is already structured, so scaling, deduplication by (name, unit) and grouping by aisle is arithmetic, not inference. Free-text dishes with no recipe contribute nothing automatically; the chef adds those lines by hand, as corrections that survive recalculation. |
 | `shoppingIncluded` is a **per-menu flag, `false` on creation** | Settles where the public filter's data lives: nothing in the schema expressed it. Per menu lets a chef offer shopping on some weeks and not others; defaulting to `false` means a chef never advertises a service they did not choose to offer. |
 | **Recipes are versioned; a prestation pins the version it was cooked from** | Settles §9.2. The fiche a client received and the one the API serves always agree, and a dispute about what was cooked is answerable. When the chef has since edited the recipe, the fiche says so with a flag rather than silently showing the new one. |
@@ -117,15 +128,33 @@ against the first month of real publishing.
 - Menus: compose from published dishes, publish, and the rule that a menu may not
   expose a draft or suspended dish. Each menu carries its own `shoppingIncluded`.
 - Vitrine du mois: assign a menu to each week, `null` meaning "no menu this week".
-- Admin review queue covering never-reviewed, edited-after-review and
-  republished-after-suspension content, one-click "reviewed", and removal with a
+- Admin review queue covering never-reviewed, edited-after-review,
+  republished-after-suspension and source-changed content, one-click "reviewed", and removal with a
   mandatory 15–500 character reason shown verbatim to the chef.
 - Public `GET /menus/week` with area, diet, shopping and free-text filters,
   `coveredDiets` computed as the intersection across the whole menu, ordering
   that shares exposure month by month, and chefs with no menu that week listed
   last and marked.
 - Public chef vitrine, with badges derived from the validated KYC documents.
-- Lab's Food propositions: list, and adopt with recorded consent and lineage.
+- Lab's Food suggestions — meals **and** menus authored by Lab's Food and owned
+  by no chef — visible to every chef. Adoption copies the suggestion into the
+  chef's own space as a draft, with lineage, and is written to the audit log as
+  the consent proof §6 requires. Adopting a menu also copies its dishes, reusing
+  any the chef already adopted. Adoption is idempotent per chef and source.
+- Offers: an admin prepares a meal or menu for one specific chef; it is visible
+  only to them, and becomes theirs only when they accept — transferring the row,
+  with the same audit-log consent record as an adoption. Declining leaves it
+  with Lab's Food.
+- Chef isolation: a chef reads, writes and adopts only their own content,
+  public suggestions and offers made to them — never another chef's menu, meal
+  or dish, nor an offer prepared for someone else.
+- Menus composed of several dishes, with a dish reusable across menus.
+- Publishing a menu publishes its draft dishes in the same all-or-nothing action.
+- A safety-relevant edit to a proposition flags every copy made from it for the
+  chef and for admin review.
+- Separate ownership (`chef_profile_id`) from authorship (`created_by_user_id`)
+  on meals and menus, so an admin editing Lab's Food content never becomes its
+  owner and any admin may maintain it.
 - Dish photos: presigned upload, moderated alongside the dish.
 - Recipe versioning: each edit to a recipe is a new version. A prestation pins
   the current version **at booking**, so its shopping list and its fiche always
@@ -161,7 +190,7 @@ against the first month of real publishing.
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | Dishes have owners | `meals` becomes the chef-owned dish without breaking bookings, quotes, shopping lists or stats. Lab's Food rows keep working and legacy admin writes can no longer touch a chef's dish. | pending | — |
+| 1 | Dishes have owners | `meals` becomes the chef-owned dish without breaking bookings, quotes, shopping lists or stats. Ownership and authorship are separate, so admin-authored Lab's Food rows stay unowned and public to every chef, any admin can maintain them, and legacy admin writes can no longer touch a chef's dish. | pending | — |
 | 2 | A chef can publish a dish | Create, edit and publish with the blocking checks — no dish goes public without an explicit allergen declaration or from an unverified chef. | pending | — |
 | 3 | A chef can publish a week | Menus compose published dishes and declare whether shopping is included; the vitrine assigns one menu per week; a suspended dish drops out of its menus without taking them down. | pending | — |
 | 4 | The public page lists cooks, not dishes | `GET /menus/week` serves the week's cards filtered by area, diet and shopping, ordered by a monthly rotation above a relevance floor, chefs without a menu last and marked, and no recipe ever included. `GET /menus/current` deprecated. | pending | — |
@@ -186,6 +215,15 @@ Settled on 21/09/2026, before planning. Recorded here so `/plan` does not reopen
 | What does the rotation rotate on? | **Monthly**, one order per calendar month, identical for every visitor. |
 | Do free-text `customAllergens` satisfy the publication gate? | **No.** The 14 regulated allergens must always be answered explicitly. |
 | AI-generated shopping lists | **Out of scope.** |
+| Who owns Lab's Food meals and menus? | **Nobody.** `chef_profile_id` (owner) is separate from `created_by_user_id` (author). The admin who creates or edits Lab's Food content does not own it, and any admin may edit it. A chef gains ownership only of their own adopted copy, or of an offer made to them that they accept. |
+| Adopting a menu means eight publications | **Publishing the menu publishes its draft dishes**, all-or-nothing. Never lifts `suspended`. |
+| Double adoption, and dishes shared between menus | **Adoption is idempotent per (chef, source).** |
+| A correction to a proposition never reaches its copies | **Flag, notify, review** — every copy is marked `source-changed`. No automatic change, no automatic suspension. |
+| What makes content a suggestion? | **Authored by Lab's Food, owned by no chef, offered to no one in particular.** Legacy `meals` rows count. |
+| Can a chef see or copy another chef's content? | **No.** Only their own content and suggestions, through the chef API. |
+| Is adoption audited? | **Yes** — every adoption is an audit-log row, and that row is §6's consent proof. |
+| Menu and dish cardinality | **Many-to-many.** A menu holds several dishes; a dish may appear in several menus. |
+| Can an admin give content to a specific chef? | **Yes, as an offer the chef must accept.** Accepting transfers the row (no copy); declining leaves it with Lab's Food. The admin never sets ownership directly. |
 | When does a prestation pin its recipe version? | **At booking.** The shopping list (made before the prestation) and the fiche (handed over after it) therefore always come from the same version. The chef may **re-pin** before the prestation — a deliberate, audited act that regenerates the shopping list. |
 | What does the "recipe updated" flag carry? | A flag, plus the **pinned** and **current** version numbers so it is actionable. No diff. |
 | `shoppingIncluded` when a menu is duplicated | Moot: FLOW-02 has no duplicate-menu endpoint. `false` at creation, editable after. |
@@ -198,20 +236,18 @@ above is settled in the table.
 
 ## Risks
 
+Only risks that remain after the constraints above. Anything a constraint already
+eliminates, and every trade-off accepted in **Decisions taken**, is recorded there
+rather than repeated here.
+
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| A dish goes public with incomplete allergen information | Medium | **Severe** — this is a food-safety and legal exposure, not a UX defect | Explicit declaration is a blocking publication check; `no-allergens-declared` is a review flag; `allergens-incomplete` is a first-class moderation reason |
-| Extending `meals` silently changes existing aggregates | **High** | Medium — stats and admin lists quietly start counting chef dishes | Audit all five dependent modules and add explicit owner filters; treat this as milestone 1 work, not cleanup |
-| An admin overwrites a chef's dish through the legacy endpoint | Medium | High — silent loss of a chef's work, no reason, no audit | Legacy `/admin/meals` writes scoped to `chef_profile_id IS NULL`; chef rows writable only by owner or by moderation |
-| Direct publication puts inappropriate content on the public site | Medium | High — it is the visible storefront | Blocking automatic checks are the barrier; the review queue is worked oldest-first; removal is immediate and reasoned |
-| Vitrine ordering entrenches early chefs | Medium | High — decides who earns, and is hard to unwind later | Rotation above a relevance floor rather than rating-first; the ordering is an explicit, reviewable rule rather than an incidental `ORDER BY` |
-| A chef drawn last stays last for a whole month | Medium | Medium — monthly rotation evens exposure out over a year, not over a week | Accepted trade-off for a stable, explainable order that matches the monthly vitrine cadence. Revisit the seed period if coverage data shows exposure concentrating |
-| A chef forgets to compose a menu and is pushed to the bottom | Medium | Medium — lost bookings through an oversight rather than a choice | They remain bookable and marked rather than hidden; the chef can be reminded when a week with no menu approaches |
-| Recipe versioning multiplies storage and query complexity | Medium | Low | Versions are append-only and small; only the version pinned by a prestation needs to stay reachable |
-| A chef edits a recipe after booking and forgets to re-pin | Medium | Low — the client receives the recipe they booked, which is the safe failure | Pinning at booking makes the stale case the *consistent* one; the "recipe updated" flag tells the chef a newer version exists |
-| Visitors click through to chefs who cannot actually be booked | Medium | Medium — a chef with no configured slots appears but has no bookable time | Deliberate trade to give new chefs exposure before they set up an agenda; shown as available on request so the page does not promise a slot |
-| Recipes leak through the public endpoints | Low | High — it is the chef's craft and the reason they trust the platform | Recipe fields are excluded at the serialisation boundary for every public route, with a test asserting their absence |
-| Photo upload becomes a path for arbitrary file hosting | Low | Medium | Same constraints as KYC — closed MIME list, size cap, and objects scoped under the owning chef |
+| **Wrong allergen information reaches a client** — a chef publishes an incomplete declaration, or Lab's Food corrects a suggestion and the copies chefs already adopted keep the old one | Medium | **Severe** — food safety and legal exposure | Explicit declaration of the 14 regulated allergens is a blocking publication check. A safety edit to a suggestion flags every copy `source-changed`, notifies its chef and queues it for review; an added allergen lets the admin suspend copies through §4.3. Residual: the delay before a human acts on a corrected suggestion |
+| **Direct publication puts inappropriate content on the public site** | Medium | High — it is the visible storefront | The blocking checks are the only barrier before publication, so they stay blocking; the review queue surfaces never-reviewed content oldest first; removal is immediate and reasoned |
+| **One access path is wrong** — a recipe leaks to the public or to another chef, an offer reaches the wrong chef, or an admin overwrites a chef's dish through the legacy endpoint | Medium | High — a chef's recipe is their craft, and a silent overwrite loses their work | One ownership rule enforced on every read and write path; legacy `/admin/meals` writes limited to content no chef owns; §8's access table plus offers encoded as a single table-driven test across every actor |
+| **Extending `meals` silently changes what existing features do** — stats and admin lists start counting chef dishes the day the column appears | **High** | Medium | Audit all five modules that read `meals` and add an explicit owner filter to each, as milestone 1 work rather than cleanup |
+| **Vitrine ordering decides who earns** — rotation still entrenches whoever sits above the floor, and a monthly seed holds a chef in last place for a whole month | Medium | High — it shapes income and is hard to unwind | Rotation above a relevance floor rather than rating-first, written as an explicit reviewable rule; revisit the seed period if coverage data shows exposure concentrating |
+| **The vitrine fills with identical adopted menus** — many chefs adopt the same suggestion, undercutting "choose a cook, not a dish" | Medium | Medium | Every copy records its origin, so the public card can say it is a Lab's Food classic; how to present it is a frontend decision |
 
 ---
 *Status: DRAFT — requirements only. Implementation planning pending via /plan.*
