@@ -346,13 +346,6 @@ export class UsersService {
   }
 
   /**
-   * Chef onboarding (`PATCH /me/chef-profile`, form 2).
-   *
-   * Promotes `users.role` to `chef` — the route is what selects the role, never the
-   * request body. The profile is always created inactive and unverified; only
-   * {@link setChefVerification} can change that.
-   */
-  /**
    * `PATCH /me/chef-profile` — a batch cooker edits their own public profile.
    *
    * Update-only. It never creates a chef profile and never changes `users.role`:
