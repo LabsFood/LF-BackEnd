@@ -1,5 +1,7 @@
 import * as Joi from 'joi';
 
+import { CLERK_SECRET_KEY_PATTERN } from '../auth/clerk-auth.guard';
+
 export const envValidationSchema = Joi.object({
   ENVIRONMENT: Joi.string()
     .valid('development', 'staging', 'production', 'test')
@@ -21,7 +23,19 @@ export const envValidationSchema = Joi.object({
   //   .uri({ scheme: ['redis', 'rediss'] })
   //   .required(),
 
-  CLERK_SECRET_KEY: Joi.string().allow('').optional(),
+  /**
+   * Unverified-JWT fallback (see clerk-auth.guard.ts `shouldVerifyClerkJwt`) only kicks in
+   * for the local stub or a key that doesn't match `sk_(test|live)_...` — required + pattern
+   * here in production so a malformed key fails startup instead of silently disabling
+   * signature verification on every guarded route.
+   */
+  CLERK_SECRET_KEY: Joi.string()
+    .allow('')
+    .optional()
+    .when('ENVIRONMENT', {
+      is: 'production',
+      then: Joi.string().pattern(CLERK_SECRET_KEY_PATTERN).required(),
+    }),
   CLERK_WEBHOOK_SIGNING_SECRET: Joi.string().allow('').optional(),
   /** Sign-in ticket handed to the frontend after `POST /auth/register`. Keep it short. */
   CLERK_SIGN_IN_TOKEN_TTL_SECONDS: Joi.number().min(600).max(6000).default(3600),
@@ -29,6 +43,9 @@ export const envValidationSchema = Joi.object({
   /** Rate limit for the public registration endpoint. */
   REGISTER_THROTTLE_TTL_MS: Joi.number().min(1000).default(3_600_000),
   REGISTER_THROTTLE_LIMIT: Joi.number().min(1).default(5),
+  /** Rate limit for money-moving payment endpoints (create intent / declare CESU / SEPA setup). */
+  PAYMENTS_THROTTLE_TTL_MS: Joi.number().min(1000).default(60_000),
+  PAYMENTS_THROTTLE_LIMIT: Joi.number().min(1).default(20),
 
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   /** Signing secret of the "Your account" Stripe webhook endpoint. */

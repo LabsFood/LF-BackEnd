@@ -22,6 +22,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
+
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
@@ -91,6 +93,8 @@ export class CesuPaymentsController {
 
   @Post('payments/cesu')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ register: true })
   @ApiOperation({
     summary: 'Declare a prefinanced CESU payment on a booking',
     description:

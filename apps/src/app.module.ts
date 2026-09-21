@@ -35,7 +35,8 @@ import { UsersModule } from './modules/users/users.module';
       cache: true,
     }),
     // Configured globally but enforced only where `ThrottlerGuard` is attached
-    // (currently the public `POST /auth/register`), so existing routes are unaffected.
+    // (public `POST /auth/register` and the money-moving payment endpoints),
+    // so existing unguarded routes are unaffected.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -44,6 +45,11 @@ import { UsersModule } from './modules/users/users.module';
             name: 'register',
             ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
             limit: config.get<number>('registerThrottle.limit', 5),
+          },
+          {
+            name: 'payments',
+            ttl: config.get<number>('paymentsThrottle.ttlMs', 60_000),
+            limit: config.get<number>('paymentsThrottle.limit', 20),
           },
         ],
       }),

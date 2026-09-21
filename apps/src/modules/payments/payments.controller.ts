@@ -8,6 +8,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
+
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
@@ -23,6 +25,8 @@ export class PaymentsController {
 
   @Post('intent')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ register: true })
   @ApiOperation({
     summary: 'Create a card PaymentIntent for a booking',
     description:
