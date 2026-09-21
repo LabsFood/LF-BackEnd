@@ -78,7 +78,7 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 | Decision | Rationale |
 |---|---|
 | The account does not exist before approval | No Clerk user, no `users` row, no chef profile until an admin approves. Removes the unvetted-chef window entirely. |
-| `PATCH /me/chef-profile` and client→chef self-promotion are **removed** | Two routes to becoming a chef, one unvetted, contradicts the whole premise. Breaking change for any frontend still calling it. |
+| Client→chef **self-promotion is removed**; `PATCH /me/chef-profile` stays as **update-only self-edit** | Two routes to becoming a chef, one unvetted, contradicted the whole premise. The route survives so an approved batch cooker can still edit their own `displayName`, `bio`, `city` and radius — but it never creates a profile and never changes a role, so a client calling it gets a 404 rather than being promoted. |
 | KYC files live in **Supabase Storage**, private bucket, signed upload and read | Already a configured dependency with a service-role key. At projected volume (~15 MB/chef) storage cost is noise; the egress-price gap that favours object-storage vendors only matters for public high-traffic files, which KYC documents never are. Revisit for dish photos in FLOW-02. |
 | Transactional email via **Brevo hosted templates** | Copy is French, candidate-facing, and includes refusal reasons — marketing must be able to change wording without a deploy. Template IDs become configuration. |
 | Expiry and retention run as a **daily in-process scheduled job** | No queue infrastructure exists and none is warranted at this scale. Known ceiling: double-fires under multiple API replicas. |
@@ -159,8 +159,9 @@ renewal cycle.
       change the blocking set retroactively for already-approved chefs?
 - [ ] **Working-hours definition for the 48h SLA** — the promise is « 48 h ouvrées ». French public
       holidays and weekends need a definition before the metric can be computed.
-- [ ] **Frontend cutover** — removing self-promotion breaks any current caller. Does the frontend
-      change ship first, simultaneously, or is a deprecation window needed?
+- [ ] **Frontend cutover** — `PATCH /me/chef-profile` keeps working for existing batch
+      cookers, but a *client* who calls it to become a chef now gets a 404. Does the
+      frontend's "devenir chef" path move to the candidature first, or simultaneously?
 
 ## Risks
 
@@ -168,7 +169,7 @@ renewal cycle.
 |---|---|---|---|
 | Approval partially completes — account created in Clerk with no database row, or the reverse | Medium | High — an orphaned identity that can sign in with no profile, or a chef who cannot log in | All-or-nothing transaction; create the external identity last, after the database writes, and compensate by deleting it if a late step fails |
 | Identity documents leak through a mis-scoped or long-lived read link | Low | Severe — RGPD breach on identity papers | Private bucket, no public read, short-lived read links, audit trail on every read, candidate credential scoped to a single candidature |
-| Removing self-promotion breaks the live frontend | High | Medium — chefs unable to complete onboarding during the gap | Coordinate the cutover explicitly; it is an open question above, not an afterthought |
+| Removing self-promotion breaks the live frontend | Medium | Medium — a client trying to become a chef through the old path hits a 404 | Narrowed by keeping the route for existing chefs' self-edit, so only the promotion call breaks; coordinate that cutover explicitly (open question above) |
 | Automatic suspension pulls a working chef's storefront offline | Medium | High — lost bookings and a chef who does not know why | The only unattended removal in the system: warn at J-60/J-30/J-7, state the cause in the email, reactivate automatically on a valid re-deposit |
 | Candidates abandon during document collection | Medium | High — the funnel metric is the hypothesis | Candidature submits with zero documents by design; only blocking documents gate approval; the link survives 30 days and is resendable |
 | Scheduled job double-fires under multiple API replicas | Low now, High after scaling | Medium — duplicate expiry emails | Accepted ceiling at current scale; make the job idempotent so a double run is harmless, and revisit when a second replica is added |

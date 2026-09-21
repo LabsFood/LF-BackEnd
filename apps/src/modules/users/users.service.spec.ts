@@ -583,9 +583,79 @@ describe('UsersService', () => {
     });
   });
 
-  // `updateChefProfileByClerkUserId` and its tests were removed with FLOW-01: a
-  // client can no longer promote themselves to chef. Account creation now happens
-  // only at candidature approval, covered in the chef-onboarding module.
+  describe('updateOwnChefProfile', () => {
+    const chefUser = {
+      id: 'user-1',
+      clerkUserId: 'user_1',
+      email: 'marie@exemple.fr',
+      fullName: 'Marie Dupont',
+      phone: null,
+      role: UserRole.chef,
+    };
+
+    it('updates the public fields of the caller’s own profile', async () => {
+      prisma.user.findUnique.mockResolvedValue(chefUser);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+      prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', bio: 'Nouvelle bio' });
+
+      await service.updateOwnChefProfile('user_1', {
+        bio: 'Nouvelle bio',
+        serviceRadiusKm: 25,
+      });
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { bio: 'Nouvelle bio', serviceRadiusKm: 25 },
+      });
+    });
+
+    it('never changes the role', async () => {
+      prisma.user.findUnique.mockResolvedValue(chefUser);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+
+      await service.updateOwnChefProfile('user_1', {
+        firstName: 'Marie',
+        lastName: 'Martin',
+      });
+
+      // The name changed, so `users` WAS written — which is what makes the absence
+      // of `role` below meaningful rather than vacuous.
+      expect(prisma.user.update).toHaveBeenCalledTimes(1);
+      expect(prisma.user.update.mock.calls[0][0].data).toEqual({
+        fullName: 'Marie Martin',
+      });
+    });
+
+    it('refuses a client with no chef profile — this route no longer promotes anyone', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...chefUser, role: UserRole.client });
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnChefProfile('user_1', { displayName: 'Chef Marie' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('never creates a chef profile', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...chefUser, role: UserRole.client });
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnChefProfile('user_1', { displayName: 'Chef Marie' }),
+      ).rejects.toThrow();
+      expect(prisma.chefProfile.upsert).not.toHaveBeenCalled();
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('does not create a users row for an unknown caller', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnChefProfile('user_unknown', { bio: 'x' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+  });
 
   describe('setChefVerification', () => {
     it('updates the vetting flags', async () => {

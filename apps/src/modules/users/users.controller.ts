@@ -13,6 +13,7 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiExtraModels,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -31,6 +32,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dt
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
+import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
@@ -157,6 +159,33 @@ export class UsersController {
     @Body() payload: UpdateMeProfileDto,
   ) {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Patch('me/chef-profile')
+  @ApiOperation({
+    summary: 'Edit your own batch cooker profile',
+    description:
+      'Updates the public fields of the caller’s existing chef profile — `displayName`, ' +
+      '`bio`, `city`, `serviceRadiusKm` — and the shared identity fields on `users`. ' +
+      'Every field is optional. **Never creates a profile and never changes ' +
+      '`users.role`**: a batch cooker account is created only when an admin approves a ' +
+      'candidature. `isActive`, `isVerified`, payout and calendar ids, the SAP route and ' +
+      'intervention zones are not editable here, and a body carrying them is refused.',
+  })
+  @ApiOkResponse({
+    type: ChefProfileDto,
+    description: 'The chef profile after the update.',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'The caller has no batch cooker profile. A client cannot use this route to become one.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeChefProfile(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateMeChefProfileDto,
+  ) {
+    return this.users.updateOwnChefProfile(user.userId, payload);
   }
 
   @Post('admin/users')

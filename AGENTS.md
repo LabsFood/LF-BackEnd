@@ -113,7 +113,8 @@ Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
 Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync.md). Frontend/backend boundary: [`docs/auth/clerk-integration-contract.md`](docs/auth/clerk-integration-contract.md).
 
 - Public sign-up (no session): `POST /auth/register` — `email` + `password`, always `role: client`, IP rate-limited. Returns a 60s Clerk sign-in ticket the frontend redeems with `signIn.create({ strategy: 'ticket', ticket })`. Returns `503` with `sk_test_placeholder`.
-- Onboarding form 2 (authenticated): `PATCH /me/profile` (client) or `PATCH /me/chef-profile` (chef). **The route sets the role — the body never carries one**; a submitted `role` is a `400`. Chefs land `is_active/is_verified = false` until `PATCH /admin/chefs/:id/verification`.
+- Onboarding form 2 (authenticated, clients): `PATCH /me/profile`. **The body never carries a role**; a submitted `role` is a `400`.
+- Chef self-edit (authenticated, existing batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created only by candidature approval (see *Chef onboarding* below).
 - Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
 - One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
 - One-off Clerk → Postgres backfill (real key only): `npm run db:backfill:clerk -- --email <addr> | --clerk-id <user_…> | --all`. **Writes require `--yes`**; without it the script dry-runs and prints the target database host. Use for Clerk accounts created before the webhook existed. Optional `--role <client|chef|admin>`; existing rows keep their role unless it is passed.
@@ -135,10 +136,11 @@ Candidature → KYC documents → admin validation → chef account. Module:
 PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooker-chef-onboarding.prd.md).
 
 **A batch cooker account exists only after an admin approves a candidature.**
-`PATCH /me/chef-profile` and the client→chef self-promotion it performed were
-removed; `POST /chef-applications` → `POST /admin/chef-applications/:id/approve`
-is the only path, and approval is refused with `409 DOCUMENT_REQUIRED` unless
-every blocking document is `valid`.
+The client→chef self-promotion is removed: `POST /chef-applications` →
+`POST /admin/chef-applications/:id/approve` is the only path, and approval is
+refused with `409 DOCUMENT_REQUIRED` unless every blocking document is `valid`.
+`PATCH /me/chef-profile` survives, but only as update-only self-edit for an
+existing batch cooker.
 
 | Actor | Routes |
 |---|---|

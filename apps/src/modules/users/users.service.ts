@@ -24,6 +24,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
@@ -352,14 +353,38 @@ export class UsersService {
    * {@link setChefVerification} can change that.
    */
   /**
-   * Becoming a batch cooker no longer happens here.
+   * `PATCH /me/chef-profile` — a batch cooker edits their own public profile.
    *
-   * `PATCH /me/chef-profile` used to promote any signed-in client to `chef`, which
-   * contradicts FLOW-01: a chef account exists only once an admin has approved a
-   * candidature with a validated identity document. The candidature flow
-   * (`POST /chef-applications` → approval) is now the only path, and it is what
-   * creates both the `users` row and the chef profile.
+   * Update-only. It never creates a chef profile and never changes `users.role`:
+   * a chef account exists only once an admin approves a candidature holding a
+   * validated identity document (FLOW-01). This route used to upsert the profile
+   * and promote any signed-in client to `chef`; a client calling it now gets a
+   * 404 instead.
+   *
+   * Unlike `GET /me` it does not create a missing `users` row either — there is no
+   * profile to edit for someone the platform has never approved.
    */
+  async updateOwnChefProfile(clerkUserId: string, payload: UpdateMeChefProfileDto) {
+    const user = await this.findByClerkId(clerkUserId);
+    const profile =
+      user &&
+      (await this.prisma.chefProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true },
+      }));
+    if (!user || !profile) {
+      throw new NotFoundException('No batch cooker profile for this account.');
+    }
+
+    const { firstName, lastName, phone, ...profileFields } = payload;
+    // No role argument, so this can only ever write names and phone.
+    await this.applyOwnUserFields(user, { firstName, lastName, phone });
+
+    return this.prisma.chefProfile.update({
+      where: { id: profile.id },
+      data: profileFields,
+    });
+  }
 
   /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */
   async setChefVerification(
