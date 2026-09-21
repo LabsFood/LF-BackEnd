@@ -22,6 +22,7 @@ import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfirmUploadDto, CreateUploadUrlDto } from './dto/chef-document.dto';
 import { ChefDocumentsService } from './services/chef-documents.service';
+import { ChefDossierCron } from './services/chef-dossier.cron';
 
 const reqId = (req: { id?: unknown }): string | undefined =>
   typeof req.id === 'string' ? req.id : undefined;
@@ -40,6 +41,7 @@ export class ChefDocumentsController {
   constructor(
     private readonly documents: ChefDocumentsService,
     private readonly prisma: PrismaService,
+    private readonly activation: ChefDossierCron,
   ) {}
 
   /**
@@ -111,12 +113,18 @@ export class ChefDocumentsController {
     @Req() req: { id?: unknown },
   ) {
     const profile = await this.owner(user);
-    return this.documents.confirmUpload(
+    const document = await this.documents.confirmUpload(
       { kind: 'chef', chefProfileId: profile.id },
       type,
       body,
       reqId(req),
     );
+
+    // FLOW-01 §7 "réversible immédiatement": depositing a replacement brings the
+    // storefront back now, without waiting on the review queue. The document is
+    // still unreviewed, and a later refusal takes the chef back offline.
+    const reactivated = await this.activation.refreshActivation(profile.id);
+    return { ...document, reactivated };
   }
 
   @Get(':type/versions')

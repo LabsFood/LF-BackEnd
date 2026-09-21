@@ -78,10 +78,22 @@ export class ChefApplicationsAdminService {
     const [rows, total] = await Promise.all([
       this.prisma.chefApplication.findMany({
         where,
-        orderBy: { submittedAt: 'asc' },
+        orderBy: [
+          // Open suspension episodes first, oldest first. `asc` puts NULLs last
+          // in Postgres, so dossiers with no episode fall to the back — which is
+          // the wanted order using only the plain, unambiguous form rather than
+          // an explicit `{ sort, nulls }` object on a relation field.
+          { chefProfile: { autoSuspendedAt: 'asc' } },
+          { submittedAt: 'asc' },
+        ],
         skip: bounds.skip,
         take: bounds.take,
-        include: { documents: { select: { type: true, status: true, version: true } } },
+        include: {
+          documents: { select: { type: true, status: true, version: true } },
+          // `autoSuspendedAt` still set while the chef is live means they were
+          // reactivated on the strength of an unreviewed replacement.
+          chefProfile: { select: { isActive: true, autoSuspendedAt: true } },
+        },
       }),
       this.prisma.chefApplication.count({ where }),
     ]);
@@ -93,12 +105,20 @@ export class ChefApplicationsAdminService {
         for (const doc of [...row.documents].sort((a, b) => b.version - a.version)) {
           if (!latest.has(doc.type)) latest.set(doc.type, doc.status);
         }
+        // Live right now on a document nobody has looked at yet. These jump the
+        // queue: the storefront is already back up, so the review is the only
+        // thing standing between a bad document and a booked client.
+        const reactivatedPendingReview = Boolean(
+          row.chefProfile?.autoSuspendedAt && row.chefProfile.isActive,
+        );
+
         return {
           id: row.id,
           reference: row.reference,
           name: `${row.firstName} ${row.lastName}`,
           city: row.addressCity,
           status: toWire(row.status),
+          reactivatedPendingReview,
           pendingDocuments: [...latest.values()].filter((s) =>
             AWAITING_DECISION.includes(s),
           ).length,
@@ -251,7 +271,9 @@ export class ChefApplicationsAdminService {
       },
     });
 
-    if (body.decision === 'valid' && updated.chefProfileId) {
+    // Both outcomes matter: accepting closes the suspension episode, refusing
+    // takes a chef who was reactivated on trust back offline.
+    if (updated.chefProfileId) {
       await this.dossier.refreshActivation(updated.chefProfileId);
     }
 

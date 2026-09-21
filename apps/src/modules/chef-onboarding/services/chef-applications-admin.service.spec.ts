@@ -250,4 +250,71 @@ describe('ChefApplicationsAdminService.decideDocument', () => {
       service.decideDocument('app-1', 'identity', { decision: 'rejected' }, 'admin-1'),
     ).rejects.toMatchObject({ response: { code: 'REASON_REQUIRED' } });
   });
+
+  it('re-evaluates the storefront on a refusal too, not only on an acceptance', async () => {
+    const refreshActivation = jest.fn();
+    const prisma = {
+      chefApplication: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'app-1', email: 'x@y.fr', firstName: 'M' }),
+        update: jest.fn(),
+      },
+      chefDocument: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'doc-1', chefProfileId: 'cp-1' }),
+        update: jest.fn().mockResolvedValue({
+          id: 'doc-1',
+          chefProfileId: 'cp-1',
+          type: 'identity',
+          status: 'rejected',
+          version: 2,
+          reason: 'Document illisible, merci de renvoyer la page entière.',
+          reasonCode: 'unreadable',
+          submittedAt: new Date(),
+          decidedAt: new Date(),
+          fileName: 'f.pdf',
+          sizeBytes: 1,
+          expiresOn: null,
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'admin-1', fullName: 'Sarah L.' }),
+      },
+    };
+
+    const service = new ChefApplicationsAdminService(
+      prisma as unknown as PrismaService,
+      {
+        parseType: (t: string) => t,
+        dossier: jest.fn().mockResolvedValue({
+          dossierStatus: 'incomplete',
+          canApprove: false,
+          documents: [],
+        }),
+        answersOf: jest.fn(() => ({})),
+        toView: jest.fn((d: unknown) => d),
+      } as unknown as ChefDocumentsService,
+      {} as unknown as KycStorageService,
+      { record: jest.fn(), failed: jest.fn() } as unknown as AuditService,
+      {
+        documentRejected: jest.fn().mockResolvedValue({ sent: true }),
+      } as unknown as ChefOnboardingMailer,
+      { configured: true } as unknown as ClerkService,
+      { get: jest.fn((_k: string, d?: unknown) => d) } as unknown as ConfigService,
+      { refreshActivation } as unknown as ChefDossierCron,
+    );
+
+    await service.decideDocument(
+      'app-1',
+      'identity',
+      {
+        decision: 'rejected',
+        reason: 'Document illisible, merci de renvoyer la page entière.',
+      },
+      'admin-1',
+    );
+
+    // A chef reactivated on trust must go back offline when the replacement fails.
+    expect(refreshActivation).toHaveBeenCalledWith('cp-1');
+  });
 });

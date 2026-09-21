@@ -84,6 +84,7 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 | Expiry and retention run as a **daily in-process scheduled job** | No queue infrastructure exists and none is warranted at this scale. Known ceiling: double-fires under multiple API replicas. |
 | Document requirements are **computed server-side** from the candidate's answers | Today the frontend decides what is required, so nothing is actually required. |
 | Dossier status is **derived, never stored as input** | An admin cannot type a dossier into `validated`; it follows from the documents. |
+| Automatic suspension lifts **on deposit**, not on review | FLOW-01 §7 promises the only unattended takedown is "réversible immédiatement". The replacement is flagged for priority review and a refusal re-suspends, so speed for the chef does not become a hole in vetting. |
 
 ## Scope
 
@@ -149,6 +150,11 @@ renewal cycle.
 - [ ] **Who counts as an admin reviewer** — the audit trail records *which* admin opened an
       identity document. Is a single `admin` role enough, or does document access need to be
       narrower than "any admin"?
+- [x] **Reactivation after automatic suspension** — settled 21/09/2026: the
+      storefront returns on deposit, the replacement jumps the review queue, and
+      a refusal re-suspends. FLOW-01 §7's two sentences disagreed; this honours
+      "réversible immédiatement" without leaving an unreviewed document live
+      indefinitely.
 - [ ] **Vulnerable-public documents** (FLOW-01 §10.4) — when does that option open, and does it
       change the blocking set retroactively for already-approved chefs?
 - [ ] **Working-hours definition for the 48h SLA** — the promise is « 48 h ouvrées ». French public

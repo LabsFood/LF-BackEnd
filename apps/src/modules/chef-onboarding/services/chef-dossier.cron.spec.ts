@@ -154,33 +154,89 @@ describe('ChefDossierCron', () => {
     });
   });
 
-  describe('refreshActivation', () => {
-    it('lifts an automatic suspension once the dossier is validated again', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        chefProfile({ autoSuspendedAt: new Date(), application: {} }),
+  describe('refreshActivation — the suspension episode (FLOW-01 §7)', () => {
+    const suspended = (over: Record<string, unknown> = {}) =>
+      chefProfile({
+        isActive: false,
+        autoSuspendedAt: new Date(),
+        application: {},
+        ...over,
+      });
+
+    it('brings the storefront back the moment a replacement is deposited', async () => {
+      // Freshly deposited means `reviewing`, not `valid` — that is the point.
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended());
+      documents.deriveStatus.mockReturnValue('reviewing');
+
+      await expect(cron.refreshActivation('cp-1')).resolves.toBe(true);
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { isActive: true } }),
       );
+    });
+
+    it('keeps the episode open while the replacement is unreviewed', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended());
+      documents.deriveStatus.mockReturnValue('reviewing');
+      await cron.refreshActivation('cp-1');
+
+      // autoSuspendedAt is NOT cleared — that is what flags the admin queue.
+      const data = prisma.chefProfile.update.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('autoSuspendedAt');
+    });
+
+    it('closes the episode once an admin validates the replacement', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended({ isActive: true }));
+      documents.deriveStatus.mockReturnValue('validated');
+
       await expect(cron.refreshActivation('cp-1')).resolves.toBe(true);
       expect(prisma.chefProfile.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { isActive: true, autoSuspendedAt: null } }),
       );
     });
 
-    it('never reactivates a chef an admin deliberately deactivated', async () => {
-      // autoSuspendedAt is null, so this was a human decision, not the job's.
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        chefProfile({ isActive: false, autoSuspendedAt: null, application: {} }),
+    it('takes a reactivated chef back offline when the replacement is refused', async () => {
+      // Refusing the blocking document drops the dossier to `incomplete`.
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended({ isActive: true }));
+      documents.deriveStatus.mockReturnValue('incomplete');
+
+      await expect(cron.refreshActivation('cp-1')).resolves.toBe(false);
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { isActive: false } }),
       );
+    });
+
+    it('does not write when an offline chef is still not acceptable', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended());
+      documents.deriveStatus.mockReturnValue('incomplete');
+
       await expect(cron.refreshActivation('cp-1')).resolves.toBe(false);
       expect(prisma.chefProfile.update).not.toHaveBeenCalled();
     });
 
-    it('stays offline while the dossier is still not validated', async () => {
+    it('is idempotent — re-running on an already-live chef writes nothing', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended({ isActive: true }));
+      documents.deriveStatus.mockReturnValue('reviewing');
+
+      await expect(cron.refreshActivation('cp-1')).resolves.toBe(true);
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('never reactivates a chef an admin deliberately deactivated', async () => {
+      // autoSuspendedAt null = a human decision, not this job's.
       prisma.chefProfile.findUnique.mockResolvedValue(
-        chefProfile({ autoSuspendedAt: new Date(), application: {} }),
+        chefProfile({ isActive: false, autoSuspendedAt: null, application: {} }),
       );
-      documents.deriveStatus.mockReturnValue('incomplete');
+      documents.deriveStatus.mockReturnValue('validated');
+
       await expect(cron.refreshActivation('cp-1')).resolves.toBe(false);
       expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for a chef with no linked candidature', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        chefProfile({ autoSuspendedAt: new Date(), application: null }),
+      );
+      await expect(cron.refreshActivation('cp-1')).resolves.toBe(false);
     });
   });
 

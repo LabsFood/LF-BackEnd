@@ -233,17 +233,31 @@ export class ChefDossierCron {
   }
 
   /**
-   * Lifts an automatic suspension once the dossier derives back to `validated`.
+   * Re-evaluates a chef's storefront after anything touches their dossier.
    *
-   * Called after an admin validates a document, not at deposit time: a freshly
-   * deposited document is `submitted`, and putting a storefront back online on the
-   * strength of an unreviewed file would defeat the point of reviewing them.
+   * `autoSuspendedAt` marks an **open automatic-suspension episode**, not merely
+   * "currently offline". It stays set while the replacement is unreviewed, which
+   * is what lets the admin queue show the chef as reactivated-but-unverified, and
+   * is cleared only once an admin validates the replacement. An admin
+   * deactivation leaves it null, so a chef taken down by a human is never brought
+   * back by this method.
+   *
+   * | Dossier derives to | Storefront | Episode |
+   * |---|---|---|
+   * | `validated` (admin accepted the replacement) | online | closed |
+   * | `reviewing` (replacement deposited, unreviewed) | online, on trust | stays open |
+   * | anything else (missing or refused blocking piece) | offline | stays open |
+   *
+   * The middle row is FLOW-01 §7's "réversible immédiatement": the chef is live
+   * again the moment they deposit, rather than waiting on a review queue. The
+   * third row is what re-suspends them if that replacement is then refused.
    */
   async refreshActivation(chefProfileId: string): Promise<boolean> {
     const profile = await this.prisma.chefProfile.findUnique({
       where: { id: chefProfileId },
       include: { application: true },
     });
+    // No open episode: either never auto-suspended, or an admin turned them off.
     if (!profile?.application || profile.autoSuspendedAt === null) return false;
 
     const latest = await this.documents.latestPerType({ kind: 'chef', chefProfileId });
@@ -251,18 +265,52 @@ export class ChefDossierCron {
       latest,
       this.documents.answersOf(profile.application),
     );
-    if (status !== 'validated') return false;
 
-    await this.prisma.chefProfile.update({
-      where: { id: chefProfileId },
-      data: { isActive: true, autoSuspendedAt: null },
-    });
-    await this.audit.record({
-      actorType: 'system',
-      action: 'chef.reactivated',
-      subjectType: 'chef_profile',
-      subjectId: chefProfileId,
-    });
-    return true;
+    if (status === 'validated') {
+      await this.prisma.chefProfile.update({
+        where: { id: chefProfileId },
+        data: { isActive: true, autoSuspendedAt: null },
+      });
+      await this.audit.record({
+        actorType: 'system',
+        action: 'chef.reactivated',
+        subjectType: 'chef_profile',
+        subjectId: chefProfileId,
+        metadata: { reviewed: true },
+      });
+      return true;
+    }
+
+    if (status === 'reviewing') {
+      if (profile.isActive) return true;
+      await this.prisma.chefProfile.update({
+        where: { id: chefProfileId },
+        data: { isActive: true },
+      });
+      await this.audit.record({
+        actorType: 'system',
+        action: 'chef.reactivated_pending_review',
+        subjectType: 'chef_profile',
+        subjectId: chefProfileId,
+        metadata: { reviewed: false },
+      });
+      return true;
+    }
+
+    // A blocking piece is missing or was refused — back offline, episode open.
+    if (profile.isActive) {
+      await this.prisma.chefProfile.update({
+        where: { id: chefProfileId },
+        data: { isActive: false },
+      });
+      await this.audit.record({
+        actorType: 'system',
+        action: 'chef.suspended',
+        subjectType: 'chef_profile',
+        subjectId: chefProfileId,
+        metadata: { reason: 'replacement_not_acceptable', dossierStatus: status },
+      });
+    }
+    return false;
   }
 }

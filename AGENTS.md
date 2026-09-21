@@ -161,6 +161,14 @@ every blocking document is `valid`.
   expiry + automatic suspension at J+0, retention purge. In-process and
   idempotent — two API replicas would both fire it harmlessly. See the
   `ponytail:` note in that file before adding a replica.
+- **Suspension episode**: `chef_profiles.auto_suspended_at` marks an *open
+  automatic-suspension episode*, not merely "offline". Depositing a replacement
+  brings the storefront back immediately (§7 "réversible immédiatement") while
+  leaving the column set, so `auto_suspended_at IS NOT NULL AND is_active`
+  means *live on an unreviewed document* — those dossiers sort first in the
+  admin queue and carry `reactivatedPendingReview`. An admin validating the
+  replacement clears the column; refusing it takes the chef back offline. A
+  chef an admin deactivated has a null column and is never auto-reactivated.
 - **Emails**: Brevo templates, ids in `BREVO_TPL_*`. An unset id is a logged
   no-op, so an email outage never rolls back an approval.
 
