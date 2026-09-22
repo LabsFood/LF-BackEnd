@@ -25,17 +25,21 @@ export class ChefOnboardingMailer {
     this.adminEmail = config.get<string>('chefOnboarding.adminNotificationEmail');
   }
 
-  /** The link a candidate follows to complete their dossier (FLOW-01 §2). */
-  completionUrl(applicationId: string, token: string): string {
-    return `${this.publicSiteUrl}/candidature/${applicationId}/documents?token=${token}`;
+  /** Where a signed-in candidate or chef manages their documents. */
+  private get dossierUrl(): string {
+    return `${this.publicSiteUrl}/espace-chef/dossier`;
   }
 
+  /**
+   * Acknowledgement plus the only way into the new account: a single-use sign-in
+   * link, sent to the address that was submitted and nowhere else (FLOW-01 §2).
+   */
   applicationReceived(input: {
     email: string;
     firstName: string;
     reference: string;
-    applicationId: string;
-    token: string;
+    signInUrl: string;
+    expiresAt: Date;
   }) {
     return this.brevo.sendTemplate({
       templateId: this.brevo.templates.applicationReceived,
@@ -44,8 +48,8 @@ export class ChefOnboardingMailer {
       params: {
         firstName: input.firstName,
         reference: input.reference,
-        completionUrl: this.completionUrl(input.applicationId, input.token),
-        expiresInDays: 30,
+        signInUrl: input.signInUrl,
+        expiresAt: input.expiresAt.toISOString(),
       },
     });
   }
@@ -74,8 +78,6 @@ export class ChefOnboardingMailer {
     firstName: string;
     documentLabel: string;
     reason: string;
-    applicationId: string;
-    token: string | null;
   }) {
     return this.brevo.sendTemplate({
       templateId: this.brevo.templates.documentRejected,
@@ -85,9 +87,7 @@ export class ChefOnboardingMailer {
         firstName: input.firstName,
         documentLabel: input.documentLabel,
         reason: input.reason,
-        completionUrl: input.token
-          ? this.completionUrl(input.applicationId, input.token)
-          : `${this.publicSiteUrl}/espace-chef/dossier`,
+        dossierUrl: this.dossierUrl,
       },
     });
   }
@@ -97,8 +97,6 @@ export class ChefOnboardingMailer {
     firstName: string;
     message: string;
     documentLabels: string[];
-    applicationId: string;
-    token: string;
   }) {
     return this.brevo.sendTemplate({
       templateId: this.brevo.templates.changesRequested,
@@ -108,7 +106,7 @@ export class ChefOnboardingMailer {
         firstName: input.firstName,
         message: input.message,
         documentLabels: input.documentLabels,
-        completionUrl: this.completionUrl(input.applicationId, input.token),
+        dossierUrl: this.dossierUrl,
       },
     });
   }
@@ -131,17 +129,30 @@ export class ChefOnboardingMailer {
     });
   }
 
-  /** First-login link issued at approval (FLOW-01 §6). */
-  welcomeMagicLink(input: {
+  /** The candidature is approved: the account is now a verified batch cooker. */
+  applicationApproved(input: { email: string; firstName: string }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.applicationApproved,
+      to: { email: input.email, name: input.firstName },
+      label: 'application-approved',
+      params: {
+        firstName: input.firstName,
+        dashboardUrl: `${this.publicSiteUrl}/espace-chef`,
+      },
+    });
+  }
+
+  /** A fresh sign-in link, re-sent by an admin when the first one expired unused. */
+  signInLink(input: {
     email: string;
     firstName: string;
     signInUrl: string;
     expiresAt: Date;
   }) {
     return this.brevo.sendTemplate({
-      templateId: this.brevo.templates.welcomeMagicLink,
+      templateId: this.brevo.templates.signInLink,
       to: { email: input.email, name: input.firstName },
-      label: 'welcome-magic-link',
+      label: 'sign-in-link',
       params: {
         firstName: input.firstName,
         signInUrl: input.signInUrl,
@@ -166,7 +177,7 @@ export class ChefOnboardingMailer {
         documentLabel: input.documentLabel,
         expiresOn: input.expiresOn,
         daysLeft: input.daysLeft,
-        dossierUrl: `${this.publicSiteUrl}/espace-chef/dossier`,
+        dossierUrl: this.dossierUrl,
       },
     });
   }
@@ -183,7 +194,7 @@ export class ChefOnboardingMailer {
       params: {
         firstName: input.firstName,
         documentLabel: input.documentLabel,
-        dossierUrl: `${this.publicSiteUrl}/espace-chef/dossier`,
+        dossierUrl: this.dossierUrl,
       },
     });
   }

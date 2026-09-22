@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 
 import { UsersModule } from '../users/users.module';
-import { ApplicationTokenGuard } from './application-token.guard';
 import { ChefApplicationsAdminController } from './chef-applications-admin.controller';
-import { ChefApplicationsController } from './chef-applications.controller';
+import {
+  ChefApplicationsController,
+  MyChefApplicationController,
+} from './chef-applications.controller';
 import { ChefDocumentsController } from './chef-documents.controller';
 import { ReferentialsController } from './referentials.controller';
 import { ChefApplicationsAdminService } from './services/chef-applications-admin.service';
@@ -18,12 +20,12 @@ import { KycStorageService } from './services/kyc-storage.service';
   imports: [UsersModule],
   controllers: [
     ChefApplicationsController,
+    MyChefApplicationController,
     ChefApplicationsAdminController,
     ChefDocumentsController,
     ReferentialsController,
   ],
   providers: [
-    ApplicationTokenGuard,
     ChefApplicationsService,
     ChefApplicationsAdminService,
     ChefDocumentsService,

@@ -25,11 +25,6 @@ import {
 import { ConfirmUploadDto, CreateUploadUrlDto } from '../dto/chef-document.dto';
 import { KycStorageService } from './kyc-storage.service';
 
-/** Who owns the documents being read or written. */
-export type DocumentOwner =
-  | { kind: 'application'; applicationId: string }
-  | { kind: 'chef'; chefProfileId: string };
-
 @Injectable()
 export class ChefDocumentsService {
   constructor(
@@ -47,16 +42,8 @@ export class ChefDocumentsService {
     return parsed;
   }
 
-  private where(owner: DocumentOwner) {
-    return owner.kind === 'application'
-      ? { applicationId: owner.applicationId }
-      : { chefProfileId: owner.chefProfileId };
-  }
-
-  private prefix(owner: DocumentOwner): string {
-    return owner.kind === 'application'
-      ? `applications/${owner.applicationId}`
-      : `chefs/${owner.chefProfileId}`;
+  private prefix(chefProfileId: string): string {
+    return `chefs/${chefProfileId}`;
   }
 
   /**
@@ -64,10 +51,10 @@ export class ChefDocumentsService {
    * versions are history and must not influence the dossier.
    */
   async latestPerType(
-    owner: DocumentOwner,
+    chefProfileId: string,
   ): Promise<Map<ChefDocumentType, ChefDocument>> {
     const rows = await this.prisma.chefDocument.findMany({
-      where: this.where(owner),
+      where: { chefProfileId },
       orderBy: [{ type: 'asc' }, { version: 'desc' }],
     });
 
@@ -78,13 +65,13 @@ export class ChefDocumentsService {
 
   /** FLOW-01 §3.1 — hands out a signed URL; the file never transits the API. */
   async createUploadUrl(
-    owner: DocumentOwner,
+    chefProfileId: string,
     wireType: string,
     body: CreateUploadUrlDto,
   ) {
     const type = this.parseType(wireType);
     const upload = await this.storage.createUploadUrl(
-      this.prefix(owner),
+      this.prefix(chefProfileId),
       type,
       body.mimeType,
       body.sizeBytes,
@@ -105,7 +92,7 @@ export class ChefDocumentsService {
    * was refused and corrected keeps both deposits and the refusal reason.
    */
   async confirmUpload(
-    owner: DocumentOwner,
+    chefProfileId: string,
     wireType: string,
     body: ConfirmUploadDto,
     requestId?: string,
@@ -125,20 +112,24 @@ export class ChefDocumentsService {
       });
     }
 
-    const storagePath = this.storage.buildPath(this.prefix(owner), type, body.uploadId);
+    const storagePath = this.storage.buildPath(
+      this.prefix(chefProfileId),
+      type,
+      body.uploadId,
+    );
     // Refuses a confirm for a file that was never uploaded, which is how a dossier
     // would otherwise look complete with nothing behind it.
     const stat = await this.storage.statObject(storagePath);
 
     const previous = await this.prisma.chefDocument.findFirst({
-      where: { ...this.where(owner), type },
+      where: { chefProfileId, type },
       orderBy: { version: 'desc' },
       select: { version: true },
     });
 
     const document = await this.prisma.chefDocument.create({
       data: {
-        ...this.where(owner),
+        chefProfileId,
         type,
         status: ChefDocumentStatus.submitted,
         version: (previous?.version ?? 0) + 1,
@@ -150,15 +141,14 @@ export class ChefDocumentsService {
       },
     });
 
-    if (owner.kind === 'application') {
-      await this.prisma.chefApplication.update({
-        where: { id: owner.applicationId },
-        data: { lastActivityAt: new Date() },
-      });
-    }
+    // Keeps an active candidature out of the 6-month abandonment purge.
+    await this.prisma.chefApplication.updateMany({
+      where: { chefProfileId },
+      data: { lastActivityAt: new Date() },
+    });
 
     await this.audit.record({
-      actorType: owner.kind === 'application' ? 'candidate' : 'chef',
+      actorType: 'chef',
       action: 'document.deposited',
       subjectType: 'chef_document',
       subjectId: document.id,
@@ -174,10 +164,10 @@ export class ChefDocumentsService {
   }
 
   /** FLOW-01 §7 — every deposit ever made for one type, newest first. */
-  async versions(owner: DocumentOwner, wireType: string) {
+  async versions(chefProfileId: string, wireType: string) {
     const type = this.parseType(wireType);
     const rows = await this.prisma.chefDocument.findMany({
-      where: { ...this.where(owner), type },
+      where: { chefProfileId, type },
       orderBy: { version: 'desc' },
     });
     return rows.map((row) => this.toView(row));
@@ -191,11 +181,11 @@ export class ChefDocumentsService {
    * no stored `missing` status.
    */
   async dossier(
-    owner: DocumentOwner,
+    chefProfileId: string,
     answers: Parameters<typeof requiredDocuments>[0],
     options: { disabled?: boolean } = {},
   ) {
-    const latest = await this.latestPerType(owner);
+    const latest = await this.latestPerType(chefProfileId);
     const required = requiredDocuments(answers);
     const seen = new Set(required.map((r) => r.type));
 

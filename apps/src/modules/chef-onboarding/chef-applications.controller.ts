@@ -1,138 +1,118 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiParam,
+  ApiServiceUnavailableResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
-import { ChefApplication } from '../../generated/prisma/client';
-import { ApplicationTokenGuard } from './application-token.guard';
-import { CurrentApplication } from './current-application.decorator';
+import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
+import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { CreateChefApplicationDto } from './dto/create-chef-application.dto';
-import { ConfirmUploadDto, CreateUploadUrlDto } from './dto/chef-document.dto';
 import { ChefApplicationsService } from './services/chef-applications.service';
-import { ChefDocumentsService } from './services/chef-documents.service';
 
 /** The id the request carries, for joining logs to `audit_log.request_id`. */
 const reqId = (req: { id?: unknown }): string | undefined =>
   typeof req.id === 'string' ? req.id : undefined;
 
+/**
+ * The one unauthenticated candidature route. Kept apart from
+ * {@link MyChefApplicationController}, whose class-level `ClerkAuthGuard` must not
+ * be traded for per-method guards where one missed decorator exposes a route.
+ */
 @ApiTags('chef-applications')
 @Controller('chef-applications')
 export class ChefApplicationsController {
-  constructor(
-    private readonly applications: ChefApplicationsService,
-    private readonly documents: ChefDocumentsService,
-  ) {}
+  constructor(private readonly applications: ChefApplicationsService) {}
 
   @Post()
   @UseGuards(ThrottlerGuard)
   @ApiOperation({
-    summary: 'Submit a batch cooker candidature (public)',
+    summary: 'Submit a batch cooker candidature and create the account (public)',
     description:
-      'Creates a candidature and returns the reference plus a 30-day completion link. ' +
-      '**No account is created**: there is no Clerk user and no `users` row until an ' +
-      'admin approves. The `documents` list is computed by the API from the answers — ' +
-      'the client does not choose what is required.',
+      'Creates the account with the candidature: a Clerk user with no password, the ' +
+      '`users` row (`role: chef`) and a chef profile with `isVerified` and `isActive` ' +
+      'false — browse-only until an admin approves. A single-use sign-in link valid ' +
+      '7 days is emailed to the submitted address and **never returned here**: the ' +
+      'inbox is the only way into the account. The `documents` list is computed by ' +
+      'the API from the answers; the client does not choose what is required.',
   })
   @ApiCreatedResponse({
     description: 'Candidature accepted, with its computed document list.',
   })
   @ApiConflictResponse({
-    description: '`EMAIL_ALREADY_USED` — an account or open candidature exists.',
+    description:
+      '`EMAIL_ALREADY_USED` — the address already has an account. Nothing is attached ' +
+      'to it; its owner signs in instead.',
   })
   @ApiUnprocessableEntityResponse({
     description: '`VALIDATION_FAILED` — see the message for the field.',
   })
+  @ApiTooManyRequestsResponse({
+    description: 'More than 5 submissions per hour from this IP.',
+  })
+  @ApiServiceUnavailableResponse({ description: 'Clerk is not configured.' })
   submit(@Body() payload: CreateChefApplicationDto, @Req() req: { id?: unknown }) {
     return this.applications.submit(payload, reqId(req));
   }
+}
 
-  @Get(':id')
-  @UseGuards(ApplicationTokenGuard)
+/**
+ * The signed-in candidate's own candidature (FLOW-01 §4). Documents are handled
+ * under `/me/chef-documents`, the same routes an approved chef uses.
+ */
+@ApiTags('chef-applications')
+@ApiBearerAuth()
+@Controller('me/chef-application')
+@UseGuards(ClerkAuthGuard)
+export class MyChefApplicationController {
+  constructor(private readonly applications: ChefApplicationsService) {}
+
+  @Get()
   @ApiOperation({
-    summary: 'Read your own candidature (candidature token)',
+    summary: 'Your candidature',
     description:
-      'Returns the dossier state for the candidate. Carries nothing internal: no admin ' +
+      'Status, reference and dossier. On refusal, `refusal` carries the reason as the ' +
+      'admin wrote it and `allowReapplyAfter`. Carries nothing internal: no admin ' +
       'notes, no position in the review queue.',
   })
-  @ApiParam({ name: 'id', description: 'Candidature uuid.' })
-  @ApiOkResponse({
-    description: 'Candidature with its documents and derived dossier status.',
-  })
-  async get(@CurrentApplication() application: ChefApplication) {
-    const dossier = await this.documents.dossier(
-      { kind: 'application', applicationId: application.id },
-      this.documents.answersOf(application),
-    );
-    return { ...this.applications.toCandidateView(application), ...dossier };
+  @ApiOkResponse({ description: 'Candidature with its documents and dossier status.' })
+  @ApiNotFoundResponse({ description: 'This account has no candidature.' })
+  @ApiClerkAuthResponses()
+  mine(@CurrentClerkUser() user: ClerkUser) {
+    return this.applications.mine(user.userId);
   }
 
-  @Post(':id/documents/:type/upload-url')
-  @UseGuards(ApplicationTokenGuard)
+  @Post('reapply')
   @ApiOperation({
-    summary: 'Get a signed upload URL for one document',
+    summary: 'Apply again after a refusal',
     description:
-      'Step 1 of 3. The browser then PUTs the file straight to private storage and calls ' +
-      '`confirm`. The file never transits the API. Rejects anything that is not PDF/JPEG/' +
-      'PNG/WebP, or larger than 10 MB.',
+      'Reopens the refused candidature with fresh answers, from the reapply date on. ' +
+      '`identity.email` must be the address of this account.',
+  })
+  @ApiCreatedResponse({ description: 'Candidature submitted again.' })
+  @ApiConflictResponse({
+    description:
+      '`APPLICATION_NOT_REJECTED` — only a refused candidature can be resubmitted; ' +
+      '`REAPPLY_TOO_EARLY` — before `allowReapplyAfter`.',
   })
   @ApiUnprocessableEntityResponse({
-    description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
+    description: '`VALIDATION_FAILED` — see the message for the field.',
   })
-  uploadUrl(
-    @CurrentApplication() application: ChefApplication,
-    @Param('type') type: string,
-    @Body() body: CreateUploadUrlDto,
-  ) {
-    return this.documents.createUploadUrl(
-      { kind: 'application', applicationId: application.id },
-      type,
-      body,
-    );
-  }
-
-  @Post(':id/documents/:type/confirm')
-  @UseGuards(ApplicationTokenGuard)
-  @ApiOperation({
-    summary: 'Confirm a deposited document',
-    description:
-      'Step 3 of 3. Verifies the object really is in the bucket before recording the ' +
-      'deposit, and records it as a **new version** — a document refused and corrected ' +
-      'keeps both deposits and the refusal reason.',
-  })
-  @ApiConflictResponse({
-    description: '`UPLOAD_NOT_CONFIRMED` — no uploaded file for that upload id.',
-  })
-  confirm(
-    @CurrentApplication() application: ChefApplication,
-    @Param('type') type: string,
-    @Body() body: ConfirmUploadDto,
+  @ApiClerkAuthResponses()
+  reapply(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: CreateChefApplicationDto,
     @Req() req: { id?: unknown },
   ) {
-    return this.documents.confirmUpload(
-      { kind: 'application', applicationId: application.id },
-      type,
-      body,
-      reqId(req),
-    );
-  }
-
-  @Post(':id/resend-link')
-  @UseGuards(ThrottlerGuard)
-  @ApiOperation({
-    summary: 'Send a fresh completion link',
-    description:
-      'Always to the address on the candidature, never to one supplied by the caller. ' +
-      'Capped at three sends per rolling 24 hours.',
-  })
-  @ApiOkResponse({ description: 'A new 30-day link was sent.' })
-  resendLink(@Param('id') id: string, @Req() req: { id?: unknown }) {
-    return this.applications.resendLink(id, reqId(req));
+    return this.applications.reapply(user.userId, payload, reqId(req));
   }
 }

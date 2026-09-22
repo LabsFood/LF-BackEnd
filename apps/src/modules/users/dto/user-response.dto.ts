@@ -179,15 +179,16 @@ export class ChefProfileDto {
 
   @ApiProperty({
     description:
-      'Whether the chef is live and bookable. Always `false` on self-registration; ' +
-      'only an admin can enable it via `PATCH /admin/chefs/:id/verification`.',
+      'Whether the chef is live and bookable. `false` from candidature submission; ' +
+      'set by an admin at approval or later, and only once the chef is verified.',
     example: false,
   })
   isActive!: boolean;
 
   @ApiProperty({
     description:
-      'Whether an admin has vetted this chef. Always `false` on self-registration.',
+      "Whether the chef's candidature was approved. `false` from submission until " +
+      'then: the account is browse-only.',
     example: false,
   })
   isVerified!: boolean;

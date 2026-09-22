@@ -55,7 +55,8 @@ export interface AppConfig {
       documentRejected?: number;
       changesRequested?: number;
       applicationRejected?: number;
-      welcomeMagicLink?: number;
+      applicationApproved?: number;
+      signInLink?: number;
       documentExpiring?: number;
       chefSuspended?: number;
     };
@@ -67,7 +68,7 @@ export interface AppConfig {
     json: boolean;
   };
   chefOnboarding: {
-    /** Base URL of the public site, used to build the completion link. */
+    /** Base URL of the public site, for the links in the chef-onboarding emails. */
     publicSiteUrl: string;
     /** Where the internal "new candidature" notification goes. */
     adminNotificationEmail?: string;
@@ -142,7 +143,8 @@ export const configLoader = (): AppConfig => ({
       documentRejected: optionalNumber(process.env.BREVO_TPL_DOCUMENT_REJECTED),
       changesRequested: optionalNumber(process.env.BREVO_TPL_CHANGES_REQUESTED),
       applicationRejected: optionalNumber(process.env.BREVO_TPL_APPLICATION_REJECTED),
-      welcomeMagicLink: optionalNumber(process.env.BREVO_TPL_WELCOME_MAGIC_LINK),
+      applicationApproved: optionalNumber(process.env.BREVO_TPL_APPLICATION_APPROVED),
+      signInLink: optionalNumber(process.env.BREVO_TPL_SIGN_IN_LINK),
       documentExpiring: optionalNumber(process.env.BREVO_TPL_DOCUMENT_EXPIRING),
       chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
     },

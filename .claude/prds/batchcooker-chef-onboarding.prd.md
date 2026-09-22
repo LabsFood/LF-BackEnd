@@ -1,6 +1,6 @@
 # Onboarding batch cooker — candidature, KYC et validation admin
 
-> Source of truth for behaviour: [`FLOW-01-candidature-batch-cooker.md`](../../../FLOW-01-candidature-batch-cooker.md).
+> Source of truth for behaviour: [`FLOW-01-candidature-batch-cooker.md`](../../../batchcooking-web/docs/api/FLOW-01-candidature-batch-cooker.md) (in `batchcooking-web`).
 > This PRD states *what must be true*; `/plan` decides *how*.
 > Companion PRD (separate branch): plats, menus et modération — [`FLOW-02`](../../../FLOW-02-plats-et-menus.md).
 
@@ -37,8 +37,8 @@ assumption can be tested against the first cohort.
 
 ## Users
 
-- **Primary — the candidate batch cooker.** Applies from the public site, has no account and will
-  not get one until approved. Typically a micro-entrepreneur, sometimes not yet registered,
+- **Primary — the candidate batch cooker.** Applies from the public site; submitting creates their
+  account, which stays browse-only until approved. Typically a micro-entrepreneur, sometimes not yet registered,
   sometimes on a residence permit. Gathers scans over days, not minutes, often on a phone. Needs
   to leave and come back without losing the dossier.
 - **Primary — the Lab's Food admin.** Works a review queue, opens identity documents, accepts or
@@ -51,8 +51,8 @@ assumption can be tested against the first cohort.
 
 ## Hypothesis
 
-We believe **a candidature that holds the dossier before the account exists, with server-derived
-document requirements and a written decision on every document**, will **let Lab's Food prove why
+We believe **a candidature whose dossier is built from a browse-only account before approval, with
+server-derived document requirements and a written decision on every document**, will **let Lab's Food prove why
 each chef was approved and let candidates complete a dossier over several sessions**, for
 **candidate batch cookers and the admins who vet them**.
 
@@ -77,8 +77,10 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 
 | Decision | Rationale |
 |---|---|
-| The account does not exist before approval | No Clerk user, no `users` row, no chef profile until an admin approves. Removes the unvetted-chef window entirely. |
-| Client→chef **self-promotion is removed**; `PATCH /me/chef-profile` stays as **update-only self-edit** | Two routes to becoming a chef, one unvetted, contradicted the whole premise. The route survives so an approved batch cooker can still edit their own `displayName`, `bio`, `city` and radius — but it never creates a profile and never changes a role, so a client calling it gets a 404 rather than being promoted. |
+| **Submitting a candidature creates the account**, browse-only until approval (decided 21/09/2026, reversing FLOW-01 §1) | The candidate works signed in from their dashboard instead of through a scoped link, which removes the candidate token, its resend endpoint and the account creation at approval. Unverified means the candidature and its documents are the only things the account can act on, enforced in the API. A refused candidate keeps the account, sees the reason and the reapply date, and reapplies from it. |
+| Public account creation proves the inbox before anything can happen | The Clerk user has no password and the sign-in link goes only to the submitted address, never into the response, so submitting someone else's address creates an account nobody can open. An address that already has an account is refused and nothing is attached to it. |
+| **Verification comes only from approval** | Every candidate holds a chef profile, so the admin flag endpoint refuses `isVerified: true` until the candidature is approved — otherwise it would skip the document check. |
+| Client→chef **self-promotion is removed**; `PATCH /me/chef-profile` stays as **update-only self-edit** | Two routes to becoming a chef, one unvetted, contradicted the whole premise. The route survives so an approved batch cooker can still edit their own `displayName`, `bio`, `city` and radius — but it never creates a profile and never changes a role, so a client calling it gets a 404, and a candidate awaiting approval a 403. |
 | KYC files live in **Supabase Storage**, private bucket, signed upload and read | Already a configured dependency with a service-role key. At projected volume (~15 MB/chef) storage cost is noise; the egress-price gap that favours object-storage vendors only matters for public high-traffic files, which KYC documents never are. Revisit for dish photos in FLOW-02. |
 | Transactional email via **Brevo hosted templates** | Copy is French, candidate-facing, and includes refusal reasons — marketing must be able to change wording without a deploy. Template IDs become configuration. |
 | Expiry and retention run as a **daily in-process scheduled job** | No queue infrastructure exists and none is warranted at this scale. Known ceiling: double-fires under multiple API replicas. |
@@ -93,17 +95,18 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 - Public candidature submission with server-side validation (SIRET Luhn check, SAP declaration
   format, intervention zones, conditional work-authorisation proof, consent capture) and
   server-computed document requirements.
-- A scoped, revocable, 30-day candidate access credential that grants exactly two powers: read
-  *this* candidature, deposit *its* documents. Resendable, rate-limited, invalidated on decision.
+- The account created at submission, reached through a single-use sign-in link sent to the
+  submitted address. Until approval it can read its candidature and handle its documents, nothing
+  else.
 - Document deposit by signed upload, three calls, file never transiting the API. Re-deposit
   creates a version; previous versions and refusal reasons survive.
 - Admin review: queue sorted by waiting time, per-document accept/refuse with a mandatory written
   reason, "request changes" without refusing, signed short-lived read URLs with an audit trail of
   who opened which document.
-- Approval as a single all-or-nothing transaction producing the Clerk user, the `users` row, the
-  chef profile, the copied documents and a first-login link — refused outright if any blocking
-  document is not valid.
-- Refusal with reason and optional re-application date, creating no account.
+- Approval as a single transaction that verifies the existing account and copies the answers onto
+  the chef profile — refused outright if any blocking document is not valid.
+- Refusal with reason and optional re-application date. The account stays, browse-only, and can
+  reapply from that date.
 - Living dossier for approved chefs: same deposit flow, version history, expiry warnings,
   automatic suspension when a blocking document expires, automatic reactivation on a valid
   re-deposit, and retention purge on the FLOW-01 §8 schedule.
@@ -117,7 +120,8 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 - **Real SIRET existence check against INSEE Sirene** — form and Luhn validation only. Flagged in
   FLOW-01 §10.1 as a separate improvement; it changes the refusal rate, not the flow.
 - **Merging a client account into a chef account** — a client who applies with an existing address
-  is refused with `EMAIL_ALREADY_USED`. Role merging is a data-model question, not an onboarding one.
+  is refused with `EMAIL_ALREADY_USED`. A client ↔ chef switcher was analysed and found cheap on the
+  backend; the decision is pending and it would ship with a self-dealing guard on bookings.
 - **`approval` and `criminal-record` document types** — exist in the reference list, no screen
   triggers them, and the policy for vulnerable-public work is not settled (FLOW-01 §10.4).
 - **Automated candidate reminders** — the cadence is undecided (FLOW-01 §10.3). Expiry alerts for
@@ -131,10 +135,10 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | Candidature accepted | A batch cooker submits from the public site, gets a reference and a 30-day link, and exists in the system without an account. The server decides which documents their answers require. | pending | — |
-| 2 | Dossier completable | The candidate returns via their link and deposits documents through signed uploads. Re-depositing versions rather than overwrites. The dossier status follows from the documents. | pending | — |
+| 1 | Candidature accepted | A batch cooker submits from the public site, gets a reference, and receives a sign-in link to a browse-only account. The server decides which documents their answers require. | pending | — |
+| 2 | Dossier completable | The candidate signs in and deposits documents through signed uploads. Re-depositing versions rather than overwrites. The dossier status follows from the documents. | pending | — |
 | 3 | Dossier reviewable | An admin works a queue sorted by waiting time, accepts or refuses each document with a written reason the candidate reads verbatim, or requests changes without refusing. Every document opened is logged. | pending | — |
-| 4 | Decision creates the account | Approval produces a working chef account and a first-login link in one transaction, and is refused if any blocking document is unvalidated. Refusal creates nothing. Self-promotion to chef no longer exists. | pending | — |
+| 4 | Decision verifies the account | Approval turns the browse-only account into a verified chef in one transaction, and is refused if any blocking document is unvalidated. Refusal leaves the account browse-only with the reason and the reapply date. Self-promotion to chef no longer exists. | pending | — |
 | 5 | Dossier stays alive | Approved chefs are warned before documents expire, suspended automatically when a blocking one lapses, reactivated on a valid re-deposit, and purged on the retention schedule. | pending | — |
 
 Milestones 1–4 are the testable hypothesis. Milestone 5 is what keeps it true past the first
@@ -146,7 +150,7 @@ renewal cycle.
       stored files, the database rows, or both. Deleting a dossier an admin approved may conflict
       with the "contract + 5 years" obligation on the chef's own documents.
 - [ ] **Candidate reminder cadence** (FLOW-01 §10.3) — after how many silent days is a candidature
-      dormant, and does dormancy differ from the 30-day link expiry?
+      dormant, short of the 6-month abandonment purge?
 - [ ] **Who counts as an admin reviewer** — the audit trail records *which* admin opened an
       identity document. Is a single `admin` role enough, or does document access need to be
       narrower than "any admin"?
@@ -167,11 +171,12 @@ renewal cycle.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Approval partially completes — account created in Clerk with no database row, or the reverse | Medium | High — an orphaned identity that can sign in with no profile, or a chef who cannot log in | All-or-nothing transaction; create the external identity last, after the database writes, and compensate by deleting it if a late step fails |
-| Identity documents leak through a mis-scoped or long-lived read link | Low | Severe — RGPD breach on identity papers | Private bucket, no public read, short-lived read links, audit trail on every read, candidate credential scoped to a single candidature |
+| Submission partially completes — account created in Clerk with no database row | Medium | High — an orphaned identity with no profile, and an address that can no longer apply | Everything that can fail runs before the database commit, in one transaction; any failure deletes the Clerk user |
+| A public endpoint that creates accounts is abused — someone applies with another person's address | Medium | Medium — an unwanted account and one email to the victim | No password on the account and the link only in that inbox, so nobody else can open it; an address already in use is refused; 5 submissions per hour per IP |
+| Identity documents leak through a mis-scoped or long-lived read link | Low | Severe — RGPD breach on identity papers | Private bucket, no public read, short-lived read links, audit trail on every read, documents reachable only by their own signed-in account and by admins |
 | Removing self-promotion breaks the live frontend | Medium | Medium — a client trying to become a chef through the old path hits a 404 | Narrowed by keeping the route for existing chefs' self-edit, so only the promotion call breaks; coordinate that cutover explicitly (open question above) |
 | Automatic suspension pulls a working chef's storefront offline | Medium | High — lost bookings and a chef who does not know why | The only unattended removal in the system: warn at J-60/J-30/J-7, state the cause in the email, reactivate automatically on a valid re-deposit |
-| Candidates abandon during document collection | Medium | High — the funnel metric is the hypothesis | Candidature submits with zero documents by design; only blocking documents gate approval; the link survives 30 days and is resendable |
+| Candidates abandon during document collection | Medium | High — the funnel metric is the hypothesis | Candidature submits with zero documents by design; only blocking documents gate approval; the candidate returns by signing in, with no link to lose |
 | Scheduled job double-fires under multiple API replicas | Low now, High after scaling | Medium — duplicate expiry emails | Accepted ceiling at current scale; make the job idempotent so a double run is harmless, and revisit when a second replica is added |
 | `GET /me` too slow, batch cookers land in the client space | Medium | Medium — visibly broken sign-in for chefs | The frontend gives up after 6 seconds and falls back to the client space; role resolution must be a fast, single read |
 

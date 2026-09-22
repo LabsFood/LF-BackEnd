@@ -20,6 +20,7 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isDisabledByAdmin } from './domain/chef-onboarding.rules';
 import { ConfirmUploadDto, CreateUploadUrlDto } from './dto/chef-document.dto';
 import { ChefDocumentsService } from './services/chef-documents.service';
 import { ChefDossierCron } from './services/chef-dossier.cron';
@@ -28,10 +29,9 @@ const reqId = (req: { id?: unknown }): string | undefined =>
   typeof req.id === 'string' ? req.id : undefined;
 
 /**
- * The living dossier of an approved batch cooker (FLOW-01 §7).
- *
- * Same deposit flow as the candidature, addressed by the chef profile instead of
- * the candidature — the rows are literally the same ones, so history carries over.
+ * A batch cooker's documents, from the candidature to the living dossier (FLOW-01
+ * §3, §7). The account and its chef profile exist from submission, so a candidate
+ * awaiting approval deposits here too, and the same rows carry over at approval.
  */
 @ApiTags('chef-documents')
 @ApiBearerAuth()
@@ -75,9 +75,9 @@ export class ChefDocumentsController {
       throw new NotFoundException('No candidature is linked to this profile.');
     }
     return this.documents.dossier(
-      { kind: 'chef', chefProfileId: profile.id },
+      profile.id,
       this.documents.answersOf(profile.application),
-      { disabled: !profile.isActive && profile.autoSuspendedAt === null },
+      { disabled: isDisabledByAdmin(profile) },
     );
   }
 
@@ -91,11 +91,7 @@ export class ChefDocumentsController {
     @Body() body: CreateUploadUrlDto,
   ) {
     const profile = await this.owner(user);
-    return this.documents.createUploadUrl(
-      { kind: 'chef', chefProfileId: profile.id },
-      type,
-      body,
-    );
+    return this.documents.createUploadUrl(profile.id, type, body);
   }
 
   @Post(':type/confirm')
@@ -114,7 +110,7 @@ export class ChefDocumentsController {
   ) {
     const profile = await this.owner(user);
     const document = await this.documents.confirmUpload(
-      { kind: 'chef', chefProfileId: profile.id },
+      profile.id,
       type,
       body,
       reqId(req),
@@ -135,6 +131,6 @@ export class ChefDocumentsController {
   @ApiClerkAuthResponses()
   async versions(@CurrentClerkUser() user: ClerkUser, @Param('type') type: string) {
     const profile = await this.owner(user);
-    return this.documents.versions({ kind: 'chef', chefProfileId: profile.id }, type);
+    return this.documents.versions(profile.id, type);
   }
 }

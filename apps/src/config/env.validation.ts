@@ -54,7 +54,8 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_DOCUMENT_REJECTED: Joi.number().optional(),
   BREVO_TPL_CHANGES_REQUESTED: Joi.number().optional(),
   BREVO_TPL_APPLICATION_REJECTED: Joi.number().optional(),
-  BREVO_TPL_WELCOME_MAGIC_LINK: Joi.number().optional(),
+  BREVO_TPL_APPLICATION_APPROVED: Joi.number().optional(),
+  BREVO_TPL_SIGN_IN_LINK: Joi.number().optional(),
   BREVO_TPL_DOCUMENT_EXPIRING: Joi.number().optional(),
   BREVO_TPL_CHEF_SUSPENDED: Joi.number().optional(),
 
@@ -64,7 +65,7 @@ export const envValidationSchema = Joi.object({
     .optional(),
   LOG_JSON: Joi.boolean().truthy('true').falsy('false').optional(),
 
-  /** Base URL used to build the candidate completion link. */
+  /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),
   CHEF_APPLICATION_ADMIN_EMAIL: Joi.string().email().allow('').optional(),
 

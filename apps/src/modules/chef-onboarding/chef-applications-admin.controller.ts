@@ -31,6 +31,7 @@ import {
 } from './dto/admin-chef-application.dto';
 import { DecideDocumentDto } from './dto/chef-document.dto';
 import { ChefApplicationsAdminService } from './services/chef-applications-admin.service';
+import { ChefApplicationsService } from './services/chef-applications.service';
 
 const reqId = (req: { id?: unknown }): string | undefined =>
   typeof req.id === 'string' ? req.id : undefined;
@@ -42,6 +43,7 @@ const reqId = (req: { id?: unknown }): string | undefined =>
 export class ChefApplicationsAdminController {
   constructor(
     private readonly admin: ChefApplicationsAdminService,
+    private readonly applications: ChefApplicationsService,
     private readonly users: UsersService,
   ) {}
 
@@ -98,8 +100,8 @@ export class ChefApplicationsAdminController {
     summary: 'Accept or refuse one document',
     description:
       'A refusal needs a reason of 15 to 500 characters, which the candidate reads ' +
-      'verbatim, and sends them a fresh link to correct it. Returns the recomputed ' +
-      'dossier status, because one decision can change the whole picture.',
+      'verbatim, and emails them a link to their dossier (signed in). Returns the ' +
+      'recomputed dossier status, because one decision can change the whole picture.',
   })
   @ApiConflictResponse({
     description: '`REASON_REQUIRED` when refusing without a reason.',
@@ -125,7 +127,9 @@ export class ChefApplicationsAdminController {
   @ApiOperation({
     summary: 'Ask for a correction without refusing',
     description:
-      'Moves the candidature to `changes-requested` and extends the link by 30 days.',
+      'Moves the candidature to `changes-requested` and emails a link to the dossier ' +
+      '(sign-in required). A candidate who never used their first sign-in link needs ' +
+      '`POST /admin/chef-users/:id/resend-invitation`.',
   })
   @ApiAdminAuthResponses()
   async requestChanges(
@@ -139,17 +143,20 @@ export class ChefApplicationsAdminController {
 
   @Post('chef-applications/:id/approve')
   @ApiOperation({
-    summary: 'Approve and create the batch cooker account',
+    summary: "Approve: verify the candidate's account",
     description:
-      'One transaction: Clerk user, `users` row, chef profile, documents carried over, ' +
-      'candidature token revoked, first-login link sent. **Refused with ' +
+      'The account exists since submission. One transaction moves the candidature to ' +
+      '`approved` (only from an undecided status), sets `isVerified`, sets `isActive` ' +
+      'from the body and copies the approved answers onto the chef profile. No Clerk ' +
+      'call; the candidate gets the "approved" email. **Refused with ' +
       '`DOCUMENT_REQUIRED` if any blocking document is not valid** — this is what ' +
-      'guarantees no active chef exists without a validated identity document. ' +
-      'Idempotent: approving twice returns the first result rather than creating a ' +
-      'second account.',
+      'guarantees no verified chef exists without a validated identity document. ' +
+      'Idempotent: approving an approved candidature returns the same result.',
   })
   @ApiConflictResponse({
-    description: '`DOCUMENT_REQUIRED` — blocking documents still unvalidated.',
+    description:
+      '`DOCUMENT_REQUIRED` — blocking documents still unvalidated; ' +
+      '`APPLICATION_DECIDED` — already rejected, or decided concurrently.',
   })
   @ApiAdminAuthResponses()
   async approve(
@@ -164,7 +171,9 @@ export class ChefApplicationsAdminController {
   @Post('chef-applications/:id/reject')
   @ApiOperation({
     summary: 'Refuse a candidature',
-    description: 'Creates no account. The reason is sent to the candidate verbatim.',
+    description:
+      'The account stays, unverified and browse-only; the candidate sees the reason ' +
+      'verbatim and `allowReapplyAfter`, and can reapply from that date.',
   })
   @ApiAdminAuthResponses()
   async reject(
@@ -178,8 +187,10 @@ export class ChefApplicationsAdminController {
 
   @Post('chef-users/:id/resend-invitation')
   @ApiOperation({
-    summary: 'Send the first-login link again',
-    description: '`:id` is the Postgres user uuid of an approved batch cooker.',
+    summary: 'Send the sign-in link again',
+    description:
+      'For a batch cooker, candidate or approved, whose first link expired before they ' +
+      "used it. Always sent to the account's own address. `:id` is the Postgres user uuid.",
   })
   @ApiAdminAuthResponses()
   async resendInvitation(
@@ -187,6 +198,6 @@ export class ChefApplicationsAdminController {
     @CurrentClerkUser() user: ClerkUser,
     @Req() req: { id?: unknown },
   ) {
-    return this.admin.resendInvitation(id, await this.adminId(user), reqId(req));
+    return this.applications.resendSignInLink(id, await this.adminId(user), reqId(req));
   }
 }

@@ -213,6 +213,20 @@ export function canApprove(status: DossierStatus): boolean {
   return status === 'validated';
 }
 
+/**
+ * Taken offline by an admin — the dossier reads `disabled`.
+ *
+ * A candidate awaiting approval is also inactive with no suspension episode, but is
+ * not disabled: their dossier is still being built. Only a verified chef can be.
+ */
+export function isDisabledByAdmin(profile: {
+  isVerified: boolean;
+  isActive: boolean;
+  autoSuspendedAt: Date | null;
+}): boolean {
+  return profile.isVerified && !profile.isActive && profile.autoSuspendedAt === null;
+}
+
 // ------------------------------------------------------------------ validation
 
 /**

@@ -22,7 +22,6 @@ model User {
   clientProfile       ClientProfile?
   quotes              Quote[]           @relation("QuoteClient")
   applicationsDecided ChefApplication[] @relation("ChefApplicationDecidedBy")
-  applicationApproved ChefApplication?  @relation("ChefApplicationApprovedUser")
   documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
   auditEntries        AuditLog[]        @relation("AuditLogActor")
 
@@ -362,11 +361,12 @@ enum QuoteStatus {
 
 /// A « devenir batch cooker » candidature (FLOW-01).
 ///
-/// Deliberately **not** a user: no `users` row and no Clerk account exist until an
-/// admin approves. The candidate acts with a scoped token (`tokenHash`) instead.
+/// Submitting one creates the account: a Clerk user, a `users` row and an
+/// unverified chef profile, linked here through `chefProfileId`. The candidate then
+/// works signed in, browse-only until approval sets `isVerified`.
 ///
-/// Email uniqueness among undecided candidatures is enforced by a partial unique
-/// index created in the migration; Prisma cannot express `WHERE status IN (...)`.
+/// The row is the verbatim record of what was submitted, consent included, so it
+/// outlives a deleted account (`chefProfileId` is set null, never cascaded).
 model ChefApplication {
   id        String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   reference String                @unique(map: "uq_chef_applications_reference") @db.VarChar(32)
@@ -399,14 +399,6 @@ model ChefApplication {
   consentTerms         Boolean  @map("consent_terms")
   consentAcceptedAt    DateTime @map("consent_accepted_at") @db.Timestamptz(6)
 
-  /// SHA-256 of the candidate access token. Nulled on decision, which is what
-  /// "revoked" means — an opaque token revokes by deletion, a JWT could not.
-  tokenHash             String?   @map("token_hash") @db.VarChar(64)
-  tokenExpiresAt        DateTime? @map("token_expires_at") @db.Timestamptz(6)
-  /// Rolling 24 h window backing the 3-resends-per-day cap (FLOW-01 §4).
-  resendCount           Int       @default(0) @map("resend_count")
-  resendWindowStartedAt DateTime? @map("resend_window_started_at") @db.Timestamptz(6)
-
   submittedAt        DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(6)
   /// Drives the 6-month purge of abandoned candidatures (FLOW-01 §8).
   lastActivityAt     DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(6)
@@ -416,18 +408,14 @@ model ChefApplication {
   decisionReasonCode String?   @map("decision_reason_code") @db.VarChar(64)
   allowReapplyAfter  DateTime? @map("allow_reapply_after") @db.Date
 
-  /// Set by approval. Its presence is what makes `approve` idempotent — a second
-  /// call returns the first result instead of creating a second account.
-  approvedUserId String? @unique(map: "uq_chef_applications_approved_user_id") @map("approved_user_id") @db.Uuid
-  chefProfileId  String? @unique(map: "uq_chef_applications_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  /// Set at submission. Nullable only so the row survives the account's deletion.
+  chefProfileId String? @unique(map: "uq_chef_applications_chef_profile_id") @map("chef_profile_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  documents    ChefDocument[]
-  decidedBy    User?          @relation("ChefApplicationDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_decided_by")
-  approvedUser User?          @relation("ChefApplicationApprovedUser", fields: [approvedUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_approved_user")
-  chefProfile  ChefProfile?   @relation("ChefProfileApplication", fields: [chefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_chef_profile")
+  decidedBy   User?        @relation("ChefApplicationDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_decided_by")
+  chefProfile ChefProfile? @relation("ChefProfileApplication", fields: [chefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_applications_chef_profile")
 
   @@index([status, submittedAt], map: "ix_chef_applications_status_submitted_at")
   @@index([email], map: "ix_chef_applications_email")
@@ -436,17 +424,15 @@ model ChefApplication {
 
 /// One row per **deposit**, never updated in place on re-deposit (FLOW-01 §3.3).
 ///
-/// The same row serves the candidature and, after approval, the chef dossier:
-/// approval sets `chefProfileId` rather than copying rows, so versions, refusal
-/// reasons and timestamps are preserved by construction instead of by a copy step
-/// that could drift.
+/// Owned by the chef profile from the first upload: the candidature and the
+/// approved chef's living dossier are the same rows, so versions, refusal reasons
+/// and timestamps carry over without a copy step that could drift.
 ///
 /// There is no `missing` status and no placeholder row: a missing document is one
 /// the required-list computes but that has no row yet.
 model ChefDocument {
   id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId String?            @map("application_id") @db.Uuid
-  chefProfileId String?            @map("chef_profile_id") @db.Uuid
+  chefProfileId String             @map("chef_profile_id") @db.Uuid
   type          ChefDocumentType
   status        ChefDocumentStatus @default(submitted)
   /// 1-based, incremented per (owner, type) at confirm time.
@@ -472,12 +458,10 @@ model ChefDocument {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  application ChefApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_documents_application")
-  chefProfile ChefProfile?     @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_documents_chef_profile")
-  decidedBy   User?            @relation("ChefDocumentDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_documents_decided_by")
+  chefProfile ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_documents_chef_profile")
+  decidedBy   User?       @relation("ChefDocumentDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_documents_decided_by")
 
-  @@unique([applicationId, type, version], map: "uq_chef_documents_application_type_version")
-  @@index([chefProfileId, type, version], map: "ix_chef_documents_chef_profile_type_version")
+  @@unique([chefProfileId, type, version], map: "uq_chef_documents_chef_profile_type_version")
   @@index([status, expiresOn], map: "ix_chef_documents_status_expires_on")
   @@map("chef_documents")
 }

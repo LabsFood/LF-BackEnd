@@ -11,6 +11,7 @@ const inDays = (n: number) => new Date(Date.now() + n * DAY);
 
 const chefProfile = (over: Record<string, unknown> = {}) => ({
   id: 'cp-1',
+  isVerified: true,
   isActive: true,
   autoSuspendedAt: null,
   user: { email: 'marie@exemple.fr', fullName: 'Marie Dupont' },
@@ -22,7 +23,7 @@ describe('ChefDossierCron', () => {
   let prisma: {
     chefDocument: { findMany: jest.Mock; update: jest.Mock; deleteMany: jest.Mock };
     chefProfile: { update: jest.Mock; findUnique: jest.Mock };
-    chefApplication: { findMany: jest.Mock };
+    chefApplication: { findMany: jest.Mock; deleteMany: jest.Mock };
   };
   let mailer: { documentExpiring: jest.Mock; chefSuspended: jest.Mock };
   let storage: { removeObjects: jest.Mock };
@@ -40,7 +41,10 @@ describe('ChefDossierCron', () => {
         deleteMany: jest.fn(),
       },
       chefProfile: { update: jest.fn(), findUnique: jest.fn() },
-      chefApplication: { findMany: jest.fn().mockResolvedValue([]) },
+      chefApplication: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
+      },
     };
     mailer = {
       documentExpiring: jest.fn().mockResolvedValue({ sent: true }),
@@ -87,6 +91,13 @@ describe('ChefDossierCron', () => {
           data: { status: ChefDocumentStatus.expiring, expiryNoticeDays: threshold },
         }),
       );
+    });
+
+    it('warns verified chefs only — a candidate’s piece lapsing mid-review is the review’s business', async () => {
+      await cron.runDaily();
+      expect(prisma.chefDocument.findMany.mock.calls[0][0].where.chefProfile).toEqual({
+        isVerified: true,
+      });
     });
 
     it('does not warn a document still more than 60 days out', async () => {
@@ -232,6 +243,14 @@ describe('ChefDossierCron', () => {
       expect(prisma.chefProfile.update).not.toHaveBeenCalled();
     });
 
+    it('never brings an unverified profile online, whatever its documents say', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(suspended({ isVerified: false }));
+      documents.deriveStatus.mockReturnValue('validated');
+
+      await expect(cron.refreshActivation('cp-1')).resolves.toBe(false);
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
     it('does nothing for a chef with no linked candidature', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(
         chefProfile({ autoSuspendedAt: new Date(), application: null }),
@@ -241,43 +260,34 @@ describe('ChefDossierCron', () => {
   });
 
   describe('retention purge', () => {
-    it('deletes the files and rows of an abandoned candidature but keeps the consent proof', async () => {
+    it('deletes the files and rows of an abandoned candidature, keeping the account and the consent proof', async () => {
       prisma.chefApplication.findMany.mockResolvedValue([
         {
           id: 'app-old',
           status: 'submitted',
-          documents: [
-            {
-              id: 'd1',
-              chefProfileId: null,
-              storagePath: 'applications/app-old/identity/up_1',
-            },
-          ],
+          chefProfile: {
+            documents: [{ id: 'd1', storagePath: 'chefs/cp-1/identity/up_1' }],
+          },
         },
       ]);
       await cron.runDaily();
 
-      expect(storage.removeObjects).toHaveBeenCalledWith([
-        'applications/app-old/identity/up_1',
-      ]);
+      expect(storage.removeObjects).toHaveBeenCalledWith(['chefs/cp-1/identity/up_1']);
       expect(prisma.chefDocument.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: ['d1'] } },
       });
-      // The candidature row survives: §8 keeps the consent proof for 5 years.
-      expect(prisma.chefApplication).not.toHaveProperty('deleteMany');
+      // The candidature row survives: §8 keeps the consent proof for 5 years. So
+      // does the account: a refused candidate keeps it, browse-only.
+      expect(prisma.chefApplication.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
     });
 
-    it('never purges a document that was carried over to an approved chef', async () => {
-      prisma.chefApplication.findMany.mockResolvedValue([
-        {
-          id: 'app-approved',
-          status: 'rejected',
-          documents: [{ id: 'd2', chefProfileId: 'cp-1', storagePath: 'x' }],
-        },
-      ]);
+    it('only ever looks at unverified profiles — a verified chef’s documents are their live dossier', async () => {
       await cron.runDaily();
-      expect(storage.removeObjects).not.toHaveBeenCalled();
-      expect(prisma.chefDocument.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.chefApplication.findMany.mock.calls[0][0].where.chefProfile).toEqual({
+        isVerified: false,
+        documents: { some: {} },
+      });
     });
   });
 

@@ -1,21 +1,16 @@
 import {
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
-  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   ChefApplicationStatus,
   ChefDocumentStatus,
   Prisma,
-  UserRole,
 } from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
-import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -33,36 +28,53 @@ import { ChefDocumentsService } from './chef-documents.service';
 import { ChefDossierCron } from './chef-dossier.cron';
 import { KycStorageService } from './kyc-storage.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
-import { mintApplicationToken } from './application-token';
 
 const AWAITING_DECISION: ChefDocumentStatus[] = [
   ChefDocumentStatus.submitted,
   ChefDocumentStatus.reviewing,
 ];
 
+/** Statuses an admin may still decide on. */
+const UNDECIDED: ChefApplicationStatus[] = [
+  ChefApplicationStatus.submitted,
+  ChefApplicationStatus.changes_requested,
+];
+
+const APPLICATION_DECIDED = {
+  code: 'APPLICATION_DECIDED',
+  message: 'This candidature has already been decided.',
+};
+
 @Injectable()
 export class ChefApplicationsAdminService {
-  private readonly logger = new Logger(ChefApplicationsAdminService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly documents: ChefDocumentsService,
     private readonly storage: KycStorageService,
     private readonly audit: AuditService,
     private readonly mailer: ChefOnboardingMailer,
-    private readonly clerk: ClerkService,
-    private readonly config: ConfigService,
     private readonly dossier: ChefDossierCron,
   ) {}
+
+  /**
+   * A candidature with its account. One whose account was deleted survives only as
+   * the 5-year consent proof (FLOW-01 §8) and is no longer an admin's to review.
+   */
+  private async load(id: string) {
+    const application = await this.prisma.chefApplication.findUnique({ where: { id } });
+    if (!application?.chefProfileId)
+      throw new NotFoundException('Candidature not found.');
+    return { ...application, chefProfileId: application.chefProfileId };
+  }
 
   /** FLOW-01 §5.1 — the review queue, oldest wait first. */
   async list(query: ListChefApplicationsQueryDto) {
     const bounds = resolvePageBounds(query);
-    const where: Prisma.ChefApplicationWhereInput = {};
+    const where: Prisma.ChefApplicationWhereInput = { chefProfileId: { not: null } };
 
     if (query.status) where.status = fromWire(query.status) as ChefApplicationStatus;
     if (query.hasPendingDocuments) {
-      where.documents = { some: { status: { in: AWAITING_DECISION } } };
+      where.chefProfile = { documents: { some: { status: { in: AWAITING_DECISION } } } };
     }
     if (query.q) {
       const q = query.q.trim();
@@ -89,10 +101,15 @@ export class ChefApplicationsAdminService {
         skip: bounds.skip,
         take: bounds.take,
         include: {
-          documents: { select: { type: true, status: true, version: true } },
           // `autoSuspendedAt` still set while the chef is live means they were
           // reactivated on the strength of an unreviewed replacement.
-          chefProfile: { select: { isActive: true, autoSuspendedAt: true } },
+          chefProfile: {
+            select: {
+              isActive: true,
+              autoSuspendedAt: true,
+              documents: { select: { type: true, status: true, version: true } },
+            },
+          },
         },
       }),
       this.prisma.chefApplication.count({ where }),
@@ -102,7 +119,8 @@ export class ChefApplicationsAdminService {
     return {
       data: rows.map((row) => {
         const latest = new Map<string, ChefDocumentStatus>();
-        for (const doc of [...row.documents].sort((a, b) => b.version - a.version)) {
+        const documents = row.chefProfile?.documents ?? [];
+        for (const doc of [...documents].sort((a, b) => b.version - a.version)) {
           if (!latest.has(doc.type)) latest.set(doc.type, doc.status);
         }
         // Live right now on a document nobody has looked at yet. These jump the
@@ -134,11 +152,10 @@ export class ChefApplicationsAdminService {
 
   /** Full dossier for one candidature, including everything the candidate cannot see. */
   async detail(id: string) {
-    const application = await this.prisma.chefApplication.findUnique({ where: { id } });
-    if (!application) throw new NotFoundException('Candidature not found.');
+    const application = await this.load(id);
 
     const dossier = await this.documents.dossier(
-      { kind: 'application', applicationId: id },
+      application.chefProfileId,
       this.documents.answersOf(application),
     );
 
@@ -179,6 +196,7 @@ export class ChefApplicationsAdminService {
       },
       submittedAt: application.submittedAt,
       decidedAt: application.decidedAt,
+      chefProfileId: application.chefProfileId,
       ...dossier,
     };
   }
@@ -191,8 +209,9 @@ export class ChefApplicationsAdminService {
     requestId?: string,
   ) {
     const type = this.documents.parseType(wireType);
+    const { chefProfileId } = await this.load(applicationId);
     const document = await this.prisma.chefDocument.findFirst({
-      where: { applicationId, type },
+      where: { chefProfileId, type },
       orderBy: { version: 'desc' },
     });
     if (!document) throw new NotFoundException('No document deposited for this type.');
@@ -231,13 +250,10 @@ export class ChefApplicationsAdminService {
       });
     }
 
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
+    const application = await this.load(applicationId);
 
     const current = await this.prisma.chefDocument.findFirst({
-      where: { applicationId, type },
+      where: { chefProfileId: application.chefProfileId, type },
       orderBy: { version: 'desc' },
     });
     if (!current) throw new NotFoundException('No document deposited for this type.');
@@ -273,25 +289,19 @@ export class ChefApplicationsAdminService {
 
     // Both outcomes matter: accepting closes the suspension episode, refusing
     // takes a chef who was reactivated on trust back offline.
-    if (updated.chefProfileId) {
-      await this.dossier.refreshActivation(updated.chefProfileId);
-    }
+    await this.dossier.refreshActivation(application.chefProfileId);
 
     if (body.decision === 'rejected') {
-      // The candidate needs a live link to come back and correct it.
-      const token = await this.refreshToken(applicationId);
       await this.mailer.documentRejected({
         email: application.email,
         firstName: application.firstName,
         documentLabel: DOCUMENT_LABEL[type],
         reason: updated.reason!,
-        applicationId,
-        token,
       });
     }
 
     const dossier = await this.documents.dossier(
-      { kind: 'application', applicationId },
+      application.chefProfileId,
       this.documents.answersOf(application),
     );
 
@@ -310,25 +320,17 @@ export class ChefApplicationsAdminService {
     };
   }
 
-  /** FLOW-01 §5.4 — ask for more without refusing, and extend the link. */
+  /** FLOW-01 §5.4 — ask for more without refusing. */
   async requestChanges(
     applicationId: string,
     body: RequestChangesDto,
     adminUserId: string,
     requestId?: string,
   ) {
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
-    this.assertUndecided(application.status);
-
+    const application = await this.load(applicationId);
     const types = body.documentTypes.map((t) => this.documents.parseType(t));
-    const token = await this.refreshToken(applicationId);
-
-    await this.prisma.chefApplication.update({
-      where: { id: applicationId },
-      data: { status: ChefApplicationStatus.changes_requested },
+    await this.transition(applicationId, {
+      status: ChefApplicationStatus.changes_requested,
     });
 
     await this.audit.record({
@@ -346,8 +348,6 @@ export class ChefApplicationsAdminService {
       firstName: application.firstName,
       message: body.message,
       documentLabels: types.map((t) => DOCUMENT_LABEL[t]),
-      applicationId,
-      token,
     });
 
     return {
@@ -356,43 +356,32 @@ export class ChefApplicationsAdminService {
     };
   }
 
-  /** A fresh 30-day token whenever the candidate is asked to come back. */
-  private async refreshToken(applicationId: string): Promise<string> {
-    const { token, tokenHash, expiresAt } = mintApplicationToken();
-    await this.prisma.chefApplication.update({
-      where: { id: applicationId },
-      data: { tokenHash, tokenExpiresAt: expiresAt },
+  /**
+   * Moves an undecided candidature on, atomically: the status check and the write
+   * are one statement, so an approval and a refusal racing each other cannot both
+   * land. Runs inside the caller's transaction when given one.
+   */
+  private async transition(
+    applicationId: string,
+    data: Prisma.ChefApplicationUncheckedUpdateManyInput,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const { count } = await tx.chefApplication.updateMany({
+      where: { id: applicationId, status: { in: UNDECIDED } },
+      data,
     });
-    return token;
+    if (count === 0) throw new ConflictException(APPLICATION_DECIDED);
   }
-
-  private assertUndecided(status: ChefApplicationStatus): void {
-    if (
-      status === ChefApplicationStatus.approved ||
-      status === ChefApplicationStatus.rejected
-    ) {
-      throw new ConflictException({
-        code: 'APPLICATION_DECIDED',
-        message: 'This candidature has already been decided.',
-      });
-    }
-  }
-
-  /** FLOW-01 §6 — the first-login link lasts 7 days and is single use. */
-  private static readonly INVITATION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
   /**
-   * FLOW-01 §6 — approval, and the only thing that ever creates a chef account.
+   * FLOW-01 §6 — approval: the candidate's account becomes a verified chef.
    *
-   * Idempotent by state rather than by an idempotency table: a second call on an
-   * already-approved candidature returns the first result instead of creating a
-   * second account, which is what an `Idempotency-Key` would have bought.
+   * The account and its chef profile already exist from submission, so this is a
+   * state change in one transaction — no Clerk call, nothing to compensate. The
+   * answers are copied onto the profile here rather than at submission, so a
+   * reapplication can change them without touching a live profile.
    *
-   * Ordering note: the flow document suggests creating the Clerk user last. The
-   * `users.clerk_user_id` column is NOT NULL, so the Postgres row cannot exist
-   * before it. The stated goal — never leave a Clerk account without a `users`
-   * row — is met instead by creating Clerk first and deleting it if the Postgres
-   * transaction then fails.
+   * Idempotent by state: approving an approved candidature returns the same result.
    */
   async approve(
     applicationId: string,
@@ -400,10 +389,7 @@ export class ChefApplicationsAdminService {
     adminUserId: string,
     requestId?: string,
   ) {
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
+    const application = await this.load(applicationId);
 
     if (application.status === ChefApplicationStatus.approved) {
       return this.approvedResult(applicationId);
@@ -415,9 +401,9 @@ export class ChefApplicationsAdminService {
       });
     }
 
-    // The guardrail: no active chef without a validated blocking document set.
+    // The guardrail: no verified chef without a validated blocking document set.
     const dossier = await this.documents.dossier(
-      { kind: 'application', applicationId },
+      application.chefProfileId,
       this.documents.answersOf(application),
     );
     if (!dossier.canApprove) {
@@ -443,110 +429,31 @@ export class ChefApplicationsAdminService {
       });
     }
 
-    if (!this.clerk.configured) {
-      throw new ServiceUnavailableException(
-        'Approving a candidature requires a real CLERK_SECRET_KEY (not sk_test_placeholder).',
-      );
-    }
-
-    const existing = await this.prisma.user.findUnique({
-      where: { email: application.email },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new ConflictException({
-        code: 'EMAIL_ALREADY_USED',
-        message: 'A user already exists for this email address.',
-      });
-    }
-
-    const clerk = this.clerk.getClient();
-    const clerkUser = await clerk.users.createUser({
-      emailAddress: [application.email],
-      firstName: application.firstName,
-      lastName: application.lastName,
-      skipPasswordRequirement: true,
-    });
-
-    let created: { userId: string; chefProfileId: string };
-    try {
-      created = await this.prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            clerkUserId: clerkUser.id,
-            email: application.email,
-            fullName: `${application.firstName} ${application.lastName}`,
-            phone: application.phone,
-            role: UserRole.chef,
-          },
-        });
-
-        const profile = await tx.chefProfile.create({
-          data: {
-            userId: user.id,
-            displayName: `${application.firstName} ${application.lastName}`,
-            city: application.addressCity,
-            isVerified: true,
-            isActive: body.isActive ?? false,
-            interventionZones: application.interventionZones as Prisma.InputJsonValue,
-            sapPath: application.sapPath,
-            sapDeclarationNumber: application.sapDeclarationNumber,
-          },
-        });
-
-        // Not a copy: the same rows gain a second owner, so versions, refusal
-        // reasons and timestamps carry over without a chance to diverge.
-        await tx.chefDocument.updateMany({
-          where: { applicationId },
-          data: { chefProfileId: profile.id },
-        });
-
-        await tx.chefApplication.update({
-          where: { id: applicationId },
-          data: {
-            status: ChefApplicationStatus.approved,
-            decidedAt: new Date(),
-            decidedByUserId: adminUserId,
-            approvedUserId: user.id,
-            chefProfileId: profile.id,
-            // Revoking the candidate token is a column write, not a blocklist.
-            tokenHash: null,
-            tokenExpiresAt: null,
-          },
-        });
-
-        return { userId: user.id, chefProfileId: profile.id };
-      });
-    } catch (error) {
-      // Compensation: never leave a Clerk account with no `users` row behind it.
-      try {
-        await clerk.users.deleteUser(clerkUser.id);
-      } catch (cleanupError) {
-        this.logger.error(
-          `Orphaned Clerk user ${clerkUser.id} after a failed approval of ${applicationId}`,
-          cleanupError instanceof Error ? cleanupError.stack : String(cleanupError),
-        );
-      }
-      await this.audit.failed(
+    await this.prisma.$transaction(async (tx) => {
+      await this.transition(
+        applicationId,
         {
-          actorType: 'admin',
-          actorUserId: adminUserId,
-          action: 'application.approve',
-          subjectType: 'chef_application',
-          subjectId: applicationId,
-          requestId,
-          metadata: { clerkUserId: clerkUser.id, compensated: true },
+          status: ChefApplicationStatus.approved,
+          decidedAt: new Date(),
+          decidedByUserId: adminUserId,
         },
-        error,
+        tx,
       );
-      throw error;
-    }
-
-    const invitation = await this.sendInvitation(
-      clerkUser.id,
-      application.email,
-      application.firstName,
-    );
+      await tx.chefProfile.update({
+        where: { id: application.chefProfileId },
+        data: {
+          isVerified: true,
+          isActive: body.isActive ?? false,
+          // From the approved answers: a reapplication may have changed them since
+          // the profile was created at the first submission.
+          displayName: `${application.firstName} ${application.lastName}`,
+          city: application.addressCity,
+          interventionZones: application.interventionZones as Prisma.InputJsonValue,
+          sapPath: application.sapPath,
+          sapDeclarationNumber: application.sapDeclarationNumber,
+        },
+      });
+    });
 
     await this.audit.record({
       actorType: 'admin',
@@ -556,87 +463,37 @@ export class ChefApplicationsAdminService {
       subjectId: applicationId,
       requestId,
       metadata: {
-        userId: created.userId,
-        chefProfileId: created.chefProfileId,
+        chefProfileId: application.chefProfileId,
         isActive: body.isActive ?? false,
         note: body.note ?? null,
       },
     });
 
-    return this.approvedResult(applicationId, invitation);
-  }
-
-  /** Mints and mails the single-use first-login link. */
-  private async sendInvitation(clerkUserId: string, email: string, firstName: string) {
-    const expiresAt = new Date(
-      Date.now() + ChefApplicationsAdminService.INVITATION_TTL_SECONDS * 1000,
-    );
-    const signIn = await this.clerk.getClient().signInTokens.createSignInToken({
-      userId: clerkUserId,
-      expiresInSeconds: ChefApplicationsAdminService.INVITATION_TTL_SECONDS,
+    await this.mailer.applicationApproved({
+      email: application.email,
+      firstName: application.firstName,
     });
 
-    const siteUrl = this.config
-      .get<string>('chefOnboarding.publicSiteUrl', 'https://labsfood.fr')
-      .replace(/\/$/, '');
-    const signInUrl =
-      (signIn as { url?: string }).url ?? `${siteUrl}/connexion?ticket=${signIn.token}`;
-
-    await this.mailer.welcomeMagicLink({ email, firstName, signInUrl, expiresAt });
-    return { channel: 'magic-link' as const, sentTo: email, expiresAt };
-  }
-
-  /** `POST /admin/chef-users/:id/resend-invitation` (FLOW-01 §6). */
-  async resendInvitation(userId: string, adminUserId: string, requestId?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { clerkUserId: true, email: true, fullName: true, role: true },
-    });
-    if (!user) throw new NotFoundException('User not found.');
-    if (user.role !== UserRole.chef) {
-      throw new ConflictException({
-        code: 'NOT_A_CHEF',
-        message: 'Only a batch cooker account can be re-invited.',
-      });
-    }
-    if (!this.clerk.configured) {
-      throw new ServiceUnavailableException('Clerk is not configured.');
-    }
-
-    const invitation = await this.sendInvitation(
-      user.clerkUserId,
-      user.email,
-      user.fullName?.split(' ')[0] ?? '',
-    );
-
-    await this.audit.record({
-      actorType: 'admin',
-      actorUserId: adminUserId,
-      action: 'chef.invitation_resent',
-      subjectType: 'user',
-      subjectId: userId,
-      requestId,
-    });
-
-    return invitation;
+    return this.approvedResult(applicationId);
   }
 
   /** Shape returned by a first approval and by every idempotent repeat of it. */
-  private async approvedResult(
-    applicationId: string,
-    invitation?: { channel: 'magic-link'; sentTo: string; expiresAt: Date },
-  ) {
+  private async approvedResult(applicationId: string) {
     const application = await this.prisma.chefApplication.findUniqueOrThrow({
       where: { id: applicationId },
       include: {
-        approvedUser: {
-          select: { id: true, clerkUserId: true, email: true, role: true },
-        },
         chefProfile: {
-          select: { id: true, displayName: true, isVerified: true, isActive: true },
+          select: {
+            id: true,
+            displayName: true,
+            isVerified: true,
+            isActive: true,
+            user: { select: { id: true, clerkUserId: true, email: true, role: true } },
+          },
         },
       },
     });
+    const { user, ...chefProfile } = application.chefProfile!;
 
     return {
       application: {
@@ -644,39 +501,30 @@ export class ChefApplicationsAdminService {
         status: toWire(application.status),
         approvedAt: application.decidedAt,
       },
-      user: application.approvedUser,
-      chefProfile: application.chefProfile,
-      invitation: invitation ?? null,
+      user,
+      chefProfile,
     };
   }
 
-  /** FLOW-01 §6 — refusal creates no account. */
+  /**
+   * FLOW-01 §6 — refusal. The account stays, unverified and browse-only, showing the
+   * reason and the reapply date (`GET /me/chef-application`).
+   */
   async reject(
     applicationId: string,
     body: RejectApplicationDto,
     adminUserId: string,
     requestId?: string,
   ) {
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
-    this.assertUndecided(application.status);
+    const application = await this.load(applicationId);
 
-    await this.prisma.chefApplication.update({
-      where: { id: applicationId },
-      data: {
-        status: ChefApplicationStatus.rejected,
-        decidedAt: new Date(),
-        decidedByUserId: adminUserId,
-        decisionReason: body.reason.trim(),
-        decisionReasonCode: body.reasonCode ?? 'other',
-        allowReapplyAfter: body.allowReapplyAfter
-          ? new Date(body.allowReapplyAfter)
-          : null,
-        tokenHash: null,
-        tokenExpiresAt: null,
-      },
+    await this.transition(applicationId, {
+      status: ChefApplicationStatus.rejected,
+      decidedAt: new Date(),
+      decidedByUserId: adminUserId,
+      decisionReason: body.reason.trim(),
+      decisionReasonCode: body.reasonCode ?? 'other',
+      allowReapplyAfter: body.allowReapplyAfter ? new Date(body.allowReapplyAfter) : null,
     });
 
     await this.audit.record({
@@ -686,7 +534,13 @@ export class ChefApplicationsAdminService {
       subjectType: 'chef_application',
       subjectId: applicationId,
       requestId,
-      metadata: { reasonCode: body.reasonCode ?? 'other' },
+      // The full decision: a reapplication clears it from the candidature row, so
+      // this is where it stays on record.
+      metadata: {
+        reasonCode: body.reasonCode ?? 'other',
+        reason: body.reason.trim(),
+        allowReapplyAfter: body.allowReapplyAfter ?? null,
+      },
     });
 
     await this.mailer.applicationRejected({

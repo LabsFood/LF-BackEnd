@@ -2,12 +2,18 @@ import type { UserJSON } from '@clerk/backend';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientProfile, User, UserRole } from '../../generated/prisma/client';
+import {
+  ChefApplicationStatus,
+  ClientProfile,
+  User,
+  UserRole,
+} from '../../generated/prisma/client';
 
 import {
   clerkProfileFromBapiUser,
@@ -346,16 +352,15 @@ export class UsersService {
   }
 
   /**
-   * `PATCH /me/chef-profile` — a batch cooker edits their own public profile.
+   * `PATCH /me/chef-profile` — a verified batch cooker edits their own public profile.
    *
-   * Update-only. It never creates a chef profile and never changes `users.role`:
-   * a chef account exists only once an admin approves a candidature holding a
-   * validated identity document (FLOW-01). This route used to upsert the profile
-   * and promote any signed-in client to `chef`; a client calling it now gets a
-   * 404 instead.
+   * Update-only. It never creates a chef profile and never changes `users.role`: the
+   * profile is created by submitting a candidature (FLOW-01). This route used to
+   * upsert the profile and promote any signed-in client to `chef`; a client calling
+   * it now gets a 404 instead.
    *
-   * Unlike `GET /me` it does not create a missing `users` row either — there is no
-   * profile to edit for someone the platform has never approved.
+   * A candidate awaiting approval is browse-only — their candidature and documents
+   * are the only things they may act on — so an unverified profile is refused.
    */
   async updateOwnChefProfile(clerkUserId: string, payload: UpdateMeChefProfileDto) {
     const user = await this.findByClerkId(clerkUserId);
@@ -363,10 +368,16 @@ export class UsersService {
       user &&
       (await this.prisma.chefProfile.findUnique({
         where: { userId: user.id },
-        select: { id: true },
+        select: { id: true, isVerified: true },
       }));
     if (!user || !profile) {
       throw new NotFoundException('No batch cooker profile for this account.');
+    }
+    if (!profile.isVerified) {
+      throw new ForbiddenException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Your candidature must be approved before you can edit your profile.',
+      });
     }
 
     const { firstName, lastName, phone, ...profileFields } = payload;
@@ -379,17 +390,51 @@ export class UsersService {
     });
   }
 
-  /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */
+  /**
+   * Admin switch for a chef's `isVerified` / `isActive` flags.
+   *
+   * It cannot stand in for approval: a profile born from a candidature is verified
+   * only by approving that candidature, which is where the document check lives.
+   * Without this, every candidate — who holds a chef profile from submission — would
+   * be one call away from verified with no document looked at. A profile with no
+   * candidature predates FLOW-01 and keeps the old manual path.
+   */
   async setChefVerification(
     chefProfileId: string,
     input: { isVerified?: boolean; isActive?: boolean },
   ) {
     const profile = await this.prisma.chefProfile.findUnique({
       where: { id: chefProfileId },
-      select: { id: true },
+      select: {
+        id: true,
+        isVerified: true,
+        isActive: true,
+        application: { select: { status: true } },
+      },
     });
     if (!profile) {
       throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+
+    const verifies = input.isVerified === true && !profile.isVerified;
+    if (
+      verifies &&
+      profile.application &&
+      profile.application.status !== ChefApplicationStatus.approved
+    ) {
+      throw new ConflictException({
+        code: 'APPLICATION_NOT_APPROVED',
+        message: 'Verify this batch cooker by approving their candidature.',
+      });
+    }
+    if (
+      (input.isActive ?? profile.isActive) &&
+      !(input.isVerified ?? profile.isVerified)
+    ) {
+      throw new ConflictException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'An unverified batch cooker cannot be made active.',
+      });
     }
 
     return this.prisma.chefProfile.update({
@@ -403,6 +448,12 @@ export class UsersService {
    * Switching profile type after onboarding is deliberately blocked for now; it needs
    * reconciliation of the orphaned profile, bookings, and payouts. Tracked as separate
    * work — the schema already supports both rows existing, so this is the only guard.
+   *
+   * ponytail: one profile per account. Ceiling: an existing client cannot become a
+   * batch cooker without a second account and email (FLOW-01 §10.2). Upgrade path: a
+   * client ↔ chef switcher — drop this guard, expose both profiles on `GET /me` — which
+   * must ship with a self-dealing guard on bookings and quotes. Decision pending; see
+   * `.claude/plans/dual-role-switcher-analysis.md`.
    */
   private async assertNoConflictingProfile(
     userId: string,

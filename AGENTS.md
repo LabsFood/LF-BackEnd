@@ -114,7 +114,7 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 
 - Public sign-up (no session): `POST /auth/register` — `email` + `password`, always `role: client`, IP rate-limited. Returns a 60s Clerk sign-in ticket the frontend redeems with `signIn.create({ strategy: 'ticket', ticket })`. Returns `503` with `sk_test_placeholder`.
 - Onboarding form 2 (authenticated, clients): `PATCH /me/profile`. **The body never carries a role**; a submitted `role` is a `400`.
-- Chef self-edit (authenticated, existing batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created only by candidature approval (see *Chef onboarding* below).
+- Chef self-edit (authenticated, verified batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`, a candidate awaiting approval a `403 CHEF_NOT_VERIFIED`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created by submitting a candidature (see *Chef onboarding* below).
 - Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
 - One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
 - One-off Clerk → Postgres backfill (real key only): `npm run db:backfill:clerk -- --email <addr> | --clerk-id <user_…> | --all`. **Writes require `--yes`**; without it the script dry-runs and prints the target database host. Use for Clerk accounts created before the webhook existed. Optional `--role <client|chef|admin>`; existing rows keep their role unless it is passed.
@@ -131,36 +131,59 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 
 ### Chef onboarding (FLOW-01)
 
-Candidature → KYC documents → admin validation → chef account. Module:
-`modules/chef-onboarding/`. Spec: [`FLOW-01-candidature-batch-cooker.md`](../FLOW-01-candidature-batch-cooker.md),
+Candidature (creates the account) → KYC documents → admin validation. Module:
+`modules/chef-onboarding/`. Spec: [`FLOW-01-candidature-batch-cooker.md`](../batchcooking-web/docs/api/FLOW-01-candidature-batch-cooker.md) (in `batchcooking-web`),
 PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooker-chef-onboarding.prd.md).
 
-**A batch cooker account exists only after an admin approves a candidature.**
-The client→chef self-promotion is removed: `POST /chef-applications` →
-`POST /admin/chef-applications/:id/approve` is the only path, and approval is
-refused with `409 DOCUMENT_REQUIRED` unless every blocking document is `valid`.
-`PATCH /me/chef-profile` survives, but only as update-only self-edit for an
-existing batch cooker.
+**Submitting a candidature creates the account**: a Clerk user with no password,
+the `users` row (`role: chef`) and a chef profile with `isVerified` and
+`isActive` false. The candidate is **browse-only** until approval — the
+candidature and its documents are the only things they can act on, enforced in
+the API (`PATCH /me/chef-profile` → `403 CHEF_NOT_VERIFIED`). **Not yet enforced
+on the client-side routes** — `POST /bookings`, `POST /quotes` and
+`POST /me/quotes/:id/accept` accept any chef account, verified or not; that waits
+on the self-dealing guard (see the `ponytail:` note on
+`assertNoConflictingProfile`). Approval sets
+`isVerified` (and `isActive` if asked) and is refused with
+`409 DOCUMENT_REQUIRED` unless every blocking document is `valid`. A refused
+candidate keeps the account, sees the reason and the reapply date, and can
+reapply from it.
 
 | Actor | Routes |
 |---|---|
-| Public | `POST /chef-applications`, `POST /chef-applications/:id/resend-link`, `GET /referentials/regions` |
-| Candidate (candidature token) | `GET /chef-applications/:id`, `POST /chef-applications/:id/documents/:type/upload-url`, `.../confirm` |
+| Public | `POST /chef-applications`, `GET /referentials/regions` |
+| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
 | Admin | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
-| Chef | `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
 
-- **Candidate credential**: an opaque 32-byte token, SHA-256 hashed into
-  `chef_applications.token_hash`, 30 days, revoked at the decision by nulling
-  the column. Not a JWT — the flow requires revocation, which a JWT cannot do
-  without a blocklist.
-- **Documents** live in one append-only `chef_documents` table. A re-deposit adds
-  a version; approval sets `chef_profile_id` on the existing rows rather than
-  copying them, so history cannot drift. `missing` is derived, never stored.
+- **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
+  single use) is emailed to the submitted address and **never returned in the
+  response** — with no password on the account, the inbox is the only way in, so
+  submitting someone else's address yields an account nobody can open. An address
+  that already has an account is refused with `409 EMAIL_ALREADY_USED` and nothing
+  is attached to it. `ThrottlerGuard`, 5 per hour per IP. If anything fails after
+  the Clerk user exists, the Clerk user is deleted.
+- **That email is load-bearing.** `BREVO_API_KEY` and
+  `BREVO_TPL_APPLICATION_RECEIVED` are **required** wherever candidatures are
+  accepted, and `BREVO_TPL_SIGN_IN_LINK` for the admin resend: without them the
+  account is created but nobody can get into it. A lost email is recorded as a
+  failed `application.sign_in_link_email` audit row against the candidature.
+- **Verification only through approval**: `PATCH /admin/chefs/:id/verification`
+  refuses `isVerified: true` for a profile whose candidature is not approved, and
+  `isActive: true` for an unverified profile. Profiles older than FLOW-01 (no
+  candidature) keep the manual path.
+- **One profile per account** (`assertNoConflictingProfile`): an existing client
+  cannot apply from their account. The client ↔ chef switcher is deferred — see
+  the `ponytail:` note there.
+- **Documents** live in one append-only `chef_documents` table owned by the chef
+  profile from the first upload, so the candidature and the living dossier are
+  the same rows and history cannot drift. `missing` is derived, never stored.
 - **Storage**: private Supabase bucket (`SUPABASE_KYC_BUCKET`), signed PUT to
   upload and 5-minute signed GET to read. Files never transit the API. Supabase
   fixes the upload token at 2 h; that is not configurable.
-- **Daily job** (`ChefDossierCron`, 06:00): expiry warnings at J-60/30/7,
-  expiry + automatic suspension at J+0, retention purge. In-process and
+- **Daily job** (`ChefDossierCron`, 06:00): expiry warnings at J-60/30/7 (verified
+  chefs), expiry + automatic suspension at J+0, retention purge of the documents
+  of unverified profiles refused 3 months ago or idle 6 months (the account and
+  the candidature row stay). In-process and
   idempotent — two API replicas would both fire it harmlessly. See the
   `ponytail:` note in that file before adding a replica.
 - **Suspension episode**: `chef_profiles.auto_suspended_at` marks an *open
@@ -199,3 +222,9 @@ The `20260920120000_chef_onboarding` migration renames the unused
 `*_legacy`. They were never in `schema.prisma` and no code reads them, but they
 collided by name. **Renamed, not dropped** — drop them once production is
 confirmed empty.
+
+`20260922120000_chef_account_at_submission` follows it: the account now exists
+from submission, so it drops the candidate token columns, `approved_user_id`
+and `chef_documents.application_id`, and makes `chef_documents.chef_profile_id`
+NOT NULL. That last step fails on purpose if a candidature-era document has no
+chef profile, rather than deleting an identity document silently.

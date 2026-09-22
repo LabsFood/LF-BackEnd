@@ -6,7 +6,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ChefDocumentsService } from './chef-documents.service';
 import { KycStorageService } from './kyc-storage.service';
 
-const OWNER = { kind: 'application' as const, applicationId: 'app-1' };
+/** Documents belong to the chef profile from the first upload, candidate or not. */
+const OWNER = 'chef-1';
 const ANSWERS = {
   workAuthorizationStatus: 'eu_citizen' as const,
   companyLegalForm: 'micro' as const,
@@ -17,7 +18,7 @@ describe('ChefDocumentsService', () => {
   let service: ChefDocumentsService;
   let prisma: {
     chefDocument: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock };
-    chefApplication: { update: jest.Mock };
+    chefApplication: { updateMany: jest.Mock };
   };
   let storage: {
     statObject: jest.Mock;
@@ -39,7 +40,7 @@ describe('ChefDocumentsService', () => {
           ...data,
         })),
       },
-      chefApplication: { update: jest.fn() },
+      chefApplication: { updateMany: jest.fn() },
     };
     storage = {
       statObject: jest
@@ -64,7 +65,7 @@ describe('ChefDocumentsService', () => {
 
     it('records the deposit only after the object is confirmed present in the bucket', async () => {
       await confirm({ uploadId: 'up_1', expiresOn: '2099-03-14' });
-      expect(storage.statObject).toHaveBeenCalledWith('applications/app-1/identity/up_1');
+      expect(storage.statObject).toHaveBeenCalledWith('chefs/chef-1/identity/up_1');
       expect(prisma.chefDocument.create).toHaveBeenCalled();
     });
 
@@ -103,10 +104,17 @@ describe('ChefDocumentsService', () => {
       expect(result.status).toBe(ChefDocumentStatus.submitted);
     });
 
+    it('files the deposit under the chef profile, not a candidature', async () => {
+      await confirm({ uploadId: 'up_1', expiresOn: '2099-03-14' });
+      const { data } = prisma.chefDocument.create.mock.calls[0][0];
+      expect(data.chefProfileId).toBe('chef-1');
+      expect(data).not.toHaveProperty('applicationId');
+    });
+
     it('touches lastActivityAt, which is what the abandonment purge reads', async () => {
       await confirm({ uploadId: 'up_1', expiresOn: '2099-03-14' });
-      expect(prisma.chefApplication.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'app-1' } }),
+      expect(prisma.chefApplication.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { chefProfileId: 'chef-1' } }),
       );
     });
 

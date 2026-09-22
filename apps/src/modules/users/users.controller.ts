@@ -13,6 +13,7 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiExtraModels,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -168,13 +169,17 @@ export class UsersController {
       'Updates the public fields of the caller’s existing chef profile — `displayName`, ' +
       '`bio`, `city`, `serviceRadiusKm` — and the shared identity fields on `users`. ' +
       'Every field is optional. **Never creates a profile and never changes ' +
-      '`users.role`**: a batch cooker account is created only when an admin approves a ' +
-      'candidature. `isActive`, `isVerified`, payout and calendar ids, the SAP route and ' +
-      'intervention zones are not editable here, and a body carrying them is refused.',
+      '`users.role`**: the profile is created by submitting a candidature, and stays ' +
+      'read-only until an admin approves it. `isActive`, `isVerified`, payout and ' +
+      'calendar ids, the SAP route and intervention zones are not editable here, and a ' +
+      'body carrying them is refused.',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
     description: 'The chef profile after the update.',
+  })
+  @ApiForbiddenResponse({
+    description: '`CHEF_NOT_VERIFIED` — the candidature is not approved yet.',
   })
   @ApiNotFoundResponse({
     description:
@@ -247,9 +252,13 @@ export class UsersController {
   @ApiOperation({
     summary: 'Admin: vet a chef profile',
     description:
-      'Sets `is_verified` and `is_active` on a chef profile. This is the only path that ' +
-      'may change these flags — self-registered chefs always start with both `false`, ' +
-      'so this endpoint is what makes a chef bookable. `:id` is the chef profile uuid ' +
+      'Sets `is_verified` and `is_active` on a chef profile. A chef who came through a ' +
+      'candidature is verified by approving it (`POST /admin/chef-applications/:id/' +
+      'approve`), where the documents are checked: `isVerified: true` is refused here ' +
+      'until then (`409 APPLICATION_NOT_APPROVED`), and `isActive: true` is refused for ' +
+      'an unverified chef (`409 CHEF_NOT_VERIFIED`). Taking a chef offline is always ' +
+      'allowed; revoking the verification of a live chef needs `isActive: false` in ' +
+      'the same body. `:id` is the chef profile uuid ' +
       '(`chef_profiles.id`), not the user uuid.',
   })
   @ApiParam({
@@ -260,6 +269,11 @@ export class UsersController {
   @ApiOkResponse({
     type: ChefProfileDto,
     description: 'Chef profile after the verification update.',
+  })
+  @ApiConflictResponse({
+    description:
+      '`APPLICATION_NOT_APPROVED` — verify through candidature approval; ' +
+      '`CHEF_NOT_VERIFIED` — an unverified chef cannot be made active.',
   })
   @ApiAdminAuthResponses()
   updateChefVerification(

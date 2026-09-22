@@ -49,8 +49,8 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET` | CMS assets in Supabase Storage |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
-| `BREVO_TPL_*` (8 ids) | Chef onboarding emails. An unset id skips that email silently |
-| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Candidate completion links and the internal new-candidature notification |
+| `BREVO_TPL_*` (9 ids) | Chef onboarding emails. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).

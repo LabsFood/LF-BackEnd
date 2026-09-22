@@ -12,6 +12,7 @@ import {
   deriveDossierStatus,
   DossierDocument,
   fromWire,
+  isDisabledByAdmin,
   isValidPostcode,
   isValidSapDeclarationNumber,
   isValidSiret,
@@ -223,6 +224,23 @@ describe('deriveDossierStatus (FLOW-01 §5.3)', () => {
     ] as const) {
       expect(canApprove(status)).toBe(false);
     }
+  });
+});
+
+describe('isDisabledByAdmin', () => {
+  const profile = { isVerified: true, isActive: false, autoSuspendedAt: null };
+
+  it('is a verified chef an admin took offline', () => {
+    expect(isDisabledByAdmin(profile)).toBe(true);
+  });
+
+  it('is not a candidate awaiting approval — also inactive, with no episode', () => {
+    expect(isDisabledByAdmin({ ...profile, isVerified: false })).toBe(false);
+  });
+
+  it('is not an automatic suspension, nor a live chef', () => {
+    expect(isDisabledByAdmin({ ...profile, autoSuspendedAt: new Date() })).toBe(false);
+    expect(isDisabledByAdmin({ ...profile, isActive: true })).toBe(false);
   });
 });
 

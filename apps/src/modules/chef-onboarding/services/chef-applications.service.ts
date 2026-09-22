@@ -1,10 +1,9 @@
 import {
   ConflictException,
-  HttpException,
-  HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
-  UnauthorizedException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 
@@ -14,14 +13,17 @@ import {
   CompanyLegalForm,
   Prisma,
   SapPath,
+  UserRole,
   WorkAuthorizationStatus,
 } from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
+import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
 import {
   buildApplicationReference,
   fromWire,
+  isDisabledByAdmin,
   isValidPostcode,
   isMetropolitanRegion,
   isValidSapDeclarationNumber,
@@ -29,91 +31,120 @@ import {
   requiredDocuments,
   toWire,
 } from '../domain/chef-onboarding.rules';
+import { ChefDocumentsService } from './chef-documents.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
-import {
-  isExpired,
-  mintApplicationToken,
-  nextResendState,
-  tokenMatches,
-} from './application-token';
 
-/** Statuses that still hold the candidate's email address (see the partial index). */
-const UNDECIDED: ChefApplicationStatus[] = [
-  ChefApplicationStatus.submitted,
-  ChefApplicationStatus.changes_requested,
-];
+/** FLOW-01 §6 — the sign-in link lasts 7 days and is single use. */
+const SIGN_IN_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/** Says the address is taken and nothing else: no role, no name, no status. */
+const EMAIL_ALREADY_USED = {
+  code: 'EMAIL_ALREADY_USED',
+  message: 'An account already exists for this email address. Sign in to continue.',
+};
 
 @Injectable()
 export class ChefApplicationsService {
+  private readonly logger = new Logger(ChefApplicationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly mailer: ChefOnboardingMailer,
+    private readonly clerk: ClerkService,
+    private readonly documents: ChefDocumentsService,
   ) {}
 
   /**
-   * `POST /chef-applications` (FLOW-01 §2).
+   * `POST /chef-applications` (FLOW-01 §2) — public, and it creates the account: a
+   * Clerk user, a `users` row, and a chef profile left unverified and inactive, so
+   * the candidate is browse-only until an admin approves.
    *
-   * Creates no user and no Clerk account: until an admin approves, the candidate is
-   * a candidature holding a scoped token, nothing more.
+   * The Clerk user has no password. The only way in is the sign-in link mailed to
+   * the address, and the link never appears in the response: whoever submits
+   * someone else's address creates an account they cannot open. An address that
+   * already has an account is refused — a public request must never attach
+   * anything to an existing account.
    */
   async submit(payload: CreateChefApplicationDto, requestId?: string) {
     this.assertValid(payload);
+    if (!this.clerk.configured) {
+      throw new ServiceUnavailableException(
+        'Submitting a candidature requires a real CLERK_SECRET_KEY (not sk_test_placeholder).',
+      );
+    }
 
     const email = payload.identity.email.trim().toLowerCase();
     await this.assertEmailFree(email);
 
-    const { token, tokenHash, expiresAt } = mintApplicationToken();
+    const answers = this.answers(payload, email);
+    const fullName = `${answers.firstName} ${answers.lastName}`;
+    const clerk = this.clerk.getClient();
 
-    const application = await this.prisma.$transaction(async (tx) => {
-      const reference = await this.nextReference(tx);
-      try {
-        return await tx.chefApplication.create({
-          data: {
-            reference,
-            firstName: payload.identity.firstName.trim(),
-            lastName: payload.identity.lastName.trim(),
+    let clerkUserId: string;
+    try {
+      ({ id: clerkUserId } = await clerk.users.createUser({
+        emailAddress: [email],
+        firstName: answers.firstName,
+        lastName: answers.lastName,
+        skipPasswordRequirement: true,
+      }));
+    } catch (error) {
+      throw this.mapClerkError(error);
+    }
+
+    // Everything that can still fail happens before anything is left behind: a
+    // failure deletes the Clerk user, and the candidate can simply submit again.
+    let link: { signInUrl: string; expiresAt: Date };
+    let created: { userId: string; application: ChefApplication };
+    try {
+      link = await this.signInLink(clerkUserId);
+      created = await this.prisma.$transaction(async (tx) => {
+        // Upsert: Clerk's `user.created` webhook may land first and create the row
+        // as a client.
+        const user = await tx.user.upsert({
+          where: { clerkUserId },
+          create: {
+            clerkUserId,
             email,
-            phone: payload.identity.phone,
-            addressStreet: payload.address.street,
-            addressLine2: payload.address.line2 ?? null,
-            addressPostcode: payload.address.postcode,
-            addressCity: payload.address.city,
-            addressCountry: payload.address.country ?? 'FR',
-            interventionZones:
-              payload.interventionZones as unknown as Prisma.InputJsonValue,
-            workAuthorizationStatus: fromWire(
-              payload.workAuthorization.status,
-            ) as WorkAuthorizationStatus,
-            workAuthorizationDetails: payload.workAuthorization.details?.trim() ?? null,
-            companyLegalForm: fromWire(payload.company.legalForm) as CompanyLegalForm,
-            companySiret: payload.company.siret ?? null,
-            sapPath: fromWire(payload.company.sap.path) as SapPath,
-            sapDeclarationNumber: payload.company.sap.declarationNumber ?? null,
-            consentPrivacyPolicy: payload.consent.privacyPolicy,
-            consentTerms: payload.consent.terms,
-            consentAcceptedAt: new Date(payload.consent.acceptedAt),
-            tokenHash,
-            tokenExpiresAt: expiresAt,
+            fullName,
+            phone: answers.phone,
+            role: UserRole.chef,
+          },
+          update: { fullName, phone: answers.phone, role: UserRole.chef },
+        });
+        // `isVerified` and `isActive` keep their `false` defaults until approval.
+        const profile = await tx.chefProfile.create({
+          data: { userId: user.id, displayName: fullName, city: answers.addressCity },
+        });
+        const application = await tx.chefApplication.create({
+          data: {
+            ...answers,
+            reference: await this.nextReference(tx),
+            chefProfileId: profile.id,
           },
         });
-      } catch (error) {
-        // The partial unique index is the real guard — the pre-check above races.
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2002'
-        ) {
-          throw new ConflictException({
-            code: 'EMAIL_ALREADY_USED',
-            message: 'A candidature is already open for this email address.',
-          });
-        }
-        throw error;
-      }
-    });
+        return { userId: user.id, application };
+      });
+    } catch (error) {
+      const compensated = await this.deleteClerkUser(clerkUserId);
+      await this.audit.failed(
+        {
+          actorType: 'candidate',
+          action: 'application.submit',
+          subjectType: 'chef_application',
+          requestId,
+          metadata: { clerkUserId, compensated },
+        },
+        error,
+      );
+      throw error;
+    }
 
+    const { application } = created;
     await this.audit.record({
       actorType: 'candidate',
+      actorUserId: created.userId,
       action: 'application.submitted',
       subjectType: 'chef_application',
       subjectId: application.id,
@@ -121,25 +152,217 @@ export class ChefApplicationsService {
       metadata: { reference: application.reference, city: application.addressCity },
     });
 
-    await Promise.all([
+    const [received] = await Promise.all([
       this.mailer.applicationReceived({
-        email: application.email,
+        email,
         firstName: application.firstName,
         reference: application.reference,
-        applicationId: application.id,
-        token,
+        ...link,
       }),
       this.mailer.applicationReceivedAdmin({
         reference: application.reference,
         applicationId: application.id,
-        name: `${application.firstName} ${application.lastName}`,
+        name: fullName,
         city: application.addressCity,
       }),
     ]);
+    // That email is the only way into the account, so a lost one must be findable
+    // by candidature — the recovery is `POST /admin/chef-users/:id/resend-invitation`.
+    if (!received.sent) {
+      await this.audit.failed(
+        {
+          actorType: 'system',
+          actorUserId: created.userId,
+          action: 'application.sign_in_link_email',
+          subjectType: 'chef_application',
+          subjectId: application.id,
+          requestId,
+          metadata: { reference: application.reference },
+        },
+        new Error('sign-in link email not sent'),
+      );
+    }
 
+    return this.toCandidateView(application);
+  }
+
+  /** `GET /me/chef-application` — the caller's candidature and its dossier. */
+  async mine(clerkUserId: string) {
+    const profile = await this.prisma.chefProfile.findFirst({
+      where: { user: { clerkUserId } },
+      include: { application: true },
+    });
+    if (!profile?.application) {
+      throw new NotFoundException('No candidature for this account.');
+    }
+
+    const dossier = await this.documents.dossier(
+      profile.id,
+      this.documents.answersOf(profile.application),
+      { disabled: isDisabledByAdmin(profile) },
+    );
+    // The dossier's `documents` replaces the view's all-missing list.
+    return { ...this.toCandidateView(profile.application), ...dossier };
+  }
+
+  /**
+   * `POST /me/chef-application/reapply` — a refused candidate applies again from the
+   * account they kept (FLOW-01 §6).
+   *
+   * Reopens the same candidature with fresh answers instead of adding a second one:
+   * one account, one candidature. The earlier decision stays in the audit log, and
+   * documents already deposited stay in the dossier with their statuses.
+   */
+  async reapply(
+    clerkUserId: string,
+    payload: CreateChefApplicationDto,
+    requestId?: string,
+  ) {
+    this.assertValid(payload);
+
+    const profile = await this.prisma.chefProfile.findFirst({
+      where: { user: { clerkUserId } },
+      include: { application: true, user: { select: { email: true } } },
+    });
+    const application = profile?.application;
+    if (!profile || !application) {
+      throw new NotFoundException('No candidature for this account.');
+    }
+    if (application.status !== ChefApplicationStatus.rejected) {
+      throw new ConflictException({
+        code: 'APPLICATION_NOT_REJECTED',
+        message: 'Only a refused candidature can be submitted again.',
+      });
+    }
+    if (application.allowReapplyAfter && application.allowReapplyAfter > new Date()) {
+      const from = application.allowReapplyAfter.toISOString().slice(0, 10);
+      throw new ConflictException({
+        code: 'REAPPLY_TOO_EARLY',
+        message: `A new candidature is possible from ${from}.`,
+        allowReapplyAfter: from,
+      });
+    }
+
+    // The account's own address: this route cannot redirect anything to another inbox.
+    const email = payload.identity.email.trim().toLowerCase();
+    if (email !== profile.user.email.toLowerCase()) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: 'identity.email must be the address of this account.',
+      });
+    }
+
+    const now = new Date();
+    const reopened = await this.prisma.chefApplication.update({
+      where: { id: application.id },
+      data: {
+        ...this.answers(payload, profile.user.email),
+        status: ChefApplicationStatus.submitted,
+        submittedAt: now,
+        lastActivityAt: now,
+        decidedAt: null,
+        decidedByUserId: null,
+        decisionReason: null,
+        decisionReasonCode: null,
+        allowReapplyAfter: null,
+      },
+    });
+
+    await this.audit.record({
+      actorType: 'candidate',
+      actorUserId: profile.userId,
+      action: 'application.resubmitted',
+      subjectType: 'chef_application',
+      subjectId: reopened.id,
+      requestId,
+      metadata: { reference: reopened.reference, city: reopened.addressCity },
+    });
+
+    await this.mailer.applicationReceivedAdmin({
+      reference: reopened.reference,
+      applicationId: reopened.id,
+      name: `${reopened.firstName} ${reopened.lastName}`,
+      city: reopened.addressCity,
+    });
+
+    // With its dossier: documents deposited before the refusal keep their statuses.
+    return this.mine(clerkUserId);
+  }
+
+  /**
+   * `POST /admin/chef-users/:id/resend-invitation` — a fresh sign-in link, for a
+   * batch cooker whose first one expired before they used it. Always to the
+   * account's own address.
+   */
+  async resendSignInLink(userId: string, adminUserId: string, requestId?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { clerkUserId: true, email: true, fullName: true, role: true },
+    });
+    if (!user) throw new NotFoundException('User not found.');
+    if (user.role !== UserRole.chef) {
+      throw new ConflictException({
+        code: 'NOT_A_CHEF',
+        message: 'Only a batch cooker account can be re-invited.',
+      });
+    }
+    if (!this.clerk.configured) {
+      throw new ServiceUnavailableException('Clerk is not configured.');
+    }
+
+    const link = await this.signInLink(user.clerkUserId);
+    const { sent } = await this.mailer.signInLink({
+      email: user.email,
+      firstName: user.fullName?.split(' ')[0] ?? '',
+      ...link,
+    });
+
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'chef.invitation_resent',
+      subjectType: 'user',
+      subjectId: userId,
+      outcome: sent ? 'ok' : 'failed',
+      requestId,
+    });
+
+    // `delivered: false` tells the admin the link did not leave (Brevo down, or
+    // `BREVO_TPL_SIGN_IN_LINK` unset) instead of claiming it was sent.
     return {
-      ...this.toCandidateView(application),
-      completionUrl: this.mailer.completionUrl(application.id, token),
+      channel: 'magic-link' as const,
+      sentTo: user.email,
+      delivered: sent,
+      expiresAt: link.expiresAt,
+    };
+  }
+
+  /**
+   * What the candidate may see (FLOW-01 §4): their own candidature, and nothing
+   * internal — no admin notes, no review queue position. On refusal, the reason
+   * exactly as the admin wrote it and the date a new candidature becomes possible.
+   */
+  toCandidateView(application: ChefApplication) {
+    const refused = application.status === ChefApplicationStatus.rejected;
+    return {
+      id: application.id,
+      reference: application.reference,
+      status: toWire(application.status),
+      submittedAt: application.submittedAt,
+      decidedAt: application.decidedAt,
+      refusal: refused
+        ? {
+            reason: application.decisionReason,
+            allowReapplyAfter:
+              application.allowReapplyAfter?.toISOString().slice(0, 10) ?? null,
+          }
+        : null,
+      // Kebab-case on the wire, as the flow document's 201 response specifies.
+      documents: requiredDocuments(this.documents.answersOf(application)).map((doc) => ({
+        ...doc,
+        type: toWire(doc.type),
+        status: 'missing' as const,
+      })),
     };
   }
 
@@ -204,128 +427,106 @@ export class ChefApplicationsService {
     }
   }
 
+  /** The candidature's own columns, as submitted. Shared by submission and reapplication. */
+  private answers(payload: CreateChefApplicationDto, email: string) {
+    return {
+      firstName: payload.identity.firstName.trim(),
+      lastName: payload.identity.lastName.trim(),
+      email,
+      phone: payload.identity.phone,
+      addressStreet: payload.address.street,
+      addressLine2: payload.address.line2 ?? null,
+      addressPostcode: payload.address.postcode,
+      addressCity: payload.address.city,
+      addressCountry: payload.address.country ?? 'FR',
+      interventionZones: payload.interventionZones as unknown as Prisma.InputJsonValue,
+      workAuthorizationStatus: fromWire(
+        payload.workAuthorization.status,
+      ) as WorkAuthorizationStatus,
+      workAuthorizationDetails: payload.workAuthorization.details?.trim() ?? null,
+      companyLegalForm: fromWire(payload.company.legalForm) as CompanyLegalForm,
+      companySiret: payload.company.siret ?? null,
+      sapPath: fromWire(payload.company.sap.path) as SapPath,
+      sapDeclarationNumber: payload.company.sap.declarationNumber ?? null,
+      consentPrivacyPolicy: payload.consent.privacyPolicy,
+      consentTerms: payload.consent.terms,
+      consentAcceptedAt: new Date(payload.consent.acceptedAt),
+    };
+  }
+
   /**
-   * An address may hold one live candidature, and must not already be a user
-   * (FLOW-01 §2). Merging a client account into a chef account is out of scope.
+   * An address holds at most one account (FLOW-01 §2). Compared case-insensitively:
+   * older rows were written with the address as typed.
    */
   private async assertEmailFree(email: string): Promise<void> {
-    const [openApplication, existingUser] = await Promise.all([
-      this.prisma.chefApplication.findFirst({
-        where: { email, status: { in: UNDECIDED } },
-        select: { id: true },
-      }),
-      this.prisma.user.findUnique({ where: { email }, select: { id: true } }),
-    ]);
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException(EMAIL_ALREADY_USED);
+  }
 
-    if (openApplication || existingUser) {
-      throw new ConflictException({
-        code: 'EMAIL_ALREADY_USED',
-        message: 'This email address already has an account or an open candidature.',
+  /** Clerk knows the address even when Postgres does not, for instance mid-webhook. */
+  private mapClerkError(error: unknown): unknown {
+    // Structural, as in `UsersService`: Clerk's own error types do not resolve here.
+    if (!error || typeof error !== 'object' || !('status' in error)) return error;
+    const { status, errors = [] } = error as {
+      status: number;
+      errors?: { code?: string; longMessage?: string }[];
+    };
+    if (status === 409 || errors.some((e) => e.code === 'form_identifier_exists')) {
+      return new ConflictException(EMAIL_ALREADY_USED);
+    }
+    if (status === 400 || status === 422) {
+      return new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: errors[0]?.longMessage ?? 'identity.email was refused.',
       });
+    }
+    return error;
+  }
+
+  /** A single-use link into the account, valid 7 days. */
+  private async signInLink(clerkUserId: string) {
+    const token = await this.clerk.getClient().signInTokens.createSignInToken({
+      userId: clerkUserId,
+      expiresInSeconds: SIGN_IN_LINK_TTL_SECONDS,
+    });
+    return {
+      signInUrl: token.url,
+      expiresAt: new Date(Date.now() + SIGN_IN_LINK_TTL_SECONDS * 1000),
+    };
+  }
+
+  /**
+   * Compensation: never leave a Clerk account with no `users` row behind it.
+   * Reports whether it worked, so the audit row never claims a cleanup that failed.
+   */
+  private async deleteClerkUser(clerkUserId: string): Promise<boolean> {
+    try {
+      await this.clerk.getClient().users.deleteUser(clerkUserId);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Orphaned Clerk user ${clerkUserId} after a failed candidature submission`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return false;
     }
   }
 
-  /** `APP-2026-0042`, sequential within the calendar year. */
+  /**
+   * `APP-2026-0042`, sequential within the calendar year.
+   *
+   * ponytail: count + 1, so two submissions in the same instant compute the same
+   * reference; the unique index fails the second, which is compensated and can be
+   * resubmitted. Switch to a per-year Postgres sequence if submissions ever collide.
+   */
   private async nextReference(tx: Prisma.TransactionClient): Promise<string> {
     const year = new Date().getUTCFullYear();
     const countThisYear = await tx.chefApplication.count({
       where: { reference: { startsWith: `APP-${year}-` } },
     });
     return buildApplicationReference(year, countThisYear + 1);
-  }
-
-  /** Resolves a candidature from a bearer token, or explains why it will not. */
-  async resolveByToken(applicationId: string, token: string): Promise<ChefApplication> {
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
-
-    // 401, not 409: the flow document specifies `401 TOKEN_EXPIRED`, and an
-    // unusable credential is an authentication failure either way.
-    if (!tokenMatches(token, application.tokenHash)) {
-      throw new UnauthorizedException({
-        code: 'TOKEN_INVALID',
-        message: 'This link is no longer valid.',
-      });
-    }
-    if (isExpired(application.tokenExpiresAt)) {
-      throw new UnauthorizedException({
-        code: 'TOKEN_EXPIRED',
-        message: 'This link has expired. Request a new one.',
-      });
-    }
-    return application;
-  }
-
-  /** `POST /chef-applications/:id/resend-link` — 3 per rolling 24 h (FLOW-01 §4). */
-  async resendLink(applicationId: string, requestId?: string) {
-    const application = await this.prisma.chefApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) throw new NotFoundException('Candidature not found.');
-
-    if (!UNDECIDED.includes(application.status)) {
-      throw new ConflictException({
-        code: 'APPLICATION_DECIDED',
-        message: 'This candidature has already been decided.',
-      });
-    }
-
-    const resend = nextResendState(application);
-    if (!resend) {
-      throw new HttpException(
-        {
-          code: 'RESEND_LIMIT_REACHED',
-          message: 'Three links have already been sent in the last 24 hours.',
-        },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-
-    const { token, tokenHash, expiresAt } = mintApplicationToken();
-    await this.prisma.chefApplication.update({
-      where: { id: applicationId },
-      data: { tokenHash, tokenExpiresAt: expiresAt, ...resend },
-    });
-
-    await this.audit.record({
-      actorType: 'candidate',
-      action: 'application.link_resent',
-      subjectType: 'chef_application',
-      subjectId: applicationId,
-      requestId,
-      metadata: { resendCount: resend.resendCount },
-    });
-
-    // Always to the address on the candidature, never to one supplied by the caller.
-    await this.mailer.applicationReceived({
-      email: application.email,
-      firstName: application.firstName,
-      reference: application.reference,
-      applicationId: application.id,
-      token,
-    });
-
-    return { sentTo: application.email, expiresAt };
-  }
-
-  /**
-   * What the candidate may see (FLOW-01 §4): their own dossier, and nothing
-   * internal — no admin notes, no review queue position.
-   */
-  toCandidateView(application: ChefApplication) {
-    return {
-      id: application.id,
-      reference: application.reference,
-      status: toWire(application.status),
-      submittedAt: application.submittedAt,
-      // Kebab-case on the wire, as the flow document's 201 response specifies.
-      documents: requiredDocuments({
-        workAuthorizationStatus: application.workAuthorizationStatus,
-        companyLegalForm: application.companyLegalForm,
-        sapPath: application.sapPath,
-      }).map((doc) => ({ ...doc, type: toWire(doc.type), status: 'missing' as const })),
-    };
   }
 }

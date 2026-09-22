@@ -10,7 +10,8 @@ export type ChefOnboardingEmail =
   | 'documentRejected'
   | 'changesRequested'
   | 'applicationRejected'
-  | 'welcomeMagicLink'
+  | 'applicationApproved'
+  | 'signInLink'
   | 'documentExpiring'
   | 'chefSuspended';
 

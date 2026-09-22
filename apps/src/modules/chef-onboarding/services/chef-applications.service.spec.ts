@@ -1,10 +1,16 @@
-import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
+import { ChefApplicationStatus, UserRole } from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
+import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
-import { mintApplicationToken } from './application-token';
 import { ChefApplicationsService } from './chef-applications.service';
+import { ChefDocumentsService } from './chef-documents.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
 
 /** The flow document's own example body (FLOW-01 §2), used as the valid baseline. */
@@ -49,54 +55,115 @@ const validPayload = (): CreateChefApplicationDto =>
     }),
   );
 
+const SIGN_IN_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
+
+/** A candidature row as Prisma would return it after the example submission. */
+const storedApplication = (over: Record<string, unknown> = {}) => ({
+  id: 'app-1',
+  reference: 'APP-2026-0042',
+  status: ChefApplicationStatus.submitted,
+  submittedAt: new Date('2026-09-20T09:12:03.412Z'),
+  decidedAt: null,
+  decisionReason: null,
+  allowReapplyAfter: null,
+  firstName: 'Marie',
+  lastName: 'Dupont',
+  email: 'marie.dupont@exemple.fr',
+  addressCity: 'Lyon',
+  workAuthorizationStatus: 'other',
+  companyLegalForm: 'micro',
+  sapPath: 'type_a',
+  chefProfileId: 'cp-1',
+  ...over,
+});
+
 describe('ChefApplicationsService', () => {
   let service: ChefApplicationsService;
   let prisma: {
-    chefApplication: {
-      findFirst: jest.Mock;
-      findUnique: jest.Mock;
-      count: jest.Mock;
-      create: jest.Mock;
-      update: jest.Mock;
-    };
-    user: { findUnique: jest.Mock };
+    chefApplication: { count: jest.Mock; create: jest.Mock; update: jest.Mock };
+    chefProfile: { create: jest.Mock; findFirst: jest.Mock };
+    user: { findFirst: jest.Mock; findUnique: jest.Mock; upsert: jest.Mock };
     $transaction: jest.Mock;
   };
+  let clerk: { configured: boolean; getClient: () => unknown };
+  let clerkUsers: { createUser: jest.Mock; deleteUser: jest.Mock };
+  let signInTokens: { createSignInToken: jest.Mock };
   let mailer: {
     applicationReceived: jest.Mock;
     applicationReceivedAdmin: jest.Mock;
-    completionUrl: jest.Mock;
+    signInLink: jest.Mock;
   };
+  let audit: { record: jest.Mock; failed: jest.Mock };
+  let documents: { dossier: jest.Mock; answersOf: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       chefApplication: {
-        findFirst: jest.fn().mockResolvedValue(null),
-        findUnique: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockResolvedValue(41),
         create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
           id: 'app-1',
           submittedAt: new Date('2026-09-20T09:12:03.412Z'),
-          status: 'submitted',
+          status: ChefApplicationStatus.submitted,
+          decidedAt: null,
           ...data,
         })),
-        update: jest.fn(),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          ...storedApplication(),
+          ...data,
+        })),
       },
-      user: { findUnique: jest.fn().mockResolvedValue(null) },
-      $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+      chefProfile: {
+        create: jest.fn().mockResolvedValue({ id: 'cp-1' }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      user: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'u-1' }),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn(prisma),
+    );
+    clerkUsers = {
+      createUser: jest.fn().mockResolvedValue({ id: 'user_2n' }),
+      deleteUser: jest.fn().mockResolvedValue(undefined),
+    };
+    signInTokens = {
+      createSignInToken: jest
+        .fn()
+        .mockResolvedValue({ token: 'sit_secret', url: SIGN_IN_URL }),
+    };
+    clerk = {
+      configured: true,
+      getClient: () => ({ users: clerkUsers, signInTokens }),
     };
     mailer = {
       applicationReceived: jest.fn().mockResolvedValue({ sent: true }),
       applicationReceivedAdmin: jest.fn().mockResolvedValue({ sent: true }),
-      completionUrl: jest.fn(
-        () => 'https://labsfood.fr/candidature/app-1/documents?token=x',
-      ),
+      signInLink: jest.fn().mockResolvedValue({ sent: true }),
+    };
+    audit = { record: jest.fn(), failed: jest.fn() };
+    documents = {
+      dossier: jest.fn().mockResolvedValue({
+        dossierStatus: 'draft',
+        canApprove: false,
+        documents: [],
+      }),
+      answersOf: jest.fn((a: Record<string, unknown>) => ({
+        workAuthorizationStatus: a.workAuthorizationStatus,
+        companyLegalForm: a.companyLegalForm,
+        sapPath: a.sapPath,
+      })),
     };
 
     service = new ChefApplicationsService(
       prisma as unknown as PrismaService,
-      { record: jest.fn(), failed: jest.fn() } as unknown as AuditService,
+      audit as unknown as AuditService,
       mailer as unknown as ChefOnboardingMailer,
+      clerk as unknown as ClerkService,
+      documents as unknown as ChefDocumentsService,
     );
   });
 
@@ -108,34 +175,103 @@ describe('ChefApplicationsService', () => {
 
   const expectRejected = async (mutate: (p: CreateChefApplicationDto) => void) => {
     await expect(submit(mutate)).rejects.toBeInstanceOf(UnprocessableEntityException);
+    // Validation runs first: no account is created for a body that will be refused.
+    expect(clerkUsers.createUser).not.toHaveBeenCalled();
     expect(prisma.chefApplication.create).not.toHaveBeenCalled();
   };
 
-  describe('the happy path', () => {
+  describe('submission creates the account', () => {
     it('accepts the flow document’s own example body', async () => {
       const result = await submit();
       expect(result.reference).toBe('APP-2026-0042');
-      expect(result.completionUrl).toContain('token=');
+      expect(result.status).toBe('submitted');
     });
 
-    it('creates no user and no Clerk account', async () => {
+    it('creates the Clerk user with no password — the emailed link is the only way in', async () => {
       await submit();
-      // The only write is the candidature itself.
-      expect(prisma.chefApplication.create).toHaveBeenCalledTimes(1);
-      expect(Object.keys(prisma)).not.toContain('clerk');
+      expect(clerkUsers.createUser).toHaveBeenCalledWith({
+        emailAddress: ['marie.dupont@exemple.fr'],
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        skipPasswordRequirement: true,
+      });
     });
 
-    it('stores only a hash of the candidate token', async () => {
+    it('writes the users row as a chef, tolerating the Clerk webhook having written it first', async () => {
       await submit();
-      const { data } = prisma.chefApplication.create.mock.calls[0][0];
-      expect(data.tokenHash).toMatch(/^[0-9a-f]{64}$/);
-      expect(data).not.toHaveProperty('token');
+      expect(prisma.user.upsert).toHaveBeenCalledWith({
+        where: { clerkUserId: 'user_2n' },
+        create: expect.objectContaining({
+          clerkUserId: 'user_2n',
+          email: 'marie.dupont@exemple.fr',
+          role: UserRole.chef,
+        }),
+        update: expect.objectContaining({ role: UserRole.chef }),
+      });
     });
 
-    it('lower-cases the email so the uniqueness index cannot be sidestepped by case', async () => {
+    it('creates the chef profile unverified and inactive — browse-only until approval', async () => {
+      await submit();
+      const { data } = prisma.chefProfile.create.mock.calls[0][0];
+      expect(data).toEqual({ userId: 'u-1', displayName: 'Marie Dupont', city: 'Lyon' });
+      // The flags are left to their `false` column defaults, never set from here.
+      expect(data).not.toHaveProperty('isVerified');
+      expect(data).not.toHaveProperty('isActive');
+    });
+
+    it('links the candidature to that chef profile', async () => {
+      await submit();
+      expect(prisma.chefApplication.create.mock.calls[0][0].data.chefProfileId).toBe(
+        'cp-1',
+      );
+    });
+
+    it('mails a 7-day single-use sign-in link to the submitted address', async () => {
+      await submit();
+      expect(signInTokens.createSignInToken).toHaveBeenCalledWith({
+        userId: 'user_2n',
+        expiresInSeconds: 7 * 24 * 60 * 60,
+      });
+      expect(mailer.applicationReceived).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'marie.dupont@exemple.fr',
+          signInUrl: SIGN_IN_URL,
+          expiresAt: expect.any(Date),
+        }),
+      );
+    });
+
+    it('records a lost sign-in email against the candidature — it is the only way in', async () => {
+      mailer.applicationReceived.mockResolvedValue({ sent: false });
+      await submit();
+      expect(audit.failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'application.sign_in_link_email',
+          subjectId: 'app-1',
+        }),
+        expect.any(Error),
+      );
+    });
+
+    it('records nothing failed when the sign-in email leaves', async () => {
+      await submit();
+      expect(audit.failed).not.toHaveBeenCalled();
+    });
+
+    it('never puts the sign-in link in the response — whoever submits must not get in', async () => {
+      const result = await submit();
+      const body = JSON.stringify(result);
+      expect(body).not.toContain('sit_secret');
+      expect(body).not.toContain('ticket');
+    });
+
+    it('lower-cases the email before creating anything', async () => {
       await submit((p) => {
         p.identity.email = 'Marie.Dupont@Exemple.FR';
       });
+      expect(clerkUsers.createUser.mock.calls[0][0].emailAddress).toEqual([
+        'marie.dupont@exemple.fr',
+      ]);
       expect(prisma.chefApplication.create.mock.calls[0][0].data.email).toBe(
         'marie.dupont@exemple.fr',
       );
@@ -145,6 +281,13 @@ describe('ChefApplicationsService', () => {
       await submit();
       const { data } = prisma.chefApplication.create.mock.calls[0][0];
       expect(data.consentAcceptedAt).toEqual(new Date('2026-09-20T09:12:00.000Z'));
+    });
+
+    it('records the new account as the actor', async () => {
+      await submit();
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'application.submitted', actorUserId: 'u-1' }),
+      );
     });
 
     it('returns the computed document list rather than anything the client sent', async () => {
@@ -161,19 +304,97 @@ describe('ChefApplicationsService', () => {
       ]);
       expect(result.documents.every((d) => d.status === 'missing')).toBe(true);
     });
+
+    it('refuses with 503 and creates nothing when Clerk is not configured', async () => {
+      clerk.configured = false;
+      await expect(submit()).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 
-  describe('email uniqueness', () => {
-    it('refuses when an open candidature already holds the address', async () => {
-      prisma.chefApplication.findFirst.mockResolvedValue({ id: 'other' });
-      await expect(submit()).rejects.toMatchObject({
-        response: { code: 'EMAIL_ALREADY_USED' },
+  describe('an address that already has an account', () => {
+    it('is refused before Clerk is called, so nothing is attached to the existing account', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'someone' });
+      await expect(submit()).rejects.toBeInstanceOf(ConflictException);
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('answers with the code and a generic message — no role, name or status', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'someone', role: 'client' });
+      const error = await submit().catch((e: ConflictException) => e);
+      expect((error as ConflictException).getResponse()).toEqual({
+        code: 'EMAIL_ALREADY_USED',
+        message: expect.any(String),
       });
     });
 
-    it('refuses when the address is already a user', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
-      await expect(submit()).rejects.toBeInstanceOf(ConflictException);
+    it('is matched case-insensitively — older rows kept the address as typed', async () => {
+      await submit();
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: { equals: 'marie.dupont@exemple.fr', mode: 'insensitive' } },
+        select: { id: true },
+      });
+    });
+
+    it('is refused the same way when only Clerk knows it', async () => {
+      clerkUsers.createUser.mockRejectedValue({
+        status: 422,
+        errors: [{ code: 'form_identifier_exists', longMessage: 'That email is taken.' }],
+      });
+      await expect(submit()).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'EMAIL_ALREADY_USED' },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('maps any other Clerk refusal of the address to 422', async () => {
+      clerkUsers.createUser.mockRejectedValue({
+        status: 422,
+        errors: [{ code: 'form_param_format_invalid', longMessage: 'Invalid email.' }],
+      });
+      await expect(submit()).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'VALIDATION_FAILED' },
+      });
+    });
+  });
+
+  describe('compensation — no Clerk account is left without its rows', () => {
+    it('deletes the Clerk user when the database transaction fails', async () => {
+      prisma.$transaction.mockRejectedValue(new Error('postgres exploded'));
+      await expect(submit()).rejects.toThrow('postgres exploded');
+      expect(clerkUsers.deleteUser).toHaveBeenCalledWith('user_2n');
+      expect(audit.failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'application.submit',
+          metadata: expect.objectContaining({ compensated: true }),
+        }),
+        expect.any(Error),
+      );
+      expect(mailer.applicationReceived).not.toHaveBeenCalled();
+    });
+
+    it('deletes the Clerk user when the sign-in link cannot be issued, before writing anything', async () => {
+      signInTokens.createSignInToken.mockRejectedValue(new Error('clerk hiccup'));
+      await expect(submit()).rejects.toThrow('clerk hiccup');
+      expect(clerkUsers.deleteUser).toHaveBeenCalledWith('user_2n');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('still surfaces the original error when the cleanup itself fails, and says so in the audit', async () => {
+      prisma.$transaction.mockRejectedValue(new Error('postgres exploded'));
+      clerkUsers.deleteUser.mockRejectedValue(new Error('clerk also down'));
+      await expect(submit()).rejects.toThrow('postgres exploded');
+      // An orphaned Clerk user must be findable, not recorded as cleaned up.
+      expect(audit.failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { clerkUserId: 'user_2n', compensated: false },
+        }),
+        expect.any(Error),
+      );
     });
   });
 
@@ -252,56 +473,215 @@ describe('ChefApplicationsService', () => {
     ])('refuses when consent.%s is not given', (_name, mutate) => expectRejected(mutate));
   });
 
-  describe('resolveByToken', () => {
-    const stored = () => mintApplicationToken();
+  describe('mine — the signed-in candidate’s view', () => {
+    const profile = (over: Record<string, unknown> = {}) => ({
+      id: 'cp-1',
+      userId: 'u-1',
+      isVerified: false,
+      isActive: false,
+      autoSuspendedAt: null,
+      application: storedApplication(),
+      ...over,
+    });
 
-    it('returns the candidature for its own live token', async () => {
-      const { token, tokenHash, expiresAt } = stored();
-      prisma.chefApplication.findUnique.mockResolvedValue({
-        id: 'app-1',
-        tokenHash,
-        tokenExpiresAt: expiresAt,
-      });
-      await expect(service.resolveByToken('app-1', token)).resolves.toMatchObject({
-        id: 'app-1',
+    it('returns the candidature with its dossier', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(profile());
+      const view = await service.mine('user_2n');
+      expect(prisma.chefProfile.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { user: { clerkUserId: 'user_2n' } } }),
+      );
+      expect(view).toMatchObject({ reference: 'APP-2026-0042', dossierStatus: 'draft' });
+      expect(view.refusal).toBeNull();
+    });
+
+    it('does not read a candidate awaiting approval as disabled', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(profile());
+      await service.mine('user_2n');
+      expect(documents.dossier).toHaveBeenCalledWith('cp-1', expect.anything(), {
+        disabled: false,
       });
     });
 
-    it('answers 401 TOKEN_INVALID for a wrong token, not 409', async () => {
-      const { tokenHash, expiresAt } = stored();
-      prisma.chefApplication.findUnique.mockResolvedValue({
-        id: 'app-1',
-        tokenHash,
-        tokenExpiresAt: expiresAt,
-      });
-      await expect(service.resolveByToken('app-1', 'wrong')).rejects.toMatchObject({
-        status: 401,
-        response: { code: 'TOKEN_INVALID' },
-      });
-    });
-
-    it('answers 401 TOKEN_EXPIRED past the expiry, as the flow document specifies', async () => {
-      const { token, tokenHash } = stored();
-      prisma.chefApplication.findUnique.mockResolvedValue({
-        id: 'app-1',
-        tokenHash,
-        tokenExpiresAt: new Date(Date.now() - 1000),
-      });
-      await expect(service.resolveByToken('app-1', token)).rejects.toMatchObject({
-        status: 401,
-        response: { code: 'TOKEN_EXPIRED' },
+    it('shows a refused candidate the reason and the reapply date', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        profile({
+          application: storedApplication({
+            status: ChefApplicationStatus.rejected,
+            decidedAt: new Date('2026-09-25T10:00:00.000Z'),
+            decisionReason: "Zone d'intervention non couverte pour l'instant.",
+            allowReapplyAfter: new Date('2027-01-01'),
+          }),
+        }),
+      );
+      const view = await service.mine('user_2n');
+      expect(view.status).toBe('rejected');
+      expect(view.refusal).toEqual({
+        reason: "Zone d'intervention non couverte pour l'instant.",
+        allowReapplyAfter: '2027-01-01',
       });
     });
 
-    it('rejects a revoked token — the hash is nulled at the decision', async () => {
-      const { token } = stored();
-      prisma.chefApplication.findUnique.mockResolvedValue({
-        id: 'app-1',
-        tokenHash: null,
-        tokenExpiresAt: null,
+    it('answers 404 for an account with no candidature', async () => {
+      await expect(service.mine('user_2n')).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe('reapply', () => {
+    const refusedProfile = (over: Record<string, unknown> = {}) => ({
+      id: 'cp-1',
+      userId: 'u-1',
+      user: { email: 'marie.dupont@exemple.fr' },
+      application: storedApplication({
+        status: ChefApplicationStatus.rejected,
+        decisionReason: 'Pièces incomplètes.',
+        allowReapplyAfter: new Date('2026-01-01'),
+        ...over,
+      }),
+    });
+
+    it('reopens the refused candidature with the new answers, clearing the decision', async () => {
+      prisma.chefProfile.findFirst
+        .mockResolvedValueOnce(refusedProfile())
+        .mockResolvedValueOnce({
+          ...refusedProfile(),
+          application: storedApplication({ status: ChefApplicationStatus.submitted }),
+        });
+      documents.dossier.mockResolvedValue({
+        dossierStatus: 'reviewing',
+        canApprove: false,
+        documents: [{ type: 'identity', status: 'valid' }],
       });
-      await expect(service.resolveByToken('app-1', token)).rejects.toMatchObject({
-        status: 401,
+      const view = await service.reapply('user_2n', validPayload());
+
+      const { where, data } = prisma.chefApplication.update.mock.calls[0][0];
+      expect(where).toEqual({ id: 'app-1' });
+      expect(data).toMatchObject({
+        status: ChefApplicationStatus.submitted,
+        decidedAt: null,
+        decidedByUserId: null,
+        decisionReason: null,
+        decisionReasonCode: null,
+        allowReapplyAfter: null,
+        companySiret: '44306184100047',
+      });
+      expect(view.status).toBe('submitted');
+      // With the dossier as it stands, not an all-missing list: the documents
+      // deposited before the refusal keep their statuses.
+      expect(view.documents).toEqual([{ type: 'identity', status: 'valid' }]);
+      expect(mailer.applicationReceivedAdmin).toHaveBeenCalled();
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'application.resubmitted',
+          actorUserId: 'u-1',
+        }),
+      );
+    });
+
+    it('is open at any time when the refusal set no date', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        refusedProfile({ allowReapplyAfter: null }),
+      );
+      await expect(service.reapply('user_2n', validPayload())).resolves.toBeDefined();
+    });
+
+    it('refuses before the reapply date', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        refusedProfile({ allowReapplyAfter: new Date('2099-01-01') }),
+      );
+      await expect(service.reapply('user_2n', validPayload())).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'REAPPLY_TOO_EARLY', allowReapplyAfter: '2099-01-01' },
+      });
+      expect(prisma.chefApplication.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a candidature that was not refused', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        refusedProfile({ status: ChefApplicationStatus.submitted }),
+      );
+      await expect(service.reapply('user_2n', validPayload())).rejects.toMatchObject({
+        response: { code: 'APPLICATION_NOT_REJECTED' },
+      });
+    });
+
+    it('refuses an address other than the account’s own', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(refusedProfile());
+      const payload = validPayload();
+      payload.identity.email = 'someone.else@exemple.fr';
+      await expect(service.reapply('user_2n', payload)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(prisma.chefApplication.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an account with no candidature', async () => {
+      await expect(service.reapply('user_2n', validPayload())).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+  });
+
+  describe('resendSignInLink', () => {
+    it('sends a fresh link to the account’s own address', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        clerkUserId: 'user_2n',
+        email: 'marie.dupont@exemple.fr',
+        fullName: 'Marie Dupont',
+        role: UserRole.chef,
+      });
+      const result = await service.resendSignInLink('u-1', 'admin-1');
+      expect(mailer.signInLink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'marie.dupont@exemple.fr',
+          firstName: 'Marie',
+          signInUrl: SIGN_IN_URL,
+        }),
+      );
+      expect(result).toMatchObject({
+        sentTo: 'marie.dupont@exemple.fr',
+        delivered: true,
+      });
+      // The admin gets confirmation, never the link itself.
+      expect(JSON.stringify(result)).not.toContain('sit_secret');
+    });
+
+    it('tells the admin when the link did not leave, instead of claiming it was sent', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        clerkUserId: 'user_2n',
+        email: 'marie.dupont@exemple.fr',
+        fullName: 'Marie Dupont',
+        role: UserRole.chef,
+      });
+      mailer.signInLink.mockResolvedValue({ sent: false });
+      const result = await service.resendSignInLink('u-1', 'admin-1');
+      expect(result.delivered).toBe(false);
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'chef.invitation_resent', outcome: 'failed' }),
+      );
+    });
+
+    it('answers 503 when Clerk is not configured', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        clerkUserId: 'user_2n',
+        email: 'marie.dupont@exemple.fr',
+        fullName: 'Marie Dupont',
+        role: UserRole.chef,
+      });
+      clerk.configured = false;
+      await expect(service.resendSignInLink('u-1', 'admin-1')).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('refuses an account that is not a batch cooker', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        clerkUserId: 'user_9',
+        email: 'client@exemple.fr',
+        fullName: null,
+        role: UserRole.client,
+      });
+      await expect(service.resendSignInLink('u-9', 'admin-1')).rejects.toMatchObject({
+        response: { code: 'NOT_A_CHEF' },
       });
     });
   });
