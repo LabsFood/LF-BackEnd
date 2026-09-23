@@ -44,10 +44,11 @@ export class BookingsController {
   ) {}
 
   @Get()
+  @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'List all bookings (admin-style listing)',
+    summary: 'Admin: list all bookings',
     description:
-      'Returns every booking in the database. Intended for internal/admin tooling during Phase 1; ' +
+      'Admin only. Returns every booking in the database for internal/admin tooling; ' +
       'client-scoped listing may be added later.',
   })
   @ApiOkResponse({
@@ -55,7 +56,7 @@ export class BookingsController {
     isArray: true,
     description: 'All bookings with client, chef, schedule, and price fields.',
   })
-  @ApiClerkAuthResponses()
+  @ApiAdminAuthResponses()
   async list(): Promise<BookingReadDto[]> {
     const rows = await this.bookings.list();
     return rows.map((row) => BookingReadDto.fromEntity(row));
