@@ -8,20 +8,18 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOkResponse,
-  ApiOperation,
-  ApiParam,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isDisabledByAdmin } from './domain/chef-onboarding.rules';
-import { ConfirmUploadDto, CreateUploadUrlDto } from './dto/chef-document.dto';
+import {
+  ApiDocumentTypeParam,
+  ConfirmUploadDto,
+  CreateUploadUrlDto,
+} from './dto/chef-document.dto';
 import { ChefDocumentsService } from './services/chef-documents.service';
 import { ChefDossierCron } from './services/chef-dossier.cron';
 
@@ -83,7 +81,7 @@ export class ChefDocumentsController {
 
   @Post(':type/upload-url')
   @ApiOperation({ summary: 'Signed upload URL for a dossier document' })
-  @ApiParam({ name: 'type', description: 'Document type, kebab-case.' })
+  @ApiDocumentTypeParam()
   @ApiClerkAuthResponses()
   async uploadUrl(
     @CurrentClerkUser() user: ClerkUser,
@@ -95,6 +93,7 @@ export class ChefDocumentsController {
   }
 
   @Post(':type/confirm')
+  @ApiDocumentTypeParam()
   @ApiOperation({
     summary: 'Confirm a dossier deposit',
     description:
@@ -124,6 +123,7 @@ export class ChefDocumentsController {
   }
 
   @Get(':type/versions')
+  @ApiDocumentTypeParam()
   @ApiOperation({
     summary: 'Every deposit made for one document type',
     description: 'Newest first, including refusal reasons.',

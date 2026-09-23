@@ -40,6 +40,12 @@ export const DOCUMENT_FAMILY: Record<ChefDocumentType, DocumentFamily> = {
   vigilance: 'recommended',
 };
 
+/**
+ * Every document type as the API accepts it (kebab-case), in family order: blocking,
+ * then conditional, then recommended. This is the `{type}` enum in Swagger.
+ */
+export const DOCUMENT_TYPES: string[] = Object.keys(DOCUMENT_FAMILY).map(toWire);
+
 /** French labels shown to the candidate; the API stores only the key. */
 export const DOCUMENT_LABEL: Record<ChefDocumentType, string> = {
   identity: "Pièce d'identité",

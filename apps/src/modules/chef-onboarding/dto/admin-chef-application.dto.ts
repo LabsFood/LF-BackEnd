@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -12,6 +12,7 @@ import {
 } from 'class-validator';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
+import { DOCUMENT_TYPES } from '../domain/chef-onboarding.rules';
 
 /** Query for the admin review queue (FLOW-01 §5.1). */
 export class ListChefApplicationsQueryDto extends PaginationQueryDto {
@@ -39,14 +40,22 @@ export class ListChefApplicationsQueryDto extends PaginationQueryDto {
 
 /** Body of `POST /admin/chef-applications/:id/request-changes` (FLOW-01 §5.4). */
 export class RequestChangesDto {
-  @ApiPropertyOptional({ minLength: 15, maxLength: 1000 })
+  @ApiProperty({
+    minLength: 15,
+    maxLength: 1000,
+    description: 'What the candidate should do. Sent to them by email, word for word.',
+    example:
+      "Votre attestation RC Pro s'arrête au 31/12/2026. Pouvez-vous envoyer celle de l'année en cours ?",
+  })
   @IsString()
   @Length(15, 1000)
   message!: string;
 
-  @ApiPropertyOptional({
-    type: [String],
-    description: 'Document types the candidate should revisit, kebab-case.',
+  @ApiProperty({
+    enum: DOCUMENT_TYPES,
+    isArray: true,
+    description: 'The documents the candidate should send again. At least one.',
+    example: ['rc-pro'],
   })
   @IsArray()
   @ArrayMinSize(1)

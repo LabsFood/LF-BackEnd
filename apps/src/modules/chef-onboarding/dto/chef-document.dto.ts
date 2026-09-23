@@ -1,7 +1,19 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiParam, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsInt, IsOptional, IsString, Length } from 'class-validator';
 
+import { DOCUMENT_TYPES } from '../domain/chef-onboarding.rules';
 import { ALLOWED_MIME_TYPES, MAX_FILE_BYTES } from '../services/kyc-storage.service';
+
+/** The `{type}` path parameter, shared by every route that addresses one document. */
+export const ApiDocumentTypeParam = (): MethodDecorator =>
+  ApiParam({
+    name: 'type',
+    enum: DOCUMENT_TYPES,
+    description:
+      'Which document. `identity` and `registration` are blocking: approval waits for ' +
+      'them. Any other value answers 404.',
+    example: 'identity',
+  });
 
 /** Body of `.../documents/:type/upload-url` (FLOW-01 §3.1). */
 export class CreateUploadUrlDto {

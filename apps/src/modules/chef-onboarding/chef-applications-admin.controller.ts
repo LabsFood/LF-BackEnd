@@ -29,7 +29,7 @@ import {
   RejectApplicationDto,
   RequestChangesDto,
 } from './dto/admin-chef-application.dto';
-import { DecideDocumentDto } from './dto/chef-document.dto';
+import { ApiDocumentTypeParam, DecideDocumentDto } from './dto/chef-document.dto';
 import { ChefApplicationsAdminService } from './services/chef-applications-admin.service';
 import { ChefApplicationsService } from './services/chef-applications.service';
 
@@ -78,6 +78,7 @@ export class ChefApplicationsAdminController {
   }
 
   @Get('chef-applications/:id/documents/:type/download-url')
+  @ApiDocumentTypeParam()
   @ApiOperation({
     summary: 'Signed read link for one document',
     description:
@@ -96,6 +97,7 @@ export class ChefApplicationsAdminController {
   }
 
   @Patch('chef-applications/:id/documents/:type')
+  @ApiDocumentTypeParam()
   @ApiOperation({
     summary: 'Accept or refuse one document',
     description:
