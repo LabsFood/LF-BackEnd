@@ -18,20 +18,28 @@ import { DOCUMENT_TYPES } from '../domain/chef-onboarding.rules';
 export class ListChefApplicationsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     enum: ['submitted', 'changes-requested', 'approved', 'rejected'],
+    description:
+      'Keep one stage only. `submitted`: waiting for review. `changes-requested`: the ' +
+      'candidate was asked to resend documents. `approved` / `rejected`: decided.',
+    example: 'submitted',
   })
   @IsOptional()
   @IsIn(['submitted', 'changes-requested', 'approved', 'rejected'])
   status?: string;
 
   @ApiPropertyOptional({
-    description: 'Keep only dossiers with at least one document awaiting a decision.',
+    description: 'Keep only dossiers with at least one document waiting for a decision.',
+    example: true,
   })
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   hasPendingDocuments?: boolean;
 
-  @ApiPropertyOptional({ description: 'Free text over name, email, city and reference.' })
+  @ApiPropertyOptional({
+    description: 'Search the name, email, city and reference.',
+    example: 'Dupont',
+  })
   @IsOptional()
   @IsString()
   @Length(1, 120)
@@ -68,8 +76,9 @@ export class ApproveApplicationDto {
   @ApiPropertyOptional({
     default: false,
     description:
-      'Whether the batch cooker is immediately bookable. Defaults to false: ' +
-      'vetted, but not yet published.',
+      '`true` makes the batch cooker bookable right away. By default they are verified ' +
+      'but stay offline, to be put online later with `PATCH /admin/chefs/{id}/verification`.',
+    example: false,
   })
   @IsOptional()
   @IsBoolean()
@@ -77,7 +86,8 @@ export class ApproveApplicationDto {
 
   @ApiPropertyOptional({
     maxLength: 1000,
-    description: 'Internal note for the audit trail.',
+    description: 'Internal note, kept in the audit log. The candidate never sees it.',
+    example: "Dossier complet. Vitrine à activer après l'appel de bienvenue.",
   })
   @IsOptional()
   @IsString()
@@ -87,10 +97,12 @@ export class ApproveApplicationDto {
 
 /** Body of `POST /admin/chef-applications/:id/reject` (FLOW-01 §6). */
 export class RejectApplicationDto {
-  @ApiPropertyOptional({
+  @ApiProperty({
     minLength: 15,
     maxLength: 500,
-    description: 'Sent to the candidate verbatim.',
+    description: 'Why. Emailed to the candidate and shown in their space, word for word.',
+    example:
+      "Zone d'intervention non couverte pour l'instant : nous ne travaillons pas encore en Corse.",
   })
   @IsString()
   @Length(15, 500)
@@ -98,7 +110,9 @@ export class RejectApplicationDto {
 
   @ApiPropertyOptional({
     description:
-      'Open list: `out-of-area`, `incomplete-dossier`, `not-eligible`, `other`.',
+      'A short code for statistics. Usual values: `out-of-area`, `incomplete-dossier`, ' +
+      '`not-eligible`, `other` (the default). Other values are accepted.',
+    example: 'out-of-area',
   })
   @IsOptional()
   @IsString()
@@ -107,7 +121,9 @@ export class RejectApplicationDto {
 
   @ApiPropertyOptional({
     example: '2027-01-01',
-    description: 'Date from which the candidate may apply again.',
+    description:
+      'The day the candidate may apply again, shown to them. Leave it out to let them ' +
+      'apply again at any time.',
   })
   @IsOptional()
   @IsDateString()

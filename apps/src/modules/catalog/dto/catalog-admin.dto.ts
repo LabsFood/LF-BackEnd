@@ -19,6 +19,14 @@ import {
   MealStatus,
 } from '../../../generated/prisma/client';
 
+/** Choices in a sensible order: alphabetical for places, lifecycle for statuses. */
+const CONTINENTS = ['africa', 'americas', 'asia', 'europe', 'middle_east'];
+const DIFFICULTIES = ['easy', 'medium', 'hard'];
+const MEAL_STATUSES = ['draft', 'published', 'archived'];
+const MEAL_STATUS_HELP =
+  '`draft`: being written, not offered. `published`: can go on a weekly menu. ' +
+  '`archived`: no longer offered, kept because past bookings use it.';
+
 export class CreateMealDto {
   @ApiProperty({
     description: 'Display name of the dish.',
@@ -29,6 +37,7 @@ export class CreateMealDto {
 
   @ApiPropertyOptional({
     description: 'Marketing or menu description shown to clients.',
+    example: 'Poulet mariné au citron et aux oignons, riz blanc.',
   })
   @IsOptional()
   @IsString()
@@ -65,7 +74,11 @@ export class CreateMealDto {
 
   @ApiPropertyOptional({
     type: Object,
-    description: 'Structured ingredient list (quantities and units).',
+    description:
+      'The ingredients. The shopping list expects a list of ' +
+      '`{ name, amount, unit, aisle }` for 4 portions, but **this route only accepts a ' +
+      'JSON object today and refuses a list with 400**, so ingredients sent here are ' +
+      'not used by shopping lists. Known issue, to be fixed.',
   })
   @IsOptional()
   @IsObject()
@@ -89,8 +102,8 @@ export class CreateMealDto {
   imageUrl?: string | null;
 
   @ApiPropertyOptional({
-    enum: MealContinent,
-    description: 'Culinary region the dish originates from.',
+    enum: CONTINENTS,
+    description: 'Culinary region the dish comes from.',
     example: MealContinent.africa,
   })
   @IsOptional()
@@ -129,7 +142,7 @@ export class CreateMealDto {
   calories?: number | null;
 
   @ApiPropertyOptional({
-    enum: MealDifficulty,
+    enum: DIFFICULTIES,
     description: 'How hard the recipe is to cook.',
     example: MealDifficulty.medium,
   })
@@ -157,9 +170,9 @@ export class CreateMealDto {
   isFeatured?: boolean;
 
   @ApiPropertyOptional({
-    enum: MealStatus,
+    enum: MEAL_STATUSES,
     default: MealStatus.draft,
-    description: 'Publication status. Use `draft` until ready for menu weeks.',
+    description: MEAL_STATUS_HELP,
     example: MealStatus.draft,
   })
   @IsOptional()
@@ -174,13 +187,17 @@ export class UpdateMealDto extends PartialType(CreateMealDto) {}
  * handlers return the Prisma record directly, there is no serialization layer.
  */
 export class MealResponseDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({ format: 'uuid', example: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44' })
   id!: string;
 
   @ApiProperty({ example: 'Poulet yassa' })
   name!: string;
 
-  @ApiProperty({ type: String, nullable: true })
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Poulet mariné au citron et aux oignons, riz blanc.',
+  })
   description!: string | null;
 
   @ApiProperty({
@@ -193,7 +210,12 @@ export class MealResponseDto {
   })
   imageUrl!: string | null;
 
-  @ApiProperty({ enum: MealContinent, nullable: true })
+  @ApiProperty({
+    enum: CONTINENTS,
+    nullable: true,
+    description: 'Culinary region the dish comes from.',
+    example: 'africa',
+  })
   continent!: MealContinent | null;
 
   @ApiProperty({ type: String, nullable: true, example: 'Sénégal' })
@@ -214,28 +236,45 @@ export class MealResponseDto {
   @ApiProperty({ type: Number, nullable: true, example: 620 })
   calories!: number | null;
 
-  @ApiProperty({ enum: MealDifficulty, nullable: true })
+  @ApiProperty({
+    enum: DIFFICULTIES,
+    nullable: true,
+    description: 'How hard the recipe is to cook.',
+    example: 'medium',
+  })
   difficulty!: MealDifficulty | null;
 
   @ApiProperty({
     type: Object,
-    description: 'Structured ingredient list (quantities and units).',
+    description:
+      'The ingredients, as stored. Shopping lists read a list of ' +
+      '`{ name, amount, unit, aisle }` and ignore anything else.',
+    example: [
+      { name: 'Cuisses de poulet', amount: 8, unit: 'pièces', aisle: 'boucherie' },
+    ],
   })
   ingredients!: unknown;
 
-  @ApiProperty({ type: [String] })
+  @ApiProperty({
+    type: [String],
+    example: ['Mariner le poulet', 'Faire revenir les oignons'],
+  })
   steps!: string[];
 
   @ApiProperty({ example: false })
   isFeatured!: boolean;
 
-  @ApiProperty({ enum: MealStatus })
+  @ApiProperty({
+    enum: MEAL_STATUSES,
+    description: MEAL_STATUS_HELP,
+    example: 'published',
+  })
   status!: MealStatus;
 
-  @ApiProperty({ format: 'date-time' })
+  @ApiProperty({ format: 'date-time', example: '2026-09-01T08:00:00.000Z' })
   createdAt!: Date;
 
-  @ApiProperty({ format: 'date-time' })
+  @ApiProperty({ format: 'date-time', example: '2026-09-03T14:12:00.000Z' })
   updatedAt!: Date;
 }
 
@@ -259,7 +298,8 @@ export class CreateMenuWeekDto {
   @ApiPropertyOptional({
     type: [String],
     format: 'uuid',
-    description: 'Meal uuids to include in this weekly menu.',
+    description: 'The meals on this menu, by id (from `GET /admin/meals`).',
+    example: ['d3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44'],
   })
   @IsOptional()
   @IsArray()
@@ -288,8 +328,10 @@ export class UpdateFormuleDto {
 
   @ApiPropertyOptional({
     minimum: 0,
-    description: 'Net price after tax, in minor currency units (cents).',
-    example: 8250,
+    description:
+      'What the client really pays after the 50 % "services à la personne" tax ' +
+      'credit, in cents.',
+    example: 4950,
   })
   @IsOptional()
   @IsInt()

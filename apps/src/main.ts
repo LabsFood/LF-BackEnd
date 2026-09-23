@@ -8,11 +8,12 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Http2ServerRequest } from 'node:http2';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
 import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
+import { buildOpenApiDocument } from './swagger';
 
 /**
  * Structured logging so Railway's log explorer can filter on fields rather than
@@ -97,55 +98,7 @@ async function bootstrap(): Promise<void> {
 
   app.enableShutdownHooks();
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Labs Food API')
-    .setDescription(
-      [
-        "Lab's Food backend API (NestJS + Fastify).",
-        '',
-        '## Authentication',
-        'Protected routes require "Authorization: Bearer <Clerk session JWT>".',
-        'Sign-in is handled by the Next.js frontend via Clerk. Sign-up may go through the frontend',
-        'or through this API\'s public "POST /auth/register"; both end with a Clerk session.',
-        '',
-        '## Roles (Postgres "users.role")',
-        '- `client` — default after "POST /auth/register" or first "GET /me"',
-        '- `chef` — batch cooker; set by the candidature ("POST /chef-applications"), browse-only until approved',
-        '- `admin` — back-office; required for "/admin/*" routes. Never self-assignable',
-        '',
-        '## Sign-up flow (two forms)',
-        '1. Form 1 → "POST /auth/register" (public) → creates the account, returns a sign-in ticket',
-        '2. Frontend redeems the ticket via "signIn.create({ strategy: \'ticket\', ticket })" → session',
-        '3. Form 2 → "PATCH /me/profile" (client). The request body never carries a role.',
-        '',
-        '## Batch cooker onboarding',
-        '"POST /chef-applications" (public) creates the account and emails a sign-in link.',
-        'The chef stays browse-only until "POST /admin/chef-applications/:id/approve".',
-        '',
-        '## Admin flows',
-        '- Promote users → "PATCH /admin/users/:id/role" (`:id` = Postgres uuid)',
-        '- Provision accounts → "POST /admin/users" (requires real "CLERK_SECRET_KEY")',
-        '',
-        'See "docs/auth/clerk-integration-contract.md" for the full frontend ↔ backend contract.',
-      ].join('\n'),
-    )
-    .setVersion('1.2.0')
-    .addBearerAuth({
-      type: 'http',
-      scheme: 'bearer',
-      bearerFormat: 'JWT',
-      description:
-        'Clerk session JWT from the frontend (`getToken()`) or a dev session token.',
-    })
-    .addTag('auth', 'Public registration (no session required)')
-    .addTag('users', 'Identity, profiles, and admin user management')
-    .addTag('bookings', 'Client and admin booking operations')
-    .addTag('catalog', 'Menus, meals, and formules')
-    .addTag('quotes', 'Custom quote requests')
-    .addTag('stats', 'Client and admin dashboards')
-    .addTag('health', 'Liveness and readiness probes')
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const document = buildOpenApiDocument(app);
   SwaggerModule.setup('docs', app, document, {
     jsonDocumentUrl: 'openapi.json',
   });
