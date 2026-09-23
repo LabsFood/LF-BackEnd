@@ -46,7 +46,6 @@ export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export CLERK_SECRET_KEY="sk_test_placeholder"   # any non-empty string works locally
 export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
 npm run db:migrate       # apply Prisma migrations once (see docs/database-connection.md)
-npm run db:seed          # optional: seed CMS concept page
 npm run start:dev        # listens on 8000
 ```
 
@@ -70,7 +69,6 @@ npm run start:dev        # listens on 8000
 cd apps
 npm run db:migrate                    # apply pending migrations (deploy)
 npm run db:resolve -- --applied <name>  # baseline: mark migration applied without DDL
-npm run db:seed                       # seed CMS concept page
 npm run db:migrate:dev                # dev: create/apply migrations
 npm run db:studio                     # Prisma Studio
 ```
@@ -122,12 +120,6 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 > ⚠️ **Env precedence:** `loadRepoEnv()` lets repo-root `.env.local` **override shell-exported variables**. Exporting `SUPABASE_DB_URL` or `CLERK_SECRET_KEY` on a command line does **not** redirect these scripts — they will use `.env` / `.env.local` and can reach hosted Postgres when you believe you are on localhost. Check the `Database :` line the script prints before writing.
 - Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
 - First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
-
-### F19 concept CMS
-
-- Module: `modules/content-cms/` (`ContentCmsModule`)
-- Routes: `GET` / `PUT` `/content/concept` (public read; admin write)
-- General app content (non-CMS): `modules/content/` (`ContentModule`, reserved)
 
 ### Chef onboarding (FLOW-01)
 

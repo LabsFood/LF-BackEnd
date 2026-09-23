@@ -47,7 +47,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET` | CMS assets in Supabase Storage |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `BREVO_TPL_*` (9 ids) | Chef onboarding emails. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
@@ -69,13 +69,6 @@ read is written to `audit_log`.
 2. **Session pooler** or **Direct connection** (port **5432**) → `SUPABASE_DB_MIGRATION_URL` (migrations only).
 
 Never run migrations through the **transaction** pooler (6543). The container entrypoint runs `prisma migrate deploy` once per deploy using `SUPABASE_DB_MIGRATION_URL` (see `apps/scripts/docker-entrypoint.sh`).
-
-Optional one-off seed (not run on deploy):
-
-```bash
-# From your machine with repo-root .env or Railway CLI env
-cd apps && npm run db:seed
-```
 
 ## 4. Public domain & API URLs
 
@@ -113,7 +106,6 @@ export API_BASE="https://<public-domain>"
 curl -s "$API_BASE/health"
 curl -s "$API_BASE/ready"
 curl -s "$API_BASE/openapi.json" | head -c 200
-curl -s "$API_BASE/content/concept"
 ```
 
 | Path | Use |

@@ -143,7 +143,6 @@ async function bootstrap(): Promise<void> {
     .addTag('catalog', 'Menus, meals, and formules')
     .addTag('quotes', 'Custom quote requests')
     .addTag('stats', 'Client and admin dashboards')
-    .addTag('content-cms', 'Public and admin CMS content')
     .addTag('health', 'Liveness and readiness probes')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

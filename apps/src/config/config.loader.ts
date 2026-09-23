@@ -90,7 +90,6 @@ export interface AppConfig {
     url?: string;
     serviceRoleKey?: string;
     anonKey?: string;
-    cmsAssetsBucket?: string;
     /** Private bucket holding KYC documents. Never publicly readable. */
     kycBucket: string;
   };
@@ -180,7 +179,6 @@ export const configLoader = (): AppConfig => ({
     url: process.env.SUPABASE_URL,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     anonKey: process.env.SUPABASE_ANON_KEY,
-    cmsAssetsBucket: process.env.SUPABASE_CMS_ASSETS_BUCKET,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
   },
 });

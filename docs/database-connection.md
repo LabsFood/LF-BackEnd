@@ -10,7 +10,7 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
 | `DATABASE_URL` | No (deprecated) | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above. |
 
-Optional Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET`.
+Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, and `SUPABASE_KYC_BUCKET` for chef KYC documents.
 
 ## URI formats (placeholders)
 
@@ -55,13 +55,12 @@ Commands run from `cd apps` still read repo-root env files automatically.
 
 ## Prisma commands (ORM 7)
 
-Configuration lives in **`apps/prisma.config.ts`** (database URL for CLI, migrations path, seed command). The schema is at `apps/prisma/schema.prisma`; URLs are no longer defined in the schema file.
+Configuration lives in **`apps/prisma.config.ts`** (database URL for CLI, migrations path). The schema is at `apps/prisma/schema.prisma`; URLs are no longer defined in the schema file.
 
 ```bash
 cd apps
 npm install
 npm run db:migrate      # apply migrations (deploy)
-npm run db:seed         # seed F19 concept page (explicit in v7 — not auto after migrate)
 npm run db:migrate:dev  # create/apply migrations in development
 npm run db:studio       # Prisma Studio GUI
 ```
@@ -70,30 +69,29 @@ npm run db:studio       # Prisma Studio GUI
 
 ## Prisma baseline (existing TypeORM databases)
 
-If the database was created with the former TypeORM migrations (`typeorm_migrations` table) and already has `users`, `bookings`, `cms_pages`, etc.:
+If the database was created with the former TypeORM migrations (`typeorm_migrations` table) and already has `users`, `bookings`, etc.:
 
 1. Ensure `SUPABASE_DB_MIGRATION_URL` points at the **direct** session.
 2. Mark existing Prisma migrations as applied **without** re-running DDL (`db:migrate` only runs `deploy` — use `db:resolve` for this):
 
 ```bash
 cd apps
-# TypeORM baseline already has Phase 1 + cms_pages tables:
+# TypeORM baseline already has the Phase 1 tables:
 npm run db:resolve -- --applied 20250522120000_init
 
 # If spec_domain tables also already exist, mark that migration too:
 npm run db:resolve -- --applied 20250522130000_spec_domain
 ```
 
-3. Apply any remaining migrations, then seed:
+3. Apply any remaining migrations:
 
 ```bash
 npm run db:migrate
-npm run db:seed
 ```
 
 4. Optionally drop the legacy table: `DROP TABLE IF EXISTS typeorm_migrations;`
 
-For a **fresh** Postgres volume, run `npm run db:migrate` then `npm run db:seed`.
+For a **fresh** Postgres volume, run `npm run db:migrate`.
 
 ## Behavior in this repo
 

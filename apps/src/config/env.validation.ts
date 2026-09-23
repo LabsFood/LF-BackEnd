@@ -79,7 +79,6 @@ export const envValidationSchema = Joi.object({
   SUPABASE_URL: Joi.string().uri().allow('').optional(),
   SUPABASE_SERVICE_ROLE_KEY: Joi.string().allow('').optional(),
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
-  SUPABASE_CMS_ASSETS_BUCKET: Joi.string().allow('').optional(),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
 

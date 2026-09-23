@@ -17,7 +17,6 @@ model User {
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingsAsClient    Booking[]         @relation("BookingClient")
-  cmsPagesUpdated     CmsPage[]         @relation("CmsPageUpdatedBy")
   chefProfile         ChefProfile?
   clientProfile       ClientProfile?
   quotes              Quote[]           @relation("QuoteClient")
@@ -127,23 +126,6 @@ model Booking {
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
   @@map("bookings")
-}
-
-model CmsPage {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug             String   @unique(map: "uq_cms_pages_slug") @db.VarChar(255)
-  title            String   @db.VarChar(255)
-  hero             Json
-  introBlocks      Json     @map("intro_blocks")
-  howItWorks       Json     @map("how_it_works")
-  reassuranceItems Json     @map("reassurance_items")
-  status           String   @default("published") @db.VarChar(32)
-  updatedByUserId  String?  @map("updated_by_user_id") @db.Uuid
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedBy        User?    @relation("CmsPageUpdatedBy", fields: [updatedByUserId], references: [id], onUpdate: NoAction, map: "fk_cms_pages_updated_by_user_id")
-
-  @@map("cms_pages")
 }
 
 model ClientProfile {
