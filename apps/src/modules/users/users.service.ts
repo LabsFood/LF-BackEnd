@@ -163,6 +163,10 @@ export class UsersService {
       return existing;
     }
 
+    // ponytail: only an anonymised account is protected. A hard-deleted one leaves
+    // no row, so a late user.updated re-creates it with the personal data. Upgrade:
+    // anonymise every deleted account instead of deleting it; the row is then the
+    // tombstone.
     return this.prisma.user.create({
       data: {
         clerkUserId: input.clerkUserId,
@@ -324,6 +328,10 @@ export class UsersService {
         },
       }),
       this.prisma.clientProfile.deleteMany({ where: { userId: user.id } }),
+      // ponytail: the chef's candidature (name, email, phone, address) and identity
+      // documents are left as they are. FLOW-01 §8 keeps the documents until the end
+      // of the contract plus 5 years, and no end of contract is modelled. Upgrade:
+      // take deleted_at as that end and let the dossier job purge them after it.
       this.prisma.chefProfile.updateMany({
         where: { userId: user.id },
         data: {
