@@ -14,6 +14,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -25,8 +26,13 @@ import {
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { AdminGuard } from '../../auth/admin.guard';
-import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
-import { CatalogService } from './catalog.service';
+import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
+import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { UsersService } from '../users/users.service';
+import {
+  CatalogService,
+  NOT_LABS_FOOD as NOT_LABS_FOOD_MESSAGE,
+} from './catalog.service';
 import {
   CreateMealDto,
   CreateMenuWeekDto,
@@ -37,6 +43,8 @@ import {
 
 const MEAL = {
   id: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+  chefProfileId: null,
+  createdByUserId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   name: 'Poulet yassa',
   description: 'Poulet mariné au citron et aux oignons, riz blanc.',
   imageUrl: null,
@@ -57,6 +65,9 @@ const MEAL = {
   createdAt: '2026-09-01T08:00:00.000Z',
   updatedAt: '2026-09-03T14:12:00.000Z',
 };
+
+/** What public routes show of a meal: everything but the recipe. */
+const { ingredients: _ingredients, steps: _steps, ...PUBLIC_MEAL } = MEAL;
 
 const MENU_WEEK = {
   id: 'e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55',
@@ -85,6 +96,16 @@ const FORMULE = {
   updatedAt: '2026-09-01T08:00:00.000Z',
 };
 
+const NOT_LABS_FOOD = {
+  description:
+    "`CONTENT_NOT_OWNED`: this meal is a batch cooker's dish. These routes only " +
+    "change Lab's Food meals.",
+  example: {
+    code: 'CONTENT_NOT_OWNED',
+    message: NOT_LABS_FOOD_MESSAGE,
+  },
+};
+
 const ApiMealIdParam = () =>
   ApiParam({
     name: 'id',
@@ -94,7 +115,16 @@ const ApiMealIdParam = () =>
 
 @Controller()
 export class CatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly users: UsersService,
+  ) {}
+
+  /** The admin's Postgres uuid: authorship records a person, not a Clerk subject. */
+  private async adminId(user: ClerkUser): Promise<string> {
+    const row = await this.users.findByClerkId(user.userId);
+    return row!.id;
+  }
 
   @Get('menus/current')
   @ApiTags(TAGS.catalog)
@@ -103,11 +133,19 @@ export class CatalogController {
     description:
       'The most recent weekly menu that has been published, with its meals. `meals` ' +
       'is the list to show; `menuWeek` says which week it is. Public: no token needed.\n\n' +
+      "Lab's Food meals only, and never their recipe: `ingredients` and `steps` are " +
+      'left out.\n\n' +
       'Answers `200` with an empty body when no menu has been published yet.',
   })
   @ApiOkResponse({
     description: 'The week and its meals.',
-    example: { menuWeek: MENU_WEEK, meals: [MEAL] },
+    example: {
+      menuWeek: {
+        ...MENU_WEEK,
+        meals: [{ ...MENU_WEEK.meals[0], meal: PUBLIC_MEAL }],
+      },
+      meals: [PUBLIC_MEAL],
+    },
   })
   getCurrentMenu() {
     return this.catalog.getCurrentPublishedMenu();
@@ -118,8 +156,11 @@ export class CatalogController {
   @ApiBearerAuth()
   @UseGuards(ClerkAuthGuard, AdminGuard)
   @ApiOperation({
-    summary: 'List every meal',
-    description: 'All meals, whatever their status, newest first. Not paginated.',
+    summary: "List Lab's Food meals",
+    description:
+      "Every Lab's Food meal, whatever its status, newest first. Not paginated.\n\n" +
+      "Batch cookers' own dishes are not listed here, and these routes cannot change " +
+      'them.',
   })
   @ApiOkResponse({
     description: 'The meals.',
@@ -137,15 +178,17 @@ export class CatalogController {
   @ApiOperation({
     summary: 'Add a meal',
     description:
-      'Only `name` and `prepTime` are required. The meal starts as a `draft` unless ' +
+      "Adds a Lab's Food meal: no batch cooker owns it, and the admin is recorded as " +
+      'its author (`createdByUserId`). Only `name` and `prepTime` are required. The ' +
+      'meal starts as a `draft` unless ' +
       '`status` says otherwise. For a photo, upload the file to storage first and ' +
       'send its address in `imageUrl`.\n\n' +
       'Example: `{ "name": "Poulet yassa", "prepTime": 45, "continent": "africa" }`.',
   })
   @ApiCreatedResponse({ description: 'The new meal.', type: MealResponseDto })
   @ApiAdminAuthResponses()
-  createMeal(@Body() payload: CreateMealDto) {
-    return this.catalog.createMeal(payload);
+  async createMeal(@Body() payload: CreateMealDto, @CurrentClerkUser() user: ClerkUser) {
+    return this.catalog.createMeal(payload, await this.adminId(user));
   }
 
   @Patch('admin/meals/:id')
@@ -162,6 +205,8 @@ export class CatalogController {
   })
   @ApiMealIdParam()
   @ApiOkResponse({ description: 'The updated meal.', type: MealResponseDto })
+  @ApiNotFoundResponse({ description: 'No meal with this id.' })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()
   updateMeal(@Param('id') id: string, @Body() payload: UpdateMealDto) {
     return this.catalog.updateMeal(id, payload);
@@ -185,6 +230,7 @@ export class CatalogController {
   @ApiConflictResponse({
     description: 'This meal was booked before. Archive it instead.',
   })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()
   deleteMeal(@Param('id') id: string) {
     return this.catalog.deleteMeal(id);
@@ -217,11 +263,20 @@ export class CatalogController {
       '`{ "year": 2026, "weekNumber": 40, "mealIds": ["d3eebc99-…"] }`. One menu per ' +
       'week.\n\n' +
       'The menu is created unpublished (`publishedAt: null`), and no route publishes ' +
-      'it yet, so it will not appear in `GET /menus/current`.',
+      'it yet, so it will not appear in `GET /menus/current`.\n\n' +
+      "Only Lab's Food meals can go on it: a batch cooker's dish is refused.",
   })
   @ApiCreatedResponse({
     description: 'The new weekly menu.',
     example: { ...MENU_WEEK, weekNumber: 40, publishedAt: null },
+  })
+  @ApiNotFoundResponse({ description: 'One of `mealIds` is not a meal.' })
+  @ApiForbiddenResponse({
+    description: "`CONTENT_NOT_OWNED`: one of `mealIds` is a batch cooker's dish.",
+    example: {
+      code: 'CONTENT_NOT_OWNED',
+      message: "Only Lab's Food meals can go on a weekly menu.",
+    },
   })
   @ApiAdminAuthResponses()
   createMenuWeek(@Body() payload: CreateMenuWeekDto) {

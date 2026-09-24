@@ -22,6 +22,8 @@ export class ShoppingListsService {
   async regenerateForBooking(bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
+      // No owner filter on purpose: a prestation's list counts every dish booked,
+      // whether a batch cooker or Lab's Food wrote it.
       include: {
         bookingMeals: {
           include: { meal: true },

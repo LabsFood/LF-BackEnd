@@ -20,7 +20,10 @@ export class BookingsService {
     return this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
       include: {
-        bookingMeals: { include: { meal: true } },
+        // The client gets the recipe on the fiche, after the prestation (FLOW-02 §8).
+        bookingMeals: {
+          include: { meal: { omit: { ingredients: true, steps: true } } },
+        },
         shoppingList: { include: { items: true } },
       },
     });

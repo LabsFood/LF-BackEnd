@@ -23,6 +23,7 @@ model User {
   applicationsDecided ChefApplication[] @relation("ChefApplicationDecidedBy")
   documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
   auditEntries        AuditLog[]        @relation("AuditLogActor")
+  mealsAuthored       Meal[]            @relation("MealAuthor")
 
   @@map("users")
 }
@@ -56,6 +57,7 @@ model ChefProfile {
   serviceOffers        ServiceOffer[]
   documents            ChefDocument[]
   application          ChefApplication?   @relation("ChefProfileApplication")
+  dishes               Meal[]             @relation("MealOwner")
 
   @@map("chef_profiles")
 }
@@ -150,28 +152,39 @@ model ClientProfile {
   @@map("client_profiles")
 }
 
+/// A dish. `chefProfileId` is the owner: set for a chef's dish, null for Lab's Food
+/// content. `createdByUserId` is the author, for attribution only: it never grants
+/// a right, so an admin who writes a Lab's Food meal does not own it.
 model Meal {
-  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name         String          @db.VarChar(255)
-  description  String?
-  imageUrl     String?         @map("image_url") @db.VarChar(512)
-  continent    MealContinent?
-  country      String?         @db.VarChar(120)
-  portions     Int             @default(4)
-  prepTime     Int             @map("prep_time")
-  dietaryTags  String[]        @default([]) @map("dietary_tags")
-  allergens    String[]        @default([])
-  calories     Int?
-  difficulty   MealDifficulty?
-  ingredients  Json            @default("[]")
-  steps        String[]        @default([])
-  isFeatured   Boolean         @default(false) @map("is_featured")
-  status       MealStatus      @default(draft)
-  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookingMeals BookingMeal[]
-  menuWeeks    MenuWeekMeal[]
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId   String?         @map("chef_profile_id") @db.Uuid
+  createdByUserId String?         @map("created_by_user_id") @db.Uuid
+  name            String          @db.VarChar(255)
+  description     String?
+  imageUrl        String?         @map("image_url") @db.VarChar(512)
+  continent       MealContinent?
+  country         String?         @db.VarChar(120)
+  portions        Int             @default(4)
+  prepTime        Int             @map("prep_time")
+  dietaryTags     String[]        @default([]) @map("dietary_tags")
+  allergens       String[]        @default([])
+  calories        Int?
+  difficulty      MealDifficulty?
+  ingredients     Json            @default("[]")
+  steps           String[]        @default([])
+  isFeatured      Boolean         @default(false) @map("is_featured")
+  status          MealStatus      @default(draft)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals    BookingMeal[]
+  menuWeeks       MenuWeekMeal[]
+  // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
+  // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
+  chefProfile     ChefProfile?    @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
+  createdBy       User?           @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
 
+  @@index([chefProfileId], map: "ix_meals_chef_profile_id")
+  @@index([createdByUserId], map: "ix_meals_created_by_user_id")
   @@map("meals")
 }
 

@@ -190,6 +190,28 @@ export class MealResponseDto {
   @ApiProperty({ format: 'uuid', example: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44' })
   id!: string;
 
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      "The owner. `null` for a Lab's Food meal, which is the only kind these admin " +
+      'routes return.',
+    example: null,
+  })
+  chefProfileId!: string | null;
+
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'The user who wrote it, for attribution only: it gives no right to edit. ' +
+      '`null` for meals written before authorship was recorded.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  })
+  createdByUserId!: string | null;
+
   @ApiProperty({ example: 'Poulet yassa' })
   name!: string;
 

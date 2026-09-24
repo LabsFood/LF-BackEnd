@@ -2,12 +2,22 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 
 import { MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { contentNotOwned } from '../dishes/domain/content.errors';
 import {
   CreateMealDto,
   CreateMenuWeekDto,
   UpdateFormuleDto,
   UpdateMealDto,
 } from './dto/catalog-admin.dto';
+
+/**
+ * A Lab's Food meal is one no batch cooker owns. The admin routes here predate
+ * chef dishes, so every read and write they make is limited to those rows.
+ */
+const LABS_FOOD = { chefProfileId: null };
+
+export const NOT_LABS_FOOD =
+  "This dish belongs to a batch cooker. Only Lab's Food meals can be changed here.";
 
 @Injectable()
 export class CatalogService {
@@ -21,7 +31,13 @@ export class CatalogService {
     const week = await this.prisma.menuWeek.findFirst({
       where: { publishedAt: { not: null, lte: now } },
       orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
-      include: { meals: { include: { meal: true } } },
+      // Public route: Lab's Food meals only, and never the recipe (FLOW-02 §1).
+      include: {
+        meals: {
+          where: { meal: LABS_FOOD },
+          include: { meal: { omit: { ingredients: true, steps: true } } },
+        },
+      },
     });
     if (!week) {
       return null;
@@ -34,12 +50,17 @@ export class CatalogService {
   }
 
   listMeals() {
-    return this.prisma.meal.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.meal.findMany({
+      where: LABS_FOOD,
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  createMeal(payload: CreateMealDto) {
+  /** Always an unowned Lab's Food meal; the admin is recorded as its author only. */
+  createMeal(payload: CreateMealDto, adminUserId: string) {
     return this.prisma.meal.create({
       data: {
+        createdByUserId: adminUserId,
         name: payload.name,
         description: payload.description,
         imageUrl: payload.imageUrl ?? null,
@@ -61,11 +82,30 @@ export class CatalogService {
     });
   }
 
-  updateMeal(id: string, payload: UpdateMealDto) {
-    return this.prisma.meal.update({
+  /**
+   * The owner filter sits in the `where`, so the check and the write are one
+   * statement: no gap in which the row could change hands in between.
+   */
+  async updateMeal(id: string, payload: UpdateMealDto) {
+    try {
+      return await this.prisma.meal.update({
+        where: { id, ...LABS_FOOD },
+        data: CatalogService.toMealUpdateData(payload),
+      });
+    } catch (error) {
+      if (isNotFound(error)) return this.explainMissing(id);
+      throw error;
+    }
+  }
+
+  /** A write matched nothing: the meal is gone, or it belongs to a batch cooker. */
+  private async explainMissing(id: string): Promise<never> {
+    const row = await this.prisma.meal.findUnique({
       where: { id },
-      data: CatalogService.toMealUpdateData(payload),
+      select: { chefProfileId: true },
     });
+    if (row) throw contentNotOwned(NOT_LABS_FOOD);
+    throw new NotFoundException('Meal not found.');
   }
 
   /**
@@ -100,13 +140,10 @@ export class CatalogService {
 
   async deleteMeal(id: string): Promise<void> {
     try {
-      await this.prisma.meal.delete({ where: { id } });
+      await this.prisma.meal.delete({ where: { id, ...LABS_FOOD } });
     } catch (error) {
+      if (isNotFound(error)) return this.explainMissing(id);
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        // Record to delete does not exist.
-        if (error.code === 'P2025') {
-          throw new NotFoundException('Meal not found.');
-        }
         // booking_meals.meal_id is ON DELETE RESTRICT, so meals already served
         // in a booking cannot be removed without losing booking history.
         if (error.code === 'P2003') {
@@ -127,15 +164,35 @@ export class CatalogService {
     });
   }
 
+  /**
+   * Only Lab's Food meals can go on the global weekly menu: putting a chef's dish
+   * there would publish it without the chef's consent.
+   */
   async createMenuWeek(payload: CreateMenuWeekDto) {
+    const mealIds = [...new Set(payload.mealIds ?? [])];
+    if (mealIds.length) {
+      const found = await this.prisma.meal.findMany({
+        where: { id: { in: mealIds } },
+        select: { id: true, chefProfileId: true },
+      });
+      const known = new Set(found.map((row) => row.id));
+      const unknown = mealIds.filter((id) => !known.has(id));
+      if (unknown.length) {
+        throw new NotFoundException(`Unknown meal ids: ${unknown.join(', ')}.`);
+      }
+      if (found.some((row) => row.chefProfileId)) {
+        throw contentNotOwned("Only Lab's Food meals can go on a weekly menu.");
+      }
+    }
+
     return this.prisma.menuWeek.create({
       data: {
         year: payload.year,
         weekNumber: payload.weekNumber,
         publishedAt: null,
-        meals: payload.mealIds?.length
+        meals: mealIds.length
           ? {
-              create: payload.mealIds.map((mealId) => ({
+              create: mealIds.map((mealId) => ({
                 meal: { connect: { id: mealId } },
               })),
             }
@@ -155,4 +212,9 @@ export class CatalogService {
       data: payload,
     });
   }
+}
+
+/** Prisma's "no row matched the `where`" (P2025). */
+function isNotFound(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
 }
