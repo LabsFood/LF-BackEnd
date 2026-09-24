@@ -73,3 +73,69 @@ export const CONTENT_NOT_OWNED_EXAMPLE = {
   code: 'CONTENT_NOT_OWNED',
   message: 'This dish is not yours.',
 };
+
+export const MENU_ID = '3a9d7f10-2c4b-4e8a-9b61-0f5e2d7c8a31';
+
+/** `GET /me/menus/{id}` → 200. */
+export const MENU_EXAMPLE = {
+  id: MENU_ID,
+  title: 'Semaine méditerranéenne',
+  pitch: 'Une semaine qui voyage : Vietnam, Sénégal, Tunisie, puis retour en Provence.',
+  period: 'week',
+  status: 'published',
+  shoppingIncluded: true,
+  publishedAt: '2026-09-21T07:30:00.000Z',
+  createdAt: '2026-09-20T18:02:00.000Z',
+  updatedAt: '2026-09-21T07:30:00.000Z',
+  dishes: [
+    {
+      id: DISH_ID,
+      name: 'Poulet rôti aux herbes',
+      status: 'published',
+      country: 'FR',
+      imageUrl: null,
+      portions: 3,
+      diets: ['lactose-free'],
+      allergens: ['celery'],
+      allergensNone: false,
+      recipeComplete: true,
+    },
+  ],
+};
+
+/** `POST /me/menus/{id}/publish` → 422. */
+export const MENU_NOT_PUBLISHABLE_EXAMPLE = {
+  code: 'MENU_NOT_PUBLISHABLE',
+  message: 'This menu cannot be published as it is.',
+  problems: {
+    menu: [],
+    dishes: [
+      {
+        dishId: DISH_ID,
+        name: 'Poulet rôti aux herbes',
+        problems: [
+          {
+            code: 'ALLERGENS_REQUIRED',
+            field: 'allergens',
+            message:
+              'Declare the allergens: list them, or confirm the dish contains none of ' +
+              'the 14 regulated allergens (`allergensNone: true`).',
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/** `GET /me/showcase/weeks` → 200. */
+export const SHOWCASE_EXAMPLE = {
+  from: '2026-09-28',
+  to: '2026-11-16',
+  weeks: [
+    {
+      weekStart: '2026-09-28',
+      menu: { id: MENU_ID, title: 'Semaine méditerranéenne', status: 'published' },
+    },
+    { weekStart: '2026-10-05', menu: null },
+  ],
+};

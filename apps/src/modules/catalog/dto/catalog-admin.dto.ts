@@ -263,7 +263,8 @@ export class CreateMealDto {
     example: MealStatus.draft,
   })
   @IsOptional()
-  @IsEnum(MealStatus)
+  // Not `suspended`: that one is for moderating a batch cooker's dish.
+  @IsIn(MEAL_STATUSES)
   status?: MealStatus;
 }
 

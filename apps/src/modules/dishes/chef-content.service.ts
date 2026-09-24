@@ -1,6 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
-import { ChefApplication, ChefProfile, Meal } from '../../generated/prisma/client';
+import {
+  ChefApplication,
+  ChefProfile,
+  Meal,
+  Menu,
+  Prisma,
+} from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   isDisabledByAdmin,
@@ -10,6 +16,15 @@ import { ChefDocumentsService } from '../chef-onboarding/services/chef-documents
 import { chefNotVerified, contentNotOwned } from './domain/content.errors';
 
 export type ChefContext = ChefProfile & { application: ChefApplication | null };
+
+/** A menu's dishes, in the order the chef set. */
+export const MENU_DISHES = {
+  dishes: { orderBy: { position: 'asc' }, include: { meal: true } },
+} satisfies Prisma.MenuInclude;
+
+export type MenuWithDishes = Menu & {
+  dishes: Prisma.MenuDishGetPayload<{ include: { meal: true } }>[];
+};
 
 /**
  * Who the calling batch cooker is, and what they may do with a given dish or menu.
@@ -81,5 +96,48 @@ export class ChefContentService {
       throw contentNotOwned('This dish is not yours.');
     }
     return dish;
+  }
+
+  /** One of the chef's menus, with its dishes in order. Another's is missing. */
+  async readableMenu(chef: ChefContext, id: string): Promise<MenuWithDishes> {
+    const menu = await this.prisma.menu.findUnique({
+      where: { id },
+      include: MENU_DISHES,
+    });
+    if (!menu || menu.chefProfileId !== chef.id) {
+      throw new NotFoundException('Menu not found.');
+    }
+    return menu;
+  }
+
+  /** One of the chef's menus, about to be changed: 403 for another's (§8). */
+  async writableMenu(chef: ChefContext, id: string): Promise<MenuWithDishes> {
+    const menu = await this.prisma.menu.findUnique({
+      where: { id },
+      include: MENU_DISHES,
+    });
+    if (!menu) throw new NotFoundException('Menu not found.');
+    if (menu.chefProfileId !== chef.id) {
+      throw contentNotOwned('This menu is not yours.');
+    }
+    return menu;
+  }
+
+  /**
+   * A chef's menu holds only their own dishes (PRD: a chef never reads or copies
+   * another chef's content). Someone else's dish is reported like an unknown one,
+   * so this cannot be used to learn that a given id exists.
+   */
+  async assertOwnDishes(chef: ChefContext, ids: string[]): Promise<Meal[]> {
+    if (ids.length === 0) return [];
+    const dishes = await this.prisma.meal.findMany({
+      where: { id: { in: ids }, chefProfileId: chef.id },
+    });
+    const found = new Set(dishes.map((dish) => dish.id));
+    const unknown = ids.filter((id) => !found.has(id));
+    if (unknown.length) {
+      throw new NotFoundException(`Not among your dishes: ${unknown.join(', ')}.`);
+    }
+    return dishes;
   }
 }

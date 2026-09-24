@@ -6,70 +6,8 @@ import {
 } from '@nestjs/common';
 
 import { MealStatus, Prisma } from '../../generated/prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ChefDocumentsService } from '../chef-onboarding/services/chef-documents.service';
-import { ChefContentService } from './chef-content.service';
+import { CHEF, codeOf, dishRow, harness } from './dishes.test-helpers';
 import { DishesService } from './dishes.service';
-
-export const CHEF = {
-  id: 'chef-1',
-  userId: 'user-1',
-  isVerified: true,
-  isActive: true,
-  autoSuspendedAt: null,
-  application: { workAuthorizationStatus: 'eu_citizen' },
-};
-
-export function dishRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'dish-1',
-    chefProfileId: CHEF.id,
-    name: 'Poulet rôti aux herbes',
-    country: 'FR',
-    portions: 3,
-    prepTime: 20,
-    cookTime: 55,
-    dietaryTags: [],
-    customDiets: [],
-    allergens: ['celery'],
-    allergensNone: false,
-    customAllergens: [],
-    ingredients: [],
-    steps: [],
-    reheating: null,
-    storage: null,
-    status: MealStatus.draft,
-    publishedAt: null,
-    ...overrides,
-  };
-}
-
-type WriteArgs = { where?: Record<string, unknown>; data: Record<string, unknown> };
-
-/** A chef service wired to an in-memory Prisma double; `dossier` sets §3.3's gate. */
-export function harness(options: { chef?: object | null; dossier?: string } = {}) {
-  const meal = {
-    findUnique: jest.fn(async () => dishRow()),
-    findMany: jest.fn(async () => []),
-    create: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
-    update: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
-    delete: jest.fn(async () => undefined),
-  };
-  const chefProfile = {
-    findFirst: jest.fn(async () => (options.chef === undefined ? CHEF : options.chef)),
-  };
-  const prisma = { meal, chefProfile } as unknown as PrismaService;
-  const documents = {
-    latestPerType: jest.fn(async () => new Map()),
-    answersOf: jest.fn(() => ({})),
-    deriveStatus: jest.fn(() => options.dossier ?? 'validated'),
-  } as unknown as ChefDocumentsService;
-  const access = new ChefContentService(prisma, documents);
-  return { meal, access, prisma };
-}
-
-const codeOf = (error: unknown) =>
-  (error as ForbiddenException).getResponse() as { code?: string; problems?: unknown[] };
 
 describe('DishesService', () => {
   describe('create', () => {

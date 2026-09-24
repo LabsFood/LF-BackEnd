@@ -24,6 +24,7 @@ model User {
   documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
   auditEntries        AuditLog[]        @relation("AuditLogActor")
   mealsAuthored       Meal[]            @relation("MealAuthor")
+  menusAuthored       Menu[]            @relation("MenuAuthor")
 
   @@map("users")
 }
@@ -58,6 +59,8 @@ model ChefProfile {
   documents            ChefDocument[]
   application          ChefApplication?   @relation("ChefProfileApplication")
   dishes               Meal[]             @relation("MealOwner")
+  menus                Menu[]             @relation("MenuOwner")
+  showcaseWeeks        ChefShowcaseWeek[]
 
   @@map("chef_profiles")
 }
@@ -191,6 +194,7 @@ model Meal {
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals    BookingMeal[]
   menuWeeks       MenuWeekMeal[]
+  menus           MenuDish[]
   // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
   // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
   chefProfile     ChefProfile?    @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
@@ -349,10 +353,14 @@ enum MealDifficulty {
   @@map("meal_difficulty")
 }
 
+/// `suspended`: an admin took a chef's content down, valid only on chef-owned rows
+/// (a CHECK in migration 20260924140000_chef_menus). `archived`: Lab's Food retired
+/// its own content.
 enum MealStatus {
   published
   draft
   archived
+  suspended
 
   @@map("meal_status")
 }
@@ -562,4 +570,66 @@ enum SapPath {
   type_b
 
   @@map("sap_path")
+}
+
+enum MenuPeriod {
+  week
+  month
+
+  @@map("menu_period")
+}
+
+/// A composition of dishes, for a week or a month (FLOW-02 §3.4). Owner and author
+/// work as on `Meal`: `chefProfileId` null means Lab's Food content.
+model Menu {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId    String?            @map("chef_profile_id") @db.Uuid
+  createdByUserId  String?            @map("created_by_user_id") @db.Uuid
+  title            String             @db.VarChar(160)
+  pitch            String?            @db.VarChar(500)
+  period           MenuPeriod         @default(week)
+  status           MealStatus         @default(draft)
+  /// Whether the batch cooker does the shopping. False at creation (PRD).
+  shoppingIncluded Boolean            @default(false) @map("shopping_included")
+  publishedAt      DateTime?          @map("published_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  dishes           MenuDish[]
+  showcaseWeeks    ChefShowcaseWeek[]
+  chefProfile      ChefProfile?       @relation("MenuOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menus_chef_profile_id")
+  createdBy        User?              @relation("MenuAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_created_by_user_id")
+
+  @@index([chefProfileId], map: "ix_menus_chef_profile_id")
+  @@index([createdByUserId], map: "ix_menus_created_by_user_id")
+  @@map("menus")
+}
+
+/// Which dishes a menu holds, in order. Many-to-many: a dish can sit in several menus.
+model MenuDish {
+  menuId   String @map("menu_id") @db.Uuid
+  mealId   String @map("meal_id") @db.Uuid
+  position Int    @default(0)
+  menu     Menu   @relation(fields: [menuId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menu_dishes_menu_id")
+  meal     Meal   @relation(fields: [mealId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menu_dishes_meal_id")
+
+  @@id([menuId, mealId])
+  @@index([mealId], map: "ix_menu_dishes_meal_id")
+  @@map("menu_dishes")
+}
+
+/// The "Vitrine du mois" (§3.5): which menu a chef shows each week. `menuId` null
+/// is "no menu this week", said explicitly.
+model ChefShowcaseWeek {
+  chefProfileId String      @map("chef_profile_id") @db.Uuid
+  /// Always a Monday.
+  weekStart     DateTime    @map("week_start") @db.Date
+  menuId        String?     @map("menu_id") @db.Uuid
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_showcase_weeks_chef_profile_id")
+  menu          Menu?       @relation(fields: [menuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_showcase_weeks_menu_id")
+
+  @@id([chefProfileId, weekStart])
+  @@index([weekStart], map: "ix_chef_showcase_weeks_week_start")
+  @@index([menuId], map: "ix_chef_showcase_weeks_menu_id")
+  @@map("chef_showcase_weeks")
 }

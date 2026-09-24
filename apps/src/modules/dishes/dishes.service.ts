@@ -88,7 +88,7 @@ export class DishesService {
 
     const dish = await this.prisma.meal
       .update({ where: { id, chefProfileId: chef.id }, data: toMealWrite(payload) })
-      .catch(goneMeanwhile);
+      .catch(goneMeanwhile('Dish'));
     return toDishView(dish);
   }
 
@@ -99,7 +99,7 @@ export class DishesService {
     try {
       await this.prisma.meal
         .delete({ where: { id, chefProfileId: chef.id } })
-        .catch(goneMeanwhile);
+        .catch(goneMeanwhile('Dish'));
     } catch (error) {
       // booking_meals is RESTRICT: a dish that was booked stays for the booking.
       if (
@@ -149,15 +149,17 @@ export class DishesService {
 }
 
 /**
- * The dish was found a moment ago but the write matched nothing: another request
+ * The row was found a moment ago but the write matched nothing: another request
  * deleted it in between. A 404, not a server error.
  */
-export function goneMeanwhile(error: unknown): never {
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-    throw new NotFoundException('Dish not found.');
-  }
-  throw error;
-}
+export const goneMeanwhile =
+  (what: 'Dish' | 'Menu') =>
+  (error: unknown): never => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new NotFoundException(`${what} not found.`);
+    }
+    throw error;
+  };
 
 /** Throws the §3.3 problems of one dish, if any. Shared with menu publication. */
 export function assertPublishable(dish: PublishableDish): void {
