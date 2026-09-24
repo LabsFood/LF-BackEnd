@@ -17,6 +17,7 @@ export const TAGS = {
   dashboards: 'Dashboards',
   adminUsers: 'Admin — users and clients',
   adminChefs: 'Admin — batch cookers',
+  adminContent: 'Admin — dishes and menus',
   adminCatalog: 'Admin — catalog',
   adminBookings: 'Admin — bookings',
   adminQuotes: 'Admin — quotes',
@@ -47,6 +48,9 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
   adminUsers:
     'Create accounts, change roles, manage client profiles and batch cooker flags. Admins only.',
   adminChefs: 'Review candidatures and documents, then approve or refuse. Admins only.',
+  adminContent:
+    'Batch cookers publish directly; admins look afterwards: the review queue, one-click ' +
+    'review, taking content down with a reason. Admins only.',
   adminCatalog: 'Meals, weekly menus and pricing formules. Admins only.',
   adminBookings: 'Any booking and its shopping list. Admins only.',
   adminQuotes: 'Price and follow up quote requests. Admins only.',

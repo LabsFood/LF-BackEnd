@@ -46,7 +46,25 @@ export function toDishView(meal: Meal) {
     origin: meal.sourceMealId ? ('labs-food' as const) : ('own' as const),
     /** Set when that suggestion later changed its allergens, diets or country. */
     sourceChangedAt: meal.sourceChangedAt,
+    /** §4.3: why an admin took it down, shown to the chef as written. */
+    moderation: toModeration(meal),
     createdAt: meal.createdAt,
     updatedAt: meal.updatedAt,
   };
+}
+
+/** The removal an admin made, while it stands; `null` otherwise. */
+export function toModeration(content: {
+  status: string;
+  moderationReason: string | null;
+  moderationReasonCode: string | null;
+  moderatedAt: Date | null;
+}) {
+  return content.status === 'suspended'
+    ? {
+        reason: content.moderationReason,
+        reasonCode: content.moderationReasonCode,
+        at: content.moderatedAt,
+      }
+    : null;
 }

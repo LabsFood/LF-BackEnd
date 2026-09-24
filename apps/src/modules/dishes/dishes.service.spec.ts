@@ -171,15 +171,68 @@ describe('DishesService', () => {
       });
     });
 
-    it('publishes and stamps publishedAt', async () => {
+    it('publishes, stamps publishedAt and queues it for a first review', async () => {
       const { meal, access, prisma } = harness();
 
       await new DishesService(prisma, access).publish('clerk_1', 'dish-1');
 
       const { where, data } = meal.update.mock.calls[0][0];
-      expect(where).toEqual({ id: 'dish-1', chefProfileId: CHEF.id });
+      // The status read is part of the write, so an admin decision is never overwritten.
+      expect(where).toEqual({
+        id: 'dish-1',
+        chefProfileId: CHEF.id,
+        status: MealStatus.draft,
+      });
       expect(data.status).toBe(MealStatus.published);
       expect(data.publishedAt).toBeInstanceOf(Date);
+      expect(data.reviewReason).toBe('never-reviewed');
+    });
+
+    it('puts a corrected suspended dish back first in the queue, and clears the removal', async () => {
+      const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(
+        dishRow({
+          status: MealStatus.suspended,
+          reviewedAt: new Date('2026-09-20'),
+          moderationReason: 'Le lait n’est pas déclaré.',
+          moderationReasonCode: 'allergens-incomplete',
+        }),
+      );
+
+      await new DishesService(prisma, access).publish('clerk_1', 'dish-1');
+
+      expect(meal.update.mock.calls[0][0].data).toMatchObject({
+        status: MealStatus.published,
+        reviewReason: 'republished-after-suspension',
+        moderationReason: null,
+        moderationReasonCode: null,
+      });
+    });
+
+    it('cannot skip review by unpublishing, editing allergens and republishing', async () => {
+      const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(
+        dishRow({ status: MealStatus.draft, reviewedAt: new Date('2026-09-20') }),
+      );
+
+      await new DishesService(prisma, access).update('clerk_1', 'dish-1', {
+        allergens: ['celery', 'milk'],
+      });
+
+      expect(meal.update.mock.calls[0][0].data.reviewReason).toBe('edited-after-review');
+    });
+
+    it('sends a reviewed dish back to the queue when its allergens change', async () => {
+      const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(
+        dishRow({ status: MealStatus.published, reviewedAt: new Date('2026-09-20') }),
+      );
+
+      await new DishesService(prisma, access).update('clerk_1', 'dish-1', {
+        allergens: ['celery', 'milk'],
+      });
+
+      expect(meal.update.mock.calls[0][0].data.reviewReason).toBe('edited-after-review');
     });
 
     it('changes nothing for a dish already published', async () => {
@@ -190,6 +243,25 @@ describe('DishesService', () => {
 
       expect(meal.update).not.toHaveBeenCalled();
     });
+  });
+
+  it('keeps a suspension, and its reason, through an edit and an unpublish', async () => {
+    const { meal, access, prisma } = harness();
+    meal.findUnique.mockResolvedValue(
+      dishRow({
+        status: MealStatus.suspended,
+        moderationReason: 'Le lait n’est pas déclaré.',
+      }),
+    );
+    const service = new DishesService(prisma, access);
+
+    await service.update('clerk_1', 'dish-1', { description: 'Corrigé.' });
+    await service.unpublish('clerk_1', 'dish-1');
+
+    expect(meal.update).toHaveBeenCalledTimes(1);
+    const { data } = meal.update.mock.calls[0][0];
+    expect(data).not.toHaveProperty('status');
+    expect(data).not.toHaveProperty('moderationReason');
   });
 
   it('unpublishes back to draft', async () => {

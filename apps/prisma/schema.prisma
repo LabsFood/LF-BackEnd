@@ -201,6 +201,14 @@ model Meal {
   status                 MealStatus      @default(draft)
   /// Last time it was published. Orders the admin review queue.
   publishedAt            DateTime?       @map("published_at") @db.Timestamptz(6)
+  /// Moderation after the fact (§4): when an admin last looked, why it now waits
+  /// in the review queue (null: it does not), and why it was taken down.
+  reviewedAt             DateTime?       @map("reviewed_at") @db.Timestamptz(6)
+  reviewPendingSince     DateTime?       @map("review_pending_since") @db.Timestamptz(6)
+  reviewReason           String?         @map("review_reason") @db.VarChar(40)
+  moderationReason       String?         @map("moderation_reason")
+  moderationReasonCode   String?         @map("moderation_reason_code") @db.VarChar(40)
+  moderatedAt            DateTime?       @map("moderated_at") @db.Timestamptz(6)
   createdAt              DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals           BookingMeal[]
@@ -221,6 +229,7 @@ model Meal {
   @@index([createdByUserId], map: "ix_meals_created_by_user_id")
   @@index([offeredToChefProfileId], map: "ix_meals_offered_to_chef_profile_id")
   @@index([sourceMealId], map: "ix_meals_source_meal_id")
+  @@index([reviewPendingSince], map: "ix_meals_review_pending_since")
   @@map("meals")
 }
 
@@ -616,6 +625,14 @@ model Menu {
   /// Whether the batch cooker does the shopping. False at creation (PRD).
   shoppingIncluded       Boolean            @default(false) @map("shopping_included")
   publishedAt            DateTime?          @map("published_at") @db.Timestamptz(6)
+  /// Moderation after the fact (§4): when an admin last looked, why it now waits
+  /// in the review queue (null: it does not), and why it was taken down.
+  reviewedAt             DateTime?          @map("reviewed_at") @db.Timestamptz(6)
+  reviewPendingSince     DateTime?          @map("review_pending_since") @db.Timestamptz(6)
+  reviewReason           String?            @map("review_reason") @db.VarChar(40)
+  moderationReason       String?            @map("moderation_reason")
+  moderationReasonCode   String?            @map("moderation_reason_code") @db.VarChar(40)
+  moderatedAt            DateTime?          @map("moderated_at") @db.Timestamptz(6)
   createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   dishes                 MenuDish[]
@@ -631,6 +648,7 @@ model Menu {
   @@index([createdByUserId], map: "ix_menus_created_by_user_id")
   @@index([offeredToChefProfileId], map: "ix_menus_offered_to_chef_profile_id")
   @@index([sourceMenuId], map: "ix_menus_source_menu_id")
+  @@index([reviewPendingSince], map: "ix_menus_review_pending_since")
   @@map("menus")
 }
 

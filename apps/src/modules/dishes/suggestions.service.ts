@@ -282,10 +282,19 @@ export class SuggestionsService {
     });
     if (copies.length === 0) return;
 
-    await this.prisma.meal.updateMany({
-      where: { id: { in: copies.map((c) => c.id) } },
-      data: { sourceChangedAt: new Date() },
-    });
+    const ids = copies.map((c) => c.id);
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.meal.updateMany({
+        where: { id: { in: ids } },
+        data: { sourceChangedAt: now },
+      }),
+      // Into the review queue too, unless already waiting there (PRD).
+      this.prisma.meal.updateMany({
+        where: { id: { in: ids }, reviewPendingSince: null },
+        data: { reviewPendingSince: now, reviewReason: 'source-changed' },
+      }),
+    ]);
     await Promise.all(
       copies.flatMap(({ name, chefProfile }) =>
         chefProfile

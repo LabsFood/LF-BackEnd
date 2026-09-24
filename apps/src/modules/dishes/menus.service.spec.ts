@@ -59,11 +59,21 @@ describe('MenusService', () => {
       await service(h).publish('clerk_1', 'menu-1');
 
       expect(h.$transaction).toHaveBeenCalledTimes(1);
+      expect(h.meal.updateMany).toHaveBeenCalledTimes(1);
       expect(h.meal.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['d1'] }, chefProfileId: CHEF.id, status: MealStatus.draft },
-        data: { status: MealStatus.published, publishedAt: expect.any(Date) },
+        where: { id: 'd1', chefProfileId: CHEF.id, status: MealStatus.draft },
+        data: {
+          status: MealStatus.published,
+          publishedAt: expect.any(Date),
+          // Published for the first time: into the admin review queue (§4.1).
+          reviewReason: 'never-reviewed',
+          reviewPendingSince: expect.any(Date),
+        },
       });
-      expect(h.menu.update.mock.calls[0][0].data.status).toBe(MealStatus.published);
+      expect(h.menu.update.mock.calls[0][0].data).toMatchObject({
+        status: MealStatus.published,
+        reviewReason: 'never-reviewed',
+      });
     });
 
     it('publishes nothing when one draft dish fails, and says which', async () => {
@@ -106,6 +116,19 @@ describe('MenusService', () => {
   });
 
   describe('update', () => {
+    it('cannot skip review by unpublishing, editing and republishing', async () => {
+      const h = harness();
+      h.menu.findUnique.mockResolvedValue(
+        menuRow({ status: MealStatus.draft, reviewedAt: new Date('2026-09-20') }),
+      );
+
+      await service(h).update('clerk_1', 'menu-1', { pitch: 'Tout autre chose.' });
+
+      expect(h.menu.update.mock.calls[0][0].data.reviewReason).toBe(
+        'edited-after-review',
+      );
+    });
+
     it('keeps a published menu from taking a draft dish', async () => {
       const h = harness();
       h.menu.findUnique.mockResolvedValue(menuRow({ status: MealStatus.published }));

@@ -11,6 +11,11 @@ import { ChefContentService } from './chef-content.service';
 import { toDishView } from './dishes.views';
 import { validationFailed } from './domain/content.errors';
 import {
+  CLEARED_MODERATION,
+  nextReviewReason,
+  reviewFields,
+} from './domain/moderation.rules';
+import {
   declarationProblems,
   PublishableDish,
   publishProblems,
@@ -93,6 +98,12 @@ export class DishesService {
           ...toMealWrite(payload),
           // The chef answered the change to the suggestion they adopted (§6).
           ...(touchesSafety(payload) && { sourceChangedAt: null }),
+          // §3.2: allergens, diets or country changed on a public dish: admins look
+          // again. Also on a draft they had already reviewed, so unpublishing, editing
+          // and republishing cannot skip the queue (it lists public content only).
+          ...(touchesSafety(payload) &&
+            (current.status === MealStatus.published || current.reviewedAt) &&
+            reviewFields(current, nextReviewReason(current, 'edited'), new Date())),
         },
       })
       .catch(goneMeanwhile('Dish'));
@@ -133,10 +144,29 @@ export class DishesService {
     if (dish.status === MealStatus.published) return toDishView(dish);
 
     assertPublishable(dish);
-    const published = await this.prisma.meal.update({
-      where: { id, chefProfileId: chef.id },
-      data: { status: MealStatus.published, publishedAt: new Date() },
-    });
+    // §2: a suspended dish the chef corrected comes back first in the review queue.
+    const republished = dish.status === MealStatus.suspended;
+    const now = new Date();
+    const published = await this.prisma.meal
+      .update({
+        // The status read above is part of the write: if an admin suspended or
+        // reinstated it meanwhile, this matches nothing instead of overwriting that.
+        where: { id, chefProfileId: chef.id, status: dish.status },
+        data: {
+          status: MealStatus.published,
+          publishedAt: now,
+          ...reviewFields(
+            dish,
+            nextReviewReason(
+              dish,
+              republished ? 'republished-after-suspension' : 'published',
+            ),
+            now,
+          ),
+          ...(republished && CLEARED_MODERATION),
+        },
+      })
+      .catch(changedMeanwhile);
     return toDishView(published);
   }
 
@@ -147,10 +177,13 @@ export class DishesService {
     const dish = await this.access.writableDish(chef, id);
     if (dish.status !== MealStatus.published) return toDishView(dish);
 
-    const drafted = await this.prisma.meal.update({
-      where: { id, chefProfileId: chef.id },
-      data: { status: MealStatus.draft },
-    });
+    // Only from `published`: a suspension made meanwhile is never overwritten.
+    const drafted = await this.prisma.meal
+      .update({
+        where: { id, chefProfileId: chef.id, status: MealStatus.published },
+        data: { status: MealStatus.draft },
+      })
+      .catch(changedMeanwhile);
     return toDishView(drafted);
   }
 }
@@ -167,6 +200,20 @@ export const goneMeanwhile =
     }
     throw error;
   };
+
+/**
+ * A status change matched nothing: the content was changed or deleted between the
+ * read and the write (typically an admin decision). Reload rather than overwrite.
+ */
+export function changedMeanwhile(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    throw new ConflictException({
+      code: 'CHANGED_MEANWHILE',
+      message: 'This changed meanwhile, possibly by an admin. Reload it and try again.',
+    });
+  }
+  throw error;
+}
 
 /** Throws the §3.3 problems of one dish, if any. Shared with menu publication. */
 export function assertPublishable(dish: PublishableDish): void {

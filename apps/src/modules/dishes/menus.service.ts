@@ -12,8 +12,14 @@ import {
   MENU_DISHES,
   MenuWithDishes,
 } from './chef-content.service';
-import { goneMeanwhile } from './dishes.service';
+import { changedMeanwhile, goneMeanwhile } from './dishes.service';
+import { toModeration } from './dishes.views';
 import { isRecipeComplete } from './domain/dishes.rules';
+import {
+  CLEARED_MODERATION,
+  nextReviewReason,
+  reviewFields,
+} from './domain/moderation.rules';
 import { validationFailed } from './domain/content.errors';
 import {
   hasMenuProblems,
@@ -137,6 +143,10 @@ export class MenusService {
               ...(payload.shoppingIncluded != null && {
                 shoppingIncluded: payload.shoppingIncluded,
               }),
+              // A public menu changed, or one admins already reviewed: they look again,
+              // so unpublishing, editing and republishing cannot skip the queue.
+              ...((menu.status === MealStatus.published || menu.reviewedAt) &&
+                reviewFields(menu, nextReviewReason(menu, 'edited'), new Date())),
             },
             include: MENU_DISHES,
           })
@@ -183,20 +193,43 @@ export class MenusService {
 
     const now = new Date();
     const drafts = menu.dishes
-      .filter(({ meal }) => meal.status === MealStatus.draft)
-      .map(({ meal }) => meal.id);
-    const [, published] = await this.prisma.$transaction([
-      // `status: draft` in the filter: a dish suspended meanwhile stays suspended.
-      this.prisma.meal.updateMany({
-        where: { id: { in: drafts }, chefProfileId: chef.id, status: MealStatus.draft },
-        data: { status: MealStatus.published, publishedAt: now },
-      }),
-      this.prisma.menu.update({
-        where: { id, chefProfileId: chef.id },
-        data: { status: MealStatus.published, publishedAt: now },
-        include: MENU_DISHES,
-      }),
-    ]);
+      .map(({ meal }) => meal)
+      .filter((meal) => meal.status === MealStatus.draft);
+    const republished = menu.status === MealStatus.suspended;
+    const published = await this.prisma
+      .$transaction(async (tx) => {
+        for (const dish of drafts) {
+          // `status: draft` in the filter: a dish suspended meanwhile stays suspended.
+          await tx.meal.updateMany({
+            where: { id: dish.id, chefProfileId: chef.id, status: MealStatus.draft },
+            data: {
+              status: MealStatus.published,
+              publishedAt: now,
+              ...reviewFields(dish, nextReviewReason(dish, 'published'), now),
+            },
+          });
+        }
+        // The status read above is part of the write, so an admin decision made
+        // meanwhile is never overwritten: the whole publication fails instead.
+        return tx.menu.update({
+          where: { id, chefProfileId: chef.id, status: menu.status },
+          data: {
+            status: MealStatus.published,
+            publishedAt: now,
+            ...reviewFields(
+              menu,
+              nextReviewReason(
+                menu,
+                republished ? 'republished-after-suspension' : 'published',
+              ),
+              now,
+            ),
+            ...(republished && CLEARED_MODERATION),
+          },
+          include: MENU_DISHES,
+        });
+      })
+      .catch(changedMeanwhile);
     return toMenuView(published);
   }
 
@@ -207,13 +240,14 @@ export class MenusService {
     const menu = await this.access.writableMenu(chef, id);
     if (menu.status !== MealStatus.published) return toMenuView(menu);
 
+    // Only from `published`: a suspension made meanwhile is never overwritten.
     const drafted = await this.prisma.menu
       .update({
-        where: { id, chefProfileId: chef.id },
+        where: { id, chefProfileId: chef.id, status: MealStatus.published },
         data: { status: MealStatus.draft },
         include: MENU_DISHES,
       })
-      .catch(goneMeanwhile('Menu'));
+      .catch(changedMeanwhile);
     return toMenuView(drafted);
   }
 
@@ -327,6 +361,7 @@ export function toMenuView(menu: MenuWithDishes) {
     status: menu.status,
     shoppingIncluded: menu.shoppingIncluded,
     publishedAt: menu.publishedAt,
+    moderation: toModeration(menu),
     createdAt: menu.createdAt,
     updatedAt: menu.updatedAt,
     dishes: menu.dishes.map(({ meal }) => ({

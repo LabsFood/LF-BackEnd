@@ -38,9 +38,20 @@ export function dishRow(overrides: Record<string, unknown> = {}) {
     storage: null,
     status: MealStatus.draft,
     publishedAt: null,
+    ...UNMODERATED,
     ...overrides,
   };
 }
+
+/** Never reviewed, never taken down. */
+const UNMODERATED = {
+  reviewedAt: null,
+  reviewPendingSince: null,
+  reviewReason: null,
+  moderationReason: null,
+  moderationReasonCode: null,
+  moderatedAt: null,
+};
 
 export function menuRow(
   overrides: Record<string, unknown> = {},
@@ -55,6 +66,7 @@ export function menuRow(
     status: MealStatus.draft,
     shoppingIncluded: false,
     publishedAt: null,
+    ...UNMODERATED,
     dishes: dishes.map((meal, position) => ({
       menuId: 'menu-1',
       mealId: meal.id,
