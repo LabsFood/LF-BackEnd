@@ -181,10 +181,15 @@ async function main(): Promise<void> {
             portions: 4,
             prepTime: 30 + i * 5,
             continent: MealContinent.europe,
-            country: 'France',
-            dietaryTags: ['demo'],
+            // Values the API itself would accept: ISO country, listed diet, and
+            // ingredients in the shape shopping lists read.
+            country: 'FR',
+            dietaryTags: ['vegetarian'],
+            allergensNone: true,
             difficulty: MealDifficulty.easy,
-            ingredients: toInputJson([{ name: 'Tomate', qty: '2' }]),
+            ingredients: toInputJson([
+              { name: 'Tomate', qty: 2, unit: 'pièce', aisle: 'fruits-legumes' },
+            ]),
             steps: ['Prep', 'Cook', 'Serve'],
             status: MealStatus.published,
             isFeatured: i <= 3,

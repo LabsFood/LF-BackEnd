@@ -18,6 +18,7 @@ import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
 import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
+import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
 // Redis not implemented yet — re-enable when cache/queues are wired.
 // import { RedisModule } from './redis/redis.module';
@@ -63,6 +64,7 @@ import { UsersModule } from './modules/users/users.module';
     StatsModule,
     BookingsModule,
     ChefOnboardingModule,
+    DishesModule,
   ],
 })
 export class AppModule {}

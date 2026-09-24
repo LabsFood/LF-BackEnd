@@ -10,6 +10,7 @@ export const TAGS = {
   referentials: 'Reference lists',
   candidature: 'Batch cooker — candidature',
   documents: 'Batch cooker — documents',
+  chefContent: 'Batch cooker — dishes and menus',
   catalog: 'Catalog',
   bookings: 'Bookings',
   quotes: 'Quotes',
@@ -34,6 +35,9 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'Become a batch cooker: apply, follow the application, apply again after a refusal.',
   documents:
     "A batch cooker's identity and business papers: upload, follow the review, renew.",
+  chefContent:
+    'A batch cooker writes dishes with their recipe, composes menus and publishes ' +
+    'them. Public at once; admins check afterwards.',
   catalog: 'What clients can order.',
   bookings: "The signed-in client's bookings.",
   quotes: 'Custom quote requests, for events or larger orders.',

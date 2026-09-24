@@ -1,7 +1,13 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { MealStatus, Prisma } from '../../generated/prisma/client';
+import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  assertConsistent,
+  toIngredientsJson,
+  toReheatingJson,
+  toStorageJson,
+} from '../dishes/dishes.service';
 import { contentNotOwned } from '../dishes/domain/content.errors';
 import {
   CreateMealDto,
@@ -15,6 +21,14 @@ import {
  * chef dishes, so every read and write they make is limited to those rows.
  */
 const LABS_FOOD = { chefProfileId: null };
+
+/** Never on a public route: the recipe, and what the fiche says (FLOW-02 §1). */
+export const RECIPE_FIELDS = {
+  ingredients: true,
+  steps: true,
+  reheating: true,
+  storage: true,
+} as const;
 
 export const NOT_LABS_FOOD =
   "This dish belongs to a batch cooker. Only Lab's Food meals can be changed here.";
@@ -35,7 +49,7 @@ export class CatalogService {
       include: {
         meals: {
           where: { meal: LABS_FOOD },
-          include: { meal: { omit: { ingredients: true, steps: true } } },
+          include: { meal: { omit: RECIPE_FIELDS } },
         },
       },
     });
@@ -57,7 +71,8 @@ export class CatalogService {
   }
 
   /** Always an unowned Lab's Food meal; the admin is recorded as its author only. */
-  createMeal(payload: CreateMealDto, adminUserId: string) {
+  async createMeal(payload: CreateMealDto, adminUserId: string) {
+    assertConsistent(declarationOf(null, payload));
     return this.prisma.meal.create({
       data: {
         createdByUserId: adminUserId,
@@ -71,11 +86,18 @@ export class CatalogService {
         portions: payload.portions,
         prepTime: payload.prepTime,
         dietaryTags: payload.dietaryTags ?? [],
+        customDiets: payload.customDiets ?? [],
         allergens: payload.allergens ?? [],
+        allergensNone: payload.allergensNone ?? false,
+        customAllergens: payload.customAllergens ?? [],
         calories: payload.calories ?? null,
         difficulty: payload.difficulty ?? null,
-        ingredients: payload.ingredients ?? [],
+        category: payload.category ?? null,
+        cookTime: payload.cookTime ?? null,
+        ingredients: toIngredientsJson(payload.ingredients ?? []),
         steps: payload.steps,
+        reheating: toReheatingJson(payload.reheating),
+        storage: toStorageJson(payload.storage),
         isFeatured: payload.isFeatured,
         status: payload.status ?? MealStatus.draft,
       },
@@ -87,6 +109,11 @@ export class CatalogService {
    * statement: no gap in which the row could change hands in between.
    */
   async updateMeal(id: string, payload: UpdateMealDto) {
+    if (touchesDeclaration(payload)) {
+      const current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
+      if (!current) return this.explainMissing(id);
+      assertConsistent(declarationOf(current, payload));
+    }
     try {
       return await this.prisma.meal.update({
         where: { id, ...LABS_FOOD },
@@ -124,13 +151,23 @@ export class CatalogService {
     if (payload.country !== undefined) data.country = payload.country;
     if (payload.calories !== undefined) data.calories = payload.calories;
     if (payload.difficulty !== undefined) data.difficulty = payload.difficulty;
+    if (payload.category !== undefined) data.category = payload.category;
+    if (payload.cookTime !== undefined) data.cookTime = payload.cookTime;
+    if (payload.reheating !== undefined)
+      data.reheating = toReheatingJson(payload.reheating);
+    if (payload.storage !== undefined) data.storage = toStorageJson(payload.storage);
 
     if (payload.name != null) data.name = payload.name;
     if (payload.portions != null) data.portions = payload.portions;
     if (payload.prepTime != null) data.prepTime = payload.prepTime;
     if (payload.dietaryTags != null) data.dietaryTags = payload.dietaryTags;
     if (payload.allergens != null) data.allergens = payload.allergens;
-    if (payload.ingredients != null) data.ingredients = payload.ingredients;
+    if (payload.allergensNone != null) data.allergensNone = payload.allergensNone;
+    if (payload.customDiets != null) data.customDiets = payload.customDiets;
+    if (payload.customAllergens != null) data.customAllergens = payload.customAllergens;
+    if (payload.ingredients != null) {
+      data.ingredients = toIngredientsJson(payload.ingredients);
+    }
     if (payload.steps != null) data.steps = payload.steps;
     if (payload.isFeatured != null) data.isFeatured = payload.isFeatured;
     if (payload.status != null) data.status = payload.status;
@@ -213,6 +250,26 @@ export class CatalogService {
     });
   }
 }
+
+/** The allergen and diet declaration once `payload` is applied to `current`. */
+function declarationOf(current: Meal | null, payload: UpdateMealDto) {
+  return {
+    allergens: payload.allergens ?? current?.allergens ?? [],
+    allergensNone: payload.allergensNone ?? current?.allergensNone ?? false,
+    customAllergens: payload.customAllergens ?? current?.customAllergens ?? [],
+    diets: payload.dietaryTags ?? current?.dietaryTags ?? [],
+    customDiets: payload.customDiets ?? current?.customDiets ?? [],
+  };
+}
+
+const touchesDeclaration = (payload: UpdateMealDto) =>
+  [
+    payload.allergens,
+    payload.allergensNone,
+    payload.customAllergens,
+    payload.dietaryTags,
+    payload.customDiets,
+  ].some((value) => value != null);
 
 /** Prisma's "no row matched the `where`" (P2025). */
 function isNotFound(error: unknown): boolean {

@@ -1,16 +1,21 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
-  IsObject,
+  IsISO31661Alpha2,
   IsOptional,
   IsString,
   IsUrl,
   IsUUID,
+  Length,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 import {
@@ -18,6 +23,12 @@ import {
   MealDifficulty,
   MealStatus,
 } from '../../../generated/prisma/client';
+import {
+  ALLERGEN_CODES,
+  DIET_CODES,
+  DISH_CATEGORY_CODES,
+} from '../../dishes/domain/dishes.rules';
+import { IngredientDto, ReheatingDto, StorageDto } from '../../dishes/dto/dish.dto';
 
 /** Choices in a sensible order: alphabetical for places, lifecycle for statuses. */
 const CONTINENTS = ['africa', 'americas', 'asia', 'europe', 'middle_east'];
@@ -29,18 +40,22 @@ const MEAL_STATUS_HELP =
 
 export class CreateMealDto {
   @ApiProperty({
+    maxLength: 255,
     description: 'Display name of the dish.',
     example: 'Poulet yassa',
   })
   @IsString()
+  @Length(1, 255)
   name!: string;
 
   @ApiPropertyOptional({
+    maxLength: 2000,
     description: 'Marketing or menu description shown to clients.',
     example: 'Poulet mariné au citron et aux oignons, riz blanc.',
   })
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @ApiProperty({
@@ -53,36 +68,108 @@ export class CreateMealDto {
   prepTime!: number;
 
   @ApiPropertyOptional({
-    type: [String],
-    description: 'Dietary tags (e.g. `vegetarian`, `gluten-free`).',
+    enum: DIET_CODES,
+    isArray: true,
+    description: 'Diets, from `GET /referentials/diets`.',
     example: ['halal'],
   })
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
+  @IsIn(DIET_CODES, { each: true })
   dietaryTags?: string[];
 
   @ApiPropertyOptional({
     type: [String],
-    description: 'Declared allergens for the dish.',
-    example: ['dairy'],
+    description: 'Diets outside the list, as free text.',
+    example: [],
   })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
+  @Length(1, 40, { each: true })
+  customDiets?: string[];
+
+  @ApiPropertyOptional({
+    enum: ALLERGEN_CODES,
+    isArray: true,
+    description:
+      'Which of the 14 regulated allergens the meal contains, from ' +
+      '`GET /referentials/allergens`.',
+    example: ['milk'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsIn(ALLERGEN_CODES, { each: true })
   allergens?: string[];
 
   @ApiPropertyOptional({
-    type: Object,
+    default: false,
     description:
-      'The ingredients. The shopping list expects a list of ' +
-      '`{ name, amount, unit, aisle }` for 4 portions, but **this route only accepts a ' +
-      'JSON object today and refuses a list with 400**, so ingredients sent here are ' +
-      'not used by shopping lists. Known issue, to be fixed.',
+      '`true` when the meal contains none of the 14 regulated allergens. A batch ' +
+      'cooker who adopts this meal cannot publish it without this or `allergens`.',
+    example: false,
   })
   @IsOptional()
-  @IsObject()
-  ingredients?: object;
+  @IsBoolean()
+  allergensNone?: boolean;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Other allergens, as free text.',
+    example: [],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @Length(1, 40, { each: true })
+  customAllergens?: string[];
+
+  @ApiPropertyOptional({
+    type: [IngredientDto],
+    description:
+      'The ingredients for `portions` portions, one line each. Shopping lists are ' +
+      'computed from this list.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => IngredientDto)
+  ingredients?: IngredientDto[];
+
+  @ApiPropertyOptional({
+    enum: DISH_CATEGORY_CODES,
+    description:
+      'Where the meal sits in a meal, from `GET /referentials/dish-categories`.',
+    example: 'main',
+  })
+  @IsOptional()
+  @IsIn(DISH_CATEGORY_CODES)
+  category?: string | null;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    description: 'Cooking time in minutes.',
+    example: 30,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cookTime?: number | null;
+
+  @ApiPropertyOptional({ type: ReheatingDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReheatingDto)
+  reheating?: ReheatingDto | null;
+
+  @ApiPropertyOptional({ type: StorageDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StorageDto)
+  storage?: StorageDto | null;
 
   @ApiPropertyOptional({
     type: String,
@@ -111,13 +198,13 @@ export class CreateMealDto {
   continent?: MealContinent | null;
 
   @ApiPropertyOptional({
-    maxLength: 120,
-    description: 'Country of origin of the dish.',
-    example: 'Sénégal',
+    description:
+      "Country of origin, ISO 3166 alpha-2. It colours the client's culinary map, " +
+      'and a batch cooker cannot publish an adopted meal without it.',
+    example: 'SN',
   })
   @IsOptional()
-  @IsString()
-  @MaxLength(120)
+  @IsISO31661Alpha2()
   country?: string | null;
 
   @ApiPropertyOptional({
@@ -240,7 +327,7 @@ export class MealResponseDto {
   })
   continent!: MealContinent | null;
 
-  @ApiProperty({ type: String, nullable: true, example: 'Sénégal' })
+  @ApiProperty({ type: String, nullable: true, example: 'SN' })
   country!: string | null;
 
   @ApiProperty({ example: 4 })
@@ -252,8 +339,46 @@ export class MealResponseDto {
   @ApiProperty({ type: [String], example: ['halal'] })
   dietaryTags!: string[];
 
-  @ApiProperty({ type: [String], example: ['dairy'] })
+  @ApiProperty({ type: [String], example: ['milk'] })
   allergens!: string[];
+
+  @ApiProperty({ example: false })
+  allergensNone!: boolean;
+
+  @ApiProperty({ type: [String], example: [] })
+  customDiets!: string[];
+
+  @ApiProperty({ type: [String], example: [] })
+  customAllergens!: string[];
+
+  @ApiProperty({ type: String, nullable: true, example: 'main' })
+  category!: string | null;
+
+  @ApiProperty({ type: Number, nullable: true, example: 30 })
+  cookTime!: number | null;
+
+  @ApiProperty({
+    type: ReheatingDto,
+    nullable: true,
+    example: { mode: 'oven', temperature: 160, minutes: 15, note: null },
+  })
+  reheating!: unknown;
+
+  @ApiProperty({
+    type: StorageDto,
+    nullable: true,
+    example: { method: 'fridge', days: 3, container: null },
+  })
+  storage!: unknown;
+
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description: 'Last time it was published.',
+    example: null,
+  })
+  publishedAt!: Date | null;
 
   @ApiProperty({ type: Number, nullable: true, example: 620 })
   calories!: number | null;
@@ -269,11 +394,10 @@ export class MealResponseDto {
   @ApiProperty({
     type: Object,
     description:
-      'The ingredients, as stored. Shopping lists read a list of ' +
-      '`{ name, amount, unit, aisle }` and ignore anything else.',
-    example: [
-      { name: 'Cuisses de poulet', amount: 8, unit: 'pièces', aisle: 'boucherie' },
-    ],
+      'The ingredients, as stored: a list of `{ name, qty, unit, aisle }`. Meals ' +
+      'written before this was checked may hold something else, which shopping lists ' +
+      'ignore.',
+    example: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
   })
   ingredients!: unknown;
 

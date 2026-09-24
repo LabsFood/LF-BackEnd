@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Booking } from '../../generated/prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { RECIPE_FIELDS } from '../catalog/catalog.service';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -22,7 +23,7 @@ export class BookingsService {
       include: {
         // The client gets the recipe on the fiche, after the prestation (FLOW-02 §8).
         bookingMeals: {
-          include: { meal: { omit: { ingredients: true, steps: true } } },
+          include: { meal: { omit: RECIPE_FIELDS } },
         },
         shoppingList: { include: { items: true } },
       },

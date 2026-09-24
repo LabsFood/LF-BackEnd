@@ -17,7 +17,11 @@ describe('BookingsService', () => {
     const { where, include } = findFirst.mock.calls[0][0];
     expect(where).toEqual({ id: 'booking-1', clientId: 'client-1' });
     expect(include.bookingMeals).toEqual({
-      include: { meal: { omit: { ingredients: true, steps: true } } },
+      include: {
+        meal: {
+          omit: { ingredients: true, steps: true, reheating: true, storage: true },
+        },
+      },
     });
   });
 

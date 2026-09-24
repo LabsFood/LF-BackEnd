@@ -26,6 +26,7 @@ describe('CatalogService', () => {
   let meal: {
     findMany: jest.Mock;
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
@@ -36,6 +37,7 @@ describe('CatalogService', () => {
     meal = {
       findMany: jest.fn(async () => []),
       findUnique: jest.fn(async () => null),
+      findFirst: jest.fn(async () => null),
       create: jest.fn(async (args: unknown) => args),
       update: jest.fn(async (args: unknown) => args),
       delete: jest.fn(async () => undefined),
@@ -113,6 +115,49 @@ describe('CatalogService', () => {
       const { data } = meal.create.mock.calls[0][0];
       expect(data.createdByUserId).toBe(ADMIN_ID);
       expect(data).not.toHaveProperty('chefProfileId');
+    });
+  });
+
+  describe('declaration', () => {
+    it('refuses "none of the 14" next to a listed allergen on create', async () => {
+      await expect(
+        service.createMeal(
+          { name: 'Mafé', prepTime: 90, allergens: ['peanuts'], allergensNone: true },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(meal.create).not.toHaveBeenCalled();
+    });
+
+    it('checks an update against the meal as stored', async () => {
+      meal.findFirst.mockResolvedValueOnce({
+        allergens: ['peanuts'],
+        allergensNone: false,
+        customAllergens: [],
+        dietaryTags: [],
+        customDiets: [],
+      });
+
+      await expect(
+        service.updateMeal('meal-1', { allergensNone: true }),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(meal.findFirst).toHaveBeenCalledWith({ where: LABS_FOOD_MEAL_1 });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('stores ingredients as plain { name, qty, unit, aisle } lines', async () => {
+      await service.createMeal(
+        {
+          name: 'Mafé',
+          prepTime: 90,
+          ingredients: [{ name: 'Arachide', qty: 200, unit: 'g', aisle: 'epicerie' }],
+        },
+        ADMIN_ID,
+      );
+
+      expect(meal.create.mock.calls[0][0].data.ingredients).toEqual([
+        { name: 'Arachide', qty: 200, unit: 'g', aisle: 'epicerie' },
+      ]);
     });
   });
 
@@ -261,7 +306,11 @@ describe('CatalogService', () => {
       const { include } = menuWeek.findFirst.mock.calls[0][0];
       expect(include.meals).toEqual({
         where: { meal: { chefProfileId: null } },
-        include: { meal: { omit: { ingredients: true, steps: true } } },
+        include: {
+          meal: {
+            omit: { ingredients: true, steps: true, reheating: true, storage: true },
+          },
+        },
       });
     });
   });

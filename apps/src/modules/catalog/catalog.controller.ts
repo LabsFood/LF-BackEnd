@@ -49,17 +49,23 @@ const MEAL = {
   description: 'Poulet mariné au citron et aux oignons, riz blanc.',
   imageUrl: null,
   continent: 'africa',
-  country: 'Sénégal',
+  country: 'SN',
   portions: 4,
   prepTime: 45,
   dietaryTags: ['halal'],
   allergens: [],
   calories: 620,
   difficulty: 'medium',
-  ingredients: [
-    { name: 'Cuisses de poulet', amount: 8, unit: 'pièces', aisle: 'boucherie' },
-  ],
+  allergensNone: true,
+  customDiets: [],
+  customAllergens: [],
+  category: 'main',
+  cookTime: 40,
+  ingredients: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
   steps: ['Mariner le poulet', 'Faire revenir les oignons'],
+  reheating: { mode: 'oven', temperature: 160, minutes: 15, note: null },
+  storage: { method: 'fridge', days: 3, container: null },
+  publishedAt: '2026-09-03T14:12:00.000Z',
   isFeatured: true,
   status: 'published',
   createdAt: '2026-09-01T08:00:00.000Z',
@@ -67,7 +73,13 @@ const MEAL = {
 };
 
 /** What public routes show of a meal: everything but the recipe. */
-const { ingredients: _ingredients, steps: _steps, ...PUBLIC_MEAL } = MEAL;
+const {
+  ingredients: _ingredients,
+  steps: _steps,
+  reheating: _reheating,
+  storage: _storage,
+  ...PUBLIC_MEAL
+} = MEAL;
 
 const MENU_WEEK = {
   id: 'e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55',
@@ -133,8 +145,8 @@ export class CatalogController {
     description:
       'The most recent weekly menu that has been published, with its meals. `meals` ' +
       'is the list to show; `menuWeek` says which week it is. Public: no token needed.\n\n' +
-      "Lab's Food meals only, and never their recipe: `ingredients` and `steps` are " +
-      'left out.\n\n' +
+      "Lab's Food meals only, and never their recipe: `ingredients`, `steps`, " +
+      '`reheating` and `storage` are left out.\n\n' +
       'Answers `200` with an empty body when no menu has been published yet.',
   })
   @ApiOkResponse({

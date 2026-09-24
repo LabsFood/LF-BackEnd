@@ -168,12 +168,25 @@ model Meal {
   prepTime        Int             @map("prep_time")
   dietaryTags     String[]        @default([]) @map("dietary_tags")
   allergens       String[]        @default([])
+  /// "None of the 14 regulated allergens", said explicitly. An empty `allergens`
+  /// list alone cannot be told apart from "not filled in" (FLOW-02 §3.3). A CHECK
+  /// in the migration forbids it next to a listed allergen.
+  allergensNone   Boolean         @default(false) @map("allergens_none")
+  /// Free-text values outside the reference lists (the "Autre" button).
+  customDiets     String[]        @default([]) @map("custom_diets")
+  customAllergens String[]        @default([]) @map("custom_allergens")
+  category        String?         @db.VarChar(24)
+  cookTime        Int?            @map("cook_time")
   calories        Int?
   difficulty      MealDifficulty?
   ingredients     Json            @default("[]")
   steps           String[]        @default([])
+  reheating       Json?
+  storage         Json?
   isFeatured      Boolean         @default(false) @map("is_featured")
   status          MealStatus      @default(draft)
+  /// Last time it was published. Orders the admin review queue.
+  publishedAt     DateTime?       @map("published_at") @db.Timestamptz(6)
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals    BookingMeal[]
