@@ -31,7 +31,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Messaging | [Stream](https://getstream.io/) | Client ↔ chef realtime threads |
 | Email | [Brevo](https://www.brevo.com/) | Transactional notifications |
 | Maps | Google Maps API | Zones, routing (when needed) |
-| Object storage | AWS S3; Supabase Storage (private) for KYC documents | Meal images, chef KYC documents |
+| Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) (public, S3-compatible) for dish photos; Supabase Storage (private) for KYC documents | Dish photos (no egress fee), chef KYC documents |
 | Hosting | Railway | API + Postgres + Redis containers |
 
 ## Domain naming (resolved)
@@ -57,7 +57,8 @@ flowchart TD
     brevo[Brevo]
     stream[Stream]
     maps[GoogleMaps]
-    s3[AWSS3]
+    r2[CloudflareR2]
+    storage[SupabaseStorage]
 
     clients --> clerk
     clerk --> api
@@ -68,7 +69,8 @@ flowchart TD
     api --> brevo
     api --> stream
     api --> maps
-    api --> s3
+    api --> r2
+    api --> storage
 ```
 
 1. Clients authenticate with **Clerk** and call the NestJS API with a Bearer token.

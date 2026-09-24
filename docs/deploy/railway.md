@@ -46,7 +46,6 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
@@ -186,7 +185,7 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
-- [ ] Stripe / Cronofy / Brevo / Stream / AWS keys when those flows ship
+- [ ] Stripe / Cronofy / Brevo / Stream / R2 keys when those flows ship
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
 - [ ] Stripe webhook URL when payments ship
 

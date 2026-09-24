@@ -16,6 +16,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Chef role | **`chef`** replaces **`provider`** in `user_role` | E1 migrated enum + profile table naming, API aliases kept backward compatible |
 | Calendar | **Cronofy** | Wire to chef availability / booking scheduling |
 | Messaging | **Stream** | Wire to client↔chef threads alongside persisted thread metadata if needed |
+| Object storage | **Cloudflare R2** for public media, **Supabase Storage** for private documents; AWS S3 dropped | No other AWS footprint (Railway + Supabase + Clerk); R2 has no egress fee for storefront images. `AWS_*` env and `config.aws` removed |
 
 ## Documentation alignment (this effort)
 
@@ -136,7 +137,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Item | Status | Notes |
 |------|--------|-------|
 | Kossam orders | Todo | |
-| Chef applications + secure documents | Todo | S3 signed URLs |
+| Chef applications + secure documents | Todo | Supabase Storage private bucket (`SUPABASE_KYC_BUCKET`), signed URLs |
 | Contact messages + reply | Todo | |
 | Reviews moderation | Todo | |
 | Team & service zones | Todo | |
@@ -147,7 +148,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Item | Status | Notes |
 |------|--------|-------|
 | Enable Redis module | Todo | Queues for notifications |
-| S3 upload APIs | Todo | Meals, application docs |
+| Upload APIs | Todo | Dish photos on R2 (`R2StorageService`, FLOW-02); KYC documents on Supabase Storage |
 | Clerk JWKS verification | Todo | Phase 2 hardening |
 
 ## Implemented today (baseline)

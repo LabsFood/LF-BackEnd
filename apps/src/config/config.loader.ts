@@ -78,12 +78,6 @@ export interface AppConfig {
   google: {
     mapsApiKey?: string;
   };
-  aws: {
-    accessKeyId?: string;
-    secretAccessKey?: string;
-    region: string;
-    s3Bucket?: string;
-  };
   supabase: {
     /** Runtime app connection — Supabase pooler (6543) in cloud; direct OK locally. */
     dbUrl: string;
@@ -178,12 +172,6 @@ export const configLoader = (): AppConfig => ({
   },
   google: {
     mapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
-  },
-  aws: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION ?? 'eu-west-3',
-    s3Bucket: process.env.AWS_S3_BUCKET,
   },
   supabase: {
     dbUrl: process.env.SUPABASE_DB_URL ?? '',
