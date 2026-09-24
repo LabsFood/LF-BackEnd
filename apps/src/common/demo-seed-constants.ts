@@ -41,10 +41,6 @@ export function demoFormuleId(index: number): string {
   return `demo-seed-f${pad(index)}`;
 }
 
-export function demoCmsSlug(index: number): string {
-  return `demo-seed-page-${pad(index)}`;
-}
-
 export function demoMealName(index: number): string {
   return `[demo] Meal ${pad(index)}`;
 }

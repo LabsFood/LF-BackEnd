@@ -1,7 +1,7 @@
 /**
  * Inserts ~10 rows per application table for local/staging exploration.
  * All rows are tagged (clerk ids, references, slugs, meal names) so
- * `npm run db:unseed:demo` can remove them without touching production CMS or migration formules.
+ * `npm run db:unseed:demo` can remove them without touching migration formules.
  */
 import {
   BookingStatus,
@@ -14,7 +14,6 @@ import {
 } from '../src/generated/prisma/client';
 import { loadRepoEnv } from '../src/config/env-files';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
-import { DEFAULT_CONCEPT_CONTENT } from '../src/modules/content-cms/concept-defaults';
 import {
   DEMO_COUNT,
   DEMO_MENU_YEAR,
@@ -24,7 +23,6 @@ import {
   demoChefEmail,
   demoClientClerkId,
   demoClientEmail,
-  demoCmsSlug,
   demoFormuleId,
   demoMealName,
   demoQuoteReference,
@@ -332,28 +330,6 @@ async function main(): Promise<void> {
         });
       }),
     );
-
-    const cmsBlock = toInputJson(DEFAULT_CONCEPT_CONTENT.introBlocks);
-    await Promise.all(
-      Array.from({ length: DEMO_COUNT }, (_, idx) => {
-        const i = idx + 1;
-        return tx.cmsPage.create({
-          data: {
-            slug: demoCmsSlug(i),
-            title: `Demo CMS page ${i}`,
-            hero: toInputJson(DEFAULT_CONCEPT_CONTENT.hero),
-            introBlocks: cmsBlock,
-            howItWorks: toInputJson(DEFAULT_CONCEPT_CONTENT.howItWorks),
-            reassuranceItems: toInputJson(
-              DEFAULT_CONCEPT_CONTENT.reassuranceItems,
-            ),
-            status: 'draft',
-            updatedByUserId: chefUsers[0].id,
-          },
-        });
-      }),
-    );
-
   });
 
   console.log(

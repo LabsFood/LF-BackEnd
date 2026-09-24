@@ -47,9 +47,21 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET` | CMS assets in Supabase Storage |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
+| `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
+| `BREVO_TPL_*` (9 ids) | Chef onboarding emails. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
+| `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).
+
+### KYC bucket (chef onboarding)
+
+Create the bucket named by `SUPABASE_KYC_BUCKET` in Supabase Storage and leave
+it **private**. It holds identity documents; a public read policy on it is a
+personal-data breach, not a misconfiguration. The API never produces a public
+URL for it — uploads use a signed PUT, reads a 5-minute signed GET, and every
+read is written to `audit_log`.
 
 ## 3. Database URLs (Supabase)
 
@@ -57,13 +69,6 @@ Copy URI formats from [`docs/database-connection.md`](../database-connection.md)
 2. **Session pooler** or **Direct connection** (port **5432**) → `SUPABASE_DB_MIGRATION_URL` (migrations only).
 
 Never run migrations through the **transaction** pooler (6543). The container entrypoint runs `prisma migrate deploy` once per deploy using `SUPABASE_DB_MIGRATION_URL` (see `apps/scripts/docker-entrypoint.sh`).
-
-Optional one-off seed (not run on deploy):
-
-```bash
-# From your machine with repo-root .env or Railway CLI env
-cd apps && npm run db:seed
-```
 
 ## 4. Public domain & API URLs
 
@@ -101,7 +106,6 @@ export API_BASE="https://<public-domain>"
 curl -s "$API_BASE/health"
 curl -s "$API_BASE/ready"
 curl -s "$API_BASE/openapi.json" | head -c 200
-curl -s "$API_BASE/content/concept"
 ```
 
 | Path | Use |
@@ -109,6 +113,44 @@ curl -s "$API_BASE/content/concept"
 | `/health` | Railway health check, load balancer liveness |
 | `/ready` | Readiness (DB ping); use after deploy smoke tests |
 | `/docs` | Swagger UI |
+
+## 4b. Logs and debugging
+
+Set `LOG_JSON=true` in production (it is the default when `ENVIRONMENT=production`).
+Both the application logs and the Fastify access logs then emit JSON lines, so
+Railway's log explorer can filter on fields instead of matching substrings.
+`LOG_LEVEL` accepts `fatal | error | warn | info | debug | trace`, default `info`.
+
+Every response carries an `x-request-id` header. An inbound `x-request-id` from
+a proxy is honoured, so a trace survives across services.
+
+**Joining a log line to the database.** The same id is stored on
+`audit_log.request_id`. Railway's log retention is short and cannot be queried
+by candidature, so the durable trail is in Postgres:
+
+```sql
+-- everything that happened to one candidature
+SELECT created_at, actor_type, action, outcome, request_id, metadata
+FROM audit_log WHERE subject_id = '<application uuid>' ORDER BY created_at;
+
+-- recent failures across the platform
+SELECT created_at, action, subject_id, metadata->>'error' AS error
+FROM audit_log WHERE outcome = 'failed' ORDER BY created_at DESC LIMIT 50;
+
+-- who opened which identity document
+SELECT a.created_at, u.email, a.metadata
+FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
+WHERE a.action = 'document.read' ORDER BY a.created_at DESC;
+```
+
+## 4c. Scheduled job
+
+The chef-dossier job (expiry warnings, automatic suspension, retention purge)
+runs in-process daily at 06:00 via `@nestjs/schedule`. There is no queue.
+
+**If you scale the API past one replica, every replica will run it.** Each step
+is idempotent so a double run is harmless, but move it to a queue or a Postgres
+advisory lock before relying on that at scale. See `ChefDossierCron`.
 
 ## 5. Deploy flow
 

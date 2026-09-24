@@ -8,7 +8,7 @@
 | Layer                             | Responsibility                                                                                                     |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | **Clerk**                         | Sign-in, sessions, JWTs (`sub` = Clerk user id). No bookings, roles, or CRM fields.                                |
-| **Postgres (`users` via Prisma)** | Single source of truth: `clerk_user_id`, `email`, `full_name`, `role`, profiles, bookings, quotes, CMS audit, etc. |
+| **Postgres (`users` via Prisma)** | Single source of truth: `clerk_user_id`, `email`, `full_name`, `role`, profiles, bookings, quotes, etc. |
 
 
 Frontends authenticate with Clerk and call this API with `Authorization: Bearer <session_jwt>`. The API never uses the Supabase JS client for `users`; it uses `SUPABASE_DB_URL` with Prisma (service connection). **RLS** on Supabase applies when a frontend talks to Postgres/Storage through Supabase directly—not on this API path.

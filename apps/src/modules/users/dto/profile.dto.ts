@@ -1,6 +1,8 @@
 import { ApiPropertyOptional, IntersectionType, PartialType } from '@nestjs/swagger';
 import { IsArray, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
+import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
+
 /**
  * Fields that live on `client_profiles`. Every property here must map to a real
  * column: both `PATCH /me/profile` and `PATCH /admin/clients/:id` spread this
@@ -177,9 +179,9 @@ export class UpdateClientProfileDto extends PartialType(UpsertClientProfileDto) 
 /** Partial update body for `PATCH /admin/clients/:id` (includes CRM status). */
 export class UpdateAdminClientDto extends PartialType(UpsertClientProfileDto) {
   @ApiPropertyOptional({
-    enum: ['vip', 'active', 'prospect', 'inactive'],
-    description: 'CRM lifecycle status for admin client management.',
-    example: 'active',
+    enum: CLIENT_STATUSES,
+    description: CLIENT_STATUS_HELP,
+    example: 'vip',
   })
   @IsOptional()
   @IsString()
