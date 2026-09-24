@@ -195,16 +195,18 @@ against the first month of real publishing.
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | Dishes have owners | `meals` becomes the chef-owned dish without breaking bookings, quotes, shopping lists or stats. Ownership and authorship are separate, so admin-authored Lab's Food rows stay unowned and public to every chef, any admin can maintain them, and legacy admin writes can no longer touch a chef's dish. | pending | — |
-| 2 | A chef can publish a dish | Create, edit and publish with the blocking checks — no dish goes public without an explicit allergen declaration or from an unverified chef. Ingredients are saved as the structured list shopping lists read, on chef and legacy admin writes alike. | pending | — |
-| 3 | A chef can publish a week | Menus compose published dishes and declare whether shopping is included; the vitrine assigns one menu per week; a suspended dish drops out of its menus without taking them down. | pending | — |
-| 4 | The public page lists cooks, not dishes | `GET /menus/week` serves the week's cards filtered by area, diet and shopping, ordered by a monthly rotation above a relevance floor, chefs without a menu last and marked, and no recipe ever included. `GET /menus/current` deprecated. | pending | — |
-| 5 | Admins can moderate after the fact | A review queue that surfaces never-reviewed, edited and republished content, one-click review, and removal with a reason the chef reads verbatim. | pending | — |
-| 6 | Dishes have photographs | Presigned upload to R2, moderated with the dish. | pending | — |
-| 7 | A prestation leaves its documents | Fiche recette scaled to portions and pinned to the recipe version cooked, flagged when the chef has since changed it; shopping list aggregated and corrigible, with corrections surviving recalculation; the culinary map colouring in. | pending | — |
+| 2 | A chef can publish a dish | Create, edit, publish and unpublish, with the blocking checks — no dish goes public without an explicit allergen declaration or from an unverified chef. Free-text diets and allergens are accepted alongside the reference lists. Ingredients are saved as the structured list shopping lists read, on chef and legacy admin writes alike. | pending | — |
+| 3 | A chef can publish a week | Menus hold several dishes, a dish reusable across menus, with the same owner and author split as dishes, and declare whether shopping is included. Publishing a menu publishes its draft dishes, all or nothing. The vitrine assigns one menu per week; a suspended dish drops out of its menus without taking them down. | pending | — |
+| 4 | A chef can start from Lab's Food | Lab's Food authors suggested dishes and menus that every chef can preview, recipe excluded, and adopt as a draft copy of their own: idempotent, with lineage, and an audit-log row as the consent proof. An admin can instead offer a dish or menu to one chef, who alone sees it and makes it theirs by accepting, or leaves it with Lab's Food by declining. A safety-relevant edit to a suggestion flags every copy `source-changed` and notifies its chef. | pending | — |
+| 5 | The public page lists cooks, not dishes | `GET /menus/week` serves the week's cards filtered by area, diet and shopping, ordered by a monthly rotation above a relevance floor, chefs without a menu last and marked, and no recipe ever included. Each chef's public page shows their published dishes and menus, with badges derived from their validated KYC documents. `GET /menus/current` deprecated. | pending | — |
+| 6 | Admins can moderate after the fact | A review queue that surfaces never-reviewed, edited, republished and `source-changed` content, one-click review, and removal with a reason the chef reads verbatim. Recurring free-text diets and allergens are surfaced so they can join the reference list. | pending | — |
+| 7 | Dishes have photographs | Presigned upload to R2, moderated with the dish. | pending | — |
+| 8 | A prestation leaves its documents | Fiche recette scaled to portions and pinned to the recipe version cooked, flagged when the chef has since changed it; shopping list aggregated and corrigible, with corrections surviving recalculation; the culinary map colouring in. | pending | — |
 
-Milestones 1–4 are the testable hypothesis. 5 is the safety net that direct
-publication depends on. 6 and 7 are what make the vitrine sell and the prestation
-complete.
+Milestones 1–5 are the testable hypothesis. 4 belongs there because the hypothesis
+rests on chefs filling a weekly vitrine, and starting from a Lab's Food menu or an
+offer is the fastest way to fill one. 6 is the safety net that direct publication
+depends on. 7 and 8 are what make the vitrine sell and the prestation complete.
 
 ## Decisions taken
 
