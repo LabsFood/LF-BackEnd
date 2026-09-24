@@ -96,6 +96,10 @@ export class DishesService {
         where: { id, chefProfileId: chef.id },
         data: {
           ...toMealWrite(payload),
+          // A new recipe version; bookings keep the one they pinned (§9.2).
+          ...((payload.recipe != null || payload.portions != null) && {
+            recipeVersion: { increment: 1 },
+          }),
           // The chef answered the change to the suggestion they adopted (§6).
           ...(touchesSafety(payload) && { sourceChangedAt: null }),
           // §3.2: allergens, diets or country changed on a public dish: admins look

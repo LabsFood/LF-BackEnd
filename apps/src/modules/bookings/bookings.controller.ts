@@ -200,9 +200,10 @@ export class BookingsController {
   @ApiOperation({
     summary: "Rebuild a booking's shopping list",
     description:
-      "Throws away the booking's shopping list and makes it again from its meals: each " +
-      'ingredient is scaled to the portions booked, then items with the same name, ' +
-      'unit and aisle are added up. Use it after the meals or portions change.\n\n' +
+      "Recomputes the booking's shopping list from the recipe versions it cooks from: " +
+      'each ingredient scaled to the portions booked, the same ingredient in the same ' +
+      "unit added up. The batch cooker's corrections are kept. Use it after the meals " +
+      'or portions change.\n\n' +
       'Note the path: `/bookings/admin/bookings/{id}/shopping-list/regenerate`.',
   })
   @ApiBookingIdParam()

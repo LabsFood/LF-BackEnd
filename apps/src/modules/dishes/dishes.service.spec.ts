@@ -134,6 +134,17 @@ describe('DishesService', () => {
       expect(meal.update).toHaveBeenCalled();
     });
 
+    it('makes a new recipe version when the recipe or portions change, not otherwise', async () => {
+      const { meal, access, prisma } = harness();
+      const service = new DishesService(prisma, access);
+
+      await service.update('clerk_1', 'dish-1', { portions: 6 });
+      await service.update('clerk_1', 'dish-1', { description: 'Plus de thym.' });
+
+      expect(meal.update.mock.calls[0][0].data.recipeVersion).toEqual({ increment: 1 });
+      expect(meal.update.mock.calls[1][0].data).not.toHaveProperty('recipeVersion');
+    });
+
     it('checks the declaration as it will be after the change', async () => {
       const { meal, access, prisma } = harness();
       meal.findUnique.mockResolvedValue(dishRow({ allergens: ['milk'] }));

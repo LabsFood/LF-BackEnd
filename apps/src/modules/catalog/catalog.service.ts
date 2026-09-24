@@ -186,6 +186,16 @@ export class CatalogService {
     if (payload.isFeatured != null) data.isFeatured = payload.isFeatured;
     if (payload.status != null) data.status = payload.status;
 
+    // A new recipe version; bookings keep the one they pinned (FLOW-02 §9.2).
+    const recipeTouched = [
+      payload.ingredients,
+      payload.steps,
+      payload.reheating,
+      payload.storage,
+      payload.portions,
+    ].some((value) => value !== undefined && value !== null);
+    if (recipeTouched) data.recipeVersion = { increment: 1 };
+
     return data;
   }
 

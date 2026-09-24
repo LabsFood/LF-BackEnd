@@ -181,6 +181,14 @@ describe('CatalogService', () => {
     expect(meal.update).not.toHaveBeenCalled();
   });
 
+  it('makes a new recipe version when the recipe changes, not otherwise', async () => {
+    await service.updateMeal('meal-1', { steps: ['Mariner'] }, ADMIN_ID);
+    await service.updateMeal('meal-1', { description: 'Plus relevé.' }, ADMIN_ID);
+
+    expect(meal.update.mock.calls[0][0].data.recipeVersion).toEqual({ increment: 1 });
+    expect(meal.update.mock.calls[1][0].data).not.toHaveProperty('recipeVersion');
+  });
+
   describe('source-changed (PRD)', () => {
     const stored = {
       id: 'meal-1',
