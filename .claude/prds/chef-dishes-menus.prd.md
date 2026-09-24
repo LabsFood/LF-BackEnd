@@ -31,6 +31,10 @@ Qualitative, as for FLOW-01. No catalogue instrumentation exists yet.
   semaine, chef par chef" the site is meant to show cannot be assembled.
 - `meals` carries `ingredients` and `steps` but no owner, so the recipe that
   would produce a fiche recette belongs to nobody and is reachable by anyone.
+- `meals.ingredients` is not structured in practice. `POST`/`PATCH /admin/meals`
+  accept only a JSON object and refuse a list with 400, while shopping lists read
+  only a list of `{ name, qty, unit, aisle }`. Ingredients saved through the API
+  today never reach a shopping list.
 - FLOW-01 ships accounts for verified batch cookers whose storefront has no
   content behind it. The `CHEF_NOT_VERIFIED` publication gate specified in
   FLOW-02 §3.3 has no publication to gate.
@@ -109,7 +113,7 @@ against the first month of real publishing.
 | Vitrine order: **rotation above a relevance floor, seeded monthly** | Filter to chefs who cover the area and are not fully booked — a chef with no slots configured still appears, as available on request — then rotate exposure with one order per calendar month, identical for every visitor. §9.6 notes this decides who receives demand; rating-first would entrench whoever arrived first. Monthly matches the "Vitrine du mois" cadence (§3.5) and keeps the order explainable and pagination stable. |
 | A chef with **no menu for the week is shown last, and marked** | Settles §9.7. They stay bookable with their published dishes — an oversight should not make an available chef invisible — but sort below chefs who composed a menu, and carry a flag so the frontend can present them differently. Rotation applies within each group. |
 | Dish photos on **Cloudflare R2**, presigned, moderated with the dish | Public storefront images are the high-egress case, unlike KYC documents. R2 has no egress fee; it speaks S3, so the presigned flow mirrors the KYC one — including its upload controls: a closed list of image types, a size cap, and every object stored under the owning chef, so the upload path cannot be used to host arbitrary files. |
-| Shopping lists are **computed deterministically** | `recipe.ingredients` is already structured, so scaling, deduplication by (name, unit) and grouping by aisle is arithmetic, not inference. Free-text dishes with no recipe contribute nothing automatically; the chef adds those lines by hand, as corrections that survive recalculation. |
+| Shopping lists are **computed deterministically** | `recipe.ingredients` is **a list of `{ name, qty, unit, aisle }`, validated as such on every write path**: the chef's routes and the legacy `/admin/meals` ones, which today accept only an object and refuse a list (see Evidence). With that guaranteed, scaling, deduplication by (name, unit) and grouping by aisle is arithmetic, not inference. Free-text dishes with no recipe contribute nothing automatically; the chef adds those lines by hand, as corrections that survive recalculation. |
 | `shoppingIncluded` is a **per-menu flag, `false` on creation** | Settles where the public filter's data lives: nothing in the schema expressed it. Per menu lets a chef offer shopping on some weeks and not others; defaulting to `false` means a chef never advertises a service they did not choose to offer. |
 | **Recipes are versioned; a prestation pins the version it was cooked from** | Settles §9.2. The fiche a client received and the one the API serves always agree, and a dispute about what was cooked is answerable. When the chef has since edited the recipe, the fiche says so with a flag rather than silently showing the new one. |
 | **Free-text allergens never satisfy the publication gate** | The chef must still answer, explicitly, whether the dish contains any of the 14 regulated allergens, and may add free-text ones on top. A custom value such as "sarrasin" alongside an unanswered regulated list is refused — otherwise a dish could go public having declared buckwheat and never said whether it contains milk. |
@@ -191,7 +195,7 @@ against the first month of real publishing.
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | Dishes have owners | `meals` becomes the chef-owned dish without breaking bookings, quotes, shopping lists or stats. Ownership and authorship are separate, so admin-authored Lab's Food rows stay unowned and public to every chef, any admin can maintain them, and legacy admin writes can no longer touch a chef's dish. | pending | — |
-| 2 | A chef can publish a dish | Create, edit and publish with the blocking checks — no dish goes public without an explicit allergen declaration or from an unverified chef. | pending | — |
+| 2 | A chef can publish a dish | Create, edit and publish with the blocking checks — no dish goes public without an explicit allergen declaration or from an unverified chef. Ingredients are saved as the structured list shopping lists read, on chef and legacy admin writes alike. | pending | — |
 | 3 | A chef can publish a week | Menus compose published dishes and declare whether shopping is included; the vitrine assigns one menu per week; a suspended dish drops out of its menus without taking them down. | pending | — |
 | 4 | The public page lists cooks, not dishes | `GET /menus/week` serves the week's cards filtered by area, diet and shopping, ordered by a monthly rotation above a relevance floor, chefs without a menu last and marked, and no recipe ever included. `GET /menus/current` deprecated. | pending | — |
 | 5 | Admins can moderate after the fact | A review queue that surfaces never-reviewed, edited and republished content, one-click review, and removal with a reason the chef reads verbatim. | pending | — |
