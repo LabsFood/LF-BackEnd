@@ -95,6 +95,18 @@ export interface AppConfig {
     /** Private bucket holding KYC documents. Never publicly readable. */
     kycBucket: string;
   };
+  /**
+   * Cloudflare R2, for dish photos (FLOW-02). Optional: without all five, photo
+   * routes answer 503 PHOTOS_UNAVAILABLE and the rest of the API is unaffected.
+   */
+  r2: {
+    accountId?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    bucket?: string;
+    /** Public address of the bucket (custom domain or r2.dev URL). */
+    publicBaseUrl?: string;
+  };
 }
 
 export const configLoader = (): AppConfig => ({
@@ -184,5 +196,12 @@ export const configLoader = (): AppConfig => ({
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     anonKey: process.env.SUPABASE_ANON_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
+  },
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    bucket: process.env.R2_BUCKET,
+    publicBaseUrl: process.env.R2_PUBLIC_BASE_URL,
   },
 });

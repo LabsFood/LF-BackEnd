@@ -21,6 +21,10 @@ import {
 } from './domain/moderation.rules';
 import { ContentQueryDto, ModerationDto, ReviewDto } from './dto/moderation.dto';
 import { toMenuView } from './menus.service';
+import { R2StorageService } from './r2-storage.service';
+
+/** Removal reasons where the photo itself may be what is wrong. */
+const PHOTO_REASONS = new Set(['inappropriate-content', 'copyright']);
 
 type Kind = 'dish' | 'menu';
 
@@ -47,6 +51,7 @@ export class ModerationService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly mailer: DishesMailer,
+    private readonly storage: R2StorageService,
   ) {}
 
   /**
@@ -128,13 +133,21 @@ export class ModerationService {
 
     if (payload.status === 'suspended') {
       const reasonCode = payload.reasonCode ?? 'other';
+      // When the picture may be the problem, it leaves the public bucket too:
+      // suspending only the row would leave it at its public address.
+      const photo =
+        kind === 'dish' && PHOTO_REASONS.has(reasonCode)
+          ? this.storage.keyOf((current as Meal).imageUrl)
+          : null;
       await this.transition(kind, id, MealStatus.published, {
         status: MealStatus.suspended,
         moderationReason: reason,
         moderationReasonCode: reasonCode,
         moderatedAt: now,
         ...REVIEWED(now),
+        ...(photo && { imageUrl: null }),
       });
+      if (photo) await this.storage.delete(photo);
       await this.audit.record({
         actorType: 'admin',
         actorUserId: adminUserId,

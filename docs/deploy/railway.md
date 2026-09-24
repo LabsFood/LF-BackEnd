@@ -49,6 +49,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
 | `BREVO_TPL_*` (11 ids) | Chef onboarding emails, plus FLOW-02's `BREVO_TPL_SOURCE_CHANGED` and `BREVO_TPL_CONTENT_SUSPENDED`. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
@@ -62,6 +63,16 @@ it **private**. It holds identity documents; a public read policy on it is a
 personal-data breach, not a misconfiguration. The API never produces a public
 URL for it — uploads use a signed PUT, reads a 5-minute signed GET, and every
 read is written to `audit_log`.
+
+### Dish photos bucket (FLOW-02)
+
+Create an R2 bucket for dish photos and give it a public address (a custom domain,
+or the bucket's r2.dev URL) in `R2_PUBLIC_BASE_URL`: the public site loads photos
+from there. Browsers upload straight to it with a presigned `PUT`, so its CORS
+policy must allow `PUT` with the `Content-Type` header from the site origins. The
+API token needs object read and write on that bucket only. Serve the public domain
+with `X-Content-Type-Options: nosniff` (a Cloudflare response header rule): the API
+checks each photo's bytes, and this stops a browser from second-guessing the type.
 
 ## 3. Database URLs (Supabase)
 

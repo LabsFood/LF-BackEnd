@@ -83,6 +83,14 @@ export const envValidationSchema = Joi.object({
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
+  /** Cloudflare R2 for dish photos. All five, or photo routes answer 503. */
+  R2_ACCOUNT_ID: Joi.string().optional(),
+  R2_ACCESS_KEY_ID: Joi.string().optional(),
+  R2_SECRET_ACCESS_KEY: Joi.string().optional(),
+  R2_BUCKET: Joi.string().optional(),
+  R2_PUBLIC_BASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .optional(),
 
   /**
    * Extra origins on top of the built-in allowlist (`config/allowed-origins.ts`).

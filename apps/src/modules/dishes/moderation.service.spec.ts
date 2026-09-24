@@ -3,9 +3,20 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { MealStatus } from '../../generated/prisma/client';
 import { codeOf, dishRow, harness } from './dishes.test-helpers';
 import { ModerationService } from './moderation.service';
+import { R2StorageService } from './r2-storage.service';
+
+const storage = {
+  keyOf: jest.fn((url: string | null) => url?.replace('https://photos/', '') ?? null),
+  delete: jest.fn(async () => undefined),
+};
 
 const service = (h: ReturnType<typeof harness>) =>
-  new ModerationService(h.prisma, h.audit, h.mailer);
+  new ModerationService(
+    h.prisma,
+    h.audit,
+    h.mailer,
+    storage as unknown as R2StorageService,
+  );
 
 const REASON =
   'Les allergènes ne mentionnent pas le lait, alors que la recette contient du beurre.';
@@ -134,6 +145,25 @@ describe('ModerationService (§4)', () => {
       expect(h.audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'content.suspended' }),
       );
+    });
+
+    it('takes the photo down too when it may be the problem', async () => {
+      const h = harness();
+      h.meal.findFirst.mockResolvedValue(
+        published({ imageUrl: 'https://photos/chefs/c/p.jpg' }),
+      );
+      h.meal.updateMany.mockResolvedValue({ count: 1 });
+
+      await service(h).moderate('dish', 'dish-1', 'admin-1', {
+        status: 'suspended',
+        reason: 'Photo sans rapport avec le plat, et choquante.',
+        reasonCode: 'inappropriate-content',
+      });
+
+      expect(h.meal.updateMany.mock.calls[0][0]).toMatchObject({
+        data: { imageUrl: null },
+      });
+      expect(storage.delete).toHaveBeenCalledWith('chefs/c/p.jpg');
     });
 
     it('does not email when asked not to', async () => {

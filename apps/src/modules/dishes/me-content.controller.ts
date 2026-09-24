@@ -39,7 +39,9 @@ import {
   ShowcaseRangeQueryDto,
   UpdateMenuDto,
 } from './dto/menu.dto';
+import { DishPhotosService } from './dish-photos.service';
 import { ConsentDto } from './dto/labs-food.dto';
+import { PhotoConfirmDto, PhotoUploadDto } from './dto/photo.dto';
 import { MenusService } from './menus.service';
 import { SuggestionsService } from './suggestions.service';
 import {
@@ -95,6 +97,7 @@ export class MeContentController {
     private readonly dishes: DishesService,
     private readonly menus: MenusService,
     private readonly suggestions: SuggestionsService,
+    private readonly photos: DishPhotosService,
   ) {}
 
   @Get('dishes')
@@ -584,5 +587,103 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.suggestions.decline(user.userId, id);
+  }
+
+  @Post('dishes/:id/photo/upload-url')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Add a photo to my dish, step 1 of 3: get an upload link',
+    description:
+      'Three calls, and the file never goes through this API:\n\n' +
+      '1. This call, with the picture’s type and size. It answers with a private ' +
+      '`url` valid 15 minutes and an `uploadId`.\n' +
+      '2. `PUT` the file to that `url`, with the `headers` given. Its length must be ' +
+      'exactly `sizeBytes`: storage refuses anything else (403).\n' +
+      '3. `POST /me/dishes/{id}/photo/confirm` with the `uploadId`.\n\n' +
+      'JPEG, PNG or WebP, 5 MB at most. Answers `503 PHOTOS_UNAVAILABLE` when this ' +
+      'server has no photo storage.',
+  })
+  @ApiDishIdParam()
+  @ApiCreatedResponse({
+    description: 'Where to send the file.',
+    example: {
+      uploadId: 'ph_9f2a1c4e7b30d85a61c2e4f7',
+      method: 'PUT',
+      url: 'https://<account>.r2.cloudflarestorage.com/<bucket>/chefs/…?X-Amz-Signature=…',
+      headers: { 'Content-Type': 'image/jpeg' },
+      expiresAt: '2026-09-24T10:15:00.000Z',
+    },
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No dish with this id.' })
+  @ApiClerkAuthResponses()
+  photoUploadUrl(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoUploadDto,
+  ) {
+    return this.photos.uploadUrl(user.userId, id, payload);
+  }
+
+  @Post('dishes/:id/photo/confirm')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Add a photo to my dish, step 3 of 3: confirm',
+    description:
+      'Once the `PUT` succeeded. The API checks the file is really there, with the ' +
+      'type and size announced, then makes it the dish’s photo; the previous one is ' +
+      'deleted. A new photo on a published dish sends it back to the admin review ' +
+      'queue.\n\nExample: `{ "uploadId": "ph_9f2a…", "contentType": "image/jpeg" }`.',
+  })
+  @ApiDishIdParam()
+  @ApiOkResponse({
+    description: 'The dish, with its photo.',
+    example: {
+      ...DISH_EXAMPLE,
+      imageUrl:
+        'https://photos.labsfood.fr/chefs/c2eebc99…/dishes/5b1f3c2e…/ph_9f2a….jpg',
+    },
+  })
+  @ApiConflictResponse({
+    description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`UNSUPPORTED_MEDIA_TYPE`: the file does not match the type and size announced.',
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No dish with this id.' })
+  @ApiClerkAuthResponses()
+  confirmPhoto(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoConfirmDto,
+  ) {
+    return this.photos.confirm(user.userId, id, payload);
+  }
+
+  @Delete('dishes/:id/photo')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Remove my dish’s photo',
+    description: 'The dish stays as it is otherwise.',
+  })
+  @ApiDishIdParam()
+  @ApiOkResponse({
+    description: 'The dish, without a photo.',
+    example: { ...DISH_EXAMPLE, imageUrl: null },
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No dish with this id.' })
+  @ApiClerkAuthResponses()
+  removePhoto(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.photos.remove(user.userId, id);
   }
 }
