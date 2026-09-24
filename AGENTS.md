@@ -189,6 +189,43 @@ reapply from it.
 - **Emails**: Brevo templates, ids in `BREVO_TPL_*`. An unset id is a logged
   no-op, so an email outage never rolls back an approval.
 
+### Dishes, menus, publication and moderation (FLOW-02)
+
+Batch cookers publish their own dishes and weekly menus; admins moderate after the
+fact. Module: `modules/dishes/`. Spec:
+[`FLOW-02-plats-et-menus.md`](../FLOW-02-plats-et-menus.md), PRD:
+[`.claude/prds/chef-dishes-menus.prd.md`](.claude/prds/chef-dishes-menus.prd.md).
+
+- **`meals` is the dish.** `chef_profile_id` is the owner (null: Lab's Food
+  content), `created_by_user_id` the author, for attribution only. The legacy
+  `/admin/meals` and `/admin/menu-weeks` routes touch Lab's Food rows only.
+- **One access rule** (`ChefContentService`): another chef's dish or menu is 404
+  on a read and `403 CONTENT_NOT_OWNED` on a write. Writes need an approved chef
+  (`CHEF_NOT_VERIFIED`); publishing also needs a `validated` dossier.
+- **The recipe is private**: `ingredients`, `steps`, `reheating`, `storage` never
+  reach a public route or a client before the prestation (`RECIPE_FIELDS`).
+- **Publication is direct, moderation after the fact.** Content waits in the
+  review queue (`review_pending_since`) until an admin looks; a suspension needs
+  a 15–500 character reason the chef reads as written.
+- **Suggestions and offers**: an unowned, unoffered, published row is a
+  suggestion every chef can adopt (a draft copy, audited as consent); an offer is
+  visible to one chef, who takes the row over by accepting. Admins never set an
+  owner.
+- **Recipe versions**: `meals.recipe_version` goes up on every recipe change; a
+  booking pins the version it cooks from (`booking_meals.recipe_version`) and the
+  content is kept in `meal_recipe_versions`, so the fiche and the shopping list
+  always agree. Pinned on first use while `POST /bookings` answers 501.
+- **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
+  the photo routes answer 503.
+
+| Actor | Routes |
+|---|---|
+| Public | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}` |
+| Chef | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}` |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin` |
+| Client | `GET /me/culinary-map` |
+| Admin | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
+
 ### Logging and debugging
 
 - `LOG_JSON=true` (default in production) makes both the Nest app logs and the
