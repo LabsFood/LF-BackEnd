@@ -4,7 +4,6 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
-import { Prisma } from '../../generated/prisma/client';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -31,14 +30,11 @@ export class ClerkWebhooksService {
           this.logger.warn('user.deleted webhook missing id; skipping');
           return;
         }
-        try {
-          await this.users.deleteByClerkId(clerkUserId);
-        } catch (error) {
-          if (!isForeignKeyViolation(error)) throw error;
-          await this.deletionBlocked(clerkUserId, error);
+        if ((await this.users.deleteByClerkId(clerkUserId)) === 'deleted') {
+          this.logger.log(`Removed users row for deleted Clerk user ${clerkUserId}`);
           return;
         }
-        this.logger.log(`Removed users row for deleted Clerk user ${clerkUserId}`);
+        await this.anonymised(clerkUserId);
         return;
       }
       default:
@@ -46,29 +42,20 @@ export class ClerkWebhooksService {
     }
   }
 
-  /**
-   * The account is gone from Clerk, but its bookings still point at the users row
-   * (directly, or through the chef profile and its dishes), and the database
-   * refuses to lose that history. Retrying cannot change that, so the webhook
-   * succeeds: the row stays, and an error log plus an audit row tell an operator
-   * to settle it by hand. The person can no longer sign in either way.
-   */
-  private async deletionBlocked(clerkUserId: string, error: unknown): Promise<void> {
+  /** Bookings still reference the row, so it was kept with its personal data blanked. */
+  private async anonymised(clerkUserId: string): Promise<void> {
     const user = await this.users.findByClerkId(clerkUserId);
-    this.logger.error(
-      `Clerk user ${clerkUserId} was deleted, but users.id=${user?.id ?? 'unknown'} ` +
-        'is kept: bookings still reference it. Settle it by hand.',
+    this.logger.log(
+      `Anonymised users.id=${user?.id ?? 'unknown'} for deleted Clerk user ` +
+        `${clerkUserId}: bookings still reference it`,
     );
-    await this.audit.failed(
-      {
-        actorType: 'system',
-        action: 'user.delete_blocked',
-        subjectType: 'user',
-        subjectId: user?.id ?? null,
-        metadata: { clerkUserId, reason: 'bookings-reference-user' },
-      },
-      error,
-    );
+    await this.audit.record({
+      actorType: 'system',
+      action: 'user.anonymised',
+      subjectType: 'user',
+      subjectId: user?.id ?? null,
+      metadata: { clerkUserId, reason: 'bookings-reference-user' },
+    });
   }
 
   async verifyAndHandle(rawBody: string, headers: Headers): Promise<void> {
@@ -87,9 +74,4 @@ export class ClerkWebhooksService {
     const event = await verifyWebhook(request, { signingSecret });
     await this.handleVerifiedEvent(event);
   }
-}
-
-/** Prisma's "a foreign key refused this write" (P2003): here, a RESTRICT from bookings. */
-function isForeignKeyViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003';
 }

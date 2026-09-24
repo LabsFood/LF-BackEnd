@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ChefApplicationStatus,
   ClientProfile,
+  Prisma,
   User,
   UserRole,
 } from '../../generated/prisma/client';
@@ -131,6 +132,9 @@ export class UsersService {
   async upsertFromClerk(input: UpsertFromClerkInput): Promise<User> {
     const existing = await this.findByClerkId(input.clerkUserId);
     if (existing) {
+      // A deleted account stays deleted: Svix does not guarantee order, and a late
+      // user.updated must not bring its personal data back.
+      if (existing.deletedAt) return existing;
       const data: {
         email?: string;
         fullName?: string | null;
@@ -286,8 +290,52 @@ export class UsersService {
     });
   }
 
-  async deleteByClerkId(clerkUserId: string): Promise<void> {
-    await this.prisma.user.deleteMany({ where: { clerkUserId } });
+  /**
+   * Clerk deleted the account. The row goes, unless bookings still reference it
+   * (directly, or through the chef profile and its dishes) and the database refuses
+   * to lose that history. The row then stays, emptied of what identifies the person.
+   *
+   * The delete is tried on its own first: in Postgres, a failed statement aborts
+   * the transaction it runs in.
+   */
+  async deleteByClerkId(clerkUserId: string): Promise<'deleted' | 'anonymised'> {
+    try {
+      await this.prisma.user.deleteMany({ where: { clerkUserId } });
+      return 'deleted';
+    } catch (error) {
+      if (!isForeignKeyViolation(error)) throw error;
+    }
+
+    const user = await this.findByClerkId(clerkUserId);
+    if (!user) return 'deleted';
+    // ponytail: bookings keep address_line and notes (GDPR art. 17(3)(b), legal
+    // retention): services-à-la-personne billing (the tax certificate, URSSAF avance
+    // immédiate) needs the client's identity and address for years. No invoicing
+    // module yet, so nothing breaks today. When one arrives, copy the client's name
+    // onto the booking rather than read it from users.
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: `deleted-${user.id}@deleted.invalid`,
+          fullName: null,
+          phone: null,
+          deletedAt: new Date(),
+        },
+      }),
+      this.prisma.clientProfile.deleteMany({ where: { userId: user.id } }),
+      this.prisma.chefProfile.updateMany({
+        where: { userId: user.id },
+        data: {
+          displayName: 'Compte supprimé',
+          bio: null,
+          city: null,
+          isActive: false,
+          isVerified: false,
+        },
+      }),
+    ]);
+    return 'anonymised';
   }
 
   /**
@@ -683,4 +731,9 @@ export class UsersService {
       return true;
     }
   }
+}
+
+/** Prisma's "a foreign key refused this write" (P2003): here, a RESTRICT from bookings. */
+function isForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003';
 }

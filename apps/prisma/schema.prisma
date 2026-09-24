@@ -16,6 +16,9 @@ model User {
   phone               String?           @db.VarChar(32)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Set when Clerk deleted the account but bookings keep the row: its personal
+  /// data is blanked (`UsersService.deleteByClerkId`).
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
   bookingsAsClient    Booking[]         @relation("BookingClient")
   chefProfile         ChefProfile?
   clientProfile       ClientProfile?

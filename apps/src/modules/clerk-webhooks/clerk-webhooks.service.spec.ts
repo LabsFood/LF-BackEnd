@@ -4,7 +4,6 @@ import type { WebhookEvent } from '@clerk/backend';
 import { verifyWebhook } from '@clerk/backend/webhooks';
 
 import { AuditService } from '../../common/audit/audit.service';
-import { Prisma } from '../../generated/prisma/client';
 import { UsersService } from '../users/users.service';
 import { ClerkWebhooksService } from './clerk-webhooks.service';
 
@@ -20,17 +19,17 @@ describe('ClerkWebhooksService', () => {
     deleteByClerkId: jest.Mock;
     findByClerkId: jest.Mock;
   };
-  let audit: { failed: jest.Mock };
+  let audit: { record: jest.Mock };
   let config: { get: jest.Mock };
   let service: ClerkWebhooksService;
 
   beforeEach(() => {
     users = {
       upsertFromClerkUserJson: jest.fn().mockResolvedValue({ id: 'db-1' }),
-      deleteByClerkId: jest.fn().mockResolvedValue(undefined),
+      deleteByClerkId: jest.fn().mockResolvedValue('deleted'),
       findByClerkId: jest.fn().mockResolvedValue({ id: 'db-1' }),
     };
-    audit = { failed: jest.fn().mockResolvedValue(undefined) };
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
     config = {
       get: jest.fn((key: string) =>
         key === 'clerk.webhookSigningSecret' ? 'whsec_test' : undefined,
@@ -66,6 +65,7 @@ describe('ClerkWebhooksService', () => {
       } as unknown as WebhookEvent);
 
       expect(users.deleteByClerkId).toHaveBeenCalledWith('user_1');
+      expect(audit.record).not.toHaveBeenCalled();
     });
 
     const deleted = {
@@ -75,35 +75,26 @@ describe('ClerkWebhooksService', () => {
       event_attributes: { http_request: { client_ip: '', user_agent: '' } },
     } as unknown as WebhookEvent;
 
-    it('keeps a user their bookings still reference, logs it and stops Clerk retrying', async () => {
-      users.deleteByClerkId.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('fk', {
-          code: 'P2003',
-          clientVersion: 't',
-        }),
-      );
-      const logged = jest.spyOn(service['logger'], 'error').mockImplementation(() => {});
+    it('records a user their bookings kept as anonymised', async () => {
+      users.deleteByClerkId.mockResolvedValue('anonymised');
 
       await expect(service.handleVerifiedEvent(deleted)).resolves.toBeUndefined();
 
-      expect(logged).toHaveBeenCalledWith(expect.stringContaining('user_1'));
-      expect(audit.failed).toHaveBeenCalledWith(
-        expect.objectContaining({
-          actorType: 'system',
-          action: 'user.delete_blocked',
-          subjectId: 'db-1',
-          metadata: expect.objectContaining({ clerkUserId: 'user_1' }),
-        }),
-        expect.any(Prisma.PrismaClientKnownRequestError),
-      );
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'system',
+        action: 'user.anonymised',
+        subjectType: 'user',
+        subjectId: 'db-1',
+        metadata: { clerkUserId: 'user_1', reason: 'bookings-reference-user' },
+      });
     });
 
-    it('lets any other failure through, so Clerk retries it', async () => {
+    it('lets any failure through, so Clerk retries it', async () => {
       const outage = new Error('connection lost');
       users.deleteByClerkId.mockRejectedValue(outage);
 
       await expect(service.handleVerifiedEvent(deleted)).rejects.toBe(outage);
-      expect(audit.failed).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
     });
   });
 
