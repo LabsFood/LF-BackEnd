@@ -38,7 +38,9 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
   chefContent:
     'A batch cooker writes dishes with their recipe, composes menus and publishes ' +
     'them. Public at once; admins check afterwards.',
-  catalog: 'What clients can order.',
+  catalog:
+    'What clients can order: the week’s cooks and their menus, each cook’s page. ' +
+    'Public.',
   bookings: "The signed-in client's bookings.",
   quotes: 'Custom quote requests, for events or larger orders.',
   dashboards: 'Summaries for the signed-in client.',

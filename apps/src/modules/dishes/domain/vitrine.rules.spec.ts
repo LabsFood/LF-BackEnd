@@ -2,6 +2,7 @@ import {
   coveredDiets,
   coversArea,
   parisDay,
+  parisMidnight,
   vitrineOrder,
   weekOf,
 } from './vitrine.rules';
@@ -11,6 +12,11 @@ describe('weeks', () => {
     expect(weekOf('2026-09-24')).toEqual({ start: '2026-09-21', end: '2026-09-27' });
     expect(weekOf('2026-09-21')).toEqual({ start: '2026-09-21', end: '2026-09-27' });
     expect(weekOf('2026-09-27')).toEqual({ start: '2026-09-21', end: '2026-09-27' });
+  });
+
+  it('begins a Paris day at 22:00 UTC in summer and 23:00 UTC in winter', () => {
+    expect(parisMidnight('2026-09-21').toISOString()).toBe('2026-09-20T22:00:00.000Z');
+    expect(parisMidnight('2026-12-07').toISOString()).toBe('2026-12-06T23:00:00.000Z');
   });
 
   it('starts on a French Monday, not a UTC one', () => {

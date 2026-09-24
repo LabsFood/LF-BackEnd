@@ -9,12 +9,14 @@ import { DishesService } from './dishes.service';
 import { LabsFoodContentService } from './labs-food-content.service';
 import { MeContentController } from './me-content.controller';
 import { MenusService } from './menus.service';
+import { PublicVitrineController } from './public-vitrine.controller';
 import { SuggestionsService } from './suggestions.service';
+import { VitrineService } from './vitrine.service';
 
 /** FLOW-02 — dishes, menus, publication and moderation. */
 @Module({
   imports: [ChefOnboardingModule, UsersModule],
-  controllers: [MeContentController, AdminContentController],
+  controllers: [MeContentController, AdminContentController, PublicVitrineController],
   providers: [
     ChefContentService,
     DishesService,
@@ -22,6 +24,7 @@ import { SuggestionsService } from './suggestions.service';
     LabsFoodContentService,
     MenusService,
     SuggestionsService,
+    VitrineService,
   ],
   // The legacy /admin/meals routes flag adopted copies when a suggestion changes.
   exports: [SuggestionsService],

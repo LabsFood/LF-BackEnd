@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Logger,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -22,6 +24,8 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+
+import type { FastifyRequest } from 'fastify';
 
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
@@ -128,6 +132,8 @@ const ApiMealIdParam = () =>
 
 @Controller()
 export class CatalogController {
+  private readonly logger = new Logger(CatalogController.name);
+
   constructor(
     private readonly catalog: CatalogService,
     private readonly users: UsersService,
@@ -142,8 +148,12 @@ export class CatalogController {
   @Get('menus/current')
   @ApiTags(TAGS.catalog)
   @ApiOperation({
-    summary: 'Get the menu of the week',
+    deprecated: true,
+    summary: 'Get the menu of the week (deprecated)',
     description:
+      '**Deprecated**: use `GET /menus/week`, which lists the week’s cooks and their ' +
+      'menus. Every call is logged, so any remaining caller shows up before this ' +
+      'route is removed.\n\n' +
       'The most recent weekly menu that has been published, with its meals. `meals` ' +
       'is the list to show; `menuWeek` says which week it is. Public: no token needed.\n\n' +
       "Lab's Food meals only, and never their recipe: `ingredients`, `steps`, " +
@@ -160,7 +170,12 @@ export class CatalogController {
       meals: [PUBLIC_MEAL],
     },
   })
-  getCurrentMenu() {
+  getCurrentMenu(@Req() request: FastifyRequest) {
+    // FLOW-02: logged so a consumer outside the two frontends surfaces in Railway.
+    this.logger.warn(
+      `Deprecated GET /menus/current called by ${loggable(request.headers['user-agent'])}` +
+        ` from ${loggable(request.headers.origin ?? request.headers.referer)}`,
+    );
     return this.catalog.getCurrentPublishedMenu();
   }
 
@@ -338,4 +353,10 @@ export class CatalogController {
   updateFormule(@Param('id') id: string, @Body() payload: UpdateFormuleDto) {
     return this.catalog.updateFormule(id, payload);
   }
+}
+
+/** A header as it may go into a log line: one line, bounded, never forged. */
+function loggable(value: string | string[] | undefined): string {
+  const text = Array.isArray(value) ? value.join(', ') : value;
+  return text ? text.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200) : 'unknown';
 }

@@ -12,6 +12,25 @@ export function parisDay(now: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(now);
 }
 
+const parisClock = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Paris',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * The instant a Paris day begins: 22:00 or 23:00 UTC the day before, depending on
+ * summer time. Timestamps (slots) are compared against this, not UTC midnight.
+ * France changes time at 02:00 or 03:00 on a Sunday, so the offset read at UTC
+ * midnight of any other day is that day's.
+ */
+export function parisMidnight(day: string): Date {
+  const utcMidnight = new Date(`${day}T00:00:00Z`);
+  const [hours, minutes] = parisClock.format(utcMidnight).split(':').map(Number);
+  return new Date(utcMidnight.getTime() - (hours * 60 + minutes) * 60 * 1000);
+}
+
 /** The Monday on or before `day` (`YYYY-MM-DD`), and the Sunday after it. */
 export function weekOf(day: string): { start: string; end: string } {
   const date = new Date(`${day}T00:00:00Z`);
