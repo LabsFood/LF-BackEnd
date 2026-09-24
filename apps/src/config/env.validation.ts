@@ -58,6 +58,8 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_SIGN_IN_LINK: Joi.number().optional(),
   BREVO_TPL_DOCUMENT_EXPIRING: Joi.number().optional(),
   BREVO_TPL_CHEF_SUSPENDED: Joi.number().optional(),
+  BREVO_TPL_SOURCE_CHANGED: Joi.number().optional(),
+  BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
 
   /** Structured logging, read back from Railway's log explorer. */
   LOG_LEVEL: Joi.string()

@@ -8,6 +8,7 @@ import {
   Prisma,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SuggestionsService } from '../dishes/suggestions.service';
 import { CatalogService } from './catalog.service';
 
 const ADMIN_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
@@ -32,6 +33,7 @@ describe('CatalogService', () => {
     delete: jest.Mock;
   };
   let menuWeek: { findFirst: jest.Mock; create: jest.Mock };
+  let suggestions: { flagCopies: jest.Mock };
 
   beforeEach(async () => {
     meal = {
@@ -42,6 +44,7 @@ describe('CatalogService', () => {
       update: jest.fn(async (args: unknown) => args),
       delete: jest.fn(async () => undefined),
     };
+    suggestions = { flagCopies: jest.fn(async () => undefined) };
     menuWeek = {
       findFirst: jest.fn(async () => null),
       create: jest.fn(async (args: unknown) => args),
@@ -51,6 +54,7 @@ describe('CatalogService', () => {
       providers: [
         CatalogService,
         { provide: PrismaService, useValue: { meal, menuWeek } },
+        { provide: SuggestionsService, useValue: suggestions },
       ],
     }).compile();
 
@@ -139,7 +143,7 @@ describe('CatalogService', () => {
       });
 
       await expect(
-        service.updateMeal('meal-1', { allergensNone: true }),
+        service.updateMeal('meal-1', { allergensNone: true }, ADMIN_ID),
       ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
       expect(meal.findFirst).toHaveBeenCalledWith({ where: LABS_FOOD_MEAL_1 });
       expect(meal.update).not.toHaveBeenCalled();
@@ -161,6 +165,62 @@ describe('CatalogService', () => {
     });
   });
 
+  it('refuses to publish a meal still offered to a chef', async () => {
+    meal.findFirst.mockResolvedValueOnce({
+      allergens: [],
+      allergensNone: true,
+      customAllergens: [],
+      dietaryTags: [],
+      customDiets: [],
+      offeredToChefProfileId: 'chef-2',
+    });
+
+    await expect(
+      service.updateMeal('meal-1', { status: MealStatus.published }, ADMIN_ID),
+    ).rejects.toMatchObject({ response: { code: 'OFFER_PENDING' } });
+    expect(meal.update).not.toHaveBeenCalled();
+  });
+
+  describe('source-changed (PRD)', () => {
+    const stored = {
+      id: 'meal-1',
+      allergens: ['peanuts'],
+      allergensNone: false,
+      customAllergens: [],
+      dietaryTags: [],
+      customDiets: [],
+      country: 'SN',
+    };
+
+    it('flags the copies when a safety field really changes', async () => {
+      meal.findFirst.mockResolvedValueOnce(stored);
+      meal.update.mockResolvedValueOnce({ ...stored, allergens: ['peanuts', 'milk'] });
+
+      await service.updateMeal('meal-1', { allergens: ['peanuts', 'milk'] }, ADMIN_ID);
+
+      expect(suggestions.flagCopies).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'meal-1' }),
+        ADMIN_ID,
+      );
+    });
+
+    it('leaves copies alone when the same values are sent again, or comfort fields change', async () => {
+      meal.findFirst.mockResolvedValueOnce(stored);
+      meal.update.mockResolvedValueOnce(stored);
+      await service.updateMeal('meal-1', { allergens: ['peanuts'] }, ADMIN_ID);
+
+      const both = { ...stored, allergens: ['peanuts', 'milk'] };
+      meal.findFirst.mockResolvedValueOnce(both);
+      meal.update.mockResolvedValueOnce({ ...both, allergens: ['milk', 'peanuts'] });
+      await service.updateMeal('meal-1', { allergens: ['milk', 'peanuts'] }, ADMIN_ID);
+
+      meal.update.mockResolvedValueOnce(stored);
+      await service.updateMeal('meal-1', { description: 'Plus relevé.' }, ADMIN_ID);
+
+      expect(suggestions.flagCopies).not.toHaveBeenCalled();
+    });
+  });
+
   describe('listMeals', () => {
     it("lists Lab's Food meals only", async () => {
       await service.listMeals();
@@ -173,7 +233,7 @@ describe('CatalogService', () => {
 
   describe('updateMeal', () => {
     it('passes null through for nullable columns so they can be cleared', async () => {
-      await service.updateMeal('meal-1', { imageUrl: null, calories: null });
+      await service.updateMeal('meal-1', { imageUrl: null, calories: null }, ADMIN_ID);
 
       expect(meal.update).toHaveBeenCalledWith({
         where: LABS_FOOD_MEAL_1,
@@ -182,11 +242,15 @@ describe('CatalogService', () => {
     });
 
     it('ignores null on non-nullable columns instead of forwarding it to Prisma', async () => {
-      await service.updateMeal('meal-1', {
-        portions: null as never,
-        status: null as never,
-        name: 'Renamed',
-      });
+      await service.updateMeal(
+        'meal-1',
+        {
+          portions: null as never,
+          status: null as never,
+          name: 'Renamed',
+        },
+        ADMIN_ID,
+      );
 
       expect(meal.update).toHaveBeenCalledWith({
         where: LABS_FOOD_MEAL_1,
@@ -195,9 +259,13 @@ describe('CatalogService', () => {
     });
 
     it('omits untouched fields from the update payload', async () => {
-      await service.updateMeal('meal-1', {
-        imageUrl: 'https://cdn.example.com/meals/new.jpg',
-      });
+      await service.updateMeal(
+        'meal-1',
+        {
+          imageUrl: 'https://cdn.example.com/meals/new.jpg',
+        },
+        ADMIN_ID,
+      );
 
       expect(meal.update).toHaveBeenCalledWith({
         where: LABS_FOOD_MEAL_1,
@@ -210,7 +278,7 @@ describe('CatalogService', () => {
       meal.findUnique.mockResolvedValueOnce({ chefProfileId: 'chef-1' });
 
       const error = await service
-        .updateMeal('meal-1', { name: 'Taken over' })
+        .updateMeal('meal-1', { name: 'Taken over' }, ADMIN_ID)
         .catch((e: unknown) => e);
       expect(error).toBeInstanceOf(ForbiddenException);
       expect((error as ForbiddenException).getResponse()).toMatchObject({
@@ -221,9 +289,9 @@ describe('CatalogService', () => {
     it('answers 404 for an unknown id', async () => {
       meal.update.mockRejectedValueOnce(knownRequestError('P2025'));
 
-      await expect(service.updateMeal('missing', { name: 'x' })).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.updateMeal('missing', { name: 'x' }, ADMIN_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 

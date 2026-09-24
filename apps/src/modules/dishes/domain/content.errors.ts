@@ -1,4 +1,8 @@
-import { ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
 /**
  * FLOW-02 §8: a write on a dish or menu the caller does not own. The same code
@@ -15,6 +19,15 @@ export const contentNotOwned = (
  */
 export const chefNotVerified = (message: string): ForbiddenException =>
   new ForbiddenException({ code: 'CHEF_NOT_VERIFIED', message });
+
+/** Publishing Lab's Food content that is still offered to one chef. */
+export const offerPending = (): ConflictException =>
+  new ConflictException({
+    code: 'OFFER_PENDING',
+    message:
+      'This is offered to a batch cooker and cannot be published. Withdraw the offer ' +
+      'first.',
+  });
 
 /** A write whose result would contradict itself, or a publication check that fails. */
 export const validationFailed = (

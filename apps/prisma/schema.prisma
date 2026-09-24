@@ -60,6 +60,8 @@ model ChefProfile {
   application          ChefApplication?   @relation("ChefProfileApplication")
   dishes               Meal[]             @relation("MealOwner")
   menus                Menu[]             @relation("MenuOwner")
+  dishesOffered        Meal[]             @relation("MealOffer")
+  menusOffered         Menu[]             @relation("MenuOffer")
   showcaseWeeks        ChefShowcaseWeek[]
 
   @@map("chef_profiles")
@@ -159,49 +161,66 @@ model ClientProfile {
 /// content. `createdByUserId` is the author, for attribution only: it never grants
 /// a right, so an admin who writes a Lab's Food meal does not own it.
 model Meal {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId   String?         @map("chef_profile_id") @db.Uuid
-  createdByUserId String?         @map("created_by_user_id") @db.Uuid
-  name            String          @db.VarChar(255)
-  description     String?
-  imageUrl        String?         @map("image_url") @db.VarChar(512)
-  continent       MealContinent?
-  country         String?         @db.VarChar(120)
-  portions        Int             @default(4)
-  prepTime        Int             @map("prep_time")
-  dietaryTags     String[]        @default([]) @map("dietary_tags")
-  allergens       String[]        @default([])
+  id                     String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId          String?         @map("chef_profile_id") @db.Uuid
+  createdByUserId        String?         @map("created_by_user_id") @db.Uuid
+  /// Lab's Food content prepared for one chef: only they see it, and it becomes
+  /// theirs only when they accept (PRD). Never set together with an owner.
+  offeredToChefProfileId String?         @map("offered_to_chef_profile_id") @db.Uuid
+  /// The Lab's Food suggestion this dish was adopted from, and that suggestion's
+  /// `updatedAt` at adoption: the version the chef consented to copy (§6).
+  sourceMealId           String?         @map("source_meal_id") @db.Uuid
+  sourceVersion          DateTime?       @map("source_version") @db.Timestamptz(6)
+  /// Set when the suggestion's allergens, diets or country changed after adoption.
+  sourceChangedAt        DateTime?       @map("source_changed_at") @db.Timestamptz(6)
+  name                   String          @db.VarChar(255)
+  description            String?
+  imageUrl               String?         @map("image_url") @db.VarChar(512)
+  continent              MealContinent?
+  country                String?         @db.VarChar(120)
+  portions               Int             @default(4)
+  prepTime               Int             @map("prep_time")
+  dietaryTags            String[]        @default([]) @map("dietary_tags")
+  allergens              String[]        @default([])
   /// "None of the 14 regulated allergens", said explicitly. An empty `allergens`
   /// list alone cannot be told apart from "not filled in" (FLOW-02 §3.3). A CHECK
   /// in the migration forbids it next to a listed allergen.
-  allergensNone   Boolean         @default(false) @map("allergens_none")
+  allergensNone          Boolean         @default(false) @map("allergens_none")
   /// Free-text values outside the reference lists (the "Autre" button).
-  customDiets     String[]        @default([]) @map("custom_diets")
-  customAllergens String[]        @default([]) @map("custom_allergens")
-  category        String?         @db.VarChar(24)
-  cookTime        Int?            @map("cook_time")
-  calories        Int?
-  difficulty      MealDifficulty?
-  ingredients     Json            @default("[]")
-  steps           String[]        @default([])
-  reheating       Json?
-  storage         Json?
-  isFeatured      Boolean         @default(false) @map("is_featured")
-  status          MealStatus      @default(draft)
+  customDiets            String[]        @default([]) @map("custom_diets")
+  customAllergens        String[]        @default([]) @map("custom_allergens")
+  category               String?         @db.VarChar(24)
+  cookTime               Int?            @map("cook_time")
+  calories               Int?
+  difficulty             MealDifficulty?
+  ingredients            Json            @default("[]")
+  steps                  String[]        @default([])
+  reheating              Json?
+  storage                Json?
+  isFeatured             Boolean         @default(false) @map("is_featured")
+  status                 MealStatus      @default(draft)
   /// Last time it was published. Orders the admin review queue.
-  publishedAt     DateTime?       @map("published_at") @db.Timestamptz(6)
-  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookingMeals    BookingMeal[]
-  menuWeeks       MenuWeekMeal[]
-  menus           MenuDish[]
+  publishedAt            DateTime?       @map("published_at") @db.Timestamptz(6)
+  createdAt              DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals           BookingMeal[]
+  menuWeeks              MenuWeekMeal[]
+  menus                  MenuDish[]
+  copies                 Meal[]          @relation("MealSource")
+  source                 Meal?           @relation("MealSource", fields: [sourceMealId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_source_meal_id")
+  offeredTo              ChefProfile?    @relation("MealOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_offered_to_chef_profile_id")
   // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
   // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
-  chefProfile     ChefProfile?    @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
-  createdBy       User?           @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
+  chefProfile            ChefProfile?    @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
+  createdBy              User?           @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
 
+  /// Adoption is idempotent per (chef, suggestion). NULLs never collide, so a
+  /// chef's own dishes and Lab's Food rows are unaffected.
+  @@unique([chefProfileId, sourceMealId], map: "uq_meals_chef_profile_source")
   @@index([chefProfileId], map: "ix_meals_chef_profile_id")
   @@index([createdByUserId], map: "ix_meals_created_by_user_id")
+  @@index([offeredToChefProfileId], map: "ix_meals_offered_to_chef_profile_id")
+  @@index([sourceMealId], map: "ix_meals_source_meal_id")
   @@map("meals")
 }
 
@@ -582,25 +601,36 @@ enum MenuPeriod {
 /// A composition of dishes, for a week or a month (FLOW-02 §3.4). Owner and author
 /// work as on `Meal`: `chefProfileId` null means Lab's Food content.
 model Menu {
-  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId    String?            @map("chef_profile_id") @db.Uuid
-  createdByUserId  String?            @map("created_by_user_id") @db.Uuid
-  title            String             @db.VarChar(160)
-  pitch            String?            @db.VarChar(500)
-  period           MenuPeriod         @default(week)
-  status           MealStatus         @default(draft)
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId          String?            @map("chef_profile_id") @db.Uuid
+  createdByUserId        String?            @map("created_by_user_id") @db.Uuid
+  /// As on `Meal`: Lab's Food content offered to one chef.
+  offeredToChefProfileId String?            @map("offered_to_chef_profile_id") @db.Uuid
+  /// The Lab's Food suggestion this menu was adopted from, and its version then.
+  sourceMenuId           String?            @map("source_menu_id") @db.Uuid
+  sourceVersion          DateTime?          @map("source_version") @db.Timestamptz(6)
+  title                  String             @db.VarChar(160)
+  pitch                  String?            @db.VarChar(500)
+  period                 MenuPeriod         @default(week)
+  status                 MealStatus         @default(draft)
   /// Whether the batch cooker does the shopping. False at creation (PRD).
-  shoppingIncluded Boolean            @default(false) @map("shopping_included")
-  publishedAt      DateTime?          @map("published_at") @db.Timestamptz(6)
-  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  dishes           MenuDish[]
-  showcaseWeeks    ChefShowcaseWeek[]
-  chefProfile      ChefProfile?       @relation("MenuOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menus_chef_profile_id")
-  createdBy        User?              @relation("MenuAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_created_by_user_id")
+  shoppingIncluded       Boolean            @default(false) @map("shopping_included")
+  publishedAt            DateTime?          @map("published_at") @db.Timestamptz(6)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  dishes                 MenuDish[]
+  showcaseWeeks          ChefShowcaseWeek[]
+  copies                 Menu[]             @relation("MenuSource")
+  source                 Menu?              @relation("MenuSource", fields: [sourceMenuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_source_menu_id")
+  offeredTo              ChefProfile?       @relation("MenuOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_offered_to_chef_profile_id")
+  chefProfile            ChefProfile?       @relation("MenuOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menus_chef_profile_id")
+  createdBy              User?              @relation("MenuAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_created_by_user_id")
 
+  @@unique([chefProfileId, sourceMenuId], map: "uq_menus_chef_profile_source")
   @@index([chefProfileId], map: "ix_menus_chef_profile_id")
   @@index([createdByUserId], map: "ix_menus_created_by_user_id")
+  @@index([offeredToChefProfileId], map: "ix_menus_offered_to_chef_profile_id")
+  @@index([sourceMenuId], map: "ix_menus_source_menu_id")
   @@map("menus")
 }
 

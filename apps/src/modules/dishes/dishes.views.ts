@@ -42,6 +42,10 @@ export function toDishView(meal: Meal) {
     recipeComplete: isRecipeComplete(ingredients, meal.steps),
     status: meal.status,
     publishedAt: meal.publishedAt,
+    /** `labs-food` for a copy of a Lab's Food suggestion (§6). */
+    origin: meal.sourceMealId ? ('labs-food' as const) : ('own' as const),
+    /** Set when that suggestion later changed its allergens, diets or country. */
+    sourceChangedAt: meal.sourceChangedAt,
     createdAt: meal.createdAt,
     updatedAt: meal.updatedAt,
   };

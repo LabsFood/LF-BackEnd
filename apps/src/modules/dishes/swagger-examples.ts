@@ -139,3 +139,33 @@ export const SHOWCASE_EXAMPLE = {
     { weekStart: '2026-10-05', menu: null },
   ],
 };
+
+/** `GET /me/suggestions` → 200. */
+export const SUGGESTIONS_EXAMPLE = {
+  dishes: [
+    {
+      ...PUBLIC_DISH_EXAMPLE,
+      id: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+      name: 'Poulet yassa',
+      country: 'SN',
+      updatedAt: '2026-09-03T14:12:00.000Z',
+      adoptedCopyId: null,
+    },
+  ],
+  menus: [
+    {
+      id: '8c1e2f40-7a3b-4d5c-9e6f-1a2b3c4d5e6f',
+      title: 'Tour du monde en sept plats',
+      pitch: 'Une semaine qui voyage.',
+      period: 'week',
+      updatedAt: '2026-09-10T09:00:00.000Z',
+      dishes: [{ ...PUBLIC_DISH_EXAMPLE, updatedAt: '2026-09-03T14:12:00.000Z' }],
+      adoptedCopyId: MENU_ID,
+    },
+  ],
+};
+
+export const CONSENT_REQUIRED_EXAMPLE = {
+  code: 'CONSENT_REQUIRED',
+  message: 'Send `{ "consent": true }`: nothing is copied without your explicit consent.',
+};

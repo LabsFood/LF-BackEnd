@@ -4,11 +4,13 @@ import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   assertConsistent,
+  SAFETY_FIELDS,
   toIngredientsJson,
   toReheatingJson,
   toStorageJson,
 } from '../dishes/dishes.service';
-import { contentNotOwned } from '../dishes/domain/content.errors';
+import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
+import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
   CreateMenuWeekDto,
@@ -35,7 +37,10 @@ export const NOT_LABS_FOOD =
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly suggestions: SuggestionsService,
+  ) {}
 
   async getCurrentPublishedMenu(): Promise<{
     menuWeek: unknown;
@@ -108,14 +113,18 @@ export class CatalogService {
    * The owner filter sits in the `where`, so the check and the write are one
    * statement: no gap in which the row could change hands in between.
    */
-  async updateMeal(id: string, payload: UpdateMealDto) {
-    if (touchesDeclaration(payload)) {
-      const current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
+  async updateMeal(id: string, payload: UpdateMealDto, adminUserId: string) {
+    let current: Meal | null = null;
+    const publishing = payload.status === MealStatus.published;
+    if (touchesDeclaration(payload) || payload.country !== undefined || publishing) {
+      current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
       if (!current) return this.explainMissing(id);
       assertConsistent(declarationOf(current, payload));
+      if (publishing && current.offeredToChefProfileId) throw offerPending();
     }
+    let updated: Meal;
     try {
-      return await this.prisma.meal.update({
+      updated = await this.prisma.meal.update({
         where: { id, ...LABS_FOOD },
         data: CatalogService.toMealUpdateData(payload),
       });
@@ -123,6 +132,11 @@ export class CatalogService {
       if (isNotFound(error)) return this.explainMissing(id);
       throw error;
     }
+    // Chefs who adopted this suggestion hear about a safety change (§6, PRD).
+    if (current && safetyChanged(current, updated)) {
+      await this.suggestions.flagCopies(updated, adminUserId);
+    }
+    return updated;
   }
 
   /** A write matched nothing: the meal is gone, or it belongs to a batch cooker. */
@@ -210,15 +224,18 @@ export class CatalogService {
     if (mealIds.length) {
       const found = await this.prisma.meal.findMany({
         where: { id: { in: mealIds } },
-        select: { id: true, chefProfileId: true },
+        select: { id: true, chefProfileId: true, offeredToChefProfileId: true },
       });
       const known = new Set(found.map((row) => row.id));
       const unknown = mealIds.filter((id) => !known.has(id));
       if (unknown.length) {
         throw new NotFoundException(`Unknown meal ids: ${unknown.join(', ')}.`);
       }
-      if (found.some((row) => row.chefProfileId)) {
-        throw contentNotOwned("Only Lab's Food meals can go on a weekly menu.");
+      // An offered meal is prepared for one chef and may become theirs at any time.
+      if (found.some((row) => row.chefProfileId || row.offeredToChefProfileId)) {
+        throw contentNotOwned(
+          "Only Lab's Food meals not offered to a batch cooker can go on a weekly menu.",
+        );
       }
     }
 
@@ -260,6 +277,16 @@ function declarationOf(current: Meal | null, payload: UpdateMealDto) {
     diets: payload.dietaryTags ?? current?.dietaryTags ?? [],
     customDiets: payload.customDiets ?? current?.customDiets ?? [],
   };
+}
+
+/** Whether allergens, diets or country differ between two versions of a meal. */
+function safetyChanged(before: Meal, after: Meal): boolean {
+  // Lists are sets here: the same allergens in another order are no change.
+  const canonical = (value: unknown) =>
+    JSON.stringify(Array.isArray(value) ? [...value].sort() : value);
+  return SAFETY_FIELDS.some(
+    (field) => canonical(before[field]) !== canonical(after[field]),
+  );
 }
 
 const touchesDeclaration = (payload: UpdateMealDto) =>

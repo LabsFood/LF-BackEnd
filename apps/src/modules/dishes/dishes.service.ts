@@ -87,7 +87,14 @@ export class DishesService {
     }
 
     const dish = await this.prisma.meal
-      .update({ where: { id, chefProfileId: chef.id }, data: toMealWrite(payload) })
+      .update({
+        where: { id, chefProfileId: chef.id },
+        data: {
+          ...toMealWrite(payload),
+          // The chef answered the change to the suggestion they adopted (§6).
+          ...(touchesSafety(payload) && { sourceChangedAt: null }),
+        },
+      })
       .catch(goneMeanwhile('Dish'));
     return toDishView(dish);
   }
@@ -183,6 +190,29 @@ function declarationOf(current: Meal | null, payload: UpdateDishDto) {
     customDiets: payload.customDiets ?? current?.customDiets ?? [],
   };
 }
+
+/**
+ * The fields §3.2 treats as review-worthy: allergens, diets, country. A change to
+ * one of them on a suggestion flags every copy; on a copy, it answers that flag.
+ */
+export const SAFETY_FIELDS = [
+  'allergens',
+  'allergensNone',
+  'customAllergens',
+  'dietaryTags',
+  'customDiets',
+  'country',
+] as const;
+
+const touchesSafety = (payload: UpdateDishDto) =>
+  [
+    payload.allergens,
+    payload.allergensNone,
+    payload.customAllergens,
+    payload.diets,
+    payload.customDiets,
+    payload.country,
+  ].some((value) => value !== undefined);
 
 export function assertConsistent(state: ReturnType<typeof declarationOf>): void {
   const problems = declarationProblems(state);

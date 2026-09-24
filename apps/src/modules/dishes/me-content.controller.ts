@@ -39,7 +39,9 @@ import {
   ShowcaseRangeQueryDto,
   UpdateMenuDto,
 } from './dto/menu.dto';
+import { ConsentDto } from './dto/labs-food.dto';
 import { MenusService } from './menus.service';
+import { SuggestionsService } from './suggestions.service';
 import {
   CHEF_NOT_VERIFIED_EXAMPLE,
   CONTENT_NOT_OWNED_EXAMPLE,
@@ -50,6 +52,8 @@ import {
   MENU_NOT_PUBLISHABLE_EXAMPLE,
   PUBLISH_REFUSED_EXAMPLE,
   SHOWCASE_EXAMPLE,
+  CONSENT_REQUIRED_EXAMPLE,
+  SUGGESTIONS_EXAMPLE,
 } from './swagger-examples';
 
 const NOT_VERIFIED = {
@@ -90,6 +94,7 @@ export class MeContentController {
   constructor(
     private readonly dishes: DishesService,
     private readonly menus: MenusService,
+    private readonly suggestions: SuggestionsService,
   ) {}
 
   @Get('dishes')
@@ -456,5 +461,128 @@ export class MeContentController {
   @ApiClerkAuthResponses()
   putShowcase(@CurrentClerkUser() user: ClerkUser, @Body() payload: PutShowcaseWeeksDto) {
     return this.menus.putShowcase(user.userId, payload);
+  }
+
+  @Get('suggestions')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: "Browse Lab's Food suggestions",
+    description:
+      "Dishes and menus Lab's Food offers every batch cooker as a starting point. A " +
+      'preview only: never the ingredients or steps.\n\n' +
+      '`adoptedCopyId` is the id of your copy when you already adopted it, else `null`.',
+  })
+  @ApiOkResponse({ description: 'The suggestions.', example: SUGGESTIONS_EXAMPLE })
+  @ApiNotFoundResponse({ description: 'This account has no batch cooker profile.' })
+  @ApiClerkAuthResponses()
+  listSuggestions(@CurrentClerkUser() user: ClerkUser) {
+    return this.suggestions.list(user.userId);
+  }
+
+  @Post('suggestions/:id/adopt')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Adopt a Lab's Food suggestion",
+    description:
+      'Copies the dish or menu into your own, as a `draft` you are free to change, ' +
+      'publish or delete. Nothing is imposed: you choose, and your consent is ' +
+      'recorded.\n\n' +
+      '- Body: `{ "consent": true }`, else `422 CONSENT_REQUIRED`.\n' +
+      '- Adopting again gives back the copy you already have (`created: false`).\n' +
+      '- A menu brings its dishes; a dish you already adopted is reused, not copied ' +
+      'twice.\n\n' +
+      "If Lab's Food later corrects the allergens, diets or country of the " +
+      'suggestion, your copy is flagged (`sourceChangedAt`) and you are emailed. It ' +
+      'is never changed for you.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'The dish or menu id, from `GET /me/suggestions`.',
+  })
+  @ApiOkResponse({
+    description: 'Your copy, and whether it was just made.',
+    example: { type: 'dish', created: true, copy: DISH_EXAMPLE },
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`CONSENT_REQUIRED`.',
+    example: CONSENT_REQUIRED_EXAMPLE,
+  })
+  @ApiForbiddenResponse(NOT_VERIFIED)
+  @ApiNotFoundResponse({ description: 'No such suggestion.' })
+  @ApiClerkAuthResponses()
+  adopt(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ConsentDto,
+  ) {
+    return this.suggestions.adopt(user.userId, id, body.consent);
+  }
+
+  @Get('offers')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: "See what Lab's Food prepared for me",
+    description:
+      'Dishes and menus Lab’s Food prepared for you alone. Nobody else sees them. ' +
+      'Accept one to make it yours, or decline it. A preview only, like suggestions.',
+  })
+  @ApiOkResponse({
+    description: 'The offers.',
+    example: { dishes: SUGGESTIONS_EXAMPLE.dishes, menus: [] },
+  })
+  @ApiNotFoundResponse({ description: 'This account has no batch cooker profile.' })
+  @ApiClerkAuthResponses()
+  listOffers(@CurrentClerkUser() user: ClerkUser) {
+    return this.suggestions.offers(user.userId);
+  }
+
+  @Post('offers/:id/accept')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Accept an offer',
+    description:
+      'The offered dish or menu becomes yours, as a `draft`. No copy: the offer ' +
+      'itself changes hands, and your consent is recorded. An offered menu’s dishes ' +
+      'are copied into yours, as on an adoption.\n\n' +
+      'Body: `{ "consent": true }`, else `422 CONSENT_REQUIRED`.',
+  })
+  @ApiParam({ name: 'id', description: 'The dish or menu id, from `GET /me/offers`.' })
+  @ApiOkResponse({
+    description: 'What is now yours.',
+    example: { type: 'dish', dish: { ...DISH_EXAMPLE, status: 'draft' } },
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`CONSENT_REQUIRED`.',
+    example: CONSENT_REQUIRED_EXAMPLE,
+  })
+  @ApiForbiddenResponse(NOT_VERIFIED)
+  @ApiNotFoundResponse({ description: 'No such offer for you.' })
+  @ApiClerkAuthResponses()
+  acceptOffer(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ConsentDto,
+  ) {
+    return this.suggestions.accept(user.userId, id, body.consent);
+  }
+
+  @Post('offers/:id/decline')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Decline an offer',
+    description: "It goes back to Lab's Food, which may offer it to someone else.",
+  })
+  @ApiParam({ name: 'id', description: 'The dish or menu id, from `GET /me/offers`.' })
+  @ApiNoContentResponse({ description: 'Declined. No body.' })
+  @ApiNotFoundResponse({ description: 'No such offer for you.' })
+  @ApiClerkAuthResponses()
+  declineOffer(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.suggestions.decline(user.userId, id);
   }
 }

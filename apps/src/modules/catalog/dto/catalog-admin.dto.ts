@@ -300,6 +300,17 @@ export class MealResponseDto {
   })
   createdByUserId!: string | null;
 
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'The batch cooker this meal is prepared for, as an offer (`POST ' +
+      '/admin/meals/{id}/offer`); only they see it until they accept. `null` otherwise.',
+    example: null,
+  })
+  offeredToChefProfileId!: string | null;
+
   @ApiProperty({ example: 'Poulet yassa' })
   name!: string;
 

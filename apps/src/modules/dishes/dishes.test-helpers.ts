@@ -3,7 +3,9 @@ import { ForbiddenException } from '@nestjs/common';
 import { MealStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChefDocumentsService } from '../chef-onboarding/services/chef-documents.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { ChefContentService } from './chef-content.service';
+import { DishesMailer } from './dishes.mailer';
 
 /** Fixtures shared by the FLOW-02 service specs. Not a spec: never run on its own. */
 
@@ -71,14 +73,19 @@ type WriteArgs = { where?: Record<string, unknown>; data: Record<string, unknown
  */
 export function harness(options: { chef?: object | null; dossier?: string } = {}) {
   const meal = {
-    findUnique: jest.fn(async () => dishRow()),
-    findMany: jest.fn(async (): Promise<unknown[]> => []),
+    findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => dishRow()),
+    findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    findUniqueOrThrow: jest.fn(async () => dishRow()),
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
     create: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
     update: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
-    updateMany: jest.fn(async () => ({ count: 0 })),
+    updateMany: jest.fn(async (_args?: unknown) => ({ count: 0 })),
     delete: jest.fn(async () => undefined),
   };
   const menu = {
+    findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    findUniqueOrThrow: jest.fn(async () => menuRow()),
+    updateMany: jest.fn(async (_args?: unknown) => ({ count: 0 })),
     findUnique: jest.fn(async (): Promise<unknown> => menuRow()),
     findMany: jest.fn(async (): Promise<unknown[]> => []),
     // `dishes` in the write is Prisma's nested create, not the rows: keep the fixture's.
@@ -92,6 +99,8 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
   const menuDish = {
     deleteMany: jest.fn(async () => ({ count: 0 })),
     createMany: jest.fn(async () => ({ count: 0 })),
+    count: jest.fn(async () => 0),
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
   };
   const chefShowcaseWeek = {
     upsert: jest.fn(async (_args: Record<string, unknown>) => ({})),
@@ -99,6 +108,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
   };
   const chefProfile = {
     findFirst: jest.fn(async () => (options.chef === undefined ? CHEF : options.chef)),
+    findUnique: jest.fn(async (): Promise<unknown> => ({ id: 'chef-2' })),
   };
   const client = { meal, menu, menuDish, chefShowcaseWeek, chefProfile };
   const $transaction = jest.fn(async (work: unknown) =>
@@ -111,7 +121,18 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     deriveStatus: jest.fn(() => options.dossier ?? 'validated'),
   } as unknown as ChefDocumentsService;
   const access = new ChefContentService(prisma, documents);
-  return { ...client, $transaction, access, prisma };
+  const audit = {
+    record: jest.fn(async (_entry: Record<string, unknown>) => undefined),
+    failed: jest.fn(async () => undefined),
+  } as unknown as AuditService & { record: jest.Mock };
+  const mailer = {
+    sourceChanged: jest.fn(async () => ({ sent: true })),
+    contentSuspended: jest.fn(async () => ({ sent: true })),
+  } as unknown as DishesMailer & {
+    sourceChanged: jest.Mock;
+    contentSuspended: jest.Mock;
+  };
+  return { ...client, $transaction, access, prisma, audit, mailer };
 }
 
 export const codeOf = (error: unknown) =>

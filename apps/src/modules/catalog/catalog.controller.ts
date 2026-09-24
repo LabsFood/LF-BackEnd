@@ -45,6 +45,7 @@ const MEAL = {
   id: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
   chefProfileId: null,
   createdByUserId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  offeredToChefProfileId: null,
   name: 'Poulet yassa',
   description: 'Poulet mariné au citron et aux oignons, riz blanc.',
   imageUrl: null,
@@ -218,10 +219,18 @@ export class CatalogController {
   @ApiMealIdParam()
   @ApiOkResponse({ description: 'The updated meal.', type: MealResponseDto })
   @ApiNotFoundResponse({ description: 'No meal with this id.' })
+  @ApiConflictResponse({
+    description:
+      '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first.',
+  })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()
-  updateMeal(@Param('id') id: string, @Body() payload: UpdateMealDto) {
-    return this.catalog.updateMeal(id, payload);
+  async updateMeal(
+    @Param('id') id: string,
+    @Body() payload: UpdateMealDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
+    return this.catalog.updateMeal(id, payload, await this.adminId(user));
   }
 
   @Delete('admin/meals/:id')

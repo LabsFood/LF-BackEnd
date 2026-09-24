@@ -59,6 +59,8 @@ export interface AppConfig {
       signInLink?: number;
       documentExpiring?: number;
       chefSuspended?: number;
+      sourceChanged?: number;
+      contentSuspended?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -146,6 +148,8 @@ export const configLoader = (): AppConfig => ({
       signInLink: optionalNumber(process.env.BREVO_TPL_SIGN_IN_LINK),
       documentExpiring: optionalNumber(process.env.BREVO_TPL_DOCUMENT_EXPIRING),
       chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
+      sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
+      contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
     },
   },
   logging: {
