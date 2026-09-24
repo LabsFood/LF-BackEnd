@@ -39,7 +39,7 @@ sequenceDiagram
 | ---- | -------- | ----- | ----- |
 | 1 — credentials | `POST /auth/register` | none | `email` + `password` only. Always creates `role: client`. Returns `{ user, signInToken, expiresInSeconds }` |
 | 2 — client profile | `PATCH /me/profile` | `ClerkAuthGuard` | Taste prefs, address, household, plus `firstName` / `lastName` / `phone` |
-| 2 — chef profile | `PATCH /me/chef-profile` | `ClerkAuthGuard` | `displayName` (required), `bio`, `city`, `serviceRadiusKm`. Promotes `users.role = chef` |
+| Batch cooker | `POST /chef-applications` | none | The candidature form. Creates the account (`role: chef`, unverified, browse-only) and emails a sign-in link; never returns one. See *Chef onboarding* in `AGENTS.md` |
 
 **The route selects the role — never the request body.** `role` is absent from every DTO on this path, so a submitted `role` is rejected with `400 property role should not exist`. A sign-up form may show a client/chef choice, but it must map to the endpoint, not to a body field. `admin` is not reachable from any public route; promote via SQL or `PATCH /admin/users/:id/role`.
 
@@ -49,13 +49,13 @@ Single-use, 60s TTL (`CLERK_SIGN_IN_TOKEN_TTL_SECONDS`). Treat it as a credentia
 
 ### Chef vetting
 
-Self-registered chefs are always created with `is_active: false` and `is_verified: false`; neither field is accepted by `PATCH /me/chef-profile`. Only `PATCH /admin/chefs/:id/verification` (admin) can flip them.
+A candidature creates the chef profile with `is_active: false` and `is_verified: false`. `is_verified` is granted by approving the candidature (`POST /admin/chef-applications/:id/approve`); `PATCH /admin/chefs/:id/verification` refuses to verify a profile whose candidature is not approved, and to activate an unverified one. `PATCH /me/chef-profile` is update-only self-edit for verified chefs and accepts neither flag.
 
-> **Not yet enforced:** no code reads these flags today. Chef listings, booking assignment, and any future `ChefGuard` **must** filter on `is_active && is_verified`, or unvetted self-registered chefs will appear in live booking flows.
+> **Not yet enforced:** chef listings, booking assignment, and any future `ChefGuard` **must** filter on `is_active && is_verified`, or unvetted candidates will appear in live booking flows.
 
 ### Not supported yet
 
-Switching profile type after onboarding returns `409`. A user with a client profile cannot call `PATCH /me/chef-profile` (and vice versa) — reconciling the orphaned profile, bookings, and payouts is planned as separate work.
+One profile per account: a user with a client profile cannot hold a chef profile (and vice versa) — reconciling the orphaned profile, bookings, and payouts is planned as separate work. A client ↔ chef switcher has been analysed; the decision is pending.
 
 ## First sign-in sync (frontend required)
 
@@ -160,7 +160,7 @@ Admins with `users.role = admin` (see bootstrap below) can:
 
 ### BAPI email verification note
 
-Clerk Backend API `users.createUser` **auto-verifies email addresses**. This applies to admin-driven provisioning **and**, since 2026-08-03, to public sign-up via `POST /auth/register` (see below), which uses the same BAPI call.
+Clerk Backend API `users.createUser` **auto-verifies email addresses**. This applies to admin-driven provisioning, to public sign-up via `POST /auth/register` (since 2026-08-03, see below), and to `POST /chef-applications`. The candidature path compensates: its account has no password and the sign-in link goes only to the submitted inbox, so the address is proven before anyone can act on the account.
 
 > **Consequence:** users created through either path skip the email-verification step your Clerk Dashboard enforces on the frontend FAPI flow. Nothing proves the address belongs to the registrant, so typo'd and disposable addresses reach `users`. The registration endpoint is IP rate-limited to blunt bulk abuse, but if you need real address ownership — before transactional booking mail or payments — the endpoint must additionally trigger a Clerk verification flow, or sign-up must move back to frontend FAPI.
 
