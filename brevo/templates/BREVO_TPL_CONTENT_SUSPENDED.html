@@ -1,0 +1,18 @@
+<!-- subject: « {{ params.title }} » a été retiré de votre vitrine -->
+{% comment %}
+params: kind title reason reasonCode menus recipesUrl
+kind is dish or menu. menus may be empty. Takedowns for copyright or inappropriate-content also delete the dish photo.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Un contenu a été retiré de votre vitrine</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Bonjour,</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Notre équipe a retiré {% if params.kind == "menu" %}votre menu{% else %}votre plat{% endif %} «&nbsp;{{ params.title }}&nbsp;» de votre vitrine. Voici le motif&nbsp;:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;white-space:pre-line;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{{ params.reason }}</td></tr></table>
+{% if params.menus %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Il a aussi été retiré de vos menus publiés&nbsp;:</p>
+<ul style="margin:0 0 16px;padding-left:20px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% for item in params.menus %}<li style="margin:0 0 4px;">{{ item }}</li>{% endfor %}</ul>
+{% endif %}
+{% if params.kind == "dish" %}{% if params.reasonCode == "copyright" or params.reasonCode == "inappropriate-content" %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Si ce plat avait une photo, elle a été supprimée&nbsp;: ajoutez-en une nouvelle avant de le republier.</p>
+{% endif %}{% endif %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Les prestations déjà réservées ne sont pas concernées. Une fois les corrections faites, vous pourrez le republier depuis votre espace.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#2C3E50;"><a href="{{ params.recipesUrl }}" style="display:inline-block;padding:14px 24px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Voir mes recettes</a></td></tr></table>

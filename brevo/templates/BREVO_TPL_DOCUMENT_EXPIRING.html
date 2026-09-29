@@ -1,0 +1,10 @@
+<!-- subject: Un document de votre dossier expire d’ici {{ params.daysLeft }} jours -->
+{% comment %}
+params: firstName documentLabel expiresOn daysLeft dossierUrl
+daysLeft is the notice threshold crossed (60, 30 or 7), not an exact count, hence « d’ici » rather than « dans ». expiresOn is YYYY-MM-DD.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Un document arrive à expiration</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Votre document «&nbsp;{{ params.documentLabel }}&nbsp;» expire le <strong>{{ params.expiresOn|time_parse:"2006-01-02"|date:"02/01/2006" }}</strong>.</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Pensez à déposer la version à jour avant cette date. Quand une pièce obligatoire expire, votre profil n’est plus réservable jusqu’au dépôt d’un document valide.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#2C3E50;"><a href="{{ params.dossierUrl }}" style="display:inline-block;padding:14px 24px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Mettre à jour mon document</a></td></tr></table>
