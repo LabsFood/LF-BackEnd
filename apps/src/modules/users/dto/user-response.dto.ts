@@ -194,19 +194,34 @@ export class UserWithProfileDto {
   profile!: ClientProfileDto | ChefProfileDto | null;
 }
 
-/** Admin client list/detail item — profile with nested user. */
+/** Admin client detail item — profile with nested user. */
 export class AdminClientDto extends ClientProfileDto {
   @ApiProperty({ type: CurrentUserDto, description: 'Linked application user record.' })
   user!: CurrentUserDto;
 }
 
-/** `GET /admin/clients` — one page of client profiles plus its page descriptor. */
+/** `GET /admin/clients` row — a client account and its profile, if any. */
+export class AdminClientListItemDto {
+  @ApiProperty({ type: CurrentUserDto, description: 'The client account.' })
+  user!: CurrentUserDto;
+
+  @ApiProperty({
+    type: ClientProfileDto,
+    nullable: true,
+    description:
+      '`null` until the client saves their preferences (`PATCH /me/profile`). ' +
+      'Its `id` is the one `GET/PATCH /admin/clients/:id` expects.',
+  })
+  clientProfile!: ClientProfileDto | null;
+}
+
+/** `GET /admin/clients` — one page of client accounts plus its page descriptor. */
 export class PaginatedAdminClientsDto {
   @ApiProperty({
-    type: [AdminClientDto],
-    description: 'Client profiles for the requested page, newest first.',
+    type: [AdminClientListItemDto],
+    description: 'Client accounts for the requested page, newest sign-up first.',
   })
-  data!: AdminClientDto[];
+  data!: AdminClientListItemDto[];
 
   @ApiProperty({
     type: PaginationMetaDto,
