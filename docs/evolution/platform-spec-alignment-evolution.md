@@ -81,6 +81,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Account, notifications, GDPR export/delete | Todo | |
 | `GET/PATCH /admin/clients/:id` | Done | Added with `AdminGuard` + optional status filter |
 | `GET /admin/clients` pagination | Done | `page`/`limit` (default 20, max 100); returns `{ data, meta }` instead of a bare array — **breaking** for existing callers. Shared primitives in `apps/src/common/dto/pagination.dto.ts` for the other admin lists |
+| `GET /admin/clients` lists every client account | Done | Reads `users` with role `client` instead of `client_profiles`, which hid everyone who never saved preferences. Rows are `{ user, clientProfile }`, `clientProfile: null` until `PATCH /me/profile`; admins holding a client profile drop out — **breaking** for existing callers (admin-labsfood: `row.status` → `row.clientProfile?.status`, `row.id` → `row.clientProfile?.id`) |
 
 ### E5 — Quotes (`quotes`)
 

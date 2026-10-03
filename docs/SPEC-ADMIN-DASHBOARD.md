@@ -136,7 +136,9 @@ admin-labsfood/
   note interne.
 - **API** : `GET /admin/clients`, `GET /admin/clients/:id`, `PATCH /admin/clients/:id`.
 - **Pagination** : `GET /admin/clients?page=1&limit=20&status=vip` — `limit` plafonné à 100.
-  Réponse `{ data: AdminClient[], meta: { page, limit, total, totalPages, hasNextPage, hasPreviousPage } }`.
+  Réponse `{ data: { user, clientProfile }[], meta: { page, limit, total, totalPages, hasNextPage, hasPreviousPage } }` :
+  un compte client par ligne, `clientProfile` vaut `null` tant que le client n'a pas enregistré
+  ses préférences. Son `id` est celui qu'attendent `GET/PATCH /admin/clients/:id`.
 
 ### 3.6 Plats & menus (`/menus`)
 - Bandeau « menu de la semaine » avec les plats publiés.

@@ -88,20 +88,21 @@ export class BookingsController {
   ) {}
 
   @Get()
+  @UseGuards(AdminGuard)
   @ApiTags(TAGS.adminBookings)
   @ApiOperation({
-    summary: 'List every booking',
+    summary: 'Admin: list every bookings',
     description:
+      'Admin only. Returns every booking in the database for internal/admin tooling; ' +
       'All bookings, earliest first, not paginated. Meant for the back office, but ' +
-      '**today any signed-in account can call it**: restricting it to admins is a ' +
-      'separate fix.',
+      '**today any signed-in account can call it**'
   })
   @ApiOkResponse({
     type: BookingReadDto,
     isArray: true,
     description: 'The bookings.',
   })
-  @ApiClerkAuthResponses()
+  @ApiAdminAuthResponses()
   async list(): Promise<BookingReadDto[]> {
     const rows = await this.bookings.list();
     return rows.map((row) => BookingReadDto.fromEntity(row));
