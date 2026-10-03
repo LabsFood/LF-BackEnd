@@ -58,6 +58,8 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_SIGN_IN_LINK: Joi.number().optional(),
   BREVO_TPL_DOCUMENT_EXPIRING: Joi.number().optional(),
   BREVO_TPL_CHEF_SUSPENDED: Joi.number().optional(),
+  BREVO_TPL_SOURCE_CHANGED: Joi.number().optional(),
+  BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
 
   /** Structured logging, read back from Railway's log explorer. */
   LOG_LEVEL: Joi.string()
@@ -79,9 +81,16 @@ export const envValidationSchema = Joi.object({
   SUPABASE_URL: Joi.string().uri().allow('').optional(),
   SUPABASE_SERVICE_ROLE_KEY: Joi.string().allow('').optional(),
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
-  SUPABASE_CMS_ASSETS_BUCKET: Joi.string().allow('').optional(),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
+  /** Cloudflare R2 for dish photos. All five, or photo routes answer 503. */
+  R2_ACCOUNT_ID: Joi.string().optional(),
+  R2_ACCESS_KEY_ID: Joi.string().optional(),
+  R2_SECRET_ACCESS_KEY: Joi.string().optional(),
+  R2_BUCKET: Joi.string().optional(),
+  R2_PUBLIC_BASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .optional(),
 
   /**
    * Extra origins on top of the built-in allowlist (`config/allowed-origins.ts`).

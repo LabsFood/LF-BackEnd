@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -16,9 +17,28 @@ import {
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import { TAGS } from '../../common/swagger/tags';
 import { CreateChefApplicationDto } from './dto/create-chef-application.dto';
 import { UpdateChefApplicationDto } from './dto/update-chef-application.dto';
 import { ChefApplicationsService } from './services/chef-applications.service';
+import {
+  DOCUMENT_STATUS_HELP,
+  DOSSIER_STATUS_HELP,
+  errorExample,
+  MY_APPLICATION_EXAMPLES,
+  SUBMITTED_EXAMPLE,
+} from './swagger-examples';
+
+const VALIDATION_FAILED = {
+  description:
+    '`VALIDATION_FAILED`: the answers do not fit together, for example a SIRET sent by ' +
+    'someone with no company, a bad SIRET key, or a postcode outside metropolitan ' +
+    'France. `message` names the field.',
+  example: errorExample(
+    'VALIDATION_FAILED',
+    'company.siret is required and must be 14 digits with a valid Luhn key.',
+  ),
+};
 
 /** The id the request carries, for joining logs to `audit_log.request_id`. */
 const reqId = (req: { id?: unknown }): string | undefined =>
@@ -29,7 +49,7 @@ const reqId = (req: { id?: unknown }): string | undefined =>
  * {@link MyChefApplicationController}, whose class-level `ClerkAuthGuard` must not
  * be traded for per-method guards where one missed decorator exposes a route.
  */
-@ApiTags('chef-applications')
+@ApiTags(TAGS.candidature)
 @Controller('chef-applications')
 export class ChefApplicationsController {
   constructor(private readonly applications: ChefApplicationsService) {}
@@ -37,30 +57,43 @@ export class ChefApplicationsController {
   @Post()
   @UseGuards(ThrottlerGuard)
   @ApiOperation({
-    summary: 'Submit a batch cooker candidature and create the account (public)',
+    summary: 'Apply to become a batch cooker',
     description:
-      'Creates the account with the candidature: a Clerk user with no password, the ' +
-      '`users` row (`role: chef`) and a chef profile with `isVerified` and `isActive` ' +
-      'false — browse-only until an admin approves. A single-use sign-in link valid ' +
-      '7 days is emailed to the submitted address and **never returned here**: the ' +
-      'inbox is the only way into the account. The `documents` list is computed by ' +
-      'the API from the answers; the client does not choose what is required.',
+      'Sends the candidature form and creates the account at the same time. Public: no ' +
+      'token needed.\n\n' +
+      '**What happens next:** an email with a sign-in link (valid 7 days, usable once) ' +
+      'goes to the address in the form. The link is never in this answer, so only the ' +
+      'owner of the inbox can get in. Once signed in, the person sees a browse-only ' +
+      'space until an admin approves them: they can follow the candidature ' +
+      '(`GET /me/chef-application`) and upload documents (`/me/chef-documents`), ' +
+      'nothing else.\n\n' +
+      '`documents` in the answer lists what to upload. The API decides it from the ' +
+      'answers: a candidate with no company is not asked for `registration`, for ' +
+      'example. None is needed to submit.\n\n' +
+      'An email that already has an account is refused: its owner should sign in ' +
+      'instead. Limited to 5 candidatures per hour per IP address.',
   })
   @ApiCreatedResponse({
-    description: 'Candidature accepted, with its computed document list.',
+    description: 'The candidature, and the documents to provide.',
+    example: SUBMITTED_EXAMPLE,
+  })
+  @ApiBadRequestResponse({
+    description: 'A field is missing or malformed, or the body has an unknown field.',
   })
   @ApiConflictResponse({
-    description:
-      '`EMAIL_ALREADY_USED` — the address already has an account. Nothing is attached ' +
-      'to it; its owner signs in instead.',
+    description: '`EMAIL_ALREADY_USED`: this email already has an account.',
+    example: errorExample(
+      'EMAIL_ALREADY_USED',
+      'An account already exists for this email address. Sign in to continue.',
+    ),
   })
-  @ApiUnprocessableEntityResponse({
-    description: '`VALIDATION_FAILED` — see the message for the field.',
-  })
+  @ApiUnprocessableEntityResponse(VALIDATION_FAILED)
   @ApiTooManyRequestsResponse({
-    description: 'More than 5 submissions per hour from this IP.',
+    description: 'More than 5 candidatures in an hour from this IP.',
   })
-  @ApiServiceUnavailableResponse({ description: 'Clerk is not configured.' })
+  @ApiServiceUnavailableResponse({
+    description: 'The server has no Clerk key, so it cannot create accounts.',
+  })
   submit(@Body() payload: CreateChefApplicationDto, @Req() req: { id?: unknown }) {
     return this.applications.submit(payload, reqId(req));
   }
@@ -70,7 +103,7 @@ export class ChefApplicationsController {
  * The signed-in candidate's own candidature (FLOW-01 §4). Documents are handled
  * under `/me/chef-documents`, the same routes an approved chef uses.
  */
-@ApiTags('chef-applications')
+@ApiTags(TAGS.candidature)
 @ApiBearerAuth()
 @Controller('me/chef-application')
 @UseGuards(ClerkAuthGuard)
@@ -79,13 +112,21 @@ export class MyChefApplicationController {
 
   @Get()
   @ApiOperation({
-    summary: 'Your candidature',
+    summary: 'Follow my candidature',
     description:
-      'Status, reference and dossier. On refusal, `refusal` carries the reason as the ' +
-      'admin wrote it and `allowReapplyAfter`. Carries nothing internal: no admin ' +
-      'notes, no position in the review queue.',
+      'What the candidate sees in their space.\n\n' +
+      '`status`: `submitted` (being reviewed), `changes-requested` (an admin asked ' +
+      'for documents again), `approved`, or `rejected`. When refused, `refusal` holds ' +
+      'the reason as the admin wrote it and `allowReapplyAfter`, the day a new ' +
+      'candidature is possible (`null`: any time).\n\n' +
+      DOSSIER_STATUS_HELP +
+      '\n\n' +
+      DOCUMENT_STATUS_HELP,
   })
-  @ApiOkResponse({ description: 'Candidature with its documents and dossier status.' })
+  @ApiOkResponse({
+    description: 'The candidature and its documents.',
+    examples: MY_APPLICATION_EXAMPLES,
+  })
   @ApiNotFoundResponse({ description: 'This account has no candidature.' })
   @ApiClerkAuthResponses()
   mine(@CurrentClerkUser() user: ClerkUser) {
@@ -96,18 +137,34 @@ export class MyChefApplicationController {
   @ApiOperation({
     summary: 'Apply again after a refusal',
     description:
-      'Reopens the refused candidature with fresh answers, from the reapply date on. ' +
-      '`identity.email` must be the address of this account.',
+      'Sends the candidature form again, same body as `POST /chef-applications`, from ' +
+      'the day in `refusal.allowReapplyAfter`. The same candidature goes back to ' +
+      '`submitted` with the new answers. Documents already uploaded stay, with their ' +
+      'status, unless they were deleted 3 months after the refusal.\n\n' +
+      '`identity.email` must be the email of this account.',
   })
-  @ApiCreatedResponse({ description: 'Candidature submitted again.' })
+  @ApiCreatedResponse({
+    description: 'The candidature, submitted again, with its documents.',
+    example: MY_APPLICATION_EXAMPLES.reviewing.value,
+  })
+  @ApiBadRequestResponse({
+    description: 'A field is missing or malformed, or the body has an unknown field.',
+  })
   @ApiConflictResponse({
     description:
-      '`APPLICATION_NOT_REJECTED` — only a refused candidature can be resubmitted; ' +
-      '`REAPPLY_TOO_EARLY` — before `allowReapplyAfter`.',
+      '`REAPPLY_TOO_EARLY`: before `allowReapplyAfter`. `APPLICATION_NOT_REJECTED`: ' +
+      'only a refused candidature can be sent again.',
+    example: {
+      code: 'REAPPLY_TOO_EARLY',
+      message: 'A new candidature is possible from 2027-01-01.',
+      allowReapplyAfter: '2027-01-01',
+    },
   })
   @ApiUnprocessableEntityResponse({
-    description: '`VALIDATION_FAILED` — see the message for the field.',
+    ...VALIDATION_FAILED,
+    description: `${VALIDATION_FAILED.description} Also when \`identity.email\` is not this account's email.`,
   })
+  @ApiNotFoundResponse({ description: 'This account has no candidature.' })
   @ApiClerkAuthResponses()
   reapply(
     @CurrentClerkUser() user: ClerkUser,

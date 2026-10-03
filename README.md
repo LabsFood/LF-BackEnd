@@ -102,7 +102,7 @@ docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
   SPEC-ADMIN-DASHBOARD.md
   architecture.md      # backend architecture (spec-aligned)
-  evolution/           # change registers (platform + F19)
+  evolution/           # change registers
 docker-compose.yml     # postgres, api (local); Railway uses apps/Dockerfile
 .env.example           # template for required environment variables
 stack.md               # backend stack and decisions
@@ -121,7 +121,6 @@ Do **not** use `https://<service>.railway.internal` — that hostname is **priva
 | OpenAPI JSON                  | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)       | `https://lf-api.labsfood.fr/openapi.json`    |
 | Health (liveness)             | [http://localhost:8000/health](http://localhost:8000/health)                   | `https://lf-api.labsfood.fr/health`          |
 | Readiness (DB)                | [http://localhost:8000/ready](http://localhost:8000/ready)                     | `https://lf-api.labsfood.fr/ready`           |
-| Concept CMS (public read) | [http://localhost:8000/content/concept](http://localhost:8000/content/concept) | `https://lf-api.labsfood.fr/content/concept` |
 
 
 **Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
@@ -169,7 +168,6 @@ After deploy, open Swagger at `**https://<public-domain>/docs**`. Smoke test:
 export API_BASE="https://<custom-domain>"   # from Railway → Networking
 curl -s "$API_BASE/health"
 curl -s "$API_BASE/ready"
-curl -s "$API_BASE/content/concept"
 ```
 
 ### 4. Run locally (without Docker API image)
@@ -203,10 +201,6 @@ npm test          # jest unit tests
 - `[docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md)` — admin API spec.
 - `[docs/architecture.md](./docs/architecture.md)` — backend architecture (spec-aligned).
 - `[docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md)` — spec gap backlog & decisions.
-- `[docs/features/f19-concept-cms.md](./docs/features/f19-concept-cms.md)` — F19 concept CMS analysis and implementation scope.
-- `[docs/testing/f19-concept-cms-cahier-de-test.md](./docs/testing/f19-concept-cms-cahier-de-test.md)` — F19 test book and acceptance qualification cases.
-- `[docs/testing/f19-concept-cms-test-execution.md](./docs/testing/f19-concept-cms-test-execution.md)` — F19 execution evidence and blocked/passed status.
-- `[docs/evolution/f19-concept-cms-evolution.md](./docs/evolution/f19-concept-cms-evolution.md)` — F19 variables, functions, files, and route evolution register.
 - `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
 - `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
 - `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.

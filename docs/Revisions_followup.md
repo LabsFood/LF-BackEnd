@@ -21,7 +21,7 @@ Examples:
 | Version | Title & brief description                                 | Release date | Released by | Pre-release approval date |
 | ------- | --------------------------------------------------------- | ------------ | ----------- | ------------------------- |
 | v1.0.0  | Initial production API — auth, bookings, health/readiness | 2026-04-15   | JDK        | -                         |
-| v1.1.0  | F710 candidate — Page "Notre Concept" CMS content         |              | JDK         |      -                     |
+| v1.1.0  | F710 candidate — Page "Notre Concept" CMS content — **withdrawn**, CMS removed 2026-09-23 |              | JDK         |      -                     |
 | v2.0.0  | SignIn and SignUp - Authenfication via clerk         |   2026-08-15           |   JDK       |          -                 |
 | v1.x.0  | ISSUE_TYPE — ISSUE_DESC                                   |              |             |                           |
 

@@ -53,7 +53,11 @@ export class ApplicationAddressDto {
   @Length(1, 255)
   street!: string;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Building, floor, apartment.',
+    example: 'Bâtiment B, 3e étage',
+  })
   @IsOptional()
   @IsString()
   @Length(0, 255)
@@ -72,7 +76,11 @@ export class ApplicationAddressDto {
   @Length(1, 120)
   city!: string;
 
-  @ApiPropertyOptional({ default: 'FR' })
+  @ApiPropertyOptional({
+    default: 'FR',
+    description: 'Two-letter country code. Only France is served.',
+    example: 'FR',
+  })
   @IsOptional()
   @IsString()
   @Length(2, 2)
@@ -97,7 +105,10 @@ export class InterventionCityDto {
 }
 
 export class InterventionZoneDto {
-  @ApiProperty({ example: '84' })
+  @ApiProperty({
+    description: 'A region code from `GET /referentials/regions`.',
+    example: '84',
+  })
   @IsString()
   @Length(1, 3)
   regionCode!: string;
@@ -109,7 +120,10 @@ export class InterventionZoneDto {
 
   @ApiProperty({
     enum: ['region', 'cities'],
-    description: '`cities` requires a non-empty `cities` array.',
+    description:
+      '`region`: the whole region, `cities` left empty. `cities`: only the towns listed ' +
+      'in `cities`, at least one.',
+    example: 'cities',
   })
   @IsIn(['region', 'cities'])
   scope!: 'region' | 'cities';
@@ -124,13 +138,20 @@ export class InterventionZoneDto {
 export class WorkAuthorizationDto {
   @ApiProperty({
     enum: ['eu-citizen', 'residence-permit', 'renewal-pending', 'other'],
+    description:
+      'Right to work in France. `eu-citizen`: French or EU citizen. ' +
+      '`residence-permit`: a residence permit that allows work (asks for the permit). ' +
+      '`renewal-pending`: the permit is being renewed (asks for the receipt). ' +
+      '`other`: explain in `details` (asks for a proof).',
+    example: 'eu-citizen',
   })
   @IsIn(['eu-citizen', 'residence-permit', 'renewal-pending', 'other'])
   status!: string;
 
   @ApiPropertyOptional({
     nullable: true,
-    description: 'Required, and at least 10 characters, when `status` is `other`.',
+    description: 'Only with `status: other`, and then required: at least 10 characters.',
+    example: null,
   })
   @IsOptional()
   @IsString()
@@ -140,27 +161,44 @@ export class WorkAuthorizationDto {
 
 export class CompanySapDto {
   @ApiProperty({
-    enum: ['type-a', 'type-b'],
-    description: '`type-a` requires `declarationNumber`.',
+    enum: ['type-b', 'type-a'],
+    description:
+      'Who holds the "services à la personne" declaration. `type-b`, the usual case: ' +
+      'the cooperative does. `type-a`: the batch cooker has their own, and gives its ' +
+      'number in `declarationNumber`.',
+    example: 'type-b',
   })
   @IsIn(['type-a', 'type-b'])
   path!: string;
 
-  @ApiPropertyOptional({ nullable: true, example: 'SAP443061841' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Only with `path: type-a`, and then required: `SAP` and 9 digits.',
+    example: 'SAP443061841',
+  })
   @IsOptional()
   @IsString()
   declarationNumber?: string | null;
 }
 
 export class ApplicationCompanyDto {
-  @ApiProperty({ enum: ['micro', 'other-company', 'not-registered'] })
+  @ApiProperty({
+    enum: ['micro', 'other-company', 'not-registered'],
+    description:
+      '`micro`: micro-entrepreneur. `other-company`: any other business (EI, EURL, ' +
+      'SASU, SAS…). `not-registered`: no business yet; the candidature is accepted, ' +
+      'but approval waits for one.',
+    example: 'micro',
+  })
   @IsIn(['micro', 'other-company', 'not-registered'])
   legalForm!: string;
 
   @ApiPropertyOptional({
     nullable: true,
     example: '44306184100047',
-    description: '14 digits with a valid Luhn key. Required unless `not-registered`.',
+    description:
+      'The 14-digit business number, checked with its Luhn key. Required, except with ' +
+      '`not-registered`, where it must be left out.',
   })
   @IsOptional()
   @IsString()
@@ -173,17 +211,20 @@ export class ApplicationCompanyDto {
 }
 
 export class ApplicationConsentDto {
-  @ApiProperty({ description: 'Must be true.' })
+  @ApiProperty({
+    description: 'Accepted the privacy policy. Must be `true`.',
+    example: true,
+  })
   @IsBoolean()
   privacyPolicy!: boolean;
 
-  @ApiProperty({ description: 'Must be true.' })
+  @ApiProperty({ description: 'Accepted the terms. Must be `true`.', example: true })
   @IsBoolean()
   terms!: boolean;
 
   @ApiProperty({
     example: '2026-09-20T09:12:00.000Z',
-    description: 'Kept verbatim as proof of consent (retained 5 years).',
+    description: 'When the boxes were ticked. Kept as proof of consent for 5 years.',
   })
   @IsDateString()
   acceptedAt!: string;

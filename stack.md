@@ -31,7 +31,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Messaging | [Stream](https://getstream.io/) | Client ↔ chef realtime threads |
 | Email | [Brevo](https://www.brevo.com/) | Transactional notifications |
 | Maps | Google Maps API | Zones, routing (when needed) |
-| Object storage | AWS S3 (+ optional Supabase Storage for CMS assets) | Meal images, application documents |
+| Object storage | AWS S3; Supabase Storage (private) for KYC documents | Meal images, chef KYC documents |
 | Hosting | Railway | API + Postgres + Redis containers |
 
 ## Domain naming (resolved)

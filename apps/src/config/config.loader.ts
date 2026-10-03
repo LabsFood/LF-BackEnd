@@ -59,6 +59,8 @@ export interface AppConfig {
       signInLink?: number;
       documentExpiring?: number;
       chefSuspended?: number;
+      sourceChanged?: number;
+      contentSuspended?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -90,9 +92,20 @@ export interface AppConfig {
     url?: string;
     serviceRoleKey?: string;
     anonKey?: string;
-    cmsAssetsBucket?: string;
     /** Private bucket holding KYC documents. Never publicly readable. */
     kycBucket: string;
+  };
+  /**
+   * Cloudflare R2, for dish photos (FLOW-02). Optional: without all five, photo
+   * routes answer 503 PHOTOS_UNAVAILABLE and the rest of the API is unaffected.
+   */
+  r2: {
+    accountId?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    bucket?: string;
+    /** Public address of the bucket (custom domain or r2.dev URL). */
+    publicBaseUrl?: string;
   };
 }
 
@@ -147,6 +160,8 @@ export const configLoader = (): AppConfig => ({
       signInLink: optionalNumber(process.env.BREVO_TPL_SIGN_IN_LINK),
       documentExpiring: optionalNumber(process.env.BREVO_TPL_DOCUMENT_EXPIRING),
       chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
+      sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
+      contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
     },
   },
   logging: {
@@ -180,7 +195,13 @@ export const configLoader = (): AppConfig => ({
     url: process.env.SUPABASE_URL,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     anonKey: process.env.SUPABASE_ANON_KEY,
-    cmsAssetsBucket: process.env.SUPABASE_CMS_ASSETS_BUCKET,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
+  },
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    bucket: process.env.R2_BUCKET,
+    publicBaseUrl: process.env.R2_PUBLIC_BASE_URL,
   },
 });

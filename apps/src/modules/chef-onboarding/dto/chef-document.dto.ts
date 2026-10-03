@@ -17,7 +17,10 @@ export const ApiDocumentTypeParam = (): MethodDecorator =>
 
 /** Body of `.../documents/:type/upload-url` (FLOW-01 §3.1). */
 export class CreateUploadUrlDto {
-  @ApiProperty({ example: 'cni-recto-verso.pdf' })
+  @ApiProperty({
+    description: 'The file name on the device, kept to show it back in the dossier.',
+    example: 'cni-recto-verso.pdf',
+  })
   @IsString()
   @Length(1, 255)
   fileName!: string;
@@ -25,18 +28,29 @@ export class CreateUploadUrlDto {
   // Shape only. The accepted list and the size cap are enforced by
   // `KycStorageService.assertAcceptable`, which answers 422 as the flow document
   // specifies — validating them here too would return 400 from the pipe first.
-  @ApiProperty({ enum: ALLOWED_MIME_TYPES, example: 'application/pdf' })
+  @ApiProperty({
+    enum: ALLOWED_MIME_TYPES,
+    description: 'The file type. PDF, JPEG, PNG or WebP; anything else answers 422.',
+    example: 'application/pdf',
+  })
   @IsString()
   mimeType!: string;
 
-  @ApiProperty({ example: 842133, maximum: MAX_FILE_BYTES })
+  @ApiProperty({
+    description: 'The file size in bytes. 10 MB at most, or 422.',
+    example: 842133,
+    maximum: MAX_FILE_BYTES,
+  })
   @IsInt()
   sizeBytes!: number;
 }
 
 /** Body of `.../documents/:type/confirm` (FLOW-01 §3.3). */
 export class ConfirmUploadDto {
-  @ApiProperty({ example: 'up_9f2a1c4e7b30' })
+  @ApiProperty({
+    description: 'The `uploadId` returned by `upload-url`.',
+    example: 'up_9f2a1c4e7b30d85a61c2e4f7',
+  })
   @IsString()
   @Length(1, 128)
   uploadId!: string;
@@ -56,8 +70,10 @@ export class ConfirmUploadDto {
   @ApiPropertyOptional({
     example: '2028-03-14',
     description:
-      'Required for documents that lapse (identity, residence permit, renewal ' +
-      'receipt, SAP receipt, RC Pro, HACCP, URSSAF vigilance).',
+      'The day the document stops being valid, as printed on it. Required for ' +
+      '`identity`, `residence-permit`, `renewal-receipt`, `sap-declaration`, `rc-pro`, ' +
+      '`haccp` and `vigilance`; must be in the future. Reminders go out 60, 30 and 7 ' +
+      'days before.',
   })
   @IsOptional()
   @IsDateString()
@@ -66,7 +82,12 @@ export class ConfirmUploadDto {
 
 /** Admin decision on one document (FLOW-01 §5.2). */
 export class DecideDocumentDto {
-  @ApiProperty({ enum: ['valid', 'rejected'] })
+  @ApiProperty({
+    enum: ['valid', 'rejected'],
+    description:
+      '`valid` accepts the document. `rejected` refuses it and needs a `reason`.',
+    example: 'rejected',
+  })
   @IsIn(['valid', 'rejected'])
   decision!: 'valid' | 'rejected';
 
@@ -74,7 +95,10 @@ export class DecideDocumentDto {
     minLength: 15,
     maxLength: 500,
     description:
-      'Mandatory when refusing — the candidate reads it verbatim. 15 to 500 characters.',
+      'Required when refusing. Emailed to the candidate and shown in their dossier, ' +
+      'word for word, so say what to send instead.',
+    example:
+      "L'extrait date de plus de 3 mois. Merci d'envoyer un avis de situation récent.",
   })
   @IsOptional()
   @IsString()
@@ -91,7 +115,9 @@ export class DecideDocumentDto {
       'suspected-forgery',
       'other',
     ],
-    description: 'Feeds refusal statistics. Open list, not a database enum.',
+    description:
+      'A short code for statistics. `other` when left out. Other values are accepted.',
+    example: 'expired',
   })
   @IsOptional()
   @IsString()

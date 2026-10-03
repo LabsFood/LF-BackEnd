@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ChefApplicationStatus,
   ClientProfileStatus,
+  Prisma,
   UserRole,
 } from '../../generated/prisma/client';
 import { ClerkService } from '../../integrations/clerk.service';
@@ -28,8 +29,14 @@ describe('UsersService', () => {
       upsert: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
+      deleteMany: jest.Mock;
     };
-    chefProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+    chefProfile: {
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
   let clerk: {
@@ -54,8 +61,14 @@ describe('UsersService', () => {
         upsert: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
+        deleteMany: jest.fn(),
       },
-      chefProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+      chefProfile: {
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
       $transaction: jest.fn((operations: unknown[]) => Promise.all(operations)),
     };
     clerk = {
@@ -254,6 +267,29 @@ describe('UsersService', () => {
 
       expect(prisma.user.update).not.toHaveBeenCalled();
       expect(result.role).toBe(UserRole.admin);
+    });
+
+    it('leaves a deleted account as it is, even when Clerk sends its details late', async () => {
+      const deleted = {
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'deleted-uuid-1@deleted.invalid',
+        fullName: null,
+        phone: null,
+        role: UserRole.client,
+        deletedAt: new Date('2026-09-24T10:00:00Z'),
+      };
+      prisma.user.findUnique.mockResolvedValue(deleted);
+
+      const result = await service.upsertFromClerk({
+        clerkUserId: 'user_1',
+        email: 'ada@example.com',
+        fullName: 'Ada Lovelace',
+        phone: '+33601020304',
+      });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(result).toBe(deleted);
     });
   });
 
@@ -929,10 +965,64 @@ describe('UsersService', () => {
   describe('deleteByClerkId', () => {
     it('deletes by clerk_user_id', async () => {
       prisma.user.deleteMany.mockResolvedValue({ count: 1 });
-      await service.deleteByClerkId('user_gone');
+      await expect(service.deleteByClerkId('user_gone')).resolves.toBe('deleted');
       expect(prisma.user.deleteMany).toHaveBeenCalledWith({
         where: { clerkUserId: 'user_gone' },
       });
+    });
+
+    it('anonymises, in one transaction, a user their bookings still reference', async () => {
+      prisma.user.deleteMany.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('fk', {
+          code: 'P2003',
+          clientVersion: 't',
+        }),
+      );
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_gone',
+      });
+      prisma.user.update.mockReturnValue('user-write');
+      prisma.clientProfile.deleteMany.mockReturnValue('client-write');
+      prisma.chefProfile.updateMany.mockReturnValue('chef-write');
+
+      await expect(service.deleteByClerkId('user_gone')).resolves.toBe('anonymised');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        data: {
+          email: 'deleted-uuid-1@deleted.invalid',
+          fullName: null,
+          phone: null,
+          deletedAt: expect.any(Date),
+        },
+      });
+      expect(prisma.clientProfile.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'uuid-1' },
+      });
+      expect(prisma.chefProfile.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'uuid-1' },
+        data: {
+          displayName: 'Compte supprimé',
+          bio: null,
+          city: null,
+          isActive: false,
+          isVerified: false,
+        },
+      });
+      expect(prisma.$transaction).toHaveBeenCalledWith([
+        'user-write',
+        'client-write',
+        'chef-write',
+      ]);
+    });
+
+    it('lets any other failure through, writing nothing', async () => {
+      const outage = new Error('connection lost');
+      prisma.user.deleteMany.mockRejectedValue(outage);
+
+      await expect(service.deleteByClerkId('user_gone')).rejects.toBe(outage);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
 });

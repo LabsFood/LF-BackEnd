@@ -1,7 +1,16 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { MealStatus, Prisma } from '../../generated/prisma/client';
+import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  assertConsistent,
+  SAFETY_FIELDS,
+  toIngredientsJson,
+  toReheatingJson,
+  toStorageJson,
+} from '../dishes/dishes.service';
+import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
+import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
   CreateMenuWeekDto,
@@ -9,9 +18,29 @@ import {
   UpdateMealDto,
 } from './dto/catalog-admin.dto';
 
+/**
+ * A Lab's Food meal is one no batch cooker owns. The admin routes here predate
+ * chef dishes, so every read and write they make is limited to those rows.
+ */
+const LABS_FOOD = { chefProfileId: null };
+
+/** Never on a public route: the recipe, and what the fiche says (FLOW-02 §1). */
+export const RECIPE_FIELDS = {
+  ingredients: true,
+  steps: true,
+  reheating: true,
+  storage: true,
+} as const;
+
+export const NOT_LABS_FOOD =
+  "This dish belongs to a batch cooker. Only Lab's Food meals can be changed here.";
+
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly suggestions: SuggestionsService,
+  ) {}
 
   async getCurrentPublishedMenu(): Promise<{
     menuWeek: unknown;
@@ -21,7 +50,13 @@ export class CatalogService {
     const week = await this.prisma.menuWeek.findFirst({
       where: { publishedAt: { not: null, lte: now } },
       orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
-      include: { meals: { include: { meal: true } } },
+      // Public route: Lab's Food meals only, and never the recipe (FLOW-02 §1).
+      include: {
+        meals: {
+          where: { meal: LABS_FOOD },
+          include: { meal: { omit: RECIPE_FIELDS } },
+        },
+      },
     });
     if (!week) {
       return null;
@@ -34,12 +69,18 @@ export class CatalogService {
   }
 
   listMeals() {
-    return this.prisma.meal.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.meal.findMany({
+      where: LABS_FOOD,
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  createMeal(payload: CreateMealDto) {
+  /** Always an unowned Lab's Food meal; the admin is recorded as its author only. */
+  async createMeal(payload: CreateMealDto, adminUserId: string) {
+    assertConsistent(declarationOf(null, payload));
     return this.prisma.meal.create({
       data: {
+        createdByUserId: adminUserId,
         name: payload.name,
         description: payload.description,
         imageUrl: payload.imageUrl ?? null,
@@ -50,22 +91,62 @@ export class CatalogService {
         portions: payload.portions,
         prepTime: payload.prepTime,
         dietaryTags: payload.dietaryTags ?? [],
+        customDiets: payload.customDiets ?? [],
         allergens: payload.allergens ?? [],
+        allergensNone: payload.allergensNone ?? false,
+        customAllergens: payload.customAllergens ?? [],
         calories: payload.calories ?? null,
         difficulty: payload.difficulty ?? null,
-        ingredients: payload.ingredients ?? [],
+        category: payload.category ?? null,
+        cookTime: payload.cookTime ?? null,
+        ingredients: toIngredientsJson(payload.ingredients ?? []),
         steps: payload.steps,
+        reheating: toReheatingJson(payload.reheating),
+        storage: toStorageJson(payload.storage),
         isFeatured: payload.isFeatured,
         status: payload.status ?? MealStatus.draft,
       },
     });
   }
 
-  updateMeal(id: string, payload: UpdateMealDto) {
-    return this.prisma.meal.update({
+  /**
+   * The owner filter sits in the `where`, so the check and the write are one
+   * statement: no gap in which the row could change hands in between.
+   */
+  async updateMeal(id: string, payload: UpdateMealDto, adminUserId: string) {
+    let current: Meal | null = null;
+    const publishing = payload.status === MealStatus.published;
+    if (touchesDeclaration(payload) || payload.country !== undefined || publishing) {
+      current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
+      if (!current) return this.explainMissing(id);
+      assertConsistent(declarationOf(current, payload));
+      if (publishing && current.offeredToChefProfileId) throw offerPending();
+    }
+    let updated: Meal;
+    try {
+      updated = await this.prisma.meal.update({
+        where: { id, ...LABS_FOOD },
+        data: CatalogService.toMealUpdateData(payload),
+      });
+    } catch (error) {
+      if (isNotFound(error)) return this.explainMissing(id);
+      throw error;
+    }
+    // Chefs who adopted this suggestion hear about a safety change (§6, PRD).
+    if (current && safetyChanged(current, updated)) {
+      await this.suggestions.flagCopies(updated, adminUserId);
+    }
+    return updated;
+  }
+
+  /** A write matched nothing: the meal is gone, or it belongs to a batch cooker. */
+  private async explainMissing(id: string): Promise<never> {
+    const row = await this.prisma.meal.findUnique({
       where: { id },
-      data: CatalogService.toMealUpdateData(payload),
+      select: { chefProfileId: true },
     });
+    if (row) throw contentNotOwned(NOT_LABS_FOOD);
+    throw new NotFoundException('Meal not found.');
   }
 
   /**
@@ -84,29 +165,46 @@ export class CatalogService {
     if (payload.country !== undefined) data.country = payload.country;
     if (payload.calories !== undefined) data.calories = payload.calories;
     if (payload.difficulty !== undefined) data.difficulty = payload.difficulty;
+    if (payload.category !== undefined) data.category = payload.category;
+    if (payload.cookTime !== undefined) data.cookTime = payload.cookTime;
+    if (payload.reheating !== undefined)
+      data.reheating = toReheatingJson(payload.reheating);
+    if (payload.storage !== undefined) data.storage = toStorageJson(payload.storage);
 
     if (payload.name != null) data.name = payload.name;
     if (payload.portions != null) data.portions = payload.portions;
     if (payload.prepTime != null) data.prepTime = payload.prepTime;
     if (payload.dietaryTags != null) data.dietaryTags = payload.dietaryTags;
     if (payload.allergens != null) data.allergens = payload.allergens;
-    if (payload.ingredients != null) data.ingredients = payload.ingredients;
+    if (payload.allergensNone != null) data.allergensNone = payload.allergensNone;
+    if (payload.customDiets != null) data.customDiets = payload.customDiets;
+    if (payload.customAllergens != null) data.customAllergens = payload.customAllergens;
+    if (payload.ingredients != null) {
+      data.ingredients = toIngredientsJson(payload.ingredients);
+    }
     if (payload.steps != null) data.steps = payload.steps;
     if (payload.isFeatured != null) data.isFeatured = payload.isFeatured;
     if (payload.status != null) data.status = payload.status;
+
+    // A new recipe version; bookings keep the one they pinned (FLOW-02 §9.2).
+    const recipeTouched = [
+      payload.ingredients,
+      payload.steps,
+      payload.reheating,
+      payload.storage,
+      payload.portions,
+    ].some((value) => value !== undefined && value !== null);
+    if (recipeTouched) data.recipeVersion = { increment: 1 };
 
     return data;
   }
 
   async deleteMeal(id: string): Promise<void> {
     try {
-      await this.prisma.meal.delete({ where: { id } });
+      await this.prisma.meal.delete({ where: { id, ...LABS_FOOD } });
     } catch (error) {
+      if (isNotFound(error)) return this.explainMissing(id);
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        // Record to delete does not exist.
-        if (error.code === 'P2025') {
-          throw new NotFoundException('Meal not found.');
-        }
         // booking_meals.meal_id is ON DELETE RESTRICT, so meals already served
         // in a booking cannot be removed without losing booking history.
         if (error.code === 'P2003') {
@@ -127,15 +225,38 @@ export class CatalogService {
     });
   }
 
+  /**
+   * Only Lab's Food meals can go on the global weekly menu: putting a chef's dish
+   * there would publish it without the chef's consent.
+   */
   async createMenuWeek(payload: CreateMenuWeekDto) {
+    const mealIds = [...new Set(payload.mealIds ?? [])];
+    if (mealIds.length) {
+      const found = await this.prisma.meal.findMany({
+        where: { id: { in: mealIds } },
+        select: { id: true, chefProfileId: true, offeredToChefProfileId: true },
+      });
+      const known = new Set(found.map((row) => row.id));
+      const unknown = mealIds.filter((id) => !known.has(id));
+      if (unknown.length) {
+        throw new NotFoundException(`Unknown meal ids: ${unknown.join(', ')}.`);
+      }
+      // An offered meal is prepared for one chef and may become theirs at any time.
+      if (found.some((row) => row.chefProfileId || row.offeredToChefProfileId)) {
+        throw contentNotOwned(
+          "Only Lab's Food meals not offered to a batch cooker can go on a weekly menu.",
+        );
+      }
+    }
+
     return this.prisma.menuWeek.create({
       data: {
         year: payload.year,
         weekNumber: payload.weekNumber,
         publishedAt: null,
-        meals: payload.mealIds?.length
+        meals: mealIds.length
           ? {
-              create: payload.mealIds.map((mealId) => ({
+              create: mealIds.map((mealId) => ({
                 meal: { connect: { id: mealId } },
               })),
             }
@@ -155,4 +276,39 @@ export class CatalogService {
       data: payload,
     });
   }
+}
+
+/** The allergen and diet declaration once `payload` is applied to `current`. */
+function declarationOf(current: Meal | null, payload: UpdateMealDto) {
+  return {
+    allergens: payload.allergens ?? current?.allergens ?? [],
+    allergensNone: payload.allergensNone ?? current?.allergensNone ?? false,
+    customAllergens: payload.customAllergens ?? current?.customAllergens ?? [],
+    diets: payload.dietaryTags ?? current?.dietaryTags ?? [],
+    customDiets: payload.customDiets ?? current?.customDiets ?? [],
+  };
+}
+
+/** Whether allergens, diets or country differ between two versions of a meal. */
+function safetyChanged(before: Meal, after: Meal): boolean {
+  // Lists are sets here: the same allergens in another order are no change.
+  const canonical = (value: unknown) =>
+    JSON.stringify(Array.isArray(value) ? [...value].sort() : value);
+  return SAFETY_FIELDS.some(
+    (field) => canonical(before[field]) !== canonical(after[field]),
+  );
+}
+
+const touchesDeclaration = (payload: UpdateMealDto) =>
+  [
+    payload.allergens,
+    payload.allergensNone,
+    payload.customAllergens,
+    payload.dietaryTags,
+    payload.customDiets,
+  ].some((value) => value != null);
+
+/** Prisma's "no row matched the `where`" (P2025). */
+function isNotFound(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
 }

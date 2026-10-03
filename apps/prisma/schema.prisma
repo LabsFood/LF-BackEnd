@@ -16,14 +16,18 @@ model User {
   phone               String?           @db.VarChar(32)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Set when Clerk deleted the account but bookings keep the row: its personal
+  /// data is blanked (`UsersService.deleteByClerkId`).
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
   bookingsAsClient    Booking[]         @relation("BookingClient")
-  cmsPagesUpdated     CmsPage[]         @relation("CmsPageUpdatedBy")
   chefProfile         ChefProfile?
   clientProfile       ClientProfile?
   quotes              Quote[]           @relation("QuoteClient")
   applicationsDecided ChefApplication[] @relation("ChefApplicationDecidedBy")
   documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
   auditEntries        AuditLog[]        @relation("AuditLogActor")
+  mealsAuthored       Meal[]            @relation("MealAuthor")
+  menusAuthored       Menu[]            @relation("MenuAuthor")
 
   @@map("users")
 }
@@ -57,6 +61,11 @@ model ChefProfile {
   serviceOffers        ServiceOffer[]
   documents            ChefDocument[]
   application          ChefApplication?   @relation("ChefProfileApplication")
+  dishes               Meal[]             @relation("MealOwner")
+  menus                Menu[]             @relation("MenuOwner")
+  dishesOffered        Meal[]             @relation("MealOffer")
+  menusOffered         Menu[]             @relation("MenuOffer")
+  showcaseWeeks        ChefShowcaseWeek[]
 
   @@map("chef_profiles")
 }
@@ -129,23 +138,6 @@ model Booking {
   @@map("bookings")
 }
 
-model CmsPage {
-  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug             String   @unique(map: "uq_cms_pages_slug") @db.VarChar(255)
-  title            String   @db.VarChar(255)
-  hero             Json
-  introBlocks      Json     @map("intro_blocks")
-  howItWorks       Json     @map("how_it_works")
-  reassuranceItems Json     @map("reassurance_items")
-  status           String   @default("published") @db.VarChar(32)
-  updatedByUserId  String?  @map("updated_by_user_id") @db.Uuid
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedBy        User?    @relation("CmsPageUpdatedBy", fields: [updatedByUserId], references: [id], onUpdate: NoAction, map: "fk_cms_pages_updated_by_user_id")
-
-  @@map("cms_pages")
-}
-
 model ClientProfile {
   id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId             String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
@@ -168,28 +160,83 @@ model ClientProfile {
   @@map("client_profiles")
 }
 
+/// A dish. `chefProfileId` is the owner: set for a chef's dish, null for Lab's Food
+/// content. `createdByUserId` is the author, for attribution only: it never grants
+/// a right, so an admin who writes a Lab's Food meal does not own it.
 model Meal {
-  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name         String          @db.VarChar(255)
-  description  String?
-  imageUrl     String?         @map("image_url") @db.VarChar(512)
-  continent    MealContinent?
-  country      String?         @db.VarChar(120)
-  portions     Int             @default(4)
-  prepTime     Int             @map("prep_time")
-  dietaryTags  String[]        @default([]) @map("dietary_tags")
-  allergens    String[]        @default([])
-  calories     Int?
-  difficulty   MealDifficulty?
-  ingredients  Json            @default("[]")
-  steps        String[]        @default([])
-  isFeatured   Boolean         @default(false) @map("is_featured")
-  status       MealStatus      @default(draft)
-  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookingMeals BookingMeal[]
-  menuWeeks    MenuWeekMeal[]
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId          String?             @map("chef_profile_id") @db.Uuid
+  createdByUserId        String?             @map("created_by_user_id") @db.Uuid
+  /// Lab's Food content prepared for one chef: only they see it, and it becomes
+  /// theirs only when they accept (PRD). Never set together with an owner.
+  offeredToChefProfileId String?             @map("offered_to_chef_profile_id") @db.Uuid
+  /// The Lab's Food suggestion this dish was adopted from, and that suggestion's
+  /// `updatedAt` at adoption: the version the chef consented to copy (§6).
+  sourceMealId           String?             @map("source_meal_id") @db.Uuid
+  sourceVersion          DateTime?           @map("source_version") @db.Timestamptz(6)
+  /// Set when the suggestion's allergens, diets or country changed after adoption.
+  sourceChangedAt        DateTime?           @map("source_changed_at") @db.Timestamptz(6)
+  name                   String              @db.VarChar(255)
+  description            String?
+  imageUrl               String?             @map("image_url") @db.VarChar(512)
+  continent              MealContinent?
+  country                String?             @db.VarChar(120)
+  portions               Int                 @default(4)
+  prepTime               Int                 @map("prep_time")
+  dietaryTags            String[]            @default([]) @map("dietary_tags")
+  allergens              String[]            @default([])
+  /// "None of the 14 regulated allergens", said explicitly. An empty `allergens`
+  /// list alone cannot be told apart from "not filled in" (FLOW-02 §3.3). A CHECK
+  /// in the migration forbids it next to a listed allergen.
+  allergensNone          Boolean             @default(false) @map("allergens_none")
+  /// Free-text values outside the reference lists (the "Autre" button).
+  customDiets            String[]            @default([]) @map("custom_diets")
+  customAllergens        String[]            @default([]) @map("custom_allergens")
+  category               String?             @db.VarChar(24)
+  cookTime               Int?                @map("cook_time")
+  calories               Int?
+  difficulty             MealDifficulty?
+  ingredients            Json                @default("[]")
+  steps                  String[]            @default([])
+  /// The recipe's version: +1 on every change to ingredients, steps, reheating,
+  /// storage or portions. A booking pins the version it was cooked from (§9.2).
+  recipeVersion          Int                 @default(1) @map("recipe_version")
+  reheating              Json?
+  storage                Json?
+  isFeatured             Boolean             @default(false) @map("is_featured")
+  status                 MealStatus          @default(draft)
+  /// Last time it was published. Orders the admin review queue.
+  publishedAt            DateTime?           @map("published_at") @db.Timestamptz(6)
+  /// Moderation after the fact (§4): when an admin last looked, why it now waits
+  /// in the review queue (null: it does not), and why it was taken down.
+  reviewedAt             DateTime?           @map("reviewed_at") @db.Timestamptz(6)
+  reviewPendingSince     DateTime?           @map("review_pending_since") @db.Timestamptz(6)
+  reviewReason           String?             @map("review_reason") @db.VarChar(40)
+  moderationReason       String?             @map("moderation_reason")
+  moderationReasonCode   String?             @map("moderation_reason_code") @db.VarChar(40)
+  moderatedAt            DateTime?           @map("moderated_at") @db.Timestamptz(6)
+  createdAt              DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals           BookingMeal[]
+  menuWeeks              MenuWeekMeal[]
+  menus                  MenuDish[]
+  recipeVersions         MealRecipeVersion[]
+  copies                 Meal[]              @relation("MealSource")
+  source                 Meal?               @relation("MealSource", fields: [sourceMealId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_source_meal_id")
+  offeredTo              ChefProfile?        @relation("MealOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_offered_to_chef_profile_id")
+  // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
+  // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
+  chefProfile            ChefProfile?        @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
+  createdBy              User?               @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
 
+  /// Adoption is idempotent per (chef, suggestion). NULLs never collide, so a
+  /// chef's own dishes and Lab's Food rows are unaffected.
+  @@unique([chefProfileId, sourceMealId], map: "uq_meals_chef_profile_source")
+  @@index([chefProfileId], map: "ix_meals_chef_profile_id")
+  @@index([createdByUserId], map: "ix_meals_created_by_user_id")
+  @@index([offeredToChefProfileId], map: "ix_meals_offered_to_chef_profile_id")
+  @@index([sourceMealId], map: "ix_meals_source_meal_id")
+  @@index([reviewPendingSince], map: "ix_meals_review_pending_since")
   @@map("meals")
 }
 
@@ -235,13 +282,18 @@ model Formule {
 }
 
 model BookingMeal {
-  bookingId String  @map("booking_id") @db.Uuid
-  mealId    String  @map("meal_id") @db.Uuid
-  portions  Int     @default(4)
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
-  meal      Meal    @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
+  bookingId     String             @map("booking_id") @db.Uuid
+  mealId        String             @map("meal_id") @db.Uuid
+  portions      Int                @default(4)
+  /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
+  recipeVersion Int?               @map("recipe_version")
+  booking       Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
+  meal          Meal               @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
+  /// The kept version this prestation cooks from; it can never be lost while pinned.
+  recipe        MealRecipeVersion? @relation(fields: [mealId, recipeVersion], references: [mealId, version], onDelete: Restrict, onUpdate: NoAction, map: "fk_booking_meals_recipe_version")
 
   @@id([bookingId, mealId])
+  @@index([mealId], map: "ix_booking_meals_meal_id")
   @@map("booking_meals")
 }
 
@@ -261,6 +313,12 @@ model ShoppingItem {
   aisle          String       @db.VarChar(120)
   name           String       @db.VarChar(255)
   quantity       String       @db.VarChar(64)
+  qty            Float?
+  unit           String?      @db.VarChar(32)
+  /// A line the batch cooker changed or added (`edited`), or struck out (`removed`).
+  /// These survive a recalculation; the others are recomputed from the recipes.
+  edited         Boolean      @default(false)
+  removed        Boolean      @default(false)
   shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_items_shopping_list_id_fkey")
 
   @@index([shoppingListId], map: "ix_shopping_items_list_id")
@@ -341,10 +399,14 @@ enum MealDifficulty {
   @@map("meal_difficulty")
 }
 
+/// `suspended`: an admin took a chef's content down, valid only on chef-owned rows
+/// (a CHECK in migration 20260924140000_chef_menus). `archived`: Lab's Food retired
+/// its own content.
 enum MealStatus {
   published
   draft
   archived
+  suspended
 
   @@map("meal_status")
 }
@@ -554,4 +616,105 @@ enum SapPath {
   type_b
 
   @@map("sap_path")
+}
+
+enum MenuPeriod {
+  week
+  month
+
+  @@map("menu_period")
+}
+
+/// A composition of dishes, for a week or a month (FLOW-02 §3.4). Owner and author
+/// work as on `Meal`: `chefProfileId` null means Lab's Food content.
+model Menu {
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId          String?            @map("chef_profile_id") @db.Uuid
+  createdByUserId        String?            @map("created_by_user_id") @db.Uuid
+  /// As on `Meal`: Lab's Food content offered to one chef.
+  offeredToChefProfileId String?            @map("offered_to_chef_profile_id") @db.Uuid
+  /// The Lab's Food suggestion this menu was adopted from, and its version then.
+  sourceMenuId           String?            @map("source_menu_id") @db.Uuid
+  sourceVersion          DateTime?          @map("source_version") @db.Timestamptz(6)
+  title                  String             @db.VarChar(160)
+  pitch                  String?            @db.VarChar(500)
+  period                 MenuPeriod         @default(week)
+  status                 MealStatus         @default(draft)
+  /// Whether the batch cooker does the shopping. False at creation (PRD).
+  shoppingIncluded       Boolean            @default(false) @map("shopping_included")
+  publishedAt            DateTime?          @map("published_at") @db.Timestamptz(6)
+  /// Moderation after the fact (§4): when an admin last looked, why it now waits
+  /// in the review queue (null: it does not), and why it was taken down.
+  reviewedAt             DateTime?          @map("reviewed_at") @db.Timestamptz(6)
+  reviewPendingSince     DateTime?          @map("review_pending_since") @db.Timestamptz(6)
+  reviewReason           String?            @map("review_reason") @db.VarChar(40)
+  moderationReason       String?            @map("moderation_reason")
+  moderationReasonCode   String?            @map("moderation_reason_code") @db.VarChar(40)
+  moderatedAt            DateTime?          @map("moderated_at") @db.Timestamptz(6)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  dishes                 MenuDish[]
+  showcaseWeeks          ChefShowcaseWeek[]
+  copies                 Menu[]             @relation("MenuSource")
+  source                 Menu?              @relation("MenuSource", fields: [sourceMenuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_source_menu_id")
+  offeredTo              ChefProfile?       @relation("MenuOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_offered_to_chef_profile_id")
+  chefProfile            ChefProfile?       @relation("MenuOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menus_chef_profile_id")
+  createdBy              User?              @relation("MenuAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_created_by_user_id")
+
+  @@unique([chefProfileId, sourceMenuId], map: "uq_menus_chef_profile_source")
+  @@index([chefProfileId], map: "ix_menus_chef_profile_id")
+  @@index([createdByUserId], map: "ix_menus_created_by_user_id")
+  @@index([offeredToChefProfileId], map: "ix_menus_offered_to_chef_profile_id")
+  @@index([sourceMenuId], map: "ix_menus_source_menu_id")
+  @@index([reviewPendingSince], map: "ix_menus_review_pending_since")
+  @@map("menus")
+}
+
+/// Which dishes a menu holds, in order. Many-to-many: a dish can sit in several menus.
+model MenuDish {
+  menuId   String @map("menu_id") @db.Uuid
+  mealId   String @map("meal_id") @db.Uuid
+  position Int    @default(0)
+  menu     Menu   @relation(fields: [menuId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menu_dishes_menu_id")
+  meal     Meal   @relation(fields: [mealId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_menu_dishes_meal_id")
+
+  @@id([menuId, mealId])
+  @@index([mealId], map: "ix_menu_dishes_meal_id")
+  @@map("menu_dishes")
+}
+
+/// The "Vitrine du mois" (§3.5): which menu a chef shows each week. `menuId` null
+/// is "no menu this week", said explicitly.
+model ChefShowcaseWeek {
+  chefProfileId String      @map("chef_profile_id") @db.Uuid
+  /// Always a Monday.
+  weekStart     DateTime    @map("week_start") @db.Date
+  menuId        String?     @map("menu_id") @db.Uuid
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_showcase_weeks_chef_profile_id")
+  menu          Menu?       @relation(fields: [menuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_chef_showcase_weeks_menu_id")
+
+  @@id([chefProfileId, weekStart])
+  @@index([weekStart], map: "ix_chef_showcase_weeks_week_start")
+  @@index([menuId], map: "ix_chef_showcase_weeks_menu_id")
+  @@map("chef_showcase_weeks")
+}
+
+/// A recipe as it was at one version, kept once a booking pins it, so the fiche a
+/// client received and the one the API serves always agree (FLOW-02 §9.2).
+model MealRecipeVersion {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mealId       String        @map("meal_id") @db.Uuid
+  version      Int
+  portions     Int
+  ingredients  Json          @default("[]")
+  steps        String[]      @default([])
+  reheating    Json?
+  storage      Json?
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  meal         Meal          @relation(fields: [mealId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meal_recipe_versions_meal_id")
+  bookingMeals BookingMeal[]
+
+  @@unique([mealId, version], map: "uq_meal_recipe_versions_meal_version")
+  @@map("meal_recipe_versions")
 }

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger';
 
 import { PaginationMetaDto } from '../../../common/dto/pagination.dto';
+import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
 import { USER_ROLES } from './admin-user.dto';
 
 /** Claims extracted from the Clerk session JWT (no database lookup). */
@@ -64,7 +65,8 @@ export class CurrentUserDto {
   @ApiProperty({
     enum: USER_ROLES,
     description:
-      'Application role in Postgres. Source of truth for RBAC (`client`, `chef`, or `admin`).',
+      'Which space this person uses. `client`: orders meals and quotes. `chef`: a batch ' +
+      'cooker (see `chefProfile`). `admin`: the back office.',
     example: 'client',
   })
   role!: string;
@@ -80,28 +82,41 @@ export class CurrentUserDto {
 export class MeResponseDto extends CurrentUserDto {
   @ApiProperty({
     description:
-      'False until a batch cooker who signed in through their first-login link has ' +
-      'chosen a password. The frontend uses it to force that screen.',
-    example: false,
+      '`false` while the account has no password, which is the case for a batch cooker ' +
+      'who came in through the emailed sign-in link. Show the "choose a password" screen.',
+    example: true,
   })
   hasPassword!: boolean;
 
   @ApiProperty({
     nullable: true,
     description:
-      'Present for a batch cooker. **Answered even when `isActive` is false**: an ' +
-      'unpublished chef must still reach their space to finish their dossier.',
-    example: { id: '9a77...', isVerified: true, isActive: false },
+      '`null` unless this person is a batch cooker. `isVerified: false`: the candidature ' +
+      'is still reviewed, the space is browse-only. `isActive: false`: clients cannot ' +
+      'book them yet, even if verified.',
+    example: {
+      id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+      isVerified: false,
+      isActive: false,
+    },
   })
   chefProfile!: { id: string; isVerified: boolean; isActive: boolean } | null;
 }
 
 /** Client taste/preferences profile (`client_profiles` table). */
 export class ClientProfileDto {
-  @ApiProperty({ format: 'uuid', description: 'Client profile primary key.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The client profile id, used by the `/admin/clients/{id}` routes.',
+    example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
+  })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Linked Postgres user id (`users.id`).' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The account this profile belongs to.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  })
   userId!: string;
 
   @ApiPropertyOptional({
@@ -121,12 +136,14 @@ export class ClientProfileDto {
   @ApiPropertyOptional({
     type: [String],
     description: 'Ingredients or dishes the client dislikes.',
+    example: ['coriandre'],
   })
   dislikes?: string[];
 
   @ApiPropertyOptional({
     type: [String],
     description: 'Preferred dishes or cuisines.',
+    example: ['couscous', 'cuisine libanaise'],
   })
   favorites?: string[];
 
@@ -140,12 +157,13 @@ export class ClientProfileDto {
 
   @ApiPropertyOptional({
     description: 'Free-text notes for the chef about the client kitchen or habits.',
+    example: 'Plaques à induction, pas de micro-ondes.',
   })
   kitchenNotes?: string | null;
 
   @ApiPropertyOptional({
-    enum: ['vip', 'active', 'prospect', 'inactive'],
-    description: 'CRM status used by admin client management.',
+    enum: CLIENT_STATUSES,
+    description: CLIENT_STATUS_HELP,
     example: 'active',
   })
   status?: string;
@@ -153,10 +171,18 @@ export class ClientProfileDto {
 
 /** Chef provider profile (`chef_profiles` table). */
 export class ChefProfileDto {
-  @ApiProperty({ format: 'uuid', description: 'Chef profile primary key.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The batch cooker page id, used by `/admin/chefs/{id}/verification`.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Linked Postgres user id (`users.id`).' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The account this page belongs to.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  })
   userId!: string;
 
   @ApiProperty({
@@ -165,10 +191,18 @@ export class ChefProfileDto {
   })
   displayName!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Short public biography.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Short public biography.',
+    example: 'Cuisine familiale franco-marocaine, 10 ans en restauration.',
+  })
   bio?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'City the chef operates from.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'City the chef works from.',
+    example: 'Lyon',
+  })
   city?: string | null;
 
   @ApiProperty({
@@ -202,8 +236,7 @@ export class UserWithProfileDto {
   @ApiProperty({
     enum: ['client', 'chef', 'none'],
     description:
-      'Which profile `profile` holds. `none` when the user has not completed onboarding. ' +
-      'Admins report the profile they hold as a user, if any.',
+      'Which kind of profile `profile` is. `none`: no profile yet, `profile` is `null`.',
     example: 'client',
   })
   profileType!: 'client' | 'chef' | 'none';
@@ -215,8 +248,8 @@ export class UserWithProfileDto {
     ],
     nullable: true,
     description:
-      'Client taste profile or chef provider profile, selected by `users.role`. ' +
-      '`null` until the user completes onboarding.',
+      'A client profile or a batch cooker page, as `profileType` says. `null` when ' +
+      '`profileType` is `none`.',
   })
   profile!: ClientProfileDto | ChefProfileDto | null;
 }

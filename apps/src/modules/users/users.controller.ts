@@ -30,6 +30,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dto';
+import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
@@ -48,7 +49,6 @@ import {
 } from './dto/user-response.dto';
 import { UsersService } from './users.service';
 
-@ApiTags('users')
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)
@@ -78,15 +78,17 @@ export class UsersController {
   }
 
   @Get('thisUser')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Read Clerk JWT claims (no database)',
+    summary: 'Show what the token says (debugging)',
     description:
-      'Returns identifiers decoded from the Bearer token only. ' +
-      'Use this to debug authentication. For the persisted application user (role, email, id), call `GET /me`.',
+      'Decodes the Bearer token and echoes the Clerk ids it carries. Reads nothing from ' +
+      'the database, so it is only useful to check that a token is accepted. The app ' +
+      'itself should call `GET /me`.',
   })
   @ApiOkResponse({
     type: ClerkJwtClaimsDto,
-    description: 'Clerk session claims attached by `ClerkAuthGuard`.',
+    description: 'The ids found in the token.',
   })
   @ApiClerkAuthResponses()
   thisUser(@CurrentClerkUser() user: ClerkUser): ClerkJwtClaimsDto {
@@ -98,19 +100,20 @@ export class UsersController {
   }
 
   @Get('me')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Get or create the current application user',
+    summary: 'Who am I, and which space do I open?',
     description:
-      'Ensures a Postgres `users` row exists for the authenticated Clerk subject, ' +
-      'creating one with `role: client` on first access. Returns id, email, fullName, ' +
-      'phone, role, `hasPassword`, and `chefProfile` when there is one. ' +
-      'Clients and batch cookers share one sign-in page, so this is what tells the ' +
-      'frontend which space to open — it answers for an inactive chef too, since an ' +
-      'unpublished batch cooker still needs to reach their dossier.',
+      'Call this right after sign-in. `role` says which space to open: `client`, `chef` ' +
+      'or `admin`. For a batch cooker, `chefProfile.isVerified` says whether the space ' +
+      'is fully usable (`true`) or browse-only while the candidature is reviewed ' +
+      '(`false`). `hasPassword: false` means the account has no password yet (a batch ' +
+      'cooker who came in through the emailed link): ask them to choose one.\n\n' +
+      'The first call for a new Clerk account also creates its record here, as a client.',
   })
   @ApiOkResponse({
     type: MeResponseDto,
-    description: 'Persisted user mapped from the Clerk JWT `sub` claim.',
+    description: 'The signed-in person.',
   })
   @ApiClerkAuthResponses()
   async me(@CurrentClerkUser() user: ClerkUser): Promise<MeResponseDto> {
@@ -118,18 +121,18 @@ export class UsersController {
   }
 
   @Get('me/profile')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Get current user and their profile',
+    summary: 'Get my profile',
     description:
-      'Returns the persisted user plus whichever profile matches `users.role`: ' +
-      '`client_profiles` for clients, `chef_profiles` for chefs. Read `profileType` to ' +
-      'know which shape `profile` holds; it is `none` with a `null` profile until the ' +
-      'user completes onboarding form 2.',
+      'The person plus their profile. `profileType` tells which kind `profile` is: ' +
+      '`client` (tastes, address, household), `chef` (public batch cooker page), or ' +
+      '`none` with `profile: null` for a client who has not filled in the profile yet.',
   })
   @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
     type: UserWithProfileDto,
-    description: 'User record and the profile matching their role, if any.',
+    description: 'The person and their profile, if any.',
   })
   @ApiClerkAuthResponses()
   meProfile(@CurrentClerkUser() user: ClerkUser): Promise<UserWithProfileDto> {
@@ -137,22 +140,24 @@ export class UsersController {
   }
 
   @Patch('me/profile')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Create or update client profile (onboarding form 2)',
+    summary: 'Fill in or update my client profile',
     description:
-      'Upserts `client_profiles` for the authenticated user and writes the shared ' +
-      'identity fields (`firstName`, `lastName`, `phone`) to `users`, mirroring names ' +
-      'into Clerk. Send only the fields you want to change. ' +
-      '**Never changes `users.role`** — new accounts are already `client` from ' +
-      'registration, so an admin or chef editing their profile keeps their role.',
+      'Saves the client profile: tastes, allergies, kitchen notes, address, household. ' +
+      'The first call creates it; later calls change only the fields sent. ' +
+      '`firstName`, `lastName` and `phone` go to the account itself (and to Clerk for ' +
+      'the names). Never changes the role.\n\n' +
+      'Example: `{ "allergies": ["arachides"], "householdAdults": 2 }` updates those two ' +
+      'fields and leaves the rest as it was.',
   })
   @ApiOkResponse({
     type: ClientProfileDto,
-    description: 'Saved client profile after upsert.',
+    description: 'The saved client profile.',
   })
   @ApiConflictResponse({
     description:
-      'User already has a chef profile. Switching profile type is not supported yet.',
+      'This account is a batch cooker. One account holds one kind of profile for now.',
   })
   @ApiClerkAuthResponses()
   patchMeProfile(
@@ -163,27 +168,27 @@ export class UsersController {
   }
 
   @Patch('me/chef-profile')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Edit your own batch cooker profile',
+    summary: 'Update my batch cooker page',
     description:
-      'Updates the public fields of the caller’s existing chef profile — `displayName`, ' +
-      '`bio`, `city`, `serviceRadiusKm` — and the shared identity fields on `users`. ' +
-      'Every field is optional. **Never creates a profile and never changes ' +
-      '`users.role`**: the profile is created by submitting a candidature, and stays ' +
-      'read-only until an admin approves it. `isActive`, `isVerified`, payout and ' +
-      'calendar ids, the SAP route and intervention zones are not editable here, and a ' +
-      'body carrying them is refused.',
+      'Changes what clients see on the batch cooker page: `displayName`, `bio`, `city`, ' +
+      '`serviceRadiusKm`, plus `firstName`, `lastName` and `phone` on the account. Send ' +
+      'only the fields to change.\n\n' +
+      'Only for an approved batch cooker: while the candidature is reviewed the account ' +
+      'is browse-only. The visibility flags, the SAP route and the zones are set at ' +
+      'approval and cannot be sent here.',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
-    description: 'The chef profile after the update.',
+    description: 'The updated batch cooker page.',
   })
   @ApiForbiddenResponse({
-    description: '`CHEF_NOT_VERIFIED` — the candidature is not approved yet.',
+    description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
   })
   @ApiNotFoundResponse({
     description:
-      'The caller has no batch cooker profile. A client cannot use this route to become one.',
+      'This account is not a batch cooker. Becoming one goes through `POST /chef-applications`.',
   })
   @ApiClerkAuthResponses()
   patchMeChefProfile(
@@ -194,23 +199,25 @@ export class UsersController {
   }
 
   @Post('admin/users')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: provision a new Clerk user and Postgres row',
+    summary: 'Create an account for someone',
     description:
-      'Creates a user in Clerk via Backend API and persists a matching `users` row with the requested role. ' +
-      'Requires `users.role = admin` and a real `CLERK_SECRET_KEY` (not `sk_test_placeholder`). ' +
-      'Email is auto-verified by Clerk BAPI. Omit `password` for a passwordless account.',
+      'Creates the account with the chosen role, for example a new admin. Without a ' +
+      '`password` the account has none, and the person signs in with whatever else Clerk ' +
+      'allows, such as an email code. The email is treated as verified.\n\n' +
+      'Do not use this to make a batch cooker: they apply through `POST /chef-applications`, ' +
+      'which checks their documents.',
   })
   @ApiCreatedResponse({
     type: CurrentUserDto,
-    description: 'Newly created Postgres user linked to the Clerk account.',
+    description: 'The new account.',
   })
+  @ApiConflictResponse({ description: 'This email already has an account.' })
   @ApiAdminAuthResponses()
   @ApiServiceUnavailableResponse({
-    description:
-      'Clerk Backend API is not configured (`sk_test_placeholder` or missing secret key).',
+    description: 'The server has no Clerk key, so it cannot create accounts.',
   })
   createAdminUser(@Body() payload: CreateAdminUserDto) {
     return this.users.provisionAdminUser({
@@ -223,58 +230,62 @@ export class UsersController {
   }
 
   @Patch('admin/users/:id/role')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: change a user application role',
+    summary: "Change someone's role",
     description:
-      'Updates `users.role` in Postgres (source of truth for RBAC). ' +
-      '`:id` is the Postgres uuid from `GET /me` or `POST /admin/users`, not the Clerk user id. ' +
-      'Optionally mirrors the role into Clerk `publicMetadata.role` when Clerk is configured.',
+      'Sets the role to `client`, `chef` or `admin`. The change applies on the next ' +
+      'request: roles are read from this API, not from the token. `{id}` is the id ' +
+      'returned by `GET /me` (not the Clerk `user_…` id).\n\n' +
+      'Setting `chef` does not create a batch cooker page or verify anyone; that is ' +
+      'what a candidature does.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Postgres user uuid (`users.id`).',
+    description: 'The account id (`users.id`).',
     example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   @ApiOkResponse({
     type: CurrentUserDto,
-    description: 'User record after role update.',
+    description: 'The account with its new role.',
   })
+  @ApiNotFoundResponse({ description: 'No account with this id.' })
   @ApiAdminAuthResponses()
   updateUserRole(@Param('id') id: string, @Body() payload: UpdateUserRoleDto) {
     return this.users.updateRole(id, this.users.toUserRole(payload.role));
   }
 
   @Patch('admin/chefs/:id/verification')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: vet a chef profile',
+    summary: 'Put a batch cooker online or offline',
     description:
-      'Sets `is_verified` and `is_active` on a chef profile. A chef who came through a ' +
-      'candidature is verified by approving it (`POST /admin/chef-applications/:id/' +
-      'approve`), where the documents are checked: `isVerified: true` is refused here ' +
-      'until then (`409 APPLICATION_NOT_APPROVED`), and `isActive: true` is refused for ' +
-      'an unverified chef (`409 CHEF_NOT_VERIFIED`). Taking a chef offline is always ' +
-      'allowed; revoking the verification of a live chef needs `isActive: false` in ' +
-      'the same body. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`), not the user uuid.',
+      '`isActive` decides whether clients can book this batch cooker; `isVerified` ' +
+      'whether the platform vouches for them.\n\n' +
+      '- Taking someone offline (`{ "isActive": false }`) always works.\n' +
+      '- Putting someone online needs them verified, else `409 CHEF_NOT_VERIFIED`.\n' +
+      '- Verifying someone who applied is done by approving the candidature, where the ' +
+      'documents are checked. Here it answers `409 APPLICATION_NOT_APPROVED` until then.\n' +
+      '- Withdrawing verification from someone online: send `isActive: false` too.\n\n' +
+      '`{id}` is the batch cooker page id (`chefProfile.id`), not the account id.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Chef profile uuid (`chef_profiles.id`).',
+    description: 'The batch cooker page id (`chefProfile.id` in `GET /me`).',
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
-    description: 'Chef profile after the verification update.',
+    description: 'The batch cooker page with its new flags.',
   })
   @ApiConflictResponse({
     description:
-      '`APPLICATION_NOT_APPROVED` — verify through candidature approval; ' +
-      '`CHEF_NOT_VERIFIED` — an unverified chef cannot be made active.',
+      '`APPLICATION_NOT_APPROVED`: approve the candidature instead. ' +
+      '`CHEF_NOT_VERIFIED`: an unverified batch cooker cannot go online.',
   })
+  @ApiNotFoundResponse({ description: 'No batch cooker page with this id.' })
   @ApiAdminAuthResponses()
   updateChefVerification(
     @Param('id') id: string,
@@ -284,20 +295,19 @@ export class UsersController {
   }
 
   @Get('admin/clients')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: list client profiles (paginated)',
+    summary: 'List clients',
     description:
-      'Returns one page of `client_profiles` rows with nested `user`, newest first, ' +
-      'under `data`, plus a `meta` page descriptor (`total`, `totalPages`, ' +
-      '`hasNextPage`, `hasPreviousPage`). Defaults to `page=1` and ' +
-      `\`limit=${DEFAULT_PAGE_SIZE}\`; \`limit\` is capped at ${MAX_PAGE_SIZE}. ` +
-      'Filter by CRM `status` when the query parameter is provided.',
+      'Newest first, one page at a time: `?page=2&limit=50`. ' +
+      `Pages hold ${DEFAULT_PAGE_SIZE} clients unless \`limit\` says otherwise, ` +
+      `${MAX_PAGE_SIZE} at most. \`?status=vip\` keeps only one CRM status. ` +
+      '`meta` says how many there are in total and whether another page follows.',
   })
   @ApiOkResponse({
     type: PaginatedAdminClientsDto,
-    description: 'One page of client profiles with linked user records.',
+    description: 'One page of clients, each with their account.',
   })
   @ApiAdminAuthResponses()
   listClients(@Query() query: ListAdminClientsQueryDto) {
@@ -305,22 +315,23 @@ export class UsersController {
   }
 
   @Get('admin/clients/:id')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: get one client profile by profile id',
+    summary: 'Get one client',
     description:
-      'Returns a single `client_profiles` row with nested `user`. ' +
-      '`:id` is the client profile uuid, not the user uuid.',
+      'The client profile with its account. `{id}` is the client profile id, as listed ' +
+      'by `GET /admin/clients`, not the account id. An unknown id answers `200` with an ' +
+      'empty body.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Client profile uuid (`client_profiles.id`).',
+    description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
   @ApiOkResponse({
     type: AdminClientDto,
-    description: 'Client profile with linked user, or `null` if not found.',
+    description: 'The client, or an empty body if the id is unknown.',
   })
   @ApiAdminAuthResponses()
   getClient(@Param('id') id: string) {
@@ -328,22 +339,22 @@ export class UsersController {
   }
 
   @Patch('admin/clients/:id')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: update a client profile',
+    summary: "Update a client's profile",
     description:
-      'Patches taste preferences, kitchen notes, and CRM `status` on an existing client profile. ' +
-      '`:id` is the client profile uuid (`client_profiles.id`).',
+      'Changes tastes, kitchen notes or the CRM `status` (for example `{ "status": "vip" }`). ' +
+      'Send only the fields to change. `{id}` is the client profile id.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Client profile uuid (`client_profiles.id`).',
+    description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
   @ApiOkResponse({
     type: AdminClientDto,
-    description: 'Updated client profile with nested user.',
+    description: 'The updated client.',
   })
   @ApiAdminAuthResponses()
   updateClient(@Param('id') id: string, @Body() payload: UpdateAdminClientDto) {
