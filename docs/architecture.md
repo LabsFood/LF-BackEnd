@@ -47,14 +47,12 @@ apps/src/
 ├── config/                    # env validation (Joi), config loader
 ├── prisma/
 │   ├── schema.prisma
-│   ├── migrations/
-│   └── seed.ts
+│   └── migrations/
 ├── supabase/                  # DB module wrapper + shared types
 │   ├── database.module.ts     # imports PrismaModule
-│   ├── types/                 # CMS JSON shapes
 │   └── enums.ts
 ├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser
-├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (CMS assets)
+├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (KYC storage)
 ├── redis/                     # scaffold (commented out of AppModule)
 └── modules/
     ├── health/                # GET /health, GET /ready
@@ -63,11 +61,8 @@ apps/src/
     ├── catalog/               # /menus/current + admin meals/menu-weeks/formules
     ├── quotes/                # client/admin quote lifecycle
     ├── shopping-lists/        # ingredient aggregation service
-    ├── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
-    └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
+    └── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
 ```
-
-Reserved: `modules/content/` for non-CMS app content.
 
 ## Target backend modules (from specs)
 
@@ -91,7 +86,6 @@ Modules below are the **planned** NestJS boundaries. None except those in “Cur
 | `notifications`  | Email/SMS/in-app + preferences                        | Driven by booking/quote transitions                             |
 | `stats`          | Dashboard aggregations                                | `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard`    |
 | `admin`          | Guards, badges, settings singleton                    | `/admin/*`, `/admin/dashboard/badges`                           |
-| `content-cms`    | Marketing “Notre Concept” page                        | **Done** — `/content/concept`                                   |
 | `team`           | Chefs/staff & service zones                           | `/admin/team`, `/admin/zones`                                   |
 
 
@@ -110,7 +104,7 @@ Phase 1 enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/
 
 ## Data model direction
 
-### Implemented (Phase 1 + F19)
+### Implemented (Phase 1)
 
 ```mermaid
 erDiagram
@@ -120,7 +114,6 @@ erDiagram
     chef_profiles ||--o{ availability_slots : "exposes"
     chef_profiles ||--o{ bookings : "fulfills"
     service_offers ||--o{ bookings : "priced_as"
-    users ||--o{ cms_pages : "updated_by"
 
     users {
       uuid id
@@ -133,10 +126,6 @@ erDiagram
       string reference
       enum status
       int price_cents
-    }
-    cms_pages {
-      string slug
-      jsonb content
     }
 ```
 
@@ -192,7 +181,7 @@ flowchart TB
     Guard[ClerkAuthGuard — verifyToken]
     WH["POST /webhooks/clerk"]
     Me["GET /me — upsert + role"]
-    Biz[Bookings, CMS, admin routes…]
+    Biz[Bookings, chef onboarding, admin routes…]
   end
 
   subgraph db [Postgres]
@@ -209,7 +198,7 @@ flowchart TB
 ```
 
 
-Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current` (when implemented).
+Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `GET /menus/current` (when implemented).
 
 ## Integrations
 
@@ -221,7 +210,7 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public
 | Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
 | Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
 | AWS S3       | `AWS_*`                                      | Config only; uploads pending                    |
-| Supabase API | `SUPABASE_*`, CMS bucket                     | Optional CMS asset storage                      |
+| Supabase API | `SUPABASE_*`, KYC bucket                     | Private storage for chef KYC documents          |
 
 
 ## Health checks
@@ -237,8 +226,6 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public
 | Method | Route               | Auth                     |
 | ------ | ------------------- | ------------------------ |
 | GET    | `/health`, `/ready` | public                   |
-| GET    | `/content/concept`  | public                   |
-| PUT    | `/content/concept`  | admin                    |
 | GET    | `/thisUser`, `/me`  | Clerk                    |
 | GET    | `/bookings`         | Clerk                    |
 | POST   | `/bookings`         | Clerk (stub — not wired) |
@@ -257,8 +244,6 @@ Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public
 
 | File                                                                                                 | Role                        |
 | ---------------------------------------------------------------------------------------------------- | --------------------------- |
-| `[features/f19-concept-cms.md](./features/f19-concept-cms.md)`                                       | F19 scope (shipped)         |
-| `[evolution/f19-concept-cms-evolution.md](./evolution/f19-concept-cms-evolution.md)`                 | F19 change register         |
 | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Platform spec gap & backlog |
 | `[database-connection.md](./database-connection.md)`                                                 | Supabase URLs               |
 | `[Revisions_followup.md](./Revisions_followup.md)`                                                   | Release register            |

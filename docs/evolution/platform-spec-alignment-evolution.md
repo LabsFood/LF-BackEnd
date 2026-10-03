@@ -157,7 +157,6 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Health | `GET /health`, `GET /ready` |
 | Users | `GET /thisUser`, `GET /me`, `POST /admin/users`, `PATCH /admin/users/:id/role` |
 | Bookings | `GET /bookings`, `POST /bookings` (stub) |
-| F19 CMS | `GET/PUT /content/concept`, `CmsPage`, migration `1700000000001` |
 | Auth | `ClerkAuthGuard`, `AdminGuard` |
 | Integrations | Stripe, Cronofy, Stream, Brevo, Supabase scaffolds |
 
@@ -179,7 +178,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | reviews | `reviews` | Not started |
 | notifications | `notifications` | Not started |
 | stats | `stats` | Not started |
-| — | `content-cms` | **Done** (F19) |
+| — | `content-cms` | **Removed** 2026-09-23 (added by mistake; never used) |
 | admin (SPEC-ADMIN) | `admin/*` controllers | Not started |
 
 ## Admin API checklist (all Todo)
@@ -188,7 +187,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 ## Client API checklist (Todo except noted)
 
-`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/settings/GDPR — plus **Done:** `GET /content/concept`, `GET /me`, `GET /thisUser`.
+`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/settings/GDPR — plus **Done:** `GET /me`, `GET /thisUser`.
 
 ## Intentionally out of scope (spec vs stack)
 
@@ -237,3 +236,4 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | 2026-05-24 | E3/E4/E5/E6/E10 endpoints added (`catalog`, users profile/CRM, quotes, shopping lists, stats) | Phase 1 spec-alignment backend surface implemented |
 | 2026-07-05 | Admin user provisioning: `POST /admin/users`, `PATCH /admin/users/:id/role`; clerk-integration-contract | Backend-only scope; no FAPI auth BFF |
 | 2026-08-03 | **Reversed** the `POST /auth/register` out-of-scope decision; delivered public registration + two-step onboarding (`PATCH /me/profile`, `PATCH /me/chef-profile`, `PATCH /admin/chefs/:id/verification`); added `@nestjs/throttler` | Product needs self-serve sign-up before booking; API owns registration while Clerk keeps sign-in |
+| 2026-09-23 | **Removed the F19 concept CMS**: `content-cms` module, `GET`/`PUT /content/concept`, `CmsPage` and `cms_pages` (migration `20260923120000_remove_cms_pages`), `prisma/seed.ts` and `npm run db:seed`, `SUPABASE_CMS_ASSETS_BUCKET`, F19 docs | Added by mistake at the start of the project; no frontend read it and the table held only seed rows |

@@ -9,11 +9,10 @@ import {
 export function ApiClerkAuthResponses(): MethodDecorator {
   return applyDecorators(
     ApiUnauthorizedResponse({
-      description:
-        'Missing `Authorization: Bearer` header, malformed JWT, or invalid/expired Clerk session token.',
+      description: 'No token, or the token is invalid or expired. Sign in again.',
     }),
     ApiServiceUnavailableResponse({
-      description: 'Clerk is not configured (`CLERK_SECRET_KEY` missing).',
+      description: 'The server has no Clerk key, so it cannot check tokens.',
     }),
   );
 }
@@ -23,8 +22,7 @@ export function ApiAdminAuthResponses(): MethodDecorator {
   return applyDecorators(
     ApiClerkAuthResponses(),
     ApiForbiddenResponse({
-      description:
-        'Authenticated user exists but `users.role` is not `admin` in Postgres.',
+      description: 'Signed in, but not an admin.',
     }),
   );
 }

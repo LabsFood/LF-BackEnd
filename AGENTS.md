@@ -46,7 +46,6 @@ export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export CLERK_SECRET_KEY="sk_test_placeholder"   # any non-empty string works locally
 export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
 npm run db:migrate       # apply Prisma migrations once (see docs/database-connection.md)
-npm run db:seed          # optional: seed CMS concept page
 npm run start:dev        # listens on 8000
 ```
 
@@ -70,7 +69,6 @@ npm run start:dev        # listens on 8000
 cd apps
 npm run db:migrate                    # apply pending migrations (deploy)
 npm run db:resolve -- --applied <name>  # baseline: mark migration applied without DDL
-npm run db:seed                       # seed CMS concept page
 npm run db:migrate:dev                # dev: create/apply migrations
 npm run db:studio                     # Prisma Studio
 ```
@@ -113,7 +111,8 @@ Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
 Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync.md). Frontend/backend boundary: [`docs/auth/clerk-integration-contract.md`](docs/auth/clerk-integration-contract.md).
 
 - Public sign-up (no session): `POST /auth/register` — `email` + `password`, always `role: client`, IP rate-limited. Returns a 60s Clerk sign-in ticket the frontend redeems with `signIn.create({ strategy: 'ticket', ticket })`. Returns `503` with `sk_test_placeholder`.
-- Onboarding form 2 (authenticated): `PATCH /me/profile` (client) or `PATCH /me/chef-profile` (chef). **The route sets the role — the body never carries one**; a submitted `role` is a `400`. Chefs land `is_active/is_verified = false` until `PATCH /admin/chefs/:id/verification`.
+- Onboarding form 2 (authenticated, clients): `PATCH /me/profile`. **The body never carries a role**; a submitted `role` is a `400`.
+- Chef self-edit (authenticated, verified batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`, a candidate awaiting approval a `403 CHEF_NOT_VERIFIED`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created by submitting a candidature (see *Chef onboarding* below).
 - Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
 - One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
 - One-off Clerk → Postgres backfill (real key only): `npm run db:backfill:clerk -- --email <addr> | --clerk-id <user_…> | --all`. **Writes require `--yes`**; without it the script dry-runs and prints the target database host. Use for Clerk accounts created before the webhook existed. Optional `--role <client|chef|admin>`; existing rows keep their role unless it is passed.
@@ -122,8 +121,139 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 - Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
 - First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
 
-### F19 concept CMS
+### Chef onboarding (FLOW-01)
 
-- Module: `modules/content-cms/` (`ContentCmsModule`)
-- Routes: `GET` / `PUT` `/content/concept` (public read; admin write)
-- General app content (non-CMS): `modules/content/` (`ContentModule`, reserved)
+Candidature (creates the account) → KYC documents → admin validation. Module:
+`modules/chef-onboarding/`. Spec: [`FLOW-01-candidature-batch-cooker.md`](../batchcooking-web/docs/api/FLOW-01-candidature-batch-cooker.md) (in `batchcooking-web`),
+PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooker-chef-onboarding.prd.md).
+
+**Submitting a candidature creates the account**: a Clerk user with no password,
+the `users` row (`role: chef`) and a chef profile with `isVerified` and
+`isActive` false. The candidate is **browse-only** until approval — the
+candidature and its documents are the only things they can act on, enforced in
+the API (`PATCH /me/chef-profile` → `403 CHEF_NOT_VERIFIED`). **Not yet enforced
+on the client-side routes** — `POST /bookings`, `POST /quotes` and
+`POST /me/quotes/:id/accept` accept any chef account, verified or not; that waits
+on the self-dealing guard (see the `ponytail:` note on
+`assertNoConflictingProfile`). Approval sets
+`isVerified` (and `isActive` if asked) and is refused with
+`409 DOCUMENT_REQUIRED` unless every blocking document is `valid`. A refused
+candidate keeps the account, sees the reason and the reapply date, and can
+reapply from it.
+
+| Actor | Routes |
+|---|---|
+| Public | `POST /chef-applications`, `GET /referentials/regions` |
+| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
+| Admin | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
+
+- **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
+  single use) is emailed to the submitted address and **never returned in the
+  response** — with no password on the account, the inbox is the only way in, so
+  submitting someone else's address yields an account nobody can open. An address
+  that already has an account is refused with `409 EMAIL_ALREADY_USED` and nothing
+  is attached to it. `ThrottlerGuard`, 5 per hour per IP. If anything fails after
+  the Clerk user exists, the Clerk user is deleted.
+- **That email is load-bearing.** `BREVO_API_KEY` and
+  `BREVO_TPL_APPLICATION_RECEIVED` are **required** wherever candidatures are
+  accepted, and `BREVO_TPL_SIGN_IN_LINK` for the admin resend: without them the
+  account is created but nobody can get into it. A lost email is recorded as a
+  failed `application.sign_in_link_email` audit row against the candidature.
+- **Verification only through approval**: `PATCH /admin/chefs/:id/verification`
+  refuses `isVerified: true` for a profile whose candidature is not approved, and
+  `isActive: true` for an unverified profile. Profiles older than FLOW-01 (no
+  candidature) keep the manual path.
+- **One profile per account** (`assertNoConflictingProfile`): an existing client
+  cannot apply from their account. The client ↔ chef switcher is deferred — see
+  the `ponytail:` note there.
+- **Documents** live in one append-only `chef_documents` table owned by the chef
+  profile from the first upload, so the candidature and the living dossier are
+  the same rows and history cannot drift. `missing` is derived, never stored.
+- **Storage**: private Supabase bucket (`SUPABASE_KYC_BUCKET`), signed PUT to
+  upload and 5-minute signed GET to read. Files never transit the API. Supabase
+  fixes the upload token at 2 h; that is not configurable.
+- **Daily job** (`ChefDossierCron`, 06:00): expiry warnings at J-60/30/7 (verified
+  chefs), expiry + automatic suspension at J+0, retention purge of the documents
+  of unverified profiles refused 3 months ago or idle 6 months (the account and
+  the candidature row stay). In-process and
+  idempotent — two API replicas would both fire it harmlessly. See the
+  `ponytail:` note in that file before adding a replica.
+- **Suspension episode**: `chef_profiles.auto_suspended_at` marks an *open
+  automatic-suspension episode*, not merely "offline". Depositing a replacement
+  brings the storefront back immediately (§7 "réversible immédiatement") while
+  leaving the column set, so `auto_suspended_at IS NOT NULL AND is_active`
+  means *live on an unreviewed document* — those dossiers sort first in the
+  admin queue and carry `reactivatedPendingReview`. An admin validating the
+  replacement clears the column; refusing it takes the chef back offline. A
+  chef an admin deactivated has a null column and is never auto-reactivated.
+- **Emails**: Brevo templates, ids in `BREVO_TPL_*`. An unset id is a logged
+  no-op, so an email outage never rolls back an approval.
+
+### Dishes, menus, publication and moderation (FLOW-02)
+
+Batch cookers publish their own dishes and weekly menus; admins moderate after the
+fact. Module: `modules/dishes/`. Spec:
+[`FLOW-02-plats-et-menus.md`](../FLOW-02-plats-et-menus.md), PRD:
+[`.claude/prds/chef-dishes-menus.prd.md`](.claude/prds/chef-dishes-menus.prd.md).
+
+- **`meals` is the dish.** `chef_profile_id` is the owner (null: Lab's Food
+  content), `created_by_user_id` the author, for attribution only. The legacy
+  `/admin/meals` and `/admin/menu-weeks` routes touch Lab's Food rows only.
+- **One access rule** (`ChefContentService`): another chef's dish or menu is 404
+  on a read and `403 CONTENT_NOT_OWNED` on a write. Writes need an approved chef
+  (`CHEF_NOT_VERIFIED`); publishing also needs a `validated` dossier.
+- **The recipe is private**: `ingredients`, `steps`, `reheating`, `storage` never
+  reach a public route or a client before the prestation (`RECIPE_FIELDS`).
+- **Publication is direct, moderation after the fact.** Content waits in the
+  review queue (`review_pending_since`) until an admin looks; a suspension needs
+  a 15–500 character reason the chef reads as written.
+- **Suggestions and offers**: an unowned, unoffered, published row is a
+  suggestion every chef can adopt (a draft copy, audited as consent); an offer is
+  visible to one chef, who takes the row over by accepting. Admins never set an
+  owner.
+- **Recipe versions**: `meals.recipe_version` goes up on every recipe change; a
+  booking pins the version it cooks from (`booking_meals.recipe_version`) and the
+  content is kept in `meal_recipe_versions`, so the fiche and the shopping list
+  always agree. Pinned on first use while `POST /bookings` answers 501.
+- **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
+  the photo routes answer 503.
+
+| Actor | Routes |
+|---|---|
+| Public | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}` |
+| Chef | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}` |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin` |
+| Client | `GET /me/culinary-map` |
+| Admin | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
+
+### Logging and debugging
+
+- `LOG_JSON=true` (default in production) makes both the Nest app logs and the
+  Fastify access logs JSON lines, which Railway's log explorer can filter by
+  field. `LOG_LEVEL` sets verbosity.
+- Every response carries `x-request-id` (honouring an inbound one from the
+  proxy). The same id is written to `audit_log.request_id`.
+- `audit_log` is the compliance journal **and** the debugging trail: document
+  reads, decisions, approvals, suspensions, and failures (`outcome = 'failed'`,
+  error in `metadata`). Railway log retention is short and cannot be queried by
+  candidature; this can:
+
+```sql
+SELECT created_at, actor_type, action, outcome, metadata
+FROM audit_log WHERE subject_id = '<application uuid>' ORDER BY created_at;
+```
+
+### Legacy tables renamed aside
+
+The `20260920120000_chef_onboarding` migration renames the unused
+`chef_applications` / `application_documents` tables (and the old
+`chef_application_status` enum) from `20250522130000_spec_domain` to
+`*_legacy`. They were never in `schema.prisma` and no code reads them, but they
+collided by name. **Renamed, not dropped** — drop them once production is
+confirmed empty.
+
+`20260922120000_chef_account_at_submission` follows it: the account now exists
+from submission, so it drops the candidate token columns, `approved_user_id`
+and `chef_documents.application_id`, and makes `chef_documents.chef_profile_id`
+NOT NULL. That last step fails on purpose if a candidature-era document has no
+chef profile, rather than deleting an identity document silently.

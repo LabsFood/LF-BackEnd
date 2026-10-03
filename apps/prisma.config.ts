@@ -4,7 +4,7 @@ import { loadRepoEnv } from './src/config/env-files';
 
 loadRepoEnv();
 
-/** Direct Postgres URL for Prisma CLI (migrations, seed, studio). */
+/** Direct Postgres URL for Prisma CLI (migrations, studio). */
 function migrationDatabaseUrl(): string {
   return (
     process.env.SUPABASE_DB_MIGRATION_URL ??
@@ -25,7 +25,6 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
-    seed: 'ts-node --compiler-options {"module":"CommonJS"} prisma/seed.ts',
   },
   datasource: {
     url,

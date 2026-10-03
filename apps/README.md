@@ -19,7 +19,6 @@ cp ../../.env.example ../../.env   # if not done yet, fill values (see docs/data
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
 npm run db:migrate
-npm run db:seed   # optional — F19 concept page
 npm run start:dev
 ```
 
@@ -43,28 +42,6 @@ npm run start:dev
 | Readiness | `https://lf-api.labsfood.fr/ready` |
 
 See [`../docs/deploy/railway.md`](../docs/deploy/railway.md) for deploy and smoke-test commands.
-
-## F19 — Concept CMS (`/content/concept`)
-
-Implemented in **`ContentCmsModule`** (`src/modules/content-cms/`). Routes stay under `/content/concept` per the API contract.
-
-| Method | Path | Auth |
-|--------|------|------|
-| `GET` | `/content/concept` | Public |
-| `PUT` | `/content/concept` | Clerk bearer + persisted `admin` role |
-
-```bash
-# Public read
-curl -s http://localhost:8000/content/concept | jq .
-
-# Admin update (generate a local JWT per AGENTS.md, ensure user.role = admin in DB)
-curl -s -X PUT http://localhost:8000/content/concept \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d @concept-payload.json
-```
-
-Optional Supabase Storage for CMS images: set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_CMS_ASSETS_BUCKET` in `.env` (see repo `.env.example`).
 
 ## Admin users (`/admin/users`)
 
@@ -104,6 +81,5 @@ The `api` container runs `prisma migrate deploy` before starting the API.
 | `npm test` | Jest unit tests |
 | `npm run db:migrate` | Apply pending Prisma migrations (`deploy`) |
 | `npm run db:resolve` | Mark a migration applied (TypeORM baseline) |
-| `npm run db:seed` | Seed CMS concept page |
 | `npm run db:migrate:dev` | Create/apply migrations in dev |
 | `npm run db:studio` | Prisma Studio |

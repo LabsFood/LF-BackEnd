@@ -2,12 +2,19 @@ import type { UserJSON } from '@clerk/backend';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientProfile, User, UserRole } from '../../generated/prisma/client';
+import {
+  ChefApplicationStatus,
+  ClientProfile,
+  Prisma,
+  User,
+  UserRole,
+} from '../../generated/prisma/client';
 
 import {
   clerkProfileFromBapiUser,
@@ -125,6 +132,9 @@ export class UsersService {
   async upsertFromClerk(input: UpsertFromClerkInput): Promise<User> {
     const existing = await this.findByClerkId(input.clerkUserId);
     if (existing) {
+      // A deleted account stays deleted: Svix does not guarantee order, and a late
+      // user.updated must not bring its personal data back.
+      if (existing.deletedAt) return existing;
       const data: {
         email?: string;
         fullName?: string | null;
@@ -153,6 +163,10 @@ export class UsersService {
       return existing;
     }
 
+    // ponytail: only an anonymised account is protected. A hard-deleted one leaves
+    // no row, so a late user.updated re-creates it with the personal data. Upgrade:
+    // anonymise every deleted account instead of deleting it; the row is then the
+    // tombstone.
     return this.prisma.user.create({
       data: {
         clerkUserId: input.clerkUserId,
@@ -251,8 +265,9 @@ export class UsersService {
    * Public self-service sign-up (`POST /auth/register`, form 1).
    *
    * The role is hard-coded to `client` and is never read from the request — chef and
-   * admin must not be self-assignable. A user who chooses "chef" in form 2 is promoted
-   * by `updateChefProfileByClerkUserId`, which lands them unverified and inactive.
+   * admin must not be self-assignable. Becoming a batch cooker goes through the
+   * candidature flow instead (`POST /chef-applications` then admin approval); there
+   * is no self-service promotion.
    *
    * Server-side creation establishes no browser session, so a short-lived sign-in
    * ticket is returned for the frontend to redeem.
@@ -279,8 +294,56 @@ export class UsersService {
     });
   }
 
-  async deleteByClerkId(clerkUserId: string): Promise<void> {
-    await this.prisma.user.deleteMany({ where: { clerkUserId } });
+  /**
+   * Clerk deleted the account. The row goes, unless bookings still reference it
+   * (directly, or through the chef profile and its dishes) and the database refuses
+   * to lose that history. The row then stays, emptied of what identifies the person.
+   *
+   * The delete is tried on its own first: in Postgres, a failed statement aborts
+   * the transaction it runs in.
+   */
+  async deleteByClerkId(clerkUserId: string): Promise<'deleted' | 'anonymised'> {
+    try {
+      await this.prisma.user.deleteMany({ where: { clerkUserId } });
+      return 'deleted';
+    } catch (error) {
+      if (!isForeignKeyViolation(error)) throw error;
+    }
+
+    const user = await this.findByClerkId(clerkUserId);
+    if (!user) return 'deleted';
+    // ponytail: bookings keep address_line and notes (GDPR art. 17(3)(b), legal
+    // retention): services-à-la-personne billing (the tax certificate, URSSAF avance
+    // immédiate) needs the client's identity and address for years. No invoicing
+    // module yet, so nothing breaks today. When one arrives, copy the client's name
+    // onto the booking rather than read it from users.
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: `deleted-${user.id}@deleted.invalid`,
+          fullName: null,
+          phone: null,
+          deletedAt: new Date(),
+        },
+      }),
+      this.prisma.clientProfile.deleteMany({ where: { userId: user.id } }),
+      // ponytail: the chef's candidature (name, email, phone, address) and identity
+      // documents are left as they are. FLOW-01 §8 keeps the documents until the end
+      // of the contract plus 5 years, and no end of contract is modelled. Upgrade:
+      // take deleted_at as that end and let the dossier job purge them after it.
+      this.prisma.chefProfile.updateMany({
+        where: { userId: user.id },
+        data: {
+          displayName: 'Compte supprimé',
+          bio: null,
+          city: null,
+          isActive: false,
+          isVerified: false,
+        },
+      }),
+    ]);
+    return 'anonymised';
   }
 
   /**
@@ -345,52 +408,89 @@ export class UsersService {
   }
 
   /**
-   * Chef onboarding (`PATCH /me/chef-profile`, form 2).
+   * `PATCH /me/chef-profile` — a verified batch cooker edits their own public profile.
    *
-   * Promotes `users.role` to `chef` — the route is what selects the role, never the
-   * request body. The profile is always created inactive and unverified; only
-   * {@link setChefVerification} can change that.
+   * Update-only. It never creates a chef profile and never changes `users.role`: the
+   * profile is created by submitting a candidature (FLOW-01). This route used to
+   * upsert the profile and promote any signed-in client to `chef`; a client calling
+   * it now gets a 404 instead.
+   *
+   * A candidate awaiting approval is browse-only — their candidature and documents
+   * are the only things they may act on — so an unverified profile is refused.
    */
-  async updateChefProfileByClerkUserId(
-    clerkUserId: string,
-    payload: UpdateMeChefProfileDto,
-  ) {
+  async updateOwnChefProfile(clerkUserId: string, payload: UpdateMeChefProfileDto) {
+    const user = await this.findByClerkId(clerkUserId);
+    const profile =
+      user &&
+      (await this.prisma.chefProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true, isVerified: true },
+      }));
+    if (!user || !profile) {
+      throw new NotFoundException('No batch cooker profile for this account.');
+    }
+    if (!profile.isVerified) {
+      throw new ForbiddenException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Your candidature must be approved before you can edit your profile.',
+      });
+    }
+
     const { firstName, lastName, phone, ...profileFields } = payload;
+    // No role argument, so this can only ever write names and phone.
+    await this.applyOwnUserFields(user, { firstName, lastName, phone });
 
-    const user = await this.ensurePersistedFromClerk(clerkUserId);
-    await this.assertNoConflictingProfile(user.id, 'chef');
-    // Promote out of `client` only. An admin filling in a chef profile keeps `admin`,
-    // and an existing chef is left alone — onboarding never demotes.
-    const promoteTo = user.role === UserRole.client ? UserRole.chef : undefined;
-    await this.applyOwnUserFields(user, { firstName, lastName, phone }, promoteTo);
-
-    return this.prisma.chefProfile.upsert({
-      where: { userId: user.id },
-      update: profileFields,
-      create: {
-        userId: user.id,
-        displayName: profileFields.displayName,
-        bio: profileFields.bio,
-        city: profileFields.city,
-        serviceRadiusKm: profileFields.serviceRadiusKm ?? 10,
-        // Never settable from a self-service request — admin vetting owns these.
-        isActive: false,
-        isVerified: false,
-      },
+    return this.prisma.chefProfile.update({
+      where: { id: profile.id },
+      data: profileFields,
     });
   }
 
-  /** Admin vetting gate for chefs. The only path that may set `isActive`/`isVerified`. */
+  /**
+   * Admin switch for a chef's `isVerified` / `isActive` flags.
+   *
+   * It cannot stand in for approval: a profile born from a candidature is verified
+   * only by approving that candidature, which is where the document check lives.
+   * Without this, every candidate — who holds a chef profile from submission — would
+   * be one call away from verified with no document looked at. A profile with no
+   * candidature predates FLOW-01 and keeps the old manual path.
+   */
   async setChefVerification(
     chefProfileId: string,
     input: { isVerified?: boolean; isActive?: boolean },
   ) {
     const profile = await this.prisma.chefProfile.findUnique({
       where: { id: chefProfileId },
-      select: { id: true },
+      select: {
+        id: true,
+        isVerified: true,
+        isActive: true,
+        application: { select: { status: true } },
+      },
     });
     if (!profile) {
       throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+
+    const verifies = input.isVerified === true && !profile.isVerified;
+    if (
+      verifies &&
+      profile.application &&
+      profile.application.status !== ChefApplicationStatus.approved
+    ) {
+      throw new ConflictException({
+        code: 'APPLICATION_NOT_APPROVED',
+        message: 'Verify this batch cooker by approving their candidature.',
+      });
+    }
+    if (
+      (input.isActive ?? profile.isActive) &&
+      !(input.isVerified ?? profile.isVerified)
+    ) {
+      throw new ConflictException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'An unverified batch cooker cannot be made active.',
+      });
     }
 
     return this.prisma.chefProfile.update({
@@ -404,6 +504,12 @@ export class UsersService {
    * Switching profile type after onboarding is deliberately blocked for now; it needs
    * reconciliation of the orphaned profile, bookings, and payouts. Tracked as separate
    * work — the schema already supports both rows existing, so this is the only guard.
+   *
+   * ponytail: one profile per account. Ceiling: an existing client cannot become a
+   * batch cooker without a second account and email (FLOW-01 §10.2). Upgrade path: a
+   * client ↔ chef switcher — drop this guard, expose both profiles on `GET /me` — which
+   * must ship with a self-dealing guard on bookings and quotes. Decision pending; see
+   * `.claude/plans/dual-role-switcher-analysis.md`.
    */
   private async assertNoConflictingProfile(
     userId: string,
@@ -594,4 +700,60 @@ export class UsersService {
     }
     throw error;
   }
+
+  /**
+   * `GET /me` — identity plus whatever the frontend needs to route the person.
+   *
+   * Clients and batch cookers sign in at the same place, so until this responds the
+   * user is looking at a waiting screen; the frontend gives up after 6 seconds and
+   * falls back to the client space. It is therefore deliberately one indexed read
+   * with a single join, and nothing else.
+   */
+  async currentUser(clerkUserId: string, email?: string) {
+    const persisted = await this.ensurePersistedFromClerk(clerkUserId, { email });
+
+    const [chefProfile, hasPassword] = await Promise.all([
+      persisted.role === UserRole.chef
+        ? this.prisma.chefProfile.findUnique({
+            where: { userId: persisted.id },
+            select: { id: true, isVerified: true, isActive: true },
+          })
+        : Promise.resolve(null),
+      this.hasClerkPassword(persisted.clerkUserId),
+    ]);
+
+    return {
+      id: persisted.id,
+      clerkUserId: persisted.clerkUserId,
+      email: persisted.email,
+      fullName: persisted.fullName,
+      phone: persisted.phone,
+      role: persisted.role,
+      hasPassword,
+      chefProfile,
+    };
+  }
+
+  /**
+   * Whether the Clerk account has a password yet (FLOW-01 §6: a batch cooker who
+   * arrived through the first-login link has not set one).
+   *
+   * Reports `true` when Clerk is unreachable or unconfigured: the flag only decides
+   * whether to show a "choose a password" screen, and wrongly forcing that screen on
+   * every user during a Clerk outage is worse than skipping it.
+   */
+  private async hasClerkPassword(clerkUserId: string): Promise<boolean> {
+    if (!this.clerk.configured) return true;
+    try {
+      const clerkUser = await this.clerk.getClient().users.getUser(clerkUserId);
+      return Boolean(clerkUser.passwordEnabled);
+    } catch {
+      return true;
+    }
+  }
+}
+
+/** Prisma's "a foreign key refused this write" (P2003): here, a RESTRICT from bookings. */
+function isForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003';
 }

@@ -3,12 +3,13 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import type { HealthCheckResult } from '@nestjs/terminus';
 
+import { TAGS } from '../../common/swagger/tags';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // Redis not implemented yet — re-enable ping in readiness when RedisModule is on.
 // import { RedisService } from '../../redis/redis.service';
 
-@ApiTags('health')
+@ApiTags(TAGS.health)
 @Controller()
 export class HealthController {
   constructor(
@@ -19,13 +20,14 @@ export class HealthController {
 
   @Get('health')
   @ApiOperation({
-    summary: 'Liveness probe',
+    summary: 'Is the API running?',
     description:
-      'Returns `{ status: "ok" }` when the process is running. ' +
-      'Used by Railway and load balancers; does not check database connectivity.',
+      'Answers `200` as long as the process is up. It checks nothing else, so it stays ' +
+      'green during a database outage: use `GET /ready` to know whether requests can be ' +
+      'served. Railway calls this one to decide whether to restart the container.',
   })
   @ApiOkResponse({
-    description: 'Process is alive.',
+    description: 'The process is up.',
     schema: { example: { status: 'ok' } },
   })
   liveness(): { status: string } {
@@ -35,12 +37,12 @@ export class HealthController {
   @Get('ready')
   @HealthCheck()
   @ApiOperation({
-    summary: 'Readiness probe',
+    summary: 'Can the API serve requests?',
     description:
-      'Checks backing services before accepting traffic. Currently pings PostgreSQL via `SELECT 1`. ' +
-      'Returns `503` when the database is unreachable.',
+      'Runs `SELECT 1` against the database. Answers `200` when it succeeds and `503` ' +
+      'when the database cannot be reached, so a deploy is only sent traffic once it is ' +
+      'actually usable.',
   })
-  @ApiOkResponse({ description: 'All configured dependencies are healthy.' })
   async readiness(): Promise<HealthCheckResult> {
     return this.health.check([
       async () => {

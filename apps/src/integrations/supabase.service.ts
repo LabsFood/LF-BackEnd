@@ -9,13 +9,11 @@ export class SupabaseService {
   readonly url?: string;
   readonly serviceRoleKey?: string;
   readonly anonKey?: string;
-  readonly cmsAssetsBucket?: string;
 
   constructor(config: ConfigService) {
     this.url = config.get<string>('supabase.url');
     this.serviceRoleKey = config.get<string>('supabase.serviceRoleKey');
     this.anonKey = config.get<string>('supabase.anonKey');
-    this.cmsAssetsBucket = config.get<string>('supabase.cmsAssetsBucket');
     this.client =
       this.url && this.serviceRoleKey
         ? createClient(this.url, this.serviceRoleKey, {

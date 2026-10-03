@@ -1,5 +1,12 @@
 import { resolveAllowedOrigins } from './allowed-origins';
 
+/** Env vars are strings; an unset or unparseable template id stays undefined. */
+const optionalNumber = (value?: string): number | undefined => {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 export interface AppConfig {
   environment: string;
   debug: boolean;
@@ -41,6 +48,32 @@ export interface AppConfig {
     apiKey?: string;
     senderEmail: string;
     senderName: string;
+    /** Brevo template ids; an absent id turns that email into a logged no-op. */
+    templates: {
+      applicationReceived?: number;
+      applicationReceivedAdmin?: number;
+      documentRejected?: number;
+      changesRequested?: number;
+      applicationRejected?: number;
+      applicationApproved?: number;
+      signInLink?: number;
+      documentExpiring?: number;
+      chefSuspended?: number;
+      sourceChanged?: number;
+      contentSuspended?: number;
+    };
+  };
+  /** Structured stdout logging, read by Railway's log explorer. */
+  logging: {
+    level: string;
+    /** JSON lines in production, human-readable locally. */
+    json: boolean;
+  };
+  chefOnboarding: {
+    /** Base URL of the public site, for the links in the chef-onboarding emails. */
+    publicSiteUrl: string;
+    /** Where the internal "new candidature" notification goes. */
+    adminNotificationEmail?: string;
   };
   google: {
     mapsApiKey?: string;
@@ -59,7 +92,20 @@ export interface AppConfig {
     url?: string;
     serviceRoleKey?: string;
     anonKey?: string;
-    cmsAssetsBucket?: string;
+    /** Private bucket holding KYC documents. Never publicly readable. */
+    kycBucket: string;
+  };
+  /**
+   * Cloudflare R2, for dish photos (FLOW-02). Optional: without all five, photo
+   * routes answer 503 PHOTOS_UNAVAILABLE and the rest of the API is unaffected.
+   */
+  r2: {
+    accountId?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    bucket?: string;
+    /** Public address of the bucket (custom domain or r2.dev URL). */
+    publicBaseUrl?: string;
   };
 }
 
@@ -102,6 +148,33 @@ export const configLoader = (): AppConfig => ({
     apiKey: process.env.BREVO_API_KEY,
     senderEmail: process.env.BREVO_SENDER_EMAIL ?? 'noreply@labsfood.com',
     senderName: process.env.BREVO_SENDER_NAME ?? 'Labs Food',
+    templates: {
+      applicationReceived: optionalNumber(process.env.BREVO_TPL_APPLICATION_RECEIVED),
+      applicationReceivedAdmin: optionalNumber(
+        process.env.BREVO_TPL_APPLICATION_RECEIVED_ADMIN,
+      ),
+      documentRejected: optionalNumber(process.env.BREVO_TPL_DOCUMENT_REJECTED),
+      changesRequested: optionalNumber(process.env.BREVO_TPL_CHANGES_REQUESTED),
+      applicationRejected: optionalNumber(process.env.BREVO_TPL_APPLICATION_REJECTED),
+      applicationApproved: optionalNumber(process.env.BREVO_TPL_APPLICATION_APPROVED),
+      signInLink: optionalNumber(process.env.BREVO_TPL_SIGN_IN_LINK),
+      documentExpiring: optionalNumber(process.env.BREVO_TPL_DOCUMENT_EXPIRING),
+      chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
+      sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
+      contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
+    },
+  },
+  logging: {
+    level:
+      process.env.LOG_LEVEL ??
+      (process.env.ENVIRONMENT === 'production' ? 'info' : 'debug'),
+    json:
+      (process.env.LOG_JSON ?? String(process.env.ENVIRONMENT === 'production')) ===
+      'true',
+  },
+  chefOnboarding: {
+    publicSiteUrl: process.env.PUBLIC_SITE_URL ?? 'https://labsfood.fr',
+    adminNotificationEmail: process.env.CHEF_APPLICATION_ADMIN_EMAIL,
   },
   google: {
     mapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -122,6 +195,13 @@ export const configLoader = (): AppConfig => ({
     url: process.env.SUPABASE_URL,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     anonKey: process.env.SUPABASE_ANON_KEY,
-    cmsAssetsBucket: process.env.SUPABASE_CMS_ASSETS_BUCKET,
+    kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
+  },
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    bucket: process.env.R2_BUCKET,
+    publicBaseUrl: process.env.R2_PUBLIC_BASE_URL,
   },
 });
