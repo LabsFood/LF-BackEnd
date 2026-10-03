@@ -103,6 +103,7 @@ export class ChefApplicationsAdminService {
           // reactivated on the strength of an unreviewed replacement.
           chefProfile: {
             select: {
+              userId: true,
               isActive: true,
               autoSuspendedAt: true,
               documents: { select: { type: true, status: true, version: true } },
@@ -130,6 +131,8 @@ export class ChefApplicationsAdminService {
 
         return {
           id: row.id,
+          // The account, for `POST /admin/chef-users/:id/resend-invitation`.
+          userId: row.chefProfile?.userId ?? null,
           reference: row.reference,
           name: `${row.firstName} ${row.lastName}`,
           city: row.addressCity,
@@ -152,10 +155,16 @@ export class ChefApplicationsAdminService {
   async detail(id: string) {
     const application = await this.load(id);
 
-    const dossier = await this.documents.dossier(
-      application.chefProfileId,
-      this.documents.answersOf(application),
-    );
+    const [dossier, { userId }] = await Promise.all([
+      this.documents.dossier(
+        application.chefProfileId,
+        this.documents.answersOf(application),
+      ),
+      this.prisma.chefProfile.findUniqueOrThrow({
+        where: { id: application.chefProfileId },
+        select: { userId: true },
+      }),
+    ]);
 
     return {
       id: application.id,
@@ -165,6 +174,8 @@ export class ChefApplicationsAdminService {
       submittedAt: application.submittedAt,
       decidedAt: application.decidedAt,
       chefProfileId: application.chefProfileId,
+      // The account, for `POST /admin/chef-users/:id/resend-invitation`.
+      userId,
       ...dossier,
     };
   }

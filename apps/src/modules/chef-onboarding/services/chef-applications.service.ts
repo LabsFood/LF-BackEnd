@@ -195,7 +195,16 @@ export class ChefApplicationsService {
       );
     }
 
-    return this.toCandidateView(application);
+    return {
+      ...this.toCandidateView(application),
+      // Whether the email left, so the site can say what to do when it did not.
+      // Never the link itself: whoever submits must not get into the account.
+      invitation: {
+        delivered: received.sent,
+        sentAt: received.sent ? new Date() : null,
+        expiresAt: link.expiresAt,
+      },
+    };
   }
 
   /** `GET /me/chef-application` — the caller's candidature and its dossier. */
@@ -608,14 +617,14 @@ export class ChefApplicationsService {
     return error;
   }
 
-  /** A single-use link into the account, valid 7 days. */
+  /** A single-use link into the account, valid 7 days, on the site's sign-in page. */
   private async signInLink(clerkUserId: string) {
-    const token = await this.clerk.getClient().signInTokens.createSignInToken({
+    const { token } = await this.clerk.getClient().signInTokens.createSignInToken({
       userId: clerkUserId,
       expiresInSeconds: SIGN_IN_LINK_TTL_SECONDS,
     });
     return {
-      signInUrl: token.url,
+      signInUrl: this.mailer.signInUrl(token),
       expiresAt: new Date(Date.now() + SIGN_IN_LINK_TTL_SECONDS * 1000),
     };
   }

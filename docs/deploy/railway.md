@@ -51,7 +51,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
 | `BREVO_TPL_*` (11 ids) | Chef onboarding emails, plus FLOW-02's `BREVO_TPL_SOURCE_CHANGED` and `BREVO_TPL_CONTENT_SUSPENDED`. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
-| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
+| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).

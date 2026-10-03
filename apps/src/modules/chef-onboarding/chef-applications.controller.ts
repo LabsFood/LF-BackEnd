@@ -62,8 +62,12 @@ export class ChefApplicationsController {
       'Sends the candidature form and creates the account at the same time. Public: no ' +
       'token needed.\n\n' +
       '**What happens next:** an email with a sign-in link (valid 7 days, usable once) ' +
-      'goes to the address in the form. The link is never in this answer, so only the ' +
-      'owner of the inbox can get in. Once signed in, the person sees a browse-only ' +
+      'goes to the address in the form. The link opens the site’s `/auth/login` page, ' +
+      'which signs the person in and moves on to `/apres-connexion`. The link is never ' +
+      'in this answer, so only the owner of the inbox can get in; `invitation.delivered` ' +
+      'says whether the email left, and `false` means it did not: tell the person to ' +
+      'contact Lab’s Food, who can send it again. Once signed in, the person sees a ' +
+      'browse-only ' +
       'space until an admin approves them: they can follow the candidature ' +
       '(`GET /me/chef-application`) and upload documents (`/me/chef-documents`), ' +
       'nothing else.\n\n' +

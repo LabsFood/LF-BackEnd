@@ -296,14 +296,16 @@ export class ChefApplicationsAdminController {
     summary: 'Email a batch cooker a new sign-in link',
     description:
       'For a batch cooker, approved or not, whose first link expired before they used ' +
-      "it. A new link, valid 7 days, goes to the account's own address; nobody else " +
-      'receives it, and it is not in the answer.\n\n' +
+      "it, or never arrived. A new link, valid 7 days, goes to the account's own " +
+      'address; nobody else receives it, and it is not in the answer.\n\n' +
       '`delivered: false` means the email did not leave (email service down or not ' +
       'configured): try again later.',
   })
   @ApiParam({
     name: 'id',
-    description: 'The account id (`user.id` in the approval answer, or `GET /me`).',
+    description:
+      'The account id: `userId` on the candidature, in `GET /admin/chef-applications` ' +
+      'and `GET /admin/chef-applications/{id}`.',
     example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   @ApiCreatedResponse({

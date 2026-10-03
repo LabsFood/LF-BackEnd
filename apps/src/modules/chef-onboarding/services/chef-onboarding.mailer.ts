@@ -20,7 +20,7 @@ export class ChefOnboardingMailer {
     config: ConfigService,
   ) {
     this.publicSiteUrl = config
-      .get<string>('chefOnboarding.publicSiteUrl', 'https://labsfood.fr')
+      .get<string>('chefOnboarding.publicSiteUrl', 'https://batchcooking.labsfood.fr')
       .replace(/\/$/, '');
     this.adminEmail = config.get<string>('chefOnboarding.adminNotificationEmail');
   }
@@ -28,6 +28,16 @@ export class ChefOnboardingMailer {
   /** Where a signed-in candidate or chef manages their documents. */
   private get dossierUrl(): string {
     return `${this.publicSiteUrl}/espace-chef/dossier`;
+  }
+
+  /**
+   * The link in the sign-in emails: the site's own sign-in page, carrying Clerk's
+   * single-use ticket. The `<SignIn />` there redeems `__clerk_ticket` and goes on
+   * to `/apres-connexion`. Clerk's own `token.url` lands on its hosted pages,
+   * which do not know the site and stop there.
+   */
+  signInUrl(ticket: string): string {
+    return `${this.publicSiteUrl}/auth/login?__clerk_ticket=${encodeURIComponent(ticket)}`;
   }
 
   /**

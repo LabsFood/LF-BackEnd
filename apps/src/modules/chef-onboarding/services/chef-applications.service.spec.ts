@@ -58,7 +58,11 @@ const validPayload = (): CreateChefApplicationDto =>
     }),
   );
 
-const SIGN_IN_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
+/** What Clerk returns as `url`: its own hosted page, which strands the person there. */
+const CLERK_TICKET_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
+/** What the email must carry instead: the site's sign-in page with the ticket. */
+const SIGN_IN_URL =
+  'https://batchcooking.labsfood.fr/auth/login?__clerk_ticket=sit_secret';
 
 /** A candidature row as Prisma would return it after the example submission. */
 const storedApplication = (over: Record<string, unknown> = {}) => ({
@@ -125,6 +129,7 @@ describe('ChefApplicationsService', () => {
     applicationReceived: jest.Mock;
     applicationReceivedAdmin: jest.Mock;
     signInLink: jest.Mock;
+    signInUrl: jest.Mock;
   };
   let audit: { record: jest.Mock; failed: jest.Mock };
   let documents: { dossier: jest.Mock; answersOf: jest.Mock; latestPerType: jest.Mock };
@@ -169,7 +174,7 @@ describe('ChefApplicationsService', () => {
     signInTokens = {
       createSignInToken: jest
         .fn()
-        .mockResolvedValue({ token: 'sit_secret', url: SIGN_IN_URL }),
+        .mockResolvedValue({ token: 'sit_secret', url: CLERK_TICKET_URL }),
     };
     clerk = {
       configured: true,
@@ -179,6 +184,10 @@ describe('ChefApplicationsService', () => {
       applicationReceived: jest.fn().mockResolvedValue({ sent: true }),
       applicationReceivedAdmin: jest.fn().mockResolvedValue({ sent: true }),
       signInLink: jest.fn().mockResolvedValue({ sent: true }),
+      signInUrl: jest.fn(
+        (ticket: string) =>
+          `https://batchcooking.labsfood.fr/auth/login?__clerk_ticket=${ticket}`,
+      ),
     };
     audit = { record: jest.fn(), failed: jest.fn() };
     documents = {
@@ -276,6 +285,29 @@ describe('ChefApplicationsService', () => {
           expiresAt: expect.any(Date),
         }),
       );
+    });
+
+    it('builds the link on the site from the ticket, never from Clerk’s own page', async () => {
+      await submit();
+      expect(mailer.signInUrl).toHaveBeenCalledWith('sit_secret');
+      expect(JSON.stringify(mailer.applicationReceived.mock.calls)).not.toContain(
+        CLERK_TICKET_URL,
+      );
+    });
+
+    it('says whether the sign-in email left', async () => {
+      const result = await submit();
+      expect(result.invitation).toEqual({
+        delivered: true,
+        sentAt: expect.any(Date),
+        expiresAt: expect.any(Date),
+      });
+    });
+
+    it('says so when the sign-in email did not leave', async () => {
+      mailer.applicationReceived.mockResolvedValue({ sent: false });
+      const result = await submit();
+      expect(result.invitation).toMatchObject({ delivered: false, sentAt: null });
     });
 
     it('records a lost sign-in email against the candidature — it is the only way in', async () => {

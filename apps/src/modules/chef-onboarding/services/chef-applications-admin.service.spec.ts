@@ -50,7 +50,10 @@ const makePrisma = () => {
       count: jest.fn().mockResolvedValue(0),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    chefProfile: { update: jest.fn() },
+    chefProfile: {
+      update: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ userId: 'u-1' }),
+    },
     chefDocument: { findFirst: jest.fn(), update: jest.fn() },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn(),
@@ -319,6 +322,25 @@ describe('ChefApplicationsAdminService.list', () => {
       documents: { some: { status: { in: ['submitted', 'reviewing'] } } },
     });
   });
+
+  it('gives each candidature its account id, which resending the invitation needs', async () => {
+    const prisma = makePrisma();
+    prisma.chefApplication.findMany.mockResolvedValue([
+      {
+        ...application({ submittedAt: new Date('2026-10-03T09:00:00.000Z') }),
+        chefProfile: {
+          userId: 'u-1',
+          isActive: false,
+          autoSuspendedAt: null,
+          documents: [],
+        },
+      },
+    ]);
+
+    const { data } = await makeService({ prisma }).list({} as never);
+
+    expect(data[0]).toMatchObject({ id: 'app-1', userId: 'u-1' });
+  });
 });
 
 describe('ChefApplicationsAdminService.detail', () => {
@@ -376,7 +398,12 @@ describe('ChefApplicationsAdminService.detail', () => {
       submittedAt: '2026-09-20T09:12:03.412Z',
       decidedAt: null,
       chefProfileId: 'cp-1',
+      userId: 'u-1',
       ...validatedDossier,
+    });
+    expect(prisma.chefProfile.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: 'cp-1' },
+      select: { userId: true },
     });
   });
 });
