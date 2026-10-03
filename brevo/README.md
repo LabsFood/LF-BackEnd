@@ -57,6 +57,28 @@ Renaming a file creates a new template: point the env var at the new id and dele
    it is the candidate's only way into their account.
 6. Output is built from the static files only.
 
+## Test usage from Local
+1. Make the BREVO_TPL_ID* is saved in the environnement variable.
+   ```bash 
+      export $(grep ^BREVO_API_KEY= .env)
+   ```
+2.    
+   ``` bash
+   curl -s https://api.brevo.com/v3/smtp/email \
+   -H "api-key: $BREVO_API_KEY" -H 'content-type: application/json' \
+   -d '{
+      "templateId": 123,
+      "to": [{"email": "test@example.com"}],
+      "params": {
+         "firstName": "Tester 01",
+         "reference": "CAND-TEST-001",
+         "signInUrl": "https://example.com/sign-in?token=test",
+         "expiresAt": "2026-10-06T12:00:00.000Z"
+      }
+   }'
+
+   ```
+
 ## Traps
 
 - Keep comment blocks plain text: Brevo parses them, so `{{` or `{%` inside breaks the template.
