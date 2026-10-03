@@ -65,8 +65,8 @@ export interface RegisterClientInput {
   password: string;
 }
 
-/** Row shape returned by the admin client endpoints (profile + nested user). */
-export type ClientProfileWithUser = ClientProfile & { user: User };
+/** Row of `GET /admin/clients`: a client account and its profile, if any. */
+export type AdminClientListItem = { user: User; clientProfile: ClientProfile | null };
 
 export interface RegisterClientResult {
   user: User;
@@ -524,33 +524,45 @@ export class UsersService {
   }
 
   /**
-   * One page of client profiles, newest first, with the total for the same filters.
+   * One page of client accounts, newest sign-up first, with the total for the same
+   * filters.
+   *
+   * Reads `users`, not `client_profiles`: a profile only exists once the client has
+   * saved their preferences (`PATCH /me/profile`), so listing profiles hid every
+   * client who signed up and never did. Those rows carry `clientProfile: null`, and
+   * a `status` filter leaves them out since they have no CRM status yet.
    *
    * `findMany` and `count` run in a single transaction so `meta.total` can never
    * disagree with the rows served — otherwise a concurrent signup between the two
    * queries makes the admin table jump a row mid-pagination.
    *
-   * `id` breaks ties on `updatedAt`: without it Postgres may order rows sharing a
+   * `id` breaks ties on `createdAt`: without it Postgres may order rows sharing a
    * timestamp differently per query, so a row could appear on two pages or on none.
    */
   async listClients(
     query: ListAdminClientsQueryDto = {},
-  ): Promise<Paginated<ClientProfileWithUser>> {
+  ): Promise<Paginated<AdminClientListItem>> {
     const bounds = resolvePageBounds(query);
-    const where = query.status ? { status: query.status } : undefined;
+    const where = {
+      role: UserRole.client,
+      clientProfile: query.status ? { status: query.status } : undefined,
+    };
 
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.clientProfile.findMany({
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
         where,
-        include: { user: true },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        include: { clientProfile: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: bounds.skip,
         take: bounds.take,
       }),
-      this.prisma.clientProfile.count({ where }),
+      this.prisma.user.count({ where }),
     ]);
 
-    return { data, meta: buildPaginationMeta(bounds, total) };
+    return {
+      data: rows.map(({ clientProfile, ...user }) => ({ user, clientProfile })),
+      meta: buildPaginationMeta(bounds, total),
+    };
   }
 
   getClientById(id: string) {

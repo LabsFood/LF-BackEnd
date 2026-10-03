@@ -20,6 +20,8 @@ describe('UsersService', () => {
       create: jest.Mock;
       update: jest.Mock;
       deleteMany: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
     };
     clientProfile: {
       findUnique: jest.Mock;
@@ -44,6 +46,8 @@ describe('UsersService', () => {
         create: jest.fn(),
         update: jest.fn(),
         deleteMany: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
       },
       clientProfile: {
         findUnique: jest.fn(),
@@ -818,26 +822,27 @@ describe('UsersService', () => {
   });
 
   describe('listClients', () => {
-    const clientRow = { id: 'client-1', user: { id: 'uuid-1' } };
+    const clientProfile = { id: 'profile-1', userId: 'uuid-1' };
+    const clientUser = { id: 'uuid-1', role: UserRole.client };
 
     beforeEach(() => {
-      prisma.clientProfile.findMany.mockResolvedValue([clientRow]);
-      prisma.clientProfile.count.mockResolvedValue(41);
+      prisma.user.findMany.mockResolvedValue([{ ...clientUser, clientProfile }]);
+      prisma.user.count.mockResolvedValue(41);
     });
 
     it('applies default page and limit when the query is empty', async () => {
       const result = await service.listClients();
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith({
-        where: undefined,
-        include: { user: true },
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { role: UserRole.client },
+        include: { clientProfile: true },
         // `id` is the tiebreaker that keeps paging stable across equal timestamps.
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: 0,
         take: 20,
       });
       expect(result).toEqual({
-        data: [clientRow],
+        data: [{ user: clientUser, clientProfile }],
         meta: {
           page: 1,
           limit: 20,
@@ -849,10 +854,20 @@ describe('UsersService', () => {
       });
     });
 
+    it('lists clients who have not saved a profile yet', async () => {
+      // Listing `client_profiles` hid every client who signed up but never saved
+      // their preferences: they have a `users` row and no profile row.
+      prisma.user.findMany.mockResolvedValue([{ ...clientUser, clientProfile: null }]);
+
+      const result = await service.listClients();
+
+      expect(result.data).toEqual([{ user: clientUser, clientProfile: null }]);
+    });
+
     it('translates page/limit into skip/take and reports the last page', async () => {
       const result = await service.listClients({ page: 3, limit: 20 });
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 40, take: 20 }),
       );
       expect(result.meta).toMatchObject({
@@ -863,18 +878,21 @@ describe('UsersService', () => {
     });
 
     it('counts with the same status filter it queries with', async () => {
-      prisma.clientProfile.count.mockResolvedValue(1);
+      prisma.user.count.mockResolvedValue(1);
 
       const result = await service.listClients({
         status: ClientProfileStatus.vip,
         limit: 5,
       });
 
-      const where = { status: ClientProfileStatus.vip };
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      const where = {
+        role: UserRole.client,
+        clientProfile: { status: ClientProfileStatus.vip },
+      };
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where }),
       );
-      expect(prisma.clientProfile.count).toHaveBeenCalledWith({ where });
+      expect(prisma.user.count).toHaveBeenCalledWith({ where });
       expect(result.meta).toMatchObject({ total: 1, totalPages: 1, limit: 5 });
     });
 
@@ -888,14 +906,14 @@ describe('UsersService', () => {
     it('clamps an oversized limit from a direct (non-HTTP) caller', async () => {
       await service.listClients({ page: 0, limit: 5_000 });
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 0, take: 100 }),
       );
     });
 
     it('reports zero pages when no client matches', async () => {
-      prisma.clientProfile.findMany.mockResolvedValue([]);
-      prisma.clientProfile.count.mockResolvedValue(0);
+      prisma.user.findMany.mockResolvedValue([]);
+      prisma.user.count.mockResolvedValue(0);
 
       const result = await service.listClients();
 

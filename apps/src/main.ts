@@ -12,7 +12,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
-import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
+import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
 
 /**
  * Structured logging so Railway's log explorer can filter on fields rather than
@@ -74,17 +74,11 @@ async function bootstrap(): Promise<void> {
 
   // Exact origins (site + port) from config/allowed-origins.ts, plus CORS_ORIGINS.
   const allowedOrigins = config.get<string[]>('cors.origins', resolveAllowedOrigins());
-  app.enableCors({
-    origin: (origin: string | undefined, callback) => {
-      if (isOriginAllowed(origin, allowedOrigins)) {
-        callback(null, true);
-        return;
-      }
-      logger.warn(`CORS: rejected origin ${origin} (not in the allowlist)`);
-      callback(null, false);
-    },
-    credentials: true,
-  });
+  app.enableCors(
+    corsOptions(allowedOrigins, (origin) =>
+      logger.warn(`CORS: rejected origin ${origin} (not in the allowlist)`),
+    )
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
