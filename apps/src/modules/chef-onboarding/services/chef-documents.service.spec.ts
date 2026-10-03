@@ -24,7 +24,9 @@ describe('ChefDocumentsService', () => {
     statObject: jest.Mock;
     buildPath: jest.Mock;
     createUploadUrl: jest.Mock;
+    createDownloadUrl: jest.Mock;
   };
+  let audit: { record: jest.Mock; failed: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -50,13 +52,67 @@ describe('ChefDocumentsService', () => {
         (prefix: string, type: string, id: string) => `${prefix}/${type}/${id}`,
       ),
       createUploadUrl: jest.fn(),
+      createDownloadUrl: jest.fn().mockResolvedValue({
+        url: 'https://storage.example/signed',
+        expiresAt: new Date('2026-10-03T10:05:00.000Z'),
+      }),
     };
+    audit = { record: jest.fn(), failed: jest.fn() };
 
     service = new ChefDocumentsService(
       prisma as unknown as PrismaService,
       storage as unknown as KycStorageService,
-      { record: jest.fn(), failed: jest.fn() } as unknown as AuditService,
+      audit as unknown as AuditService,
     );
+  });
+
+  describe('readLink', () => {
+    it('signs the latest deposit and journals who read it', async () => {
+      prisma.chefDocument.findFirst.mockResolvedValue({
+        id: 'doc-2',
+        type: ChefDocumentType.identity,
+        version: 2,
+        storagePath: 'chefs/chef-1/identity/up_2',
+        mimeType: 'application/pdf',
+        fileName: 'cni-recto-verso.pdf',
+      });
+      const reader = { actorType: 'candidate' as const, actorUserId: 'u-1' };
+      const link = await service.readLink(OWNER, 'identity', reader, 'req-1');
+
+      // Only this profile's deposits, and the path is the stored one, never the client's.
+      expect(prisma.chefDocument.findFirst).toHaveBeenCalledWith({
+        where: { chefProfileId: OWNER, type: ChefDocumentType.identity },
+        orderBy: { version: 'desc' },
+      });
+      expect(storage.createDownloadUrl).toHaveBeenCalledWith(
+        'chefs/chef-1/identity/up_2',
+      );
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'candidate',
+        actorUserId: 'u-1',
+        action: 'document.read',
+        subjectType: 'chef_document',
+        subjectId: 'doc-2',
+        requestId: 'req-1',
+        metadata: { type: 'identity', version: 2 },
+      });
+      expect(link).toEqual({
+        url: 'https://storage.example/signed',
+        expiresAt: new Date('2026-10-03T10:05:00.000Z'),
+        type: 'identity',
+        version: 2,
+        mimeType: 'application/pdf',
+        fileName: 'cni-recto-verso.pdf',
+      });
+    });
+
+    it('answers 404 and signs nothing when no deposit exists for the type', async () => {
+      await expect(
+        service.readLink(OWNER, 'identity', { actorType: 'chef', actorUserId: 'u-1' }),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(storage.createDownloadUrl).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('confirmUpload', () => {

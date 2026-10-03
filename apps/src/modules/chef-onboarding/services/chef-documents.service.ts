@@ -10,7 +10,7 @@ import {
   ChefDocumentStatus,
   ChefDocumentType,
 } from '../../../generated/prisma/client';
-import { AuditService } from '../../../common/audit/audit.service';
+import { AuditActorType, AuditService } from '../../../common/audit/audit.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   deriveDossierStatus,
@@ -161,6 +161,49 @@ export class ChefDocumentsService {
     });
 
     return this.toView(document);
+  }
+
+  /**
+   * FLOW-01 §3.4 — a five-minute signed link to the latest deposit of one type, for
+   * its owner or an admin. Served inline, so the browser shows the PDF or the image.
+   * The read is journalled before the link is handed over: an identity document is
+   * consulted, and every consultation is on the record.
+   */
+  async readLink(
+    chefProfileId: string,
+    wireType: string,
+    reader: {
+      actorType: AuditActorType;
+      actorUserId: string;
+      metadata?: Record<string, unknown>;
+    },
+    requestId?: string,
+  ) {
+    const type = this.parseType(wireType);
+    const document = await this.prisma.chefDocument.findFirst({
+      where: { chefProfileId, type },
+      orderBy: { version: 'desc' },
+    });
+    if (!document) throw new NotFoundException('No document deposited for this type.');
+
+    const link = await this.storage.createDownloadUrl(document.storagePath);
+    await this.audit.record({
+      actorType: reader.actorType,
+      actorUserId: reader.actorUserId,
+      action: 'document.read',
+      subjectType: 'chef_document',
+      subjectId: document.id,
+      requestId,
+      metadata: { ...reader.metadata, type: toWire(type), version: document.version },
+    });
+
+    return {
+      ...link,
+      type: toWire(type),
+      version: document.version,
+      mimeType: document.mimeType,
+      fileName: document.fileName,
+    };
   }
 
   /** FLOW-01 §7 — every deposit ever made for one type, newest first. */

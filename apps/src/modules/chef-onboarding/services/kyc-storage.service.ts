@@ -21,7 +21,7 @@ export const ALLOWED_MIME_TYPES = [
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
-/** Admin read links are deliberately short-lived (FLOW-01 §3.4). */
+/** Read links, the owner's as an admin's, are deliberately short-lived (FLOW-01 §3.4). */
 export const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 
 export interface SignedUpload {
@@ -154,7 +154,10 @@ export class KycStorageService {
     };
   }
 
-  /** Short-lived read link for an admin or the owning chef (FLOW-01 §3.4). */
+  /**
+   * Short-lived read link for an admin or the owning chef (FLOW-01 §3.4). Inline:
+   * without Supabase's `download` option the browser displays the file.
+   */
   async createDownloadUrl(
     storagePath: string,
   ): Promise<{ url: string; expiresAt: Date }> {

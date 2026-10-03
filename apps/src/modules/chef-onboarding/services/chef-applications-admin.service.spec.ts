@@ -5,7 +5,6 @@ import { ChefApplicationsAdminService } from './chef-applications-admin.service'
 import { ChefDocumentsService } from './chef-documents.service';
 import { ChefDossierCron } from './chef-dossier.cron';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
-import { KycStorageService } from './kyc-storage.service';
 
 const application = (over: Record<string, unknown> = {}) => ({
   id: 'app-1',
@@ -78,7 +77,6 @@ const makeService = (over: {
       toView: jest.fn((d: unknown) => d),
       ...over.documents,
     } as unknown as ChefDocumentsService,
-    {} as unknown as KycStorageService,
     (over.audit ?? { record: jest.fn(), failed: jest.fn() }) as unknown as AuditService,
     {
       applicationApproved: jest.fn().mockResolvedValue({ sent: true }),
@@ -319,6 +317,102 @@ describe('ChefApplicationsAdminService.list', () => {
     // Pending documents are the chef profile's: that is where every deposit lives.
     expect(where.chefProfile).toEqual({
       documents: { some: { status: { in: ['submitted', 'reviewing'] } } },
+    });
+  });
+});
+
+describe('ChefApplicationsAdminService.detail', () => {
+  it('nests the answers as the candidate submitted them, as admin-labsfood reads them', async () => {
+    const prisma = makePrisma();
+    prisma.chefApplication.findUnique.mockResolvedValue(
+      application({
+        addressStreet: '12 rue des Lilas',
+        addressLine2: null,
+        addressPostcode: '69003',
+        addressCountry: 'FR',
+        workAuthorizationDetails: null,
+        companySiret: '44306184100047',
+        consentPrivacyPolicy: true,
+        consentTerms: true,
+        consentAcceptedAt: new Date('2026-09-20T09:12:00.000Z'),
+        submittedAt: new Date('2026-09-20T09:12:03.412Z'),
+        decidedAt: null,
+      }),
+    );
+
+    // Compared as JSON: that is what the admin console receives.
+    const view = JSON.parse(
+      JSON.stringify(await makeService({ prisma }).detail('app-1')),
+    );
+    expect(view).toEqual({
+      id: 'app-1',
+      reference: 'APP-2026-0042',
+      status: 'submitted',
+      identity: {
+        firstName: 'Marie',
+        lastName: 'Dupont',
+        email: 'marie.dupont@exemple.fr',
+        phone: '+33612345678',
+      },
+      address: {
+        street: '12 rue des Lilas',
+        line2: null,
+        postcode: '69003',
+        city: 'Lyon',
+        country: 'FR',
+      },
+      interventionZones: [{ regionCode: '84' }],
+      workAuthorization: { status: 'eu-citizen', details: null },
+      company: {
+        legalForm: 'micro',
+        siret: '44306184100047',
+        sap: { path: 'type-a', declarationNumber: 'SAP443061841' },
+      },
+      consent: {
+        privacyPolicy: true,
+        terms: true,
+        acceptedAt: '2026-09-20T09:12:00.000Z',
+      },
+      submittedAt: '2026-09-20T09:12:03.412Z',
+      decidedAt: null,
+      chefProfileId: 'cp-1',
+      ...validatedDossier,
+    });
+  });
+});
+
+describe('ChefApplicationsAdminService.documentDownloadUrl', () => {
+  it('signs through the shared read link, journalled as this admin, in its usual shape', async () => {
+    const readLink = jest.fn().mockResolvedValue({
+      url: 'https://storage.example/signed',
+      expiresAt: new Date('2026-10-03T10:05:00.000Z'),
+      type: 'identity',
+      version: 2,
+      mimeType: 'application/pdf',
+      fileName: 'cni.pdf',
+    });
+    const result = await makeService({ documents: { readLink } }).documentDownloadUrl(
+      'app-1',
+      'identity',
+      'admin-1',
+      'req-1',
+    );
+
+    expect(readLink).toHaveBeenCalledWith(
+      'cp-1',
+      'identity',
+      {
+        actorType: 'admin',
+        actorUserId: 'admin-1',
+        metadata: { applicationId: 'app-1' },
+      },
+      'req-1',
+    );
+    expect(result).toEqual({
+      url: 'https://storage.example/signed',
+      expiresAt: new Date('2026-10-03T10:05:00.000Z'),
+      type: 'identity',
+      version: 2,
     });
   });
 });

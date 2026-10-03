@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
@@ -17,6 +17,7 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { CreateChefApplicationDto } from './dto/create-chef-application.dto';
+import { UpdateChefApplicationDto } from './dto/update-chef-application.dto';
 import { ChefApplicationsService } from './services/chef-applications.service';
 
 /** The id the request carries, for joining logs to `audit_log.request_id`. */
@@ -114,5 +115,39 @@ export class MyChefApplicationController {
     @Req() req: { id?: unknown },
   ) {
     return this.applications.reapply(user.userId, payload, reqId(req));
+  }
+
+  @Patch()
+  @ApiOperation({
+    summary: 'Correct your candidature while it awaits a decision',
+    description:
+      'Open while the candidature is `submitted` or `changes-requested`. Send only the ' +
+      'sections you change — `identity` (without `email`), `address`, ' +
+      '`interventionZones`, `workAuthorization`, `company` — each one whole: it replaces ' +
+      'the stored section, and the result passes the same rules as a submission. ' +
+      '`email` and `consent` cannot change and are refused. Prefill the form from ' +
+      '`answers` in `GET /me/chef-application`; the response is that same view, since ' +
+      'a changed answer can change which documents are required.',
+  })
+  @ApiOkResponse({
+    description: 'The candidature with its answers and its recomputed dossier.',
+  })
+  @ApiConflictResponse({
+    description:
+      '`APPLICATION_DECIDED` — already approved or refused; `ANSWER_LOCKED` — a ' +
+      'validated document proves an answer you changed (`documents` names it): ' +
+      'deposit a new version of that document first.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`VALIDATION_FAILED` — see the message for the field.',
+  })
+  @ApiNotFoundResponse({ description: 'This account has no candidature.' })
+  @ApiClerkAuthResponses()
+  update(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateChefApplicationDto,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.applications.update(user.userId, payload, reqId(req));
   }
 }

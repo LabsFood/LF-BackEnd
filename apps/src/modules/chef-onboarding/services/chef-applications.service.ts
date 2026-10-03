@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   ChefApplication,
@@ -19,7 +20,11 @@ import {
 import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
+import {
+  CreateChefApplicationDto,
+  InterventionZoneDto,
+} from '../dto/create-chef-application.dto';
+import { UpdateChefApplicationDto } from '../dto/update-chef-application.dto';
 import {
   buildApplicationReference,
   fromWire,
@@ -28,8 +33,10 @@ import {
   isMetropolitanRegion,
   isValidSapDeclarationNumber,
   isValidSiret,
+  lockingDocuments,
   requiredDocuments,
   toWire,
+  UNDECIDED,
 } from '../domain/chef-onboarding.rules';
 import { ChefDocumentsService } from './chef-documents.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
@@ -41,6 +48,11 @@ const SIGN_IN_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EMAIL_ALREADY_USED = {
   code: 'EMAIL_ALREADY_USED',
   message: 'An account already exists for this email address. Sign in to continue.',
+};
+
+const APPLICATION_DECIDED = {
+  code: 'APPLICATION_DECIDED',
+  message: 'This candidature has been decided and can no longer be corrected.',
 };
 
 @Injectable()
@@ -202,7 +214,12 @@ export class ChefApplicationsService {
       { disabled: isDisabledByAdmin(profile) },
     );
     // The dossier's `documents` replaces the view's all-missing list.
-    return { ...this.toCandidateView(profile.application), ...dossier };
+    return {
+      ...this.toCandidateView(profile.application),
+      // Read back so the candidate can correct them (`PATCH /me/chef-application`).
+      answers: toAnswersView(profile.application),
+      ...dossier,
+    };
   }
 
   /**
@@ -286,6 +303,111 @@ export class ChefApplicationsService {
     });
 
     // With its dossier: documents deposited before the refusal keep their statuses.
+    return this.mine(clerkUserId);
+  }
+
+  /**
+   * `PATCH /me/chef-application` — the candidate corrects their answers while the
+   * candidature awaits a decision.
+   *
+   * Each section sent replaces the stored one, and the merged candidature passes the
+   * same rules as a submission. A changed answer can change what is required, so the
+   * dossier comes back recomputed. The account's address and the consent proof are
+   * not part of the body.
+   *
+   * An answer a validated document proves is locked ({@link lockingDocuments}): the
+   * admin's decision holds for the answer as it stood. Without this, a registration
+   * certificate could be validated and the SIRET swapped before approval copies it.
+   */
+  async update(
+    clerkUserId: string,
+    payload: UpdateChefApplicationDto,
+    requestId?: string,
+  ) {
+    const profile = await this.prisma.chefProfile.findFirst({
+      where: { user: { clerkUserId } },
+      include: { application: true },
+    });
+    const application = profile?.application;
+    if (!profile || !application) {
+      throw new NotFoundException('No candidature for this account.');
+    }
+    if (!UNDECIDED.includes(application.status)) {
+      throw new ConflictException(APPLICATION_DECIDED);
+    }
+
+    // Section by section rather than a spread: the DTO instance carries every
+    // section it declares, `undefined` when not sent.
+    const stored = toAnswersView(application);
+    const merged: CreateChefApplicationDto = {
+      identity: { ...(payload.identity ?? stored.identity), email: application.email },
+      address: payload.address ?? stored.address,
+      interventionZones: payload.interventionZones ?? stored.interventionZones,
+      workAuthorization: payload.workAuthorization ?? stored.workAuthorization,
+      company: payload.company ?? stored.company,
+      consent: stored.consent,
+    };
+    this.assertValid(merged);
+
+    const next = this.answers(merged, application.email);
+    const changed = (Object.keys(next) as (keyof typeof next)[]).filter(
+      (column) => !sameValue(next[column], application[column]),
+    );
+    if (changed.length === 0) return this.mine(clerkUserId);
+
+    const locking = lockingDocuments(
+      changed,
+      this.documents.answersOf(application),
+      await this.documents.latestPerType(profile.id),
+    );
+    if (locking.length > 0) {
+      const documents = locking.map(toWire);
+      throw new ConflictException({
+        code: 'ANSWER_LOCKED',
+        message:
+          `A validated document proves these answers (${documents.join(', ')}). ` +
+          'Deposit a new version of it first.',
+        documents,
+      });
+    }
+
+    const renamed = changed.includes('firstName') || changed.includes('lastName');
+    const fullName = `${next.firstName} ${next.lastName}`;
+    await this.prisma.$transaction(async (tx) => {
+      // The status check and the write are one statement: an edit cannot land on a
+      // candidature an admin decided in the meantime.
+      const { count } = await tx.chefApplication.updateMany({
+        where: { id: application.id, status: { in: UNDECIDED } },
+        data: { ...next, lastActivityAt: new Date() },
+      });
+      if (count === 0) throw new ConflictException(APPLICATION_DECIDED);
+
+      // What submission copied from the answers follows them.
+      if (renamed || changed.includes('phone')) {
+        await tx.user.update({
+          where: { id: profile.userId },
+          data: { fullName, phone: next.phone },
+        });
+      }
+      if (renamed || changed.includes('addressCity')) {
+        await tx.chefProfile.update({
+          where: { id: profile.id },
+          data: { displayName: fullName, city: next.addressCity },
+        });
+      }
+    });
+
+    await this.audit.record({
+      actorType: 'candidate',
+      actorUserId: profile.userId,
+      action: 'application.updated',
+      subjectType: 'chef_application',
+      subjectId: application.id,
+      requestId,
+      // Which answers, never their values: the journal is not a copy of the dossier.
+      metadata: { reference: application.reference, changed },
+    });
+
     return this.mine(clerkUserId);
   }
 
@@ -530,3 +652,51 @@ export class ChefApplicationsService {
     return buildApplicationReference(year, countThisYear + 1);
   }
 }
+
+/**
+ * A candidature's answers in the shape they are submitted in (FLOW-01 §2): what the
+ * admin reviews, what the candidate reads back to correct, and the base a
+ * correction is merged over.
+ */
+export function toAnswersView(application: ChefApplication): CreateChefApplicationDto {
+  return {
+    identity: {
+      firstName: application.firstName,
+      lastName: application.lastName,
+      email: application.email,
+      phone: application.phone,
+    },
+    address: {
+      street: application.addressStreet,
+      line2: application.addressLine2,
+      postcode: application.addressPostcode,
+      city: application.addressCity,
+      country: application.addressCountry,
+    },
+    interventionZones: application.interventionZones as unknown as InterventionZoneDto[],
+    workAuthorization: {
+      status: toWire(application.workAuthorizationStatus),
+      details: application.workAuthorizationDetails,
+    },
+    company: {
+      legalForm: toWire(application.companyLegalForm),
+      siret: application.companySiret,
+      sap: {
+        path: toWire(application.sapPath),
+        declarationNumber: application.sapDeclarationNumber,
+      },
+    },
+    consent: {
+      privacyPolicy: application.consentPrivacyPolicy,
+      terms: application.consentTerms,
+      acceptedAt: application.consentAcceptedAt.toISOString(),
+    },
+  };
+}
+
+/** Equal as JSON, whatever the key order: jsonb hands keys back sorted, not as sent. */
+const sameValue = (a: unknown, b: unknown): boolean =>
+  isDeepStrictEqual(
+    JSON.parse(JSON.stringify(a ?? null)),
+    JSON.parse(JSON.stringify(b ?? null)),
+  );

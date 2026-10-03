@@ -450,12 +450,12 @@ describe('UsersService', () => {
       );
       expect(createSignInToken).toHaveBeenCalledWith({
         userId: 'user_clerk_new',
-        expiresInSeconds: 60,
+        expiresInSeconds: 3600,
       });
       expect(result).toEqual({
         user: expect.objectContaining({ role: UserRole.client }),
         signInToken: 'sit_abc123',
-        expiresInSeconds: 60,
+        expiresInSeconds: 3600,
       });
     });
 
