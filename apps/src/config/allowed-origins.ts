@@ -13,7 +13,6 @@
 /** Local dev frontends. Excluded when `ENVIRONMENT=production`. */
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 
-
 export const DEVELOPMENT_ORIGINS: readonly string[] = [
   // labsfood-web (Next.js) — `next dev -p 3007` / `next start -p 3007`
   'http://localhost:3007',

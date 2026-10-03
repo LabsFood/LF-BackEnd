@@ -95,7 +95,7 @@ export class BookingsController {
     description:
       'Admin only. Returns every booking in the database for internal/admin tooling; ' +
       'All bookings, earliest first, not paginated. Meant for the back office, but ' +
-      '**today any signed-in account can call it**'
+      '**today any signed-in account can call it**',
   })
   @ApiOkResponse({
     type: BookingReadDto,

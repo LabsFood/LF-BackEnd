@@ -78,7 +78,7 @@ async function bootstrap(): Promise<void> {
   app.enableCors(
     corsOptions(allowedOrigins, (origin) =>
       logger.warn(`CORS: rejected origin ${origin} (not in the allowlist)`),
-    )
+    ),
   );
 
   app.useGlobalPipes(
