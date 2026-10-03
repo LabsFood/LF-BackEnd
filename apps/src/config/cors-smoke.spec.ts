@@ -2,7 +2,7 @@ import { Controller, Get, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 
-import { isOriginAllowed, resolveAllowedOrigins } from './allowed-origins';
+import { corsOptions, resolveAllowedOrigins } from './allowed-origins';
 
 @Controller('ping')
 class PingController {
@@ -17,7 +17,7 @@ class SmokeModule {}
 
 describe('CORS wiring (main.ts)', () => {
   let app: NestFastifyApplication;
-  const allowedOrigins = resolveAllowedOrigins(undefined, 'development');
+  const rejected = jest.fn();
 
   beforeAll(async () => {
     app = await NestFactory.create<NestFastifyApplication>(
@@ -25,12 +25,10 @@ describe('CORS wiring (main.ts)', () => {
       new FastifyAdapter({ logger: false }),
       { logger: false },
     );
-    app.enableCors({
-      origin: (origin: string | undefined, callback) => {
-        callback(null, isOriginAllowed(origin, allowedOrigins));
-      },
-      credentials: true,
-    });
+    // The options main.ts passes, not a copy of them.
+    app.enableCors(
+      corsOptions(resolveAllowedOrigins(undefined, 'development'), rejected),
+    );
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
@@ -39,13 +37,13 @@ describe('CORS wiring (main.ts)', () => {
     await app.close();
   });
 
-  const preflight = (origin: string) =>
+  const preflight = (origin: string, method = 'GET') =>
     app.inject({
       method: 'OPTIONS',
       url: '/ping',
       headers: {
         origin,
-        'access-control-request-method': 'GET',
+        'access-control-request-method': method,
         'access-control-request-headers': 'authorization,content-type',
       },
     });
@@ -56,9 +54,17 @@ describe('CORS wiring (main.ts)', () => {
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
-  it('omits the header for an unknown origin', async () => {
+  it('omits the header for an unknown origin, and reports it', async () => {
     const res = await preflight('http://localhost:4200');
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(rejected).toHaveBeenCalledWith('http://localhost:4200');
+  });
+
+  // Swagger is served by the API itself, same origin, so it can never show this:
+  // a method missing here is cancelled by the browser before the request leaves.
+  it.each(['PATCH', 'PUT', 'DELETE'])('lets a browser send %s', async (method) => {
+    const res = await preflight('http://localhost:3005', method);
+    expect(res.headers['access-control-allow-methods']).toContain(method);
   });
 
   it('serves same-origin / no-Origin requests normally', async () => {
