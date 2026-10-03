@@ -73,11 +73,6 @@ export const envValidationSchema = Joi.object({
 
   GOOGLE_MAPS_API_KEY: Joi.string().allow('').optional(),
 
-  AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
-  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
-  AWS_REGION: Joi.string().default('eu-west-3'),
-  AWS_S3_BUCKET: Joi.string().allow('').optional(),
-
   SUPABASE_URL: Joi.string().uri().allow('').optional(),
   SUPABASE_SERVICE_ROLE_KEY: Joi.string().allow('').optional(),
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),

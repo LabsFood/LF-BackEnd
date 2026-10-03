@@ -209,7 +209,7 @@ Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `
 | Cronofy      | `CRONOFY_*`                                  | Scaffold; link to chef availability             |
 | Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
 | Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
-| AWS S3       | `AWS_*`                                      | Config only; uploads pending                    |
+| Cloudflare R2 | `R2_*`                                      | Public dish photos (`R2StorageService`); routes answer 503 without all five vars |
 | Supabase API | `SUPABASE_*`, KYC bucket                     | Private storage for chef KYC documents          |
 
 
