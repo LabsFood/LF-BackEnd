@@ -39,7 +39,7 @@ const CHEF_CARD = {
   badges: ['haccp', 'insured'],
   sessionsDone: 30,
   newcomer: false,
-  avatarUrl: null,
+  avatarUrl: `https://photos.labsfood.fr/chefs/${CHEF_ID}/avatar/ph_9f2a1c4e7b30d85a61c2e4f7.jpg`,
   rating: null,
   reviewCount: null,
   languages: [],
@@ -117,8 +117,9 @@ export class PublicVitrineController {
       '- The order rotates once a month, the same for everyone, so the same cooks are ' +
       'not always first.\n' +
       '- Never a recipe: no ingredients, no steps.\n\n' +
-      '`avatarUrl`, `rating`, `reviewCount` and `languages` are empty until those ' +
-      'exist. `sessionFromCents` is the cheapest service offer, before commission.\n\n' +
+      '`avatarUrl` is the profile photo, `null` until the batch cooker adds one. ' +
+      '`rating`, `reviewCount` and `languages` are empty until those exist. ' +
+      '`sessionFromCents` is the cheapest service offer, before commission.\n\n' +
       'Example: `?week=2026-09-21&region=93&diets=vegetarian&shoppingIncluded=true`.',
   })
   @ApiOkResponse({ description: 'The week and its cards.', example: WEEK_EXAMPLE })

@@ -96,7 +96,7 @@ export interface AppConfig {
     kycBucket: string;
   };
   /**
-   * Cloudflare R2, for dish photos (FLOW-02). Optional: without all five, photo
+   * Cloudflare R2, for dish and profile photos (FLOW-02). Optional: without all five, photo
    * routes answer 503 PHOTOS_UNAVAILABLE and the rest of the API is unaffected.
    */
   r2: {

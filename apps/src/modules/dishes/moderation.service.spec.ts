@@ -3,7 +3,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { MealStatus } from '../../generated/prisma/client';
 import { codeOf, dishRow, harness } from './dishes.test-helpers';
 import { ModerationService } from './moderation.service';
-import { R2StorageService } from './r2-storage.service';
+import { R2StorageService } from '../../integrations/r2-storage.service';
 
 const storage = {
   keyOf: jest.fn((url: string | null) => url?.replace('https://photos/', '') ?? null),

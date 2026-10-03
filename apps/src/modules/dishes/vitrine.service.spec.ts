@@ -10,6 +10,7 @@ const chef = (id: string, overrides: Record<string, unknown> = {}) => ({
   displayName: `Chef ${id}`,
   city: 'Nice',
   bio: null,
+  avatarUrl: null,
   isVerified: true,
   isActive: true,
   interventionZones: [{ regionCode: '93', scope: 'region', cities: [] }],
@@ -61,6 +62,7 @@ describe('VitrineService', () => {
         [{ select: Record<string, boolean> }],
       ];
       expect(Object.keys(select).sort()).toEqual([
+        'avatarUrl',
         'bio',
         'city',
         'displayName',
@@ -167,6 +169,15 @@ describe('VitrineService', () => {
       const { data } = await service.week({});
 
       expect(data[0].chef.badges).toEqual(['haccp']);
+    });
+
+    it('shows the chef’s profile photo on their card', async () => {
+      const photo = 'https://photos.labsfood.fr/chefs/a/avatar/ph_1.jpg';
+      const { service } = vitrine({ chefs: [chef('a', { avatarUrl: photo })] });
+
+      const { data } = await service.week({});
+
+      expect(data[0].chef.avatarUrl).toBe(photo);
     });
   });
 
