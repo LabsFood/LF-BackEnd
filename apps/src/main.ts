@@ -12,7 +12,7 @@ import { SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
-import { isOriginAllowed, resolveAllowedOrigins } from './config/allowed-origins';
+import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
 import { buildOpenApiDocument } from './swagger';
 
 /**
