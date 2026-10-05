@@ -14,6 +14,9 @@ model User {
   fullName            String?           @map("full_name") @db.VarChar(255)
   role                UserRole          @default(client)
   phone               String?           @db.VarChar(32)
+  /// Profile photo on Cloudflare R2, for every role. Set only by the photo upload,
+  /// which checks the file.
+  avatarUrl           String?           @map("avatar_url") @db.VarChar(512)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Set when Clerk deleted the account but bookings keep the row: its personal
@@ -38,9 +41,6 @@ model ChefProfile {
   displayName          String             @map("display_name") @db.VarChar(255)
   bio                  String?
   city                 String?            @db.VarChar(120)
-  /// Public URL of the profile photo on Cloudflare R2. Set only by the photo
-  /// upload, which checks the file; a candidate may set it before approval.
-  avatarUrl            String?            @map("avatar_url") @db.VarChar(512)
   serviceRadiusKm      Int                @default(10) @map("service_radius_km")
   isActive             Boolean            @default(false) @map("is_active")
   isVerified           Boolean            @default(false) @map("is_verified")
@@ -641,6 +641,8 @@ model Menu {
   sourceVersion          DateTime?          @map("source_version") @db.Timestamptz(6)
   title                  String             @db.VarChar(160)
   pitch                  String?            @db.VarChar(500)
+  /// Cover photo on Cloudflare R2, set only by the photo upload.
+  imageUrl               String?            @map("image_url") @db.VarChar(512)
   period                 MenuPeriod         @default(week)
   status                 MealStatus         @default(draft)
   /// Whether the batch cooker does the shopping. False at creation (PRD).

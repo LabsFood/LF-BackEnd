@@ -39,9 +39,14 @@ import {
   ShowcaseRangeQueryDto,
   UpdateMenuDto,
 } from './dto/menu.dto';
-import { DishPhotosService } from './dish-photos.service';
+import { ContentPhotosService } from './content-photos.service';
 import { ConsentDto } from './dto/labs-food.dto';
-import { PhotoConfirmDto, PhotoUploadDto } from './dto/photo.dto';
+import {
+  PHOTO_UPLOAD_EXAMPLE,
+  PhotoConfirmDto,
+  PhotoUploadDto,
+  photoStepsHelp,
+} from './dto/photo.dto';
 import { MenusService } from './menus.service';
 import { SuggestionsService } from './suggestions.service';
 import {
@@ -97,7 +102,7 @@ export class MeContentController {
     private readonly dishes: DishesService,
     private readonly menus: MenusService,
     private readonly suggestions: SuggestionsService,
-    private readonly photos: DishPhotosService,
+    private readonly photos: ContentPhotosService,
   ) {}
 
   @Get('dishes')
@@ -625,7 +630,7 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: PhotoUploadDto,
   ) {
-    return this.photos.uploadUrl(user.userId, id, payload);
+    return this.photos.uploadUrl(user.userId, 'dish', id, payload);
   }
 
   @Post('dishes/:id/photo/confirm')
@@ -663,7 +668,7 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: PhotoConfirmDto,
   ) {
-    return this.photos.confirm(user.userId, id, payload);
+    return this.photos.confirm(user.userId, 'dish', id, payload);
   }
 
   @Delete('dishes/:id/photo')
@@ -684,6 +689,88 @@ export class MeContentController {
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.photos.remove(user.userId, id);
+    return this.photos.remove(user.userId, 'dish', id);
+  }
+
+  @Post('menus/:id/photo/upload-url')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Add a cover photo to my menu, step 1 of 3: get an upload link',
+    description: photoStepsHelp('/me/menus/{id}/photo/confirm'),
+  })
+  @ApiMenuIdParam()
+  @ApiCreatedResponse({
+    description: 'Where to send the file.',
+    example: PHOTO_UPLOAD_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No menu with this id.' })
+  @ApiClerkAuthResponses()
+  menuPhotoUploadUrl(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoUploadDto,
+  ) {
+    return this.photos.uploadUrl(user.userId, 'menu', id, payload);
+  }
+
+  @Post('menus/:id/photo/confirm')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Add a cover photo to my menu, step 3 of 3: confirm',
+    description:
+      'Once the `PUT` succeeded. The API checks the file is really there, with the ' +
+      'type and size announced, then makes it the menu’s cover; the previous one is ' +
+      'deleted. A new photo on a published menu sends it back to the admin review queue.',
+  })
+  @ApiMenuIdParam()
+  @ApiOkResponse({
+    description: 'The menu, with its cover.',
+    example: {
+      ...MENU_EXAMPLE,
+      imageUrl: 'https://photos.labsfood.fr/chefs/c2eebc99…/menus/8d2e…/ph_9f2a….jpg',
+    },
+  })
+  @ApiConflictResponse({
+    description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`UNSUPPORTED_MEDIA_TYPE`: the file does not match the type and size announced.',
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No menu with this id.' })
+  @ApiClerkAuthResponses()
+  confirmMenuPhoto(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoConfirmDto,
+  ) {
+    return this.photos.confirm(user.userId, 'menu', id, payload);
+  }
+
+  @Delete('menus/:id/photo')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Remove my menu’s cover photo',
+    description: 'The menu stays as it is otherwise.',
+  })
+  @ApiMenuIdParam()
+  @ApiOkResponse({
+    description: 'The menu, without a cover.',
+    example: { ...MENU_EXAMPLE, imageUrl: null },
+  })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No menu with this id.' })
+  @ApiClerkAuthResponses()
+  removeMenuPhoto(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.photos.remove(user.userId, 'menu', id);
   }
 }

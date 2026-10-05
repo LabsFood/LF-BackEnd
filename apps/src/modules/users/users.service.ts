@@ -728,6 +728,7 @@ export class UsersService {
       email: persisted.email,
       fullName: persisted.fullName,
       phone: persisted.phone,
+      avatarUrl: persisted.avatarUrl,
       role: persisted.role,
       hasPassword,
       chefProfile,

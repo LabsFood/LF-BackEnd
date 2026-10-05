@@ -5,8 +5,13 @@ import { codeOf, dishRow, harness } from './dishes.test-helpers';
 import { ModerationService } from './moderation.service';
 import { R2StorageService } from '../../integrations/r2-storage.service';
 
+const keyOf = (url: string | null) => url?.replace('https://photos/', '') ?? null;
 const storage = {
-  keyOf: jest.fn((url: string | null) => url?.replace('https://photos/', '') ?? null),
+  keyOf: jest.fn(keyOf),
+  ownedKey: jest.fn((url: string | null, folder: string) => {
+    const key = keyOf(url);
+    return key?.startsWith(folder) ? key : null;
+  }),
   delete: jest.fn(async () => undefined),
 };
 
@@ -150,7 +155,7 @@ describe('ModerationService (§4)', () => {
     it('takes the photo down too when it may be the problem', async () => {
       const h = harness();
       h.meal.findFirst.mockResolvedValue(
-        published({ imageUrl: 'https://photos/chefs/c/p.jpg' }),
+        published({ imageUrl: 'https://photos/chefs/chef-1/dishes/dish-1/ph_1.jpg' }),
       );
       h.meal.updateMany.mockResolvedValue({ count: 1 });
 
@@ -163,7 +168,28 @@ describe('ModerationService (§4)', () => {
       expect(h.meal.updateMany.mock.calls[0][0]).toMatchObject({
         data: { imageUrl: null },
       });
-      expect(storage.delete).toHaveBeenCalledWith('chefs/c/p.jpg');
+      expect(storage.delete).toHaveBeenCalledWith('chefs/chef-1/dishes/dish-1/ph_1.jpg');
+    });
+
+    it('takes a shared Lab’s Food photo off the copy, but never deletes Lab’s Food’s file', async () => {
+      const h = harness();
+      storage.delete.mockClear();
+      // An adopted suggestion shows the suggestion’s own file.
+      h.meal.findFirst.mockResolvedValue(
+        published({ imageUrl: 'https://photos/labsfood/dishes/meal-9/ph_1.jpg' }),
+      );
+      h.meal.updateMany.mockResolvedValue({ count: 1 });
+
+      await service(h).moderate('dish', 'dish-1', 'admin-1', {
+        status: 'suspended',
+        reason: 'Photo sans rapport avec le plat, et choquante.',
+        reasonCode: 'inappropriate-content',
+      });
+
+      expect(h.meal.updateMany.mock.calls[0][0]).toMatchObject({
+        data: { imageUrl: null },
+      });
+      expect(storage.delete).not.toHaveBeenCalled();
     });
 
     it('does not email when asked not to', async () => {

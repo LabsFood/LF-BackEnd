@@ -39,7 +39,7 @@ const CHEF_CARD = {
   badges: ['haccp', 'insured'],
   sessionsDone: 30,
   newcomer: false,
-  avatarUrl: `https://photos.labsfood.fr/chefs/${CHEF_ID}/avatar/ph_9f2a1c4e7b30d85a61c2e4f7.jpg`,
+  avatarUrl: `https://photos.labsfood.fr/users/a0eebc99…/avatar/ph_9f2a1c4e7b30d85a61c2e4f7.jpg`,
   rating: null,
   reviewCount: null,
   languages: [],

@@ -43,11 +43,17 @@ const PUBLIC_CHEF_FIELDS = {
   displayName: true,
   city: true,
   bio: true,
-  avatarUrl: true,
   interventionZones: true,
+  // The profile photo is the account's; nothing else of the account is read.
+  user: { select: { avatarUrl: true } },
 } as const;
 
-type PublicChef = Pick<ChefProfile, keyof typeof PUBLIC_CHEF_FIELDS>;
+type PublicChef = Pick<
+  ChefProfile,
+  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones'
+> & {
+  user: { avatarUrl: string | null };
+};
 
 /** A menu's published dishes: a draft or suspended one never shows (§3.4). */
 const publishedDishes = (menu: MenuWithDishes) =>
@@ -121,6 +127,7 @@ export class VitrineService {
           chef: extras.chefCard(chef),
           title: live?.title ?? null,
           pitch: live?.pitch ?? null,
+          imageUrl: live?.imageUrl ?? null,
           coveredDiets: coveredDiets(shown.map((dish) => ({ diets: dish.dietaryTags }))),
           shoppingIncluded: live?.shoppingIncluded ?? false,
           ...extras.price(chef.id),
@@ -284,7 +291,7 @@ export class VitrineService {
             .map(([, badge]) => badge),
           sessionsDone,
           newcomer: sessionsDone === 0,
-          avatarUrl: chef.avatarUrl,
+          avatarUrl: chef.user.avatarUrl,
           // No source for these yet: shown empty rather than invented.
           rating: null,
           reviewCount: null,
@@ -333,6 +340,7 @@ function toPublicMenu(menu: MenuWithDishes) {
     id: menu.id,
     title: menu.title,
     pitch: menu.pitch,
+    imageUrl: menu.imageUrl,
     period: menu.period,
     shoppingIncluded: menu.shoppingIncluded,
     coveredDiets: coveredDiets(dishes.map((dish) => ({ diets: dish.dietaryTags }))),

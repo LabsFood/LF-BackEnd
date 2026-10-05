@@ -93,6 +93,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     update: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
     updateMany: jest.fn(async (_args?: unknown) => ({ count: 0 })),
     delete: jest.fn(async () => undefined),
+    count: jest.fn(async (_args?: unknown) => 0),
   };
   const menu = {
     findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
@@ -106,7 +107,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     ),
     update: jest.fn(async ({ data }: WriteArgs) => menuRow(data)),
     delete: jest.fn(async () => undefined),
-    count: jest.fn(async () => 0),
+    count: jest.fn(async (_args?: unknown) => 0),
   };
   const menuDish = {
     deleteMany: jest.fn(async () => ({ count: 0 })),

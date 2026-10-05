@@ -14,8 +14,9 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
 
-/** Dish photos (FLOW-02 milestone 7) and batch cooker profile photos: pictures only. */
+/** Dish and menu photos (FLOW-02) and account avatars: pictures only. */
 export const PHOTO_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -184,6 +185,34 @@ export class R2StorageService {
     }
   }
 
+  /**
+   * Step 1 of every photo upload: a fresh upload id and a presigned `PUT` for an
+   * object under `folder`, so the upload cannot place a file anywhere else.
+   */
+  async presignPhoto(folder: string, contentType: string, sizeBytes: number) {
+    this.assertAcceptable(contentType, sizeBytes);
+    const uploadId = `ph_${randomBytes(12).toString('hex')}`;
+    const signed = await this.createUploadUrl(
+      photoKey(folder, uploadId, contentType),
+      contentType,
+      sizeBytes,
+    );
+    return { uploadId, ...signed };
+  }
+
+  /** Step 3: checks what landed under `folder`, and gives its key and public URL. */
+  async confirmPhoto(folder: string, uploadId: string, contentType: string) {
+    const key = photoKey(folder, uploadId, contentType);
+    await this.assertUploaded(key, contentType);
+    return { key, url: this.publicUrl(key) };
+  }
+
+  /** The object behind `url` only if it lives under `folder`: nothing else is ever deleted. */
+  ownedKey(url: string | null, folder: string): string | null {
+    const key = this.keyOf(url);
+    return key?.startsWith(folder) ? key : null;
+  }
+
   /** The address the public site loads the photo from. */
   publicUrl(key: string): string {
     return `${this.publicBaseUrl}/${key}`;
@@ -206,6 +235,10 @@ export class R2StorageService {
     }
   }
 }
+
+/** `folder` ends with `/`; the extension follows the announced type. */
+const photoKey = (folder: string, uploadId: string, contentType: string) =>
+  `${folder}${uploadId}.${PHOTO_TYPES[contentType]}`;
 
 /** JPEG, PNG or WebP by their signatures; anything else is `null`. */
 export function detectImageType(bytes: Buffer): string | null {

@@ -132,6 +132,8 @@ export class SuggestionsService {
             sourceVersion: menu.updatedAt,
             title: menu.title,
             pitch: menu.pitch,
+            // Shared with the suggestion, as a dish's photo is: never deleted while used.
+            imageUrl: menu.imageUrl,
             period: menu.period,
             // The chef decides whether they do the shopping (PRD).
             shoppingIncluded: false,

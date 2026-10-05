@@ -81,6 +81,7 @@ export const MENU_EXAMPLE = {
   id: MENU_ID,
   title: 'Semaine méditerranéenne',
   pitch: 'Une semaine qui voyage : Vietnam, Sénégal, Tunisie, puis retour en Provence.',
+  imageUrl: null,
   period: 'week',
   status: 'published',
   shoppingIncluded: true,
