@@ -4,17 +4,14 @@ This document describes the **LF-BackEnd** API only. Product intent and route co
 
 ## Guiding specs
 
-
 | Document                                               | Backend scope                                                                                                 |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | `[SPEC-BACKEND.md](./SPEC-BACKEND.md)`                 | Client/batch-cooking API, shared domain model, payments, notifications, stats                                 |
 | `[SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md)` | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
 
-
 Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API but are **not** documented here.
 
 ## Resolved implementation choices
-
 
 | Topic             | Decision                                                                                             | Notes                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -25,16 +22,13 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 | Calendar / chat   | **Cronofy** + **Stream**                                                                             | Kept per stack; wire to booking lifecycle and messaging modules                        |
 | Tracking          | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Gap list and delivery status                                                           |
 
-
 ## Services in this repo
-
 
 | Service    | Path                              | Role                                          | Default port |
 | ---------- | --------------------------------- | --------------------------------------------- | ------------ |
 | NestJS API | `[apps/](../apps/)` (`apps/src/`) | Primary REST API (OpenAPI/Swagger)            | 8000         |
 | PostgreSQL | Docker / Supabase                 | Primary data store                            | 5432         |
 | Redis      | Docker                            | Cache + async queues (module not enabled yet) | 6379         |
-
 
 Database: **Prisma** (`apps/prisma/schema.prisma`). Local/Docker: `npm run db:migrate` or `prisma migrate deploy` in the API container entrypoint.
 
@@ -68,10 +62,9 @@ apps/src/
 
 Modules below are the **planned** NestJS boundaries. None except those in “Current” are fully implemented.
 
-
 | Module           | Responsibility                                        | Primary routes (spec)                                           |
 | ---------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
-| `auth`           | Clerk session bridge, role resolution                 | *(no password routes)* — use Clerk + `UsersService` upsert      |
+| `auth`           | Clerk session bridge, role resolution                 | _(no password routes)_ — use Clerk + `UsersService` upsert      |
 | `users`          | User row + **client profile** (CRM fields)            | `GET/PATCH /me/profile`, account/settings/GDPR                  |
 | `catalog`        | Meals, weekly menu, formules                          | `GET /menus/current`; admin meals/menu-weeks/formules           |
 | `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | `GET /me/bookings`*, `POST /bookings`, cancel; admin list/patch |
@@ -87,7 +80,6 @@ Modules below are the **planned** NestJS boundaries. None except those in “Cur
 | `stats`          | Dashboard aggregations                                | `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard`    |
 | `admin`          | Guards, badges, settings singleton                    | `/admin/*`, `/admin/dashboard/badges`                           |
 | `team`           | Chefs/staff & service zones                           | `/admin/team`, `/admin/zones`                                   |
-
 
 Spec uses `/me/reservations`; implementation keeps `**bookings`** paths unless a versioned alias is added later.
 
@@ -129,8 +121,6 @@ erDiagram
     }
 ```
 
-
-
 ### Target additions (Prisma schema — spec-aligned)
 
 Core shared entities: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote`, `ChatThread`, `ChatMessage`, `Payment`, `Notification`.
@@ -151,8 +141,6 @@ erDiagram
     users ||--o{ chat_threads : "owns"
     chat_threads ||--o{ chat_messages : "contains"
 ```
-
-
 
 `chef_profiles` can later converge with team modeling (`TeamMember`, chef assignment on `bookings`) in a later design pass.
 
@@ -197,21 +185,18 @@ flowchart TB
 
 ```
 
-
 Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `GET /menus/current` (when implemented).
 
 ## Integrations
 
-
-| Service      | Config                                       | Status                                          |
-| ------------ | -------------------------------------------- | ----------------------------------------------- |
-| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending |
-| Cronofy      | `CRONOFY_*`                                  | Scaffold; link to chef availability             |
-| Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
-| Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
-| Cloudflare R2 | `R2_*`                                      | Public dish photos (`R2StorageService`); routes answer 503 without all five vars |
-| Supabase API | `SUPABASE_*`, KYC bucket                     | Private storage for chef KYC documents          |
-
+| Service       | Config                                       | Status                                                                           |
+| ------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| Stripe        | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending                                  |
+| Cronofy       | `CRONOFY_*`                                  | Scaffold; link to chef availability                                              |
+| Stream        | `STREAM_*`                                   | Scaffold; link to messaging module                                               |
+| Brevo         | `BREVO_*`                                    | Scaffold; notification templates pending                                         |
+| Cloudflare R2 | `R2_*`                                       | Public dish photos (`R2StorageService`); routes answer 503 without all five vars |
+| Supabase API  | `SUPABASE_*`, KYC bucket                     | Private storage for chef KYC documents                                           |
 
 ## Health checks
 
@@ -222,14 +207,12 @@ Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `
 
 ### Implemented
 
-
 | Method | Route               | Auth                     |
 | ------ | ------------------- | ------------------------ |
 | GET    | `/health`, `/ready` | public                   |
 | GET    | `/thisUser`, `/me`  | Clerk                    |
 | GET    | `/bookings`         | Clerk                    |
 | POST   | `/bookings`         | Clerk (stub — not wired) |
-
 
 ### Client / public backlog (SPEC-BACKEND)
 
@@ -241,11 +224,8 @@ Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `
 
 ## Documentation map
 
-
 | File                                                                                                 | Role                        |
 | ---------------------------------------------------------------------------------------------------- | --------------------------- |
 | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Platform spec gap & backlog |
 | `[database-connection.md](./database-connection.md)`                                                 | Supabase URLs               |
 | `[Revisions_followup.md](./Revisions_followup.md)`                                                   | Release register            |
-
-

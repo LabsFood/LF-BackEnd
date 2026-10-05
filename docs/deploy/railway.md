@@ -14,15 +14,15 @@ Set these on the **API service** (Production). Mark secrets as **secret** in Rai
 
 ### Required
 
-| Variable | Notes |
-|----------|--------|
-| `NODE_ENV` | `production` |
-| `ENVIRONMENT` | `production` |
-| `DEBUG` | `false` |
-| `API_HOST` | `0.0.0.0` |
-| `SUPABASE_DB_URL` | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`. |
+| Variable                    | Notes                                                                                                                                                                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                  | `production`                                                                                                                                                                                                                              |
+| `ENVIRONMENT`               | `production`                                                                                                                                                                                                                              |
+| `DEBUG`                     | `false`                                                                                                                                                                                                                                   |
+| `API_HOST`                  | `0.0.0.0`                                                                                                                                                                                                                                 |
+| `SUPABASE_DB_URL`           | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`.                                                                                                                                                     |
 | `SUPABASE_DB_MIGRATION_URL` | **Session pooler** or **direct** (port **5432**). Used only at container start for `prisma migrate deploy`. If direct `db.<ref>.supabase.co` is unreachable from Railway (P1001), use the **session pooler** string on port 5432 instead. |
-| `CLERK_SECRET_KEY` | Production Clerk secret (`sk_live_…`). |
+| `CLERK_SECRET_KEY`          | Production Clerk secret (`sk_live_…`).                                                                                                                                                                                                    |
 
 ### Port (Railway networking)
 
@@ -32,26 +32,26 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 
 ### CORS
 
-| Variable | Example |
-|----------|---------|
+| Variable       | Example                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CORS_ORIGINS` | **Optional.** The product frontends (`https://labsfood.fr`, `https://www.labsfood.fr`, `https://batchcooking.labsfood.fr`) are already allowlisted in [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts). Set this only for extra origins — preview deploys, tunnels, staging: `https://preview-abc.vercel.app,https://staging.labsfood.fr`. Exact scheme + host + port, comma-separated, no wildcards. |
 
 ### Integrations (set when the feature is live)
 
-| Variable | When needed |
-|----------|-------------|
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
-| `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
-| `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
-| `GOOGLE_MAPS_API_KEY` | Maps |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
-| `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos and batch cooker profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
-| `BREVO_TPL_*` (11 ids) | Chef onboarding emails, plus FLOW-02's `BREVO_TPL_SOURCE_CHANGED` and `BREVO_TPL_CONTENT_SUSPENDED`. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
-| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification |
-| `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
+| Variable                                                                                       | When needed                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLERK_WEBHOOK_SIGNING_SECRET`                                                                 | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`)                                                                                                                                                                                                                                                                                   |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`                                                   | Payments                                                                                                                                                                                                                                                                                                                                                                     |
+| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER`                            | Calendar                                                                                                                                                                                                                                                                                                                                                                     |
+| `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID`                                         | Chat                                                                                                                                                                                                                                                                                                                                                                         |
+| `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                     | Email                                                                                                                                                                                                                                                                                                                                                                        |
+| `GOOGLE_MAPS_API_KEY`                                                                          | Maps                                                                                                                                                                                                                                                                                                                                                                         |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`                               | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`)                                                                                                                                                                                                                                                                                                           |
+| `SUPABASE_KYC_BUCKET`                                                                          | Chef onboarding KYC documents — **private bucket, no public read policy**                                                                                                                                                                                                                                                                                                    |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos and batch cooker profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE`                                                                                                                                                                                                                                  |
+| `BREVO_TPL_*` (11 ids)                                                                         | Chef onboarding emails, plus FLOW-02's `BREVO_TPL_SOURCE_CHANGED` and `BREVO_TPL_CONTENT_SUSPENDED`. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL`                                              | Dossier and dashboard links in the chef-onboarding emails, and the internal new-candidature notification                                                                                                                                                                                                                                                                     |
+| `LOG_JSON`, `LOG_LEVEL`                                                                        | Structured logging — see §7                                                                                                                                                                                                                                                                                                                                                  |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).
 
@@ -84,10 +84,10 @@ Never run migrations through the **transaction** pooler (6543). The container en
 
 ### Public vs private networking
 
-| URL type | Example | Who can call it |
-|----------|---------|-----------------|
-| **Public domain** | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
-| **Private internal** | `http://lf-backend.railway.internal:<PORT>` | Other Railway services in the same project only |
+| URL type             | Example                                             | Who can call it                                         |
+| -------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| **Public domain**    | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
+| **Private internal** | `http://lf-backend.railway.internal:<PORT>`         | Other Railway services in the same project only         |
 
 `*.railway.internal` is **not** reachable from the public internet. If Swagger or `/ready` return nothing in a browser, you are likely using the internal hostname — use the **public domain** from Networking instead.
 
@@ -101,12 +101,12 @@ Never run migrations through the **transaction** pooler (6543). The container en
 
 Replace `<public-domain>` with your Railway public hostname (no trailing slash).
 
-| Endpoint | URL | Notes |
-|----------|-----|--------|
-| Swagger UI | `https://<public-domain>/docs` | Interactive API explorer |
-| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec |
-| Health | `https://<public-domain>/health` | Liveness; Railway probes this |
-| Readiness | `https://<public-domain>/ready` | DB ping via `SUPABASE_DB_URL` (pooler) |
+| Endpoint     | URL                                    | Notes                                  |
+| ------------ | -------------------------------------- | -------------------------------------- |
+| Swagger UI   | `https://<public-domain>/docs`         | Interactive API explorer               |
+| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec                  |
+| Health       | `https://<public-domain>/health`       | Liveness; Railway probes this          |
+| Readiness    | `https://<public-domain>/ready`        | DB ping via `SUPABASE_DB_URL` (pooler) |
 
 ### Smoke test after deploy
 
@@ -118,11 +118,11 @@ curl -s "$API_BASE/ready"
 curl -s "$API_BASE/openapi.json" | head -c 200
 ```
 
-| Path | Use |
-|------|-----|
-| `/health` | Railway health check, load balancer liveness |
-| `/ready` | Readiness (DB ping); use after deploy smoke tests |
-| `/docs` | Swagger UI |
+| Path      | Use                                               |
+| --------- | ------------------------------------------------- |
+| `/health` | Railway health check, load balancer liveness      |
+| `/ready`  | Readiness (DB ping); use after deploy smoke tests |
+| `/docs`   | Swagger UI                                        |
 
 ## 4b. Logs and debugging
 
@@ -172,11 +172,11 @@ On each deploy Railway:
 
 ## 6. Local Docker vs Railway
 
-| | Local Compose | Railway |
-|---|---------------|---------|
-| Database | `postgres` service | Supabase |
-| Build | `docker compose build api` | Git push / Railway build |
-| Env | Repo-root `.env` | Railway dashboard |
+|          | Local Compose              | Railway                  |
+| -------- | -------------------------- | ------------------------ |
+| Database | `postgres` service         | Supabase                 |
+| Build    | `docker compose build api` | Git push / Railway build |
+| Env      | Repo-root `.env`           | Railway dashboard        |
 
 See **Getting started → Docker Compose** in the main [README](../../README.md).
 
