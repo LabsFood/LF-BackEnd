@@ -1,18 +1,14 @@
-import {
-  ConflictException,
-  Injectable,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 
 import { MealStatus } from '../../generated/prisma/client';
+import { PHOTO_TYPES, R2StorageService } from '../../integrations/r2-storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChefContentService } from './chef-content.service';
 import { goneMeanwhile } from './dishes.service';
 import { toDishView } from './dishes.views';
 import { nextReviewReason, reviewFields } from './domain/moderation.rules';
 import { PhotoConfirmDto, PhotoUploadDto } from './dto/photo.dto';
-import { MAX_PHOTO_BYTES, PHOTO_TYPES, R2StorageService } from './r2-storage.service';
 
 /**
  * Where a photo lives: always under the owning chef and the dish, so the upload
@@ -63,25 +59,7 @@ export class DishPhotosService {
     this.access.assertVerified(chef);
     const dish = await this.access.writableDish(chef, dishId);
     const key = photoKey(chef.id, dish.id, payload.uploadId, payload.contentType);
-
-    const object = await this.storage.head(key);
-    if (!object) {
-      throw new ConflictException({
-        code: 'UPLOAD_NOT_CONFIRMED',
-        message: 'No uploaded file was found for this upload id.',
-      });
-    }
-    if (
-      object.sizeBytes > MAX_PHOTO_BYTES ||
-      object.contentType !== payload.contentType ||
-      (await this.storage.sniff(key)) !== payload.contentType
-    ) {
-      await this.storage.delete(key);
-      throw new UnprocessableEntityException({
-        code: 'UNSUPPORTED_MEDIA_TYPE',
-        message: 'The file sent does not match the type and size announced.',
-      });
-    }
+    await this.storage.assertUploaded(key, payload.contentType);
 
     const previous = this.ownKey(chef.id, dish.id, dish.imageUrl);
     const updated = await this.prisma.meal

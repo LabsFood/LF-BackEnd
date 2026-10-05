@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsIn, IsInt, Matches, Max, Min } from 'class-validator';
 
-import { MAX_PHOTO_BYTES, PHOTO_TYPES } from '../r2-storage.service';
+import { MAX_PHOTO_BYTES, PHOTO_TYPES } from '../../../integrations/r2-storage.service';
 
 const TYPES = Object.keys(PHOTO_TYPES);
 

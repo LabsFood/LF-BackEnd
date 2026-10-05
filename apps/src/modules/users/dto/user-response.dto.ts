@@ -206,6 +206,15 @@ export class ChefProfileDto {
   city?: string | null;
 
   @ApiProperty({
+    nullable: true,
+    description:
+      'Profile photo, served from Cloudflare R2. Set through ' +
+      '`POST /me/chef-profile/photo/upload-url` and `.../confirm`, never sent directly.',
+    example: 'https://photos.labsfood.fr/chefs/c2eebc99…/avatar/ph_9f2a….jpg',
+  })
+  avatarUrl!: string | null;
+
+  @ApiProperty({
     description: 'Distance in kilometres the chef will travel for a session.',
     example: 10,
   })

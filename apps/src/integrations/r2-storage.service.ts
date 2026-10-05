@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
+  ConflictException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -14,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-/** Dish photos (FLOW-02 milestone 7): pictures only. */
+/** Dish photos (FLOW-02 milestone 7) and batch cooker profile photos: pictures only. */
 export const PHOTO_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -34,10 +35,10 @@ export interface R2Config {
 }
 
 /**
- * Every call into Cloudflare R2, where dish photos live (PRD: public images are
- * the high-egress case, and R2 has no egress fee). R2 speaks S3, so this is the
- * AWS SDK pointed at R2. One provider, one implementation; the KYC documents
- * stay on Supabase.
+ * Every call into Cloudflare R2, where dish photos and batch cooker profile photos
+ * live (PRD: public images are the high-egress case, and R2 has no egress fee). R2
+ * speaks S3, so this is the AWS SDK pointed at R2. One provider, one
+ * implementation; the KYC documents stay on Supabase.
  */
 @Injectable()
 export class R2StorageService {
@@ -155,6 +156,32 @@ export class R2StorageService {
     );
     const bytes = Buffer.from((await object.Body?.transformToByteArray()) ?? []);
     return detectImageType(bytes);
+  }
+
+  /**
+   * The confirm step of every photo upload: something landed under `key`, within the
+   * size cap, of the type announced, and its first bytes agree. Anything else is
+   * deleted and refused, so a presigned URL cannot be used to host another file.
+   */
+  async assertUploaded(key: string, contentType: string): Promise<void> {
+    const object = await this.head(key);
+    if (!object) {
+      throw new ConflictException({
+        code: 'UPLOAD_NOT_CONFIRMED',
+        message: 'No uploaded file was found for this upload id.',
+      });
+    }
+    if (
+      object.sizeBytes > MAX_PHOTO_BYTES ||
+      object.contentType !== contentType ||
+      (await this.sniff(key)) !== contentType
+    ) {
+      await this.delete(key);
+      throw new UnprocessableEntityException({
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+        message: 'The file sent does not match the type and size announced.',
+      });
+    }
   }
 
   /** The address the public site loads the photo from. */

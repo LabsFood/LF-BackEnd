@@ -1,9 +1,9 @@
 import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
 
 import { MealStatus } from '../../generated/prisma/client';
+import { R2StorageService } from '../../integrations/r2-storage.service';
 import { DishPhotosService } from './dish-photos.service';
 import { CHEF, codeOf, dishRow, harness } from './dishes.test-helpers';
-import { R2StorageService } from './r2-storage.service';
 
 const BASE = 'https://photos.labsfood.fr';
 const UPLOAD_ID = 'ph_0123456789abcdef01234567';
@@ -11,7 +11,7 @@ const KEY = `chefs/${CHEF.id}/dishes/dish-1/${UPLOAD_ID}.jpg`;
 
 function storage(head: { sizeBytes: number; contentType: string } | null = null) {
   const real = new R2StorageService({ get: () => ({}) } as never);
-  return {
+  const stub = {
     assertAcceptable: jest.fn((type: string, size: number) =>
       real.assertAcceptable(type, size),
     ),
@@ -29,6 +29,11 @@ function storage(head: { sizeBytes: number; contentType: string } | null = null)
     ),
     delete: jest.fn(async () => undefined),
   };
+  return Object.assign(stub, {
+    // The real confirm check, run against the stubs above.
+    assertUploaded: (key: string, contentType: string) =>
+      real.assertUploaded.call(stub as unknown as R2StorageService, key, contentType),
+  });
 }
 
 const service = (h: ReturnType<typeof harness>, s: ReturnType<typeof storage>) =>
