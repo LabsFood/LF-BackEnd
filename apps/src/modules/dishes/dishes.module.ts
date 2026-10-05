@@ -16,7 +16,6 @@ import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
 import { ModerationService } from './moderation.service';
 import { PublicVitrineController } from './public-vitrine.controller';
-import { R2StorageService } from './r2-storage.service';
 import { SuggestionsService } from './suggestions.service';
 import { VitrineService } from './vitrine.service';
 
@@ -39,7 +38,6 @@ import { VitrineService } from './vitrine.service';
     MenusService,
     MissionsService,
     ModerationService,
-    R2StorageService,
     SuggestionsService,
     VitrineService,
   ],

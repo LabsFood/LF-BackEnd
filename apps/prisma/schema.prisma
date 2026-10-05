@@ -38,6 +38,9 @@ model ChefProfile {
   displayName          String             @map("display_name") @db.VarChar(255)
   bio                  String?
   city                 String?            @db.VarChar(120)
+  /// Public URL of the profile photo on Cloudflare R2. Set only by the photo
+  /// upload, which checks the file; a candidate may set it before approval.
+  avatarUrl            String?            @map("avatar_url") @db.VarChar(512)
   serviceRadiusKm      Int                @default(10) @map("service_radius_km")
   isActive             Boolean            @default(false) @map("is_active")
   isVerified           Boolean            @default(false) @map("is_verified")

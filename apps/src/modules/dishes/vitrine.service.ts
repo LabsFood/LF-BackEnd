@@ -43,6 +43,7 @@ const PUBLIC_CHEF_FIELDS = {
   displayName: true,
   city: true,
   bio: true,
+  avatarUrl: true,
   interventionZones: true,
 } as const;
 
@@ -283,8 +284,8 @@ export class VitrineService {
             .map(([, badge]) => badge),
           sessionsDone,
           newcomer: sessionsDone === 0,
+          avatarUrl: chef.avatarUrl,
           // No source for these yet: shown empty rather than invented.
-          avatarUrl: null,
           rating: null,
           reviewCount: null,
           languages: [] as string[],

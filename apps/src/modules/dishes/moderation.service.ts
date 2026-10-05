@@ -21,7 +21,7 @@ import {
 } from './domain/moderation.rules';
 import { ContentQueryDto, ModerationDto, ReviewDto } from './dto/moderation.dto';
 import { toMenuView } from './menus.service';
-import { R2StorageService } from './r2-storage.service';
+import { R2StorageService } from '../../integrations/r2-storage.service';
 
 /** Removal reasons where the photo itself may be what is wrong. */
 const PHOTO_REASONS = new Set(['inappropriate-content', 'copyright']);
