@@ -7,7 +7,8 @@ name: Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    tags: ['v*.*.*']
   pull_request:
     branches: [develop]
   workflow_dispatch:
