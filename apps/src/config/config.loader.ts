@@ -70,7 +70,11 @@ export interface AppConfig {
     json: boolean;
   };
   chefOnboarding: {
-    /** Base URL of the public site, for the links in the chef-onboarding emails. */
+    /**
+     * The batch cooking site, for the links in the chef-onboarding emails: sign-in,
+     * dossier, dashboard. It must use the same Clerk instance as this API, or the
+     * sign-in link is refused.
+     */
     publicSiteUrl: string;
     /** Where the internal "new candidature" notification goes. */
     adminNotificationEmail?: string;
@@ -167,7 +171,7 @@ export const configLoader = (): AppConfig => ({
       'true',
   },
   chefOnboarding: {
-    publicSiteUrl: process.env.PUBLIC_SITE_URL ?? 'https://labsfood.fr',
+    publicSiteUrl: process.env.PUBLIC_SITE_URL ?? 'https://batchcooking.labsfood.fr',
     adminNotificationEmail: process.env.CHEF_APPLICATION_ADMIN_EMAIL,
   },
   google: {

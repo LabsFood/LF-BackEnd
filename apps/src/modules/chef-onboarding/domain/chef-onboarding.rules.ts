@@ -1,4 +1,6 @@
 import {
+  ChefApplication,
+  ChefApplicationStatus,
   ChefDocumentStatus,
   ChefDocumentType,
   CompanyLegalForm,
@@ -231,6 +233,67 @@ export function isDisabledByAdmin(profile: {
   autoSuspendedAt: Date | null;
 }): boolean {
   return profile.isVerified && !profile.isActive && profile.autoSuspendedAt === null;
+}
+
+/** Awaiting a decision: an admin can still decide, the candidate can still correct. */
+export const UNDECIDED: ChefApplicationStatus[] = [
+  ChefApplicationStatus.submitted,
+  ChefApplicationStatus.changes_requested,
+];
+
+/**
+ * The document that proves one answer, read off the answers the same way
+ * {@link requiredDocuments} reads them. Phone, address and zones are proved by none.
+ */
+function proofOf(
+  column: keyof ChefApplication,
+  answers: ApplicationAnswers,
+): ChefDocumentType | undefined {
+  switch (column) {
+    case 'firstName':
+    case 'lastName':
+      return ChefDocumentType.identity;
+    case 'workAuthorizationStatus':
+    case 'workAuthorizationDetails':
+      // An EU citizen's right to work is read off the identity document itself.
+      return (
+        WORK_AUTHORIZATION_DOCUMENT[answers.workAuthorizationStatus] ??
+        ChefDocumentType.identity
+      );
+    case 'companyLegalForm':
+    case 'companySiret':
+      return answers.companyLegalForm === CompanyLegalForm.not_registered
+        ? undefined
+        : ChefDocumentType.registration;
+    case 'sapPath':
+    case 'sapDeclarationNumber':
+      return answers.sapPath === 'type_a' ? ChefDocumentType.sap_declaration : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The validated documents a correction to the candidature would contradict, each
+ * proving an answer in `changed` (candidature columns). An admin validated that
+ * document against the answer as it stood, so the change is refused rather than left
+ * behind a decision it no longer matches. A new version of the document lifts the
+ * lock, as does its refusal, and is reviewed against the new answer.
+ *
+ * `answers` are the stored ones: they decide which document proves what.
+ */
+export function lockingDocuments(
+  changed: readonly (keyof ChefApplication)[],
+  answers: ApplicationAnswers,
+  latest: ReadonlyMap<ChefDocumentType, { status: ChefDocumentStatus }>,
+): ChefDocumentType[] {
+  const locking = new Set<ChefDocumentType>();
+  for (const column of changed) {
+    const proof = proofOf(column, answers);
+    const status = proof && latest.get(proof)?.status;
+    if (proof && status && COUNTS_AS_VALID.has(status)) locking.add(proof);
+  }
+  return [...locking];
 }
 
 // ------------------------------------------------------------------ validation

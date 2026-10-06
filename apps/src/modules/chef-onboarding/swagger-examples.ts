@@ -6,6 +6,39 @@
 
 const APPLICATION_ID = '0b8c2f1e-9d64-4c1b-8a4e-2f0d3c5a7b11';
 const CHEF_PROFILE_ID = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33';
+const USER_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+
+/** The answers as submitted (`toAnswersView`), shown to the admin and the candidate. */
+const ANSWERS_EXAMPLE = {
+  identity: {
+    firstName: 'Marie',
+    lastName: 'Dupont',
+    email: 'marie.dupont@exemple.fr',
+    phone: '+33612345678',
+  },
+  address: {
+    street: '12 rue des Lilas',
+    line2: null,
+    postcode: '69003',
+    city: 'Lyon',
+    country: 'FR',
+  },
+  interventionZones: [
+    {
+      regionCode: '84',
+      regionLabel: 'Auvergne-Rhône-Alpes',
+      scope: 'cities',
+      cities: [{ name: 'Lyon', dept: '69', insee: '69123' }],
+    },
+  ],
+  workAuthorization: { status: 'eu-citizen', details: null },
+  company: {
+    legalForm: 'micro',
+    siret: '44306184100047',
+    sap: { path: 'type-a', declarationNumber: 'SAP443061841' },
+  },
+  consent: { privacyPolicy: true, terms: true, acceptedAt: '2026-09-20T09:12:00.000Z' },
+};
 
 const IDENTITY_VALID = {
   type: 'identity',
@@ -53,8 +86,8 @@ const RC_PRO_MISSING = {
   reasonCode: null,
 };
 
-/** `POST /chef-applications` → 201. */
-export const SUBMITTED_EXAMPLE = {
+/** A candidature as `toCandidateView` returns it. */
+const CANDIDATURE_EXAMPLE = {
   id: APPLICATION_ID,
   reference: 'APP-2026-0042',
   status: 'submitted',
@@ -86,6 +119,16 @@ export const SUBMITTED_EXAMPLE = {
   ],
 };
 
+/** `POST /chef-applications` → 201. */
+export const SUBMITTED_EXAMPLE = {
+  ...CANDIDATURE_EXAMPLE,
+  invitation: {
+    delivered: true,
+    sentAt: '2026-09-20T09:12:04.120Z',
+    expiresAt: '2026-09-27T09:12:03.900Z',
+  },
+};
+
 /** `GET /me/chef-documents` → 200. */
 export const DOSSIER_EXAMPLE = {
   dossierStatus: 'incomplete',
@@ -98,14 +141,16 @@ export const MY_APPLICATION_EXAMPLES = {
   reviewing: {
     summary: 'Being reviewed',
     value: {
-      ...SUBMITTED_EXAMPLE,
+      ...CANDIDATURE_EXAMPLE,
+      answers: ANSWERS_EXAMPLE,
       ...DOSSIER_EXAMPLE,
     },
   },
   refused: {
     summary: 'Refused, with a reapply date',
     value: {
-      ...SUBMITTED_EXAMPLE,
+      ...CANDIDATURE_EXAMPLE,
+      answers: ANSWERS_EXAMPLE,
       status: 'rejected',
       decidedAt: '2026-09-25T10:04:51.000Z',
       refusal: {
@@ -148,6 +193,7 @@ export const QUEUE_EXAMPLE = {
   data: [
     {
       id: APPLICATION_ID,
+      userId: USER_ID,
       reference: 'APP-2026-0042',
       name: 'Marie Dupont',
       city: 'Lyon',
@@ -173,37 +219,11 @@ export const APPLICATION_DETAIL_EXAMPLE = {
   id: APPLICATION_ID,
   reference: 'APP-2026-0042',
   status: 'submitted',
-  identity: {
-    firstName: 'Marie',
-    lastName: 'Dupont',
-    email: 'marie.dupont@exemple.fr',
-    phone: '+33612345678',
-  },
-  address: {
-    street: '12 rue des Lilas',
-    line2: null,
-    postcode: '69003',
-    city: 'Lyon',
-    country: 'FR',
-  },
-  interventionZones: [
-    {
-      regionCode: '84',
-      regionLabel: 'Auvergne-Rhône-Alpes',
-      scope: 'cities',
-      cities: [{ name: 'Lyon', dept: '69', insee: '69123' }],
-    },
-  ],
-  workAuthorization: { status: 'eu-citizen', details: null },
-  company: {
-    legalForm: 'micro',
-    siret: '44306184100047',
-    sap: { path: 'type-a', declarationNumber: 'SAP443061841' },
-  },
-  consent: { privacyPolicy: true, terms: true, acceptedAt: '2026-09-20T09:12:00.000Z' },
+  ...ANSWERS_EXAMPLE,
   submittedAt: '2026-09-20T09:12:03.412Z',
   decidedAt: null,
   chefProfileId: CHEF_PROFILE_ID,
+  userId: USER_ID,
   ...DOSSIER_EXAMPLE,
 };
 

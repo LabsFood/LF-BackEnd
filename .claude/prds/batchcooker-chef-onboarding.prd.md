@@ -87,6 +87,7 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
 | Document requirements are **computed server-side** from the candidate's answers | Today the frontend decides what is required, so nothing is actually required. |
 | Dossier status is **derived, never stored as input** | An admin cannot type a dossier into `validated`; it follows from the documents. |
 | Automatic suspension lifts **on deposit**, not on review | FLOW-01 §7 promises the only unattended takedown is "réversible immédiatement". The replacement is flagged for priority review and a refusal re-suspends, so speed for the chef does not become a hole in vetting. |
+| A candidate **corrects their answers** until a decision; an answer a **validated document proves is locked** (decided 03/10/2026) | Otherwise a typo needs a refusal and a reapplication, and an unregistered candidate can never leave `awaiting-registration`. The lock keeps each admin decision tied to the answer it was made against: changing a name or a SIRET first takes a new version of the document proving it. Email and consent never change. |
 
 ## Scope
 

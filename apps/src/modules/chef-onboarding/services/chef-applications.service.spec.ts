@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   ConflictException,
   ServiceUnavailableException,
   UnprocessableEntityException,
+  ValidationPipe,
 } from '@nestjs/common';
 
 import { ChefApplicationStatus, UserRole } from '../../../generated/prisma/client';
@@ -9,6 +11,7 @@ import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
+import { UpdateChefApplicationDto } from '../dto/update-chef-application.dto';
 import { ChefApplicationsService } from './chef-applications.service';
 import { ChefDocumentsService } from './chef-documents.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
@@ -55,7 +58,11 @@ const validPayload = (): CreateChefApplicationDto =>
     }),
   );
 
-const SIGN_IN_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
+/** What Clerk returns as `url`: its own hosted page, which strands the person there. */
+const CLERK_TICKET_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
+/** What the email must carry instead: the site's sign-in page with the ticket. */
+const SIGN_IN_URL =
+  'https://batchcooking.labsfood.fr/auth/login?__clerk_ticket=sit_secret';
 
 /** A candidature row as Prisma would return it after the example submission. */
 const storedApplication = (over: Record<string, unknown> = {}) => ({
@@ -69,10 +76,30 @@ const storedApplication = (over: Record<string, unknown> = {}) => ({
   firstName: 'Marie',
   lastName: 'Dupont',
   email: 'marie.dupont@exemple.fr',
+  phone: '+33612345678',
+  addressStreet: '12 rue des Lilas',
+  addressLine2: null,
+  addressPostcode: '69003',
   addressCity: 'Lyon',
+  addressCountry: 'FR',
+  // Keys in jsonb's own order (shortest first), not in the order they were sent.
+  interventionZones: [
+    {
+      scope: 'cities',
+      cities: [{ dept: '69', name: 'Lyon', insee: '69123' }],
+      regionCode: '84',
+      regionLabel: 'Auvergne-Rhône-Alpes',
+    },
+  ],
   workAuthorizationStatus: 'other',
+  workAuthorizationDetails: 'Étudiante étrangère autorisée à travailler à temps partiel',
   companyLegalForm: 'micro',
+  companySiret: '44306184100047',
   sapPath: 'type_a',
+  sapDeclarationNumber: 'SAP443061841',
+  consentPrivacyPolicy: true,
+  consentTerms: true,
+  consentAcceptedAt: new Date('2026-09-20T09:12:00.000Z'),
   chefProfileId: 'cp-1',
   ...over,
 });
@@ -80,9 +107,19 @@ const storedApplication = (over: Record<string, unknown> = {}) => ({
 describe('ChefApplicationsService', () => {
   let service: ChefApplicationsService;
   let prisma: {
-    chefApplication: { count: jest.Mock; create: jest.Mock; update: jest.Mock };
-    chefProfile: { create: jest.Mock; findFirst: jest.Mock };
-    user: { findFirst: jest.Mock; findUnique: jest.Mock; upsert: jest.Mock };
+    chefApplication: {
+      count: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
+    chefProfile: { create: jest.Mock; findFirst: jest.Mock; update: jest.Mock };
+    user: {
+      findFirst: jest.Mock;
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+      update: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
   let clerk: { configured: boolean; getClient: () => unknown };
@@ -92,9 +129,10 @@ describe('ChefApplicationsService', () => {
     applicationReceived: jest.Mock;
     applicationReceivedAdmin: jest.Mock;
     signInLink: jest.Mock;
+    signInUrl: jest.Mock;
   };
   let audit: { record: jest.Mock; failed: jest.Mock };
-  let documents: { dossier: jest.Mock; answersOf: jest.Mock };
+  let documents: { dossier: jest.Mock; answersOf: jest.Mock; latestPerType: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -111,15 +149,18 @@ describe('ChefApplicationsService', () => {
           ...storedApplication(),
           ...data,
         })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       chefProfile: {
         create: jest.fn().mockResolvedValue({ id: 'cp-1' }),
         findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
       },
       user: {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({ id: 'u-1' }),
+        update: jest.fn(),
       },
       $transaction: jest.fn(),
     };
@@ -133,7 +174,7 @@ describe('ChefApplicationsService', () => {
     signInTokens = {
       createSignInToken: jest
         .fn()
-        .mockResolvedValue({ token: 'sit_secret', url: SIGN_IN_URL }),
+        .mockResolvedValue({ token: 'sit_secret', url: CLERK_TICKET_URL }),
     };
     clerk = {
       configured: true,
@@ -143,6 +184,10 @@ describe('ChefApplicationsService', () => {
       applicationReceived: jest.fn().mockResolvedValue({ sent: true }),
       applicationReceivedAdmin: jest.fn().mockResolvedValue({ sent: true }),
       signInLink: jest.fn().mockResolvedValue({ sent: true }),
+      signInUrl: jest.fn(
+        (ticket: string) =>
+          `https://batchcooking.labsfood.fr/auth/login?__clerk_ticket=${ticket}`,
+      ),
     };
     audit = { record: jest.fn(), failed: jest.fn() };
     documents = {
@@ -156,6 +201,7 @@ describe('ChefApplicationsService', () => {
         companyLegalForm: a.companyLegalForm,
         sapPath: a.sapPath,
       })),
+      latestPerType: jest.fn().mockResolvedValue(new Map()),
     };
 
     service = new ChefApplicationsService(
@@ -239,6 +285,29 @@ describe('ChefApplicationsService', () => {
           expiresAt: expect.any(Date),
         }),
       );
+    });
+
+    it('builds the link on the site from the ticket, never from Clerk’s own page', async () => {
+      await submit();
+      expect(mailer.signInUrl).toHaveBeenCalledWith('sit_secret');
+      expect(JSON.stringify(mailer.applicationReceived.mock.calls)).not.toContain(
+        CLERK_TICKET_URL,
+      );
+    });
+
+    it('says whether the sign-in email left', async () => {
+      const result = await submit();
+      expect(result.invitation).toEqual({
+        delivered: true,
+        sentAt: expect.any(Date),
+        expiresAt: expect.any(Date),
+      });
+    });
+
+    it('says so when the sign-in email did not leave', async () => {
+      mailer.applicationReceived.mockResolvedValue({ sent: false });
+      const result = await submit();
+      expect(result.invitation).toMatchObject({ delivered: false, sentAt: null });
     });
 
     it('records a lost sign-in email against the candidature — it is the only way in', async () => {
@@ -492,6 +561,8 @@ describe('ChefApplicationsService', () => {
       );
       expect(view).toMatchObject({ reference: 'APP-2026-0042', dossierStatus: 'draft' });
       expect(view.refusal).toBeNull();
+      // Read back in the shape it was sent in, ready to correct.
+      expect(view.answers).toEqual(validPayload());
     });
 
     it('does not read a candidate awaiting approval as disabled', async () => {
@@ -621,6 +692,166 @@ describe('ChefApplicationsService', () => {
     });
   });
 
+  describe('update — correcting a candidature that awaits a decision', () => {
+    const pending = (over: Record<string, unknown> = {}) => ({
+      id: 'cp-1',
+      userId: 'u-1',
+      isVerified: false,
+      isActive: false,
+      autoSuspendedAt: null,
+      application: storedApplication(over),
+    });
+    const update = (body: Record<string, unknown>) =>
+      service.update('user_2n', body as never, 'req-1');
+    const zones = [
+      { regionCode: '11', regionLabel: 'Île-de-France', scope: 'region', cities: [] },
+    ];
+    const renamed = { firstName: 'Maria', lastName: 'Dupont', phone: '+33612345678' };
+    const written = () => prisma.chefApplication.updateMany.mock.calls[0][0];
+
+    beforeEach(() => prisma.chefProfile.findFirst.mockResolvedValue(pending()));
+
+    it('replaces the sections sent and keeps the rest, checking the status in the same write', async () => {
+      const view = await update({ interventionZones: zones });
+      expect(written().where).toEqual({
+        id: 'app-1',
+        status: {
+          in: [ChefApplicationStatus.submitted, ChefApplicationStatus.changes_requested],
+        },
+      });
+      expect(written().data).toMatchObject({
+        interventionZones: zones,
+        addressCity: 'Lyon',
+        companySiret: '44306184100047',
+        // The account's address and the consent proof stay exactly as they were.
+        email: 'marie.dupont@exemple.fr',
+        consentAcceptedAt: new Date('2026-09-20T09:12:00.000Z'),
+      });
+      expect(view).toMatchObject({ reference: 'APP-2026-0042', dossierStatus: 'draft' });
+    });
+
+    it('is open while an admin has asked for changes', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        pending({ status: ChefApplicationStatus.changes_requested }),
+      );
+      await update({ interventionZones: zones });
+      expect(prisma.chefApplication.updateMany).toHaveBeenCalled();
+    });
+
+    it.each([ChefApplicationStatus.approved, ChefApplicationStatus.rejected])(
+      'refuses a candidature already %s',
+      async (status) => {
+        prisma.chefProfile.findFirst.mockResolvedValue(pending({ status }));
+        await expect(update({ interventionZones: zones })).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'APPLICATION_DECIDED' },
+        });
+        expect(prisma.chefApplication.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('loses to a decision that lands in the meantime', async () => {
+      prisma.chefApplication.updateMany.mockResolvedValue({ count: 0 });
+      await expect(update({ identity: renamed })).rejects.toMatchObject({
+        response: { code: 'APPLICATION_DECIDED' },
+      });
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('lets an unregistered candidate register — the way out of awaiting-registration', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        pending({ companyLegalForm: 'not_registered', companySiret: null }),
+      );
+      await update({
+        company: {
+          legalForm: 'micro',
+          siret: '44306184100047',
+          sap: { path: 'type-a', declarationNumber: 'SAP443061841' },
+        },
+      });
+      expect(written().data).toMatchObject({
+        companyLegalForm: 'micro',
+        companySiret: '44306184100047',
+      });
+    });
+
+    it('validates a section as a submission would', async () => {
+      await expect(
+        update({
+          company: {
+            legalForm: 'not-registered',
+            siret: '44306184100047',
+            sap: { path: 'type-b', declarationNumber: null },
+          },
+        }),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(prisma.chefApplication.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses a changed answer a validated document proves, naming the document', async () => {
+      documents.latestPerType.mockResolvedValue(
+        new Map([['identity', { status: 'valid' }]]),
+      );
+      await expect(update({ identity: renamed })).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'ANSWER_LOCKED', documents: ['identity'] },
+      });
+      expect(prisma.chefApplication.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('still lets the phone change once the identity document is validated', async () => {
+      documents.latestPerType.mockResolvedValue(
+        new Map([['identity', { status: 'valid' }]]),
+      );
+      await update({
+        identity: { ...renamed, firstName: 'Marie', phone: '+33699999999' },
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u-1' },
+        data: { fullName: 'Marie Dupont', phone: '+33699999999' },
+      });
+    });
+
+    it('carries a corrected name to the account and the profile, as submission set them', async () => {
+      await update({ identity: renamed });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u-1' },
+        data: { fullName: 'Maria Dupont', phone: '+33612345678' },
+      });
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'cp-1' },
+        data: { displayName: 'Maria Dupont', city: 'Lyon' },
+      });
+    });
+
+    it('records which answers changed, never their values', async () => {
+      await update({ identity: renamed });
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'candidate',
+        actorUserId: 'u-1',
+        action: 'application.updated',
+        subjectType: 'chef_application',
+        subjectId: 'app-1',
+        requestId: 'req-1',
+        metadata: { reference: 'APP-2026-0042', changed: ['firstName'] },
+      });
+      expect(JSON.stringify(audit.record.mock.calls)).not.toContain('Maria');
+    });
+
+    it('writes nothing when the sections sent are the ones on file, whatever the key order', async () => {
+      const { address, interventionZones } = validPayload();
+      await update({ address, interventionZones });
+      expect(prisma.chefApplication.updateMany).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an account with no candidature', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(null);
+      await expect(update({})).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
   describe('resendSignInLink', () => {
     it('sends a fresh link to the account’s own address', async () => {
       prisma.user.findUnique.mockResolvedValue({
@@ -684,5 +915,45 @@ describe('ChefApplicationsService', () => {
         response: { code: 'NOT_A_CHEF' },
       });
     });
+  });
+});
+
+describe('UpdateChefApplicationDto under the global validation pipe', () => {
+  // Mirrors `main.ts`, so this is what an actual `PATCH /me/chef-application` does.
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+    transformOptions: { enableImplicitConversion: true },
+  });
+  const transform = (body: Record<string, unknown>) =>
+    pipe.transform(body, { type: 'body', metatype: UpdateChefApplicationDto });
+  const identity = { firstName: 'Marie', lastName: 'Dupont', phone: '+33612345678' };
+
+  it('accepts a single section', async () => {
+    await expect(transform({ identity })).resolves.toMatchObject({ identity });
+  });
+
+  it('refuses to change the account address', async () => {
+    await expect(
+      transform({ identity: { ...identity, email: 'autre@exemple.fr' } }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses to touch the consent proof', async () => {
+    await expect(
+      transform({
+        consent: { privacyPolicy: true, terms: true, acceptedAt: '2026-10-03T00:00:00Z' },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('wants a section whole, as at submission', async () => {
+    await expect(transform({ identity: { firstName: 'Marie' } })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(transform({ interventionZones: [] })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });

@@ -16,6 +16,7 @@ import {
   isValidPostcode,
   isValidSapDeclarationNumber,
   isValidSiret,
+  lockingDocuments,
   requiredDocuments,
   toWire,
 } from './chef-onboarding.rules';
@@ -241,6 +242,120 @@ describe('isDisabledByAdmin', () => {
   it('is not an automatic suspension, nor a live chef', () => {
     expect(isDisabledByAdmin({ ...profile, autoSuspendedAt: new Date() })).toBe(false);
     expect(isDisabledByAdmin({ ...profile, isActive: true })).toBe(false);
+  });
+});
+
+describe('lockingDocuments — answers a validated document proves', () => {
+  const { identity, registration, sap_declaration, status_proof } = ChefDocumentType;
+  const on = (...entries: [ChefDocumentType, ChefDocumentStatus][]) =>
+    new Map(entries.map(([type, status]) => [type, { status }]));
+
+  it('never locks the phone, the address or the zones', () => {
+    const everythingValid = on(
+      ...Object.values(ChefDocumentType).map(
+        (type) =>
+          [type, ChefDocumentStatus.valid] as [ChefDocumentType, ChefDocumentStatus],
+      ),
+    );
+    expect(
+      lockingDocuments(
+        ['phone', 'addressStreet', 'addressCity', 'interventionZones'],
+        answers(),
+        everythingValid,
+      ),
+    ).toEqual([]);
+  });
+
+  it('locks the names once the identity document is validated, expiring included', () => {
+    expect(
+      lockingDocuments(['lastName'], answers(), on([identity, ChefDocumentStatus.valid])),
+    ).toEqual([identity]);
+    expect(
+      lockingDocuments(
+        ['firstName'],
+        answers(),
+        on([identity, ChefDocumentStatus.expiring]),
+      ),
+    ).toEqual([identity]);
+  });
+
+  it('lifts the lock while the document is refused or a new version awaits review', () => {
+    for (const status of [
+      ChefDocumentStatus.rejected,
+      ChefDocumentStatus.submitted,
+      ChefDocumentStatus.reviewing,
+    ]) {
+      expect(lockingDocuments(['lastName'], answers(), on([identity, status]))).toEqual(
+        [],
+      );
+    }
+  });
+
+  it('locks the right to work on the document its status calls for', () => {
+    // An EU citizen: the identity document is what proves it.
+    expect(
+      lockingDocuments(
+        ['workAuthorizationStatus'],
+        answers(),
+        on([identity, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([identity]);
+    const other = answers({ workAuthorizationStatus: WorkAuthorizationStatus.other });
+    expect(
+      lockingDocuments(
+        ['workAuthorizationDetails'],
+        other,
+        on([identity, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([]);
+    expect(
+      lockingDocuments(
+        ['workAuthorizationDetails'],
+        other,
+        on([status_proof, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([status_proof]);
+  });
+
+  it('lets an unregistered candidate register, then locks the company on its certificate', () => {
+    expect(
+      lockingDocuments(
+        ['companyLegalForm', 'companySiret'],
+        answers({ companyLegalForm: CompanyLegalForm.not_registered }),
+        on([registration, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([]);
+    expect(
+      lockingDocuments(
+        ['companySiret'],
+        answers(),
+        on([registration, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([registration]);
+  });
+
+  it('locks the SAP answers only on the type-a route, where a receipt proves them', () => {
+    const validReceipt = on([sap_declaration, ChefDocumentStatus.valid]);
+    expect(
+      lockingDocuments(['sapPath'], answers({ sapPath: 'type_b' }), validReceipt),
+    ).toEqual([]);
+    expect(
+      lockingDocuments(
+        ['sapDeclarationNumber'],
+        answers({ sapPath: 'type_a' }),
+        validReceipt,
+      ),
+    ).toEqual([sap_declaration]);
+  });
+
+  it('names each locking document once', () => {
+    expect(
+      lockingDocuments(
+        ['firstName', 'lastName'],
+        answers(),
+        on([identity, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([identity]);
   });
 });
 

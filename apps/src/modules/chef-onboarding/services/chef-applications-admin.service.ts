@@ -16,7 +16,12 @@ import {
   buildPaginationMeta,
   resolvePageBounds,
 } from '../../../common/dto/pagination.dto';
-import { DOCUMENT_LABEL, fromWire, toWire } from '../domain/chef-onboarding.rules';
+import {
+  DOCUMENT_LABEL,
+  fromWire,
+  toWire,
+  UNDECIDED,
+} from '../domain/chef-onboarding.rules';
 import {
   ApproveApplicationDto,
   ListChefApplicationsQueryDto,
@@ -24,20 +29,14 @@ import {
   RequestChangesDto,
 } from '../dto/admin-chef-application.dto';
 import { DecideDocumentDto } from '../dto/chef-document.dto';
+import { toAnswersView } from './chef-applications.service';
 import { ChefDocumentsService } from './chef-documents.service';
 import { ChefDossierCron } from './chef-dossier.cron';
-import { KycStorageService } from './kyc-storage.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
 
 const AWAITING_DECISION: ChefDocumentStatus[] = [
   ChefDocumentStatus.submitted,
   ChefDocumentStatus.reviewing,
-];
-
-/** Statuses an admin may still decide on. */
-const UNDECIDED: ChefApplicationStatus[] = [
-  ChefApplicationStatus.submitted,
-  ChefApplicationStatus.changes_requested,
 ];
 
 const APPLICATION_DECIDED = {
@@ -50,7 +49,6 @@ export class ChefApplicationsAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documents: ChefDocumentsService,
-    private readonly storage: KycStorageService,
     private readonly audit: AuditService,
     private readonly mailer: ChefOnboardingMailer,
     private readonly dossier: ChefDossierCron,
@@ -105,6 +103,7 @@ export class ChefApplicationsAdminService {
           // reactivated on the strength of an unreviewed replacement.
           chefProfile: {
             select: {
+              userId: true,
               isActive: true,
               autoSuspendedAt: true,
               documents: { select: { type: true, status: true, version: true } },
@@ -132,6 +131,8 @@ export class ChefApplicationsAdminService {
 
         return {
           id: row.id,
+          // The account, for `POST /admin/chef-users/:id/resend-invitation`.
+          userId: row.chefProfile?.userId ?? null,
           reference: row.reference,
           name: `${row.firstName} ${row.lastName}`,
           city: row.addressCity,
@@ -154,49 +155,27 @@ export class ChefApplicationsAdminService {
   async detail(id: string) {
     const application = await this.load(id);
 
-    const dossier = await this.documents.dossier(
-      application.chefProfileId,
-      this.documents.answersOf(application),
-    );
+    const [dossier, { userId }] = await Promise.all([
+      this.documents.dossier(
+        application.chefProfileId,
+        this.documents.answersOf(application),
+      ),
+      this.prisma.chefProfile.findUniqueOrThrow({
+        where: { id: application.chefProfileId },
+        select: { userId: true },
+      }),
+    ]);
 
     return {
       id: application.id,
       reference: application.reference,
       status: toWire(application.status),
-      identity: {
-        firstName: application.firstName,
-        lastName: application.lastName,
-        email: application.email,
-        phone: application.phone,
-      },
-      address: {
-        street: application.addressStreet,
-        line2: application.addressLine2,
-        postcode: application.addressPostcode,
-        city: application.addressCity,
-        country: application.addressCountry,
-      },
-      interventionZones: application.interventionZones,
-      workAuthorization: {
-        status: toWire(application.workAuthorizationStatus),
-        details: application.workAuthorizationDetails,
-      },
-      company: {
-        legalForm: toWire(application.companyLegalForm),
-        siret: application.companySiret,
-        sap: {
-          path: toWire(application.sapPath),
-          declarationNumber: application.sapDeclarationNumber,
-        },
-      },
-      consent: {
-        privacyPolicy: application.consentPrivacyPolicy,
-        terms: application.consentTerms,
-        acceptedAt: application.consentAcceptedAt,
-      },
+      ...toAnswersView(application),
       submittedAt: application.submittedAt,
       decidedAt: application.decidedAt,
       chefProfileId: application.chefProfileId,
+      // The account, for `POST /admin/chef-users/:id/resend-invitation`.
+      userId,
       ...dossier,
     };
   }
@@ -208,29 +187,15 @@ export class ChefApplicationsAdminService {
     adminUserId: string,
     requestId?: string,
   ) {
-    const type = this.documents.parseType(wireType);
     const { chefProfileId } = await this.load(applicationId);
-    const document = await this.prisma.chefDocument.findFirst({
-      where: { chefProfileId, type },
-      orderBy: { version: 'desc' },
-    });
-    if (!document) throw new NotFoundException('No document deposited for this type.');
-
-    const link = await this.storage.createDownloadUrl(document.storagePath);
-
-    // Written before the URL reaches the admin: an identity document is consulted,
-    // and every consultation is on the record.
-    await this.audit.record({
-      actorType: 'admin',
-      actorUserId: adminUserId,
-      action: 'document.read',
-      subjectType: 'chef_document',
-      subjectId: document.id,
+    const { url, expiresAt, type, version } = await this.documents.readLink(
+      chefProfileId,
+      wireType,
+      { actorType: 'admin', actorUserId: adminUserId, metadata: { applicationId } },
       requestId,
-      metadata: { applicationId, type: toWire(type), version: document.version },
-    });
-
-    return { ...link, type: toWire(type), version: document.version };
+    );
+    // The shape admin-labsfood already reads; the owner's link adds the file details.
+    return { url, expiresAt, type, version };
   }
 
   /** FLOW-01 §5.2 — accept or refuse one document, and recompute the dossier. */

@@ -219,4 +219,33 @@ export class ChefDocumentsController {
     const profile = await this.owner(user);
     return this.documents.versions(profile.id, type);
   }
+
+  @Get(':type/preview-url')
+  @ApiDocumentTypeParam()
+  @ApiOperation({
+    summary: 'Signed link to view your latest deposit of one document',
+    description:
+      'Valid five minutes and served inline: the browser displays the PDF or the image ' +
+      'instead of downloading it, and `mimeType` says which. Only ever your own ' +
+      'document, and every link handed out is written to the audit journal, as for ' +
+      'an admin. `404` when nothing has been deposited for this type.',
+  })
+  @ApiOkResponse({ description: 'Short-lived signed URL, with the file name and type.' })
+  @ApiClerkAuthResponses()
+  async previewUrl(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('type') type: string,
+    @Req() req: { id?: unknown },
+  ) {
+    const profile = await this.owner(user);
+    return this.documents.readLink(
+      profile.id,
+      type,
+      {
+        actorType: profile.isVerified ? 'chef' : 'candidate',
+        actorUserId: profile.userId,
+      },
+      reqId(req),
+    );
+  }
 }
