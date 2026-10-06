@@ -8,11 +8,11 @@ Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DA
 
 ### Services overview
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| NestJS API (primary) | 8000 | REST API — booking, auth, integrations |
-| PostgreSQL 16 | 5432 | Primary data store via Supabase Postgres URL (**Prisma**) |
-| Redis 7 | 6379 | Cache, queues *(not wired yet — module commented out)* |
+| Service              | Port | Purpose                                                   |
+| -------------------- | ---- | --------------------------------------------------------- |
+| NestJS API (primary) | 8000 | REST API — booking, auth, integrations                    |
+| PostgreSQL 16        | 5432 | Primary data store via Supabase Postgres URL (**Prisma**) |
+| Redis 7              | 6379 | Cache, queues _(not wired yet — module commented out)_    |
 
 ### Starting backing services
 
@@ -30,8 +30,7 @@ sudo docker compose up -d postgres
 Either bring up the whole stack with Compose, or run the API locally against
 the dockerised Postgres (Redis optional).
 
-
-``` bash
+```bash
 # Option A — full stack in Docker (Compose v2)
 # If `docker compose up --build` errors with unknown flag --build, use:
 #   docker compose build api && docker compose up api
@@ -51,17 +50,17 @@ npm run start:dev        # listens on 8000
 
 **Local**
 
-- Swagger UI:  http://localhost:8000/docs
-- OpenAPI:     http://localhost:8000/openapi.json
-- Health:      http://localhost:8000/health
-- Readiness:   http://localhost:8000/ready (pings Postgres)
+- Swagger UI: http://localhost:8000/docs
+- OpenAPI: http://localhost:8000/openapi.json
+- Health: http://localhost:8000/health
+- Readiness: http://localhost:8000/ready (pings Postgres)
 
 **Production (Railway public domain)** — copy from Railway → service → **Networking**; do not use `*.railway.internal` in a browser:
 
-- Swagger UI:  `https://lf-api.labsfood.fr/docs`
-- OpenAPI:     `https://lf-api.labsfood.fr/openapi.json`
-- Health:      `https://lf-api.labsfood.fr/health`
-- Readiness:   `https://lf-api.labsfood.fr/ready`
+- Swagger UI: `https://lf-api.labsfood.fr/docs`
+- OpenAPI: `https://lf-api.labsfood.fr/openapi.json`
+- Health: `https://lf-api.labsfood.fr/health`
+- Readiness: `https://lf-api.labsfood.fr/ready`
 
 ### Database (Prisma)
 
@@ -112,12 +111,13 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 
 - Public sign-up (no session): `POST /auth/register` — `email` + `password`, always `role: client`, IP rate-limited. Returns a 60s Clerk sign-in ticket the frontend redeems with `signIn.create({ strategy: 'ticket', ticket })`. Returns `503` with `sk_test_placeholder`.
 - Onboarding form 2 (authenticated, clients): `PATCH /me/profile`. **The body never carries a role**; a submitted `role` is a `400`.
-- Chef self-edit (authenticated, verified batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`, a candidate awaiting approval a `403 CHEF_NOT_VERIFIED`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created by submitting a candidature (see *Chef onboarding* below).
+- Chef self-edit (authenticated, verified batch cookers only): `PATCH /me/chef-profile` updates `displayName`, `bio`, `city`, `serviceRadiusKm` and the shared identity fields. It **never creates a profile and never changes a role** — a client calling it gets a `404`, a candidate awaiting approval a `403 CHEF_NOT_VERIFIED`. `isActive`, `isVerified`, payout/calendar ids, SAP route and intervention zones are refused. Batch cooker accounts are created by submitting a candidature (see _Chef onboarding_ below).
 - Webhook endpoint (public, Svix-verified): `POST /webhooks/clerk` — set `CLERK_WEBHOOK_SIGNING_SECRET` from Clerk Dashboard.
 - One-off Postgres → Clerk (real key only): `npm run db:sync:clerk` or `npm run db:sync:clerk:dry` from `apps/`.
 - One-off Clerk → Postgres backfill (real key only): `npm run db:backfill:clerk -- --email <addr> | --clerk-id <user_…> | --all`. **Writes require `--yes`**; without it the script dry-runs and prints the target database host. Use for Clerk accounts created before the webhook existed. Optional `--role <client|chef|admin>`; existing rows keep their role unless it is passed.
 
 > ⚠️ **Env precedence:** `loadRepoEnv()` lets repo-root `.env.local` **override shell-exported variables**. Exporting `SUPABASE_DB_URL` or `CLERK_SECRET_KEY` on a command line does **not** redirect these scripts — they will use `.env` / `.env.local` and can reach hosted Postgres when you believe you are on localhost. Check the `Database :` line the script prints before writing.
+
 - Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
 - First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
 
@@ -141,11 +141,11 @@ on the self-dealing guard (see the `ponytail:` note on
 candidate keeps the account, sees the reason and the reapply date, and can
 reapply from it.
 
-| Actor | Routes |
-|---|---|
-| Public | `POST /chef-applications`, `GET /referentials/regions` |
-| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
-| Admin | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
+| Actor                       | Routes                                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public                      | `POST /chef-applications`, `GET /referentials/regions`                                                                                                                                                             |
+| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`                      |
+| Admin                       | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
 
 - **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
   single use) is emailed to the submitted address and **never returned in the
@@ -178,11 +178,11 @@ reapply from it.
   the candidature row stay). In-process and
   idempotent — two API replicas would both fire it harmlessly. See the
   `ponytail:` note in that file before adding a replica.
-- **Suspension episode**: `chef_profiles.auto_suspended_at` marks an *open
-  automatic-suspension episode*, not merely "offline". Depositing a replacement
+- **Suspension episode**: `chef_profiles.auto_suspended_at` marks an _open
+  automatic-suspension episode_, not merely "offline". Depositing a replacement
   brings the storefront back immediately (§7 "réversible immédiatement") while
   leaving the column set, so `auto_suspended_at IS NOT NULL AND is_active`
-  means *live on an unreviewed document* — those dossiers sort first in the
+  means _live on an unreviewed document_ — those dossiers sort first in the
   admin queue and carry `reactivatedPendingReview`. An admin validating the
   replacement clears the column; refusing it takes the chef back offline. A
   chef an admin deactivated has a null column and is never auto-reactivated.
@@ -218,13 +218,13 @@ fact. Module: `modules/dishes/`. Spec:
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 
-| Actor | Routes |
-|---|---|
-| Public | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}` |
-| Chef | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}` |
-| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin` |
-| Client | `GET /me/culinary-map` |
-| Admin | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
+| Actor                             | Routes                                                                                                                                                                                                                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public                            | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}`                                                                                                                                                             |
+| Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`                                        |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`                                                                                   |
+| Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
+| Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
 
 ### Logging and debugging
 

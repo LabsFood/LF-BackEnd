@@ -144,6 +144,7 @@ describe('UsersController', () => {
       ['sapPath', 'type_a'],
       ['interventionZones', []],
       ['autoSuspendedAt', null],
+      ['avatarUrl', 'https://elsewhere.example/me.jpg'],
     ])('refuses %s, which a chef must never set on themselves', async (field, value) => {
       await expect(transform({ [field]: value })).rejects.toBeInstanceOf(
         BadRequestException,

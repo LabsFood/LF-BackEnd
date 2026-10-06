@@ -68,6 +68,7 @@ export class PublicUsersController {
         email: user.email,
         fullName: user.fullName,
         phone: user.phone,
+        avatarUrl: user.avatarUrl,
         role: user.role,
       },
       signInToken,

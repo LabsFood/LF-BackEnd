@@ -7,7 +7,6 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 ## Stack summary
 
-
 | Layer                           | Choice                                                               |
 | ------------------------------- | -------------------------------------------------------------------- |
 | Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                   |
@@ -18,20 +17,17 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Containers                      | Docker / Docker Compose                                              |
 | Hosting                         | **Railway**                                                          |
 
-
 ## Third-party services
 
-
-| Domain                          | Service                             |
-| ------------------------------- | ----------------------------------- |
-| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)         |
-| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/) |
-| Realtime chat (clients ↔ chefs) | [Stream](https://getstream.io/)     |
-| Transactional email             | [Brevo](https://www.brevo.com/)     |
-| Payments                        | [Stripe](https://stripe.com/)       |
-| Maps & routing                  | Google Maps API                     |
-| Object storage                  | AWS S3                              |
-
+| Domain                          | Service                                                       |
+| ------------------------------- | ------------------------------------------------------------- |
+| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)                                   |
+| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/)                           |
+| Realtime chat (clients ↔ chefs) | [Stream](https://getstream.io/)                               |
+| Transactional email             | [Brevo](https://www.brevo.com/)                               |
+| Payments                        | [Stripe](https://stripe.com/)                                 |
+| Maps & routing                  | Google Maps API                                               |
+| Object storage                  | Cloudflare R2 (dish photos), Supabase Storage (KYC documents) |
 
 ## Frontends (outside this repo)
 
@@ -42,7 +38,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
 2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** caches hot paths and backs async work.
-3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
+3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, **Cloudflare R2**, and **Supabase Storage** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
 ```mermaid
@@ -67,7 +63,7 @@ graph TD
         K[Brevo]
         L[Stream]
         M[Google Maps API]
-        N[AWS S3 images]
+        N[Cloudflare R2 dish photos]
     end
 
     subgraph Infra
@@ -96,7 +92,7 @@ graph TD
 
 ## Repository layout
 
-``` bash
+```bash
 apps/                  # NestJS + Fastify primary API (src/, package.json)
 docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
@@ -113,15 +109,13 @@ stack.md               # backend stack and decisions
 Use the **public Railway domain** for production (browser, Swagger, frontends, `curl` from your machine).  
 Do **not** use `https://<service>.railway.internal` — that hostname is **private** (service-to-service inside Railway only).
 
-
-| Endpoint                      | Local                                                                          | Production (public)                       |
-| ----------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| Base API                      | [http://localhost:8000](http://localhost:8000)                                 | `https://lf-api.labsfood.fr`      |
-| Swagger UI                    | [http://localhost:8000/docs](http://localhost:8000/docs)                       | `https://lf-api.labsfood.fr/docs`            |
-| OpenAPI JSON                  | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)       | `https://lf-api.labsfood.fr/openapi.json`    |
-| Health (liveness)             | [http://localhost:8000/health](http://localhost:8000/health)                   | `https://lf-api.labsfood.fr/health`          |
-| Readiness (DB)                | [http://localhost:8000/ready](http://localhost:8000/ready)                     | `https://lf-api.labsfood.fr/ready`           |
-
+| Endpoint          | Local                                                                    | Production (public)                       |
+| ----------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
+| Base API          | [http://localhost:8000](http://localhost:8000)                           | `https://lf-api.labsfood.fr`              |
+| Swagger UI        | [http://localhost:8000/docs](http://localhost:8000/docs)                 | `https://lf-api.labsfood.fr/docs`         |
+| OpenAPI JSON      | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json) | `https://lf-api.labsfood.fr/openapi.json` |
+| Health (liveness) | [http://localhost:8000/health](http://localhost:8000/health)             | `https://lf-api.labsfood.fr/health`       |
+| Readiness (DB)    | [http://localhost:8000/ready](http://localhost:8000/ready)               | `https://lf-api.labsfood.fr/ready`        |
 
 **Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
 
@@ -204,4 +198,3 @@ npm test          # jest unit tests
 - `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
 - `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
 - `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.
-

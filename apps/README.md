@@ -24,22 +24,22 @@ npm run start:dev
 
 **Local**
 
-| Endpoint | URL |
-|----------|-----|
-| Swagger UI | http://localhost:8000/docs |
+| Endpoint     | URL                                |
+| ------------ | ---------------------------------- |
+| Swagger UI   | http://localhost:8000/docs         |
 | OpenAPI JSON | http://localhost:8000/openapi.json |
-| Health | http://localhost:8000/health |
-| Readiness | http://localhost:8000/ready |
+| Health       | http://localhost:8000/health       |
+| Readiness    | http://localhost:8000/ready        |
 
 **Production (Railway)** — use the **public** domain from Railway → **Networking** (`https://<public-domain>/…`).  
 `https://lf-backend.railway.internal/…` is private and will not work from your browser.
 
-| Endpoint | URL |
-|----------|-----|
-| Swagger UI | `https://lf-api.labsfood.fr/docs` |
+| Endpoint     | URL                                       |
+| ------------ | ----------------------------------------- |
+| Swagger UI   | `https://lf-api.labsfood.fr/docs`         |
 | OpenAPI JSON | `https://lf-api.labsfood.fr/openapi.json` |
-| Health | `https://lf-api.labsfood.fr/health` |
-| Readiness | `https://lf-api.labsfood.fr/ready` |
+| Health       | `https://lf-api.labsfood.fr/health`       |
+| Readiness    | `https://lf-api.labsfood.fr/ready`        |
 
 See [`../docs/deploy/railway.md`](../docs/deploy/railway.md) for deploy and smoke-test commands.
 
@@ -47,10 +47,10 @@ See [`../docs/deploy/railway.md`](../docs/deploy/railway.md) for deploy and smok
 
 Documented in [`../docs/auth/clerk-integration-contract.md`](../docs/auth/clerk-integration-contract.md). Sign-in/sign-up stay on the Next.js Clerk frontend; these routes are for admin provisioning and RBAC only.
 
-| Method | Path | Auth |
-|--------|------|------|
-| `POST` | `/admin/users` | Clerk bearer + persisted `admin` role + real `CLERK_SECRET_KEY` |
-| `PATCH` | `/admin/users/:id/role` | Clerk bearer + persisted `admin` role |
+| Method  | Path                    | Auth                                                            |
+| ------- | ----------------------- | --------------------------------------------------------------- |
+| `POST`  | `/admin/users`          | Clerk bearer + persisted `admin` role + real `CLERK_SECRET_KEY` |
+| `PATCH` | `/admin/users/:id/role` | Clerk bearer + persisted `admin` role                           |
 
 ```bash
 # Promote your test user to admin first (Prisma Studio or SQL), then:
@@ -72,14 +72,14 @@ The `api` container runs `prisma migrate deploy` before starting the API.
 
 ## Scripts
 
-| Command | Purpose |
-|---------|---------|
-| `npm run build` | `prisma generate` + compile to `dist/` |
-| `npm run start:dev` | Watch mode with hot reload |
-| `npm run start:prod` | Run the compiled `dist/main.js` |
-| `npm run lint` | ESLint + Prettier check |
-| `npm test` | Jest unit tests |
-| `npm run db:migrate` | Apply pending Prisma migrations (`deploy`) |
-| `npm run db:resolve` | Mark a migration applied (TypeORM baseline) |
-| `npm run db:migrate:dev` | Create/apply migrations in dev |
-| `npm run db:studio` | Prisma Studio |
+| Command                  | Purpose                                     |
+| ------------------------ | ------------------------------------------- |
+| `npm run build`          | `prisma generate` + compile to `dist/`      |
+| `npm run start:dev`      | Watch mode with hot reload                  |
+| `npm run start:prod`     | Run the compiled `dist/main.js`             |
+| `npm run lint`           | ESLint + Prettier check                     |
+| `npm test`               | Jest unit tests                             |
+| `npm run db:migrate`     | Apply pending Prisma migrations (`deploy`)  |
+| `npm run db:resolve`     | Mark a migration applied (TypeORM baseline) |
+| `npm run db:migrate:dev` | Create/apply migrations in dev              |
+| `npm run db:studio`      | Prisma Studio                               |

@@ -14,15 +14,15 @@ Set these on the **API service** (Production). Mark secrets as **secret** in Rai
 
 ### Required
 
-| Variable | Notes |
-|----------|--------|
-| `NODE_ENV` | `production` |
-| `ENVIRONMENT` | `production` |
-| `DEBUG` | `false` |
-| `API_HOST` | `0.0.0.0` |
-| `SUPABASE_DB_URL` | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`. |
+| Variable                    | Notes                                                                                                                                                                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                  | `production`                                                                                                                                                                                                                              |
+| `ENVIRONMENT`               | `production`                                                                                                                                                                                                                              |
+| `DEBUG`                     | `false`                                                                                                                                                                                                                                   |
+| `API_HOST`                  | `0.0.0.0`                                                                                                                                                                                                                                 |
+| `SUPABASE_DB_URL`           | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`.                                                                                                                                                     |
 | `SUPABASE_DB_MIGRATION_URL` | **Session pooler** or **direct** (port **5432**). Used only at container start for `prisma migrate deploy`. If direct `db.<ref>.supabase.co` is unreachable from Railway (P1001), use the **session pooler** string on port 5432 instead. |
-| `CLERK_SECRET_KEY` | Production Clerk secret (`sk_live_…`). |
+| `CLERK_SECRET_KEY`          | Production Clerk secret (`sk_live_…`).                                                                                                                                                                                                    |
 
 ### Port (Railway networking)
 
@@ -32,8 +32,8 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 
 ### CORS
 
-| Variable | Example |
-|----------|---------|
+| Variable       | Example                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CORS_ORIGINS` | **Optional.** The product frontends (`https://labsfood.fr`, `https://www.labsfood.fr`, `https://batchcooking.labsfood.fr`) are already allowlisted in [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts). Set this only for extra origins — preview deploys, tunnels, staging: `https://preview-abc.vercel.app,https://staging.labsfood.fr`. Exact scheme + host + port, comma-separated, no wildcards. |
 
 ### Integrations (set when the feature is live)
@@ -66,7 +66,7 @@ read is written to `audit_log`.
 
 ### Dish photos bucket (FLOW-02)
 
-Create an R2 bucket for dish photos and give it a public address (a custom domain,
+Create an R2 bucket for dish and profile photos and give it a public address (a custom domain,
 or the bucket's r2.dev URL) in `R2_PUBLIC_BASE_URL`: the public site loads photos
 from there. Browsers upload straight to it with a presigned `PUT`, so its CORS
 policy must allow `PUT` with the `Content-Type` header from the site origins. The
@@ -85,10 +85,10 @@ Never run migrations through the **transaction** pooler (6543). The container en
 
 ### Public vs private networking
 
-| URL type | Example | Who can call it |
-|----------|---------|-----------------|
-| **Public domain** | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
-| **Private internal** | `http://lf-backend.railway.internal:<PORT>` | Other Railway services in the same project only |
+| URL type             | Example                                             | Who can call it                                         |
+| -------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| **Public domain**    | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
+| **Private internal** | `http://lf-backend.railway.internal:<PORT>`         | Other Railway services in the same project only         |
 
 `*.railway.internal` is **not** reachable from the public internet. If Swagger or `/ready` return nothing in a browser, you are likely using the internal hostname — use the **public domain** from Networking instead.
 
@@ -102,12 +102,12 @@ Never run migrations through the **transaction** pooler (6543). The container en
 
 Replace `<public-domain>` with your Railway public hostname (no trailing slash).
 
-| Endpoint | URL | Notes |
-|----------|-----|--------|
-| Swagger UI | `https://<public-domain>/docs` | Interactive API explorer |
-| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec |
-| Health | `https://<public-domain>/health` | Liveness; Railway probes this |
-| Readiness | `https://<public-domain>/ready` | DB ping via `SUPABASE_DB_URL` (pooler) |
+| Endpoint     | URL                                    | Notes                                  |
+| ------------ | -------------------------------------- | -------------------------------------- |
+| Swagger UI   | `https://<public-domain>/docs`         | Interactive API explorer               |
+| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec                  |
+| Health       | `https://<public-domain>/health`       | Liveness; Railway probes this          |
+| Readiness    | `https://<public-domain>/ready`        | DB ping via `SUPABASE_DB_URL` (pooler) |
 
 ### Smoke test after deploy
 
@@ -119,11 +119,11 @@ curl -s "$API_BASE/ready"
 curl -s "$API_BASE/openapi.json" | head -c 200
 ```
 
-| Path | Use |
-|------|-----|
-| `/health` | Railway health check, load balancer liveness |
-| `/ready` | Readiness (DB ping); use after deploy smoke tests |
-| `/docs` | Swagger UI |
+| Path      | Use                                               |
+| --------- | ------------------------------------------------- |
+| `/health` | Railway health check, load balancer liveness      |
+| `/ready`  | Readiness (DB ping); use after deploy smoke tests |
+| `/docs`   | Swagger UI                                        |
 
 ## 4b. Logs and debugging
 
@@ -173,11 +173,11 @@ On each deploy Railway:
 
 ## 6. Local Docker vs Railway
 
-| | Local Compose | Railway |
-|---|---------------|---------|
-| Database | `postgres` service | Supabase |
-| Build | `docker compose build api` | Git push / Railway build |
-| Env | Repo-root `.env` | Railway dashboard |
+|          | Local Compose              | Railway                  |
+| -------- | -------------------------- | ------------------------ |
+| Database | `postgres` service         | Supabase                 |
+| Build    | `docker compose build api` | Git push / Railway build |
+| Env      | Repo-root `.env`           | Railway dashboard        |
 
 See **Getting started → Docker Compose** in the main [README](../../README.md).
 
@@ -186,7 +186,7 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
-- [ ] Stripe / Cronofy / Brevo / Stream / AWS keys when those flows ship
+- [ ] Stripe / Cronofy / Brevo / Stream / R2 keys when those flows ship
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
 - [ ] Stripe webhook URL when payments ship
 

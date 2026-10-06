@@ -6,7 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { AdminContentController } from './admin-content.controller';
 import { AdminModerationController } from './admin-moderation.controller';
 import { ChefContentService } from './chef-content.service';
-import { DishPhotosService } from './dish-photos.service';
+import { ContentPhotosService } from './content-photos.service';
 import { DishesMailer } from './dishes.mailer';
 import { DishesService } from './dishes.service';
 import { LabsFoodContentService } from './labs-food-content.service';
@@ -16,7 +16,6 @@ import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
 import { ModerationService } from './moderation.service';
 import { PublicVitrineController } from './public-vitrine.controller';
-import { R2StorageService } from './r2-storage.service';
 import { SuggestionsService } from './suggestions.service';
 import { VitrineService } from './vitrine.service';
 
@@ -32,14 +31,13 @@ import { VitrineService } from './vitrine.service';
   ],
   providers: [
     ChefContentService,
-    DishPhotosService,
+    ContentPhotosService,
     DishesService,
     DishesMailer,
     LabsFoodContentService,
     MenusService,
     MissionsService,
     ModerationService,
-    R2StorageService,
     SuggestionsService,
     VitrineService,
   ],

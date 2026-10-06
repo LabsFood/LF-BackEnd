@@ -357,6 +357,7 @@ export function toMenuView(menu: MenuWithDishes) {
     id: menu.id,
     title: menu.title,
     pitch: menu.pitch,
+    imageUrl: menu.imageUrl,
     period: menu.period,
     status: menu.status,
     shoppingIncluded: menu.shoppingIncluded,

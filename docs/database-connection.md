@@ -4,11 +4,11 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 
 ## Environment variables
 
-| Variable | Required | Use |
-|----------|----------|-----|
-| `SUPABASE_DB_URL` | Yes | **Runtime** Prisma (`PrismaService`, `/ready`). Use the **connection pooler** in cloud. |
+| Variable                    | Required                     | Use                                                                                                                                    |
+| --------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_DB_URL`           | Yes                          | **Runtime** Prisma (`PrismaService`, `/ready`). Use the **connection pooler** in cloud.                                                |
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
-| `DATABASE_URL` | No (deprecated) | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above. |
+| `DATABASE_URL`              | No (deprecated)              | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above.                                                            |
 
 Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, and `SUPABASE_KYC_BUCKET` for chef KYC documents.
 
@@ -45,11 +45,11 @@ Copy both strings from the Supabase dashboard: **Project → Connect → ORMs / 
 
 ### Env file location
 
-| File | Loaded? |
-|------|---------|
-| Repo-root `.env` | Yes (Nest `ConfigModule` and Prisma CLI via `scripts/prisma-cli.ts`) |
-| Repo-root `.env.local` | Yes, after `.env` (overrides) |
-| `apps/.env` | No — keep secrets at repo root |
+| File                   | Loaded?                                                              |
+| ---------------------- | -------------------------------------------------------------------- |
+| Repo-root `.env`       | Yes (Nest `ConfigModule` and Prisma CLI via `scripts/prisma-cli.ts`) |
+| Repo-root `.env.local` | Yes, after `.env` (overrides)                                        |
+| `apps/.env`            | No — keep secrets at repo root                                       |
 
 Commands run from `cd apps` still read repo-root env files automatically.
 

@@ -73,17 +73,12 @@ export const envValidationSchema = Joi.object({
 
   GOOGLE_MAPS_API_KEY: Joi.string().allow('').optional(),
 
-  AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
-  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
-  AWS_REGION: Joi.string().default('eu-west-3'),
-  AWS_S3_BUCKET: Joi.string().allow('').optional(),
-
   SUPABASE_URL: Joi.string().uri().allow('').optional(),
   SUPABASE_SERVICE_ROLE_KEY: Joi.string().allow('').optional(),
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
-  /** Cloudflare R2 for dish photos. All five, or photo routes answer 503. */
+  /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */
   R2_ACCOUNT_ID: Joi.string().optional(),
   R2_ACCESS_KEY_ID: Joi.string().optional(),
   R2_SECRET_ACCESS_KEY: Joi.string().optional(),

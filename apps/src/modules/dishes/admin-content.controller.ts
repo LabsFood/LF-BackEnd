@@ -22,6 +22,7 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { AdminGuard } from '../../auth/admin.guard';
@@ -30,6 +31,13 @@ import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
+import { ContentPhotosService } from './content-photos.service';
+import {
+  PHOTO_UPLOAD_EXAMPLE,
+  PhotoConfirmDto,
+  PhotoUploadDto,
+  photoStepsHelp,
+} from './dto/photo.dto';
 import {
   CreateLabsFoodMenuDto,
   OfferDto,
@@ -64,6 +72,7 @@ export class AdminContentController {
   constructor(
     private readonly content: LabsFoodContentService,
     private readonly users: UsersService,
+    private readonly photos: ContentPhotosService,
   ) {}
 
   /** The admin's Postgres uuid: authorship and audit record a person. */
@@ -247,5 +256,151 @@ export class AdminContentController {
     @CurrentClerkUser() user: ClerkUser,
   ) {
     return this.content.withdrawOffer('menu', id, await this.adminId(user));
+  }
+
+  @Post('meals/:id/photo/upload-url')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: "Add a photo to a Lab's Food dish, step 1 of 3: get an upload link",
+    description:
+      "For Lab's Food's own dishs, the suggestions batch cookers adopt; an adopted " +
+      'copy shows the same photo.\n\n' +
+      photoStepsHelp('/admin/meals/{id}/photo/confirm'),
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food dish id." })
+  @ApiCreatedResponse({
+    description: 'Where to send the file.',
+    example: PHOTO_UPLOAD_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
+  })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such dish.' })
+  @ApiAdminAuthResponses()
+  dishPhotoUploadUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoUploadDto,
+  ) {
+    return this.photos.adminUploadUrl('dish', id, payload);
+  }
+
+  @Post('meals/:id/photo/confirm')
+  @ApiTags(TAGS.adminCatalog)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Add a photo to a Lab's Food dish, step 3 of 3: confirm",
+    description:
+      'Once the `PUT` succeeded. The API checks the file is really there, with the ' +
+      'type and size announced, then makes it the dish’s photo. The previous one is ' +
+      'deleted unless an adopted copy still shows it.',
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food dish id." })
+  @ApiOkResponse({ description: 'The meal, as `/admin/meals` returns it.' })
+  @ApiConflictResponse({
+    description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`UNSUPPORTED_MEDIA_TYPE`: the file does not match the type and size announced.',
+  })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such dish.' })
+  @ApiAdminAuthResponses()
+  confirmDishPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoConfirmDto,
+  ) {
+    return this.photos.adminConfirm('dish', id, payload);
+  }
+
+  @Delete('meals/:id/photo')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: "Remove a Lab's Food dish's photo",
+    description:
+      'The dish stays as it is otherwise. The file is deleted unless an adopted copy ' +
+      'still shows it.',
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food dish id." })
+  @ApiOkResponse({ description: 'The meal, as `/admin/meals` returns it.' })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such dish.' })
+  @ApiAdminAuthResponses()
+  removeDishPhoto(@Param('id', ParseUUIDPipe) id: string) {
+    return this.photos.adminRemove('dish', id);
+  }
+
+  @Post('menus/:id/photo/upload-url')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: "Add a photo to a Lab's Food menu, step 1 of 3: get an upload link",
+    description:
+      "For Lab's Food's own menus, the suggestions batch cookers adopt; an adopted " +
+      'copy shows the same photo.\n\n' +
+      photoStepsHelp('/admin/menus/{id}/photo/confirm'),
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food menu id." })
+  @ApiCreatedResponse({
+    description: 'Where to send the file.',
+    example: PHOTO_UPLOAD_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
+  })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such menu.' })
+  @ApiAdminAuthResponses()
+  menuPhotoUploadUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoUploadDto,
+  ) {
+    return this.photos.adminUploadUrl('menu', id, payload);
+  }
+
+  @Post('menus/:id/photo/confirm')
+  @ApiTags(TAGS.adminCatalog)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Add a photo to a Lab's Food menu, step 3 of 3: confirm",
+    description:
+      'Once the `PUT` succeeded. The API checks the file is really there, with the ' +
+      'type and size announced, then makes it the menu’s photo. The previous one is ' +
+      'deleted unless an adopted copy still shows it.',
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food menu id." })
+  @ApiOkResponse({ description: 'The menu, as `/admin/menus` returns it.' })
+  @ApiConflictResponse({
+    description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`UNSUPPORTED_MEDIA_TYPE`: the file does not match the type and size announced.',
+  })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such menu.' })
+  @ApiAdminAuthResponses()
+  confirmMenuPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PhotoConfirmDto,
+  ) {
+    return this.photos.adminConfirm('menu', id, payload);
+  }
+
+  @Delete('menus/:id/photo')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: "Remove a Lab's Food menu's photo",
+    description:
+      'The menu stays as it is otherwise. The file is deleted unless an adopted copy ' +
+      'still shows it.',
+  })
+  @ApiParam({ name: 'id', description: "The Lab's Food menu id." })
+  @ApiOkResponse({ description: 'The menu, as `/admin/menus` returns it.' })
+  @ApiForbiddenResponse(NOT_LABS_FOOD)
+  @ApiNotFoundResponse({ description: 'No such menu.' })
+  @ApiAdminAuthResponses()
+  removeMenuPhoto(@Param('id', ParseUUIDPipe) id: string) {
+    return this.photos.adminRemove('menu', id);
   }
 }

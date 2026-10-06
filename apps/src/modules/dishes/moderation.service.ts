@@ -21,7 +21,8 @@ import {
 } from './domain/moderation.rules';
 import { ContentQueryDto, ModerationDto, ReviewDto } from './dto/moderation.dto';
 import { toMenuView } from './menus.service';
-import { R2StorageService } from './r2-storage.service';
+import { R2StorageService } from '../../integrations/r2-storage.service';
+import { chefPhotoFolder } from './content-photos.service';
 
 /** Removal reasons where the photo itself may be what is wrong. */
 const PHOTO_REASONS = new Set(['inappropriate-content', 'copyright']);
@@ -133,11 +134,17 @@ export class ModerationService {
 
     if (payload.status === 'suspended') {
       const reasonCode = payload.reasonCode ?? 'other';
-      // When the picture may be the problem, it leaves the public bucket too:
-      // suspending only the row would leave it at its public address.
+      // When the picture may be the problem, it comes off the content and leaves
+      // the public bucket too: suspending only the row would leave it at its
+      // public address. Only the chef's own file goes; a copy of a Lab's Food
+      // suggestion shares the suggestion's, which stays.
+      const pictured = PHOTO_REASONS.has(reasonCode) && current.imageUrl !== null;
       const photo =
-        kind === 'dish' && PHOTO_REASONS.has(reasonCode)
-          ? this.storage.keyOf((current as Meal).imageUrl)
+        pictured && current.chefProfileId
+          ? this.storage.ownedKey(
+              current.imageUrl,
+              chefPhotoFolder(current.chefProfileId, kind, id),
+            )
           : null;
       await this.transition(kind, id, MealStatus.published, {
         status: MealStatus.suspended,
@@ -145,7 +152,7 @@ export class ModerationService {
         moderationReasonCode: reasonCode,
         moderatedAt: now,
         ...REVIEWED(now),
-        ...(photo && { imageUrl: null }),
+        ...(pictured && { imageUrl: null }),
       });
       if (photo) await this.storage.delete(photo);
       await this.audit.record({

@@ -2,14 +2,12 @@
 
 ## Responsibility split
 
-
-| Layer                      | Owns                                                                               | Does not own                               |
-| -------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------ |
-| **Next.js frontend**       | Sign-**in**, session UI via `@clerk/nextjs` + Clerk FAPI; redeeming sign-up tickets | Postgres `users.role`, LF business data    |
+| Layer                      | Owns                                                                                                                                         | Does not own                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **Next.js frontend**       | Sign-**in**, session UI via `@clerk/nextjs` + Clerk FAPI; redeeming sign-up tickets                                                          | Postgres `users.role`, LF business data |
 | **NestJS API (this repo)** | Sign-**up** (`POST /auth/register`), JWT verification, webhooks, `GET /me` upsert, onboarding profiles, admin provisioning, RBAC in Postgres | Password **login**, refresh, FAPI proxy |
 
-
-Frontends **never** POST email/password to this API to *authenticate*. Registration is the one exception — `POST /auth/register` accepts a password to create the account, then hands back a sign-in ticket. After Clerk establishes a session, the client calls `getToken()` and sends `Authorization: Bearer <jwt>` on protected routes.
+Frontends **never** POST email/password to this API to _authenticate_. Registration is the one exception — `POST /auth/register` accepts a password to create the account, then hands back a sign-in ticket. After Clerk establishes a session, the client calls `getToken()` and sends `Authorization: Bearer <jwt>` on protected routes.
 
 ## Public sign-up (two forms)
 
@@ -35,11 +33,11 @@ sequenceDiagram
   API-->>UI: saved profile
 ```
 
-| Form | Endpoint | Guard | Notes |
-| ---- | -------- | ----- | ----- |
-| 1 — credentials | `POST /auth/register` | none | `email` + `password` only. Always creates `role: client`. Returns `{ user, signInToken, expiresInSeconds }` |
-| 2 — client profile | `PATCH /me/profile` | `ClerkAuthGuard` | Taste prefs, address, household, plus `firstName` / `lastName` / `phone` |
-| Batch cooker | `POST /chef-applications` | none | The candidature form. Creates the account (`role: chef`, unverified, browse-only) and emails a sign-in link; never returns one. See *Chef onboarding* in `AGENTS.md` |
+| Form               | Endpoint                  | Guard            | Notes                                                                                                                                                                |
+| ------------------ | ------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — credentials    | `POST /auth/register`     | none             | `email` + `password` only. Always creates `role: client`. Returns `{ user, signInToken, expiresInSeconds }`                                                          |
+| 2 — client profile | `PATCH /me/profile`       | `ClerkAuthGuard` | Taste prefs, address, household, plus `firstName` / `lastName` / `phone`                                                                                             |
+| Batch cooker       | `POST /chef-applications` | none             | The candidature form. Creates the account (`role: chef`, unverified, browse-only) and emails a sign-in link; never returns one. See _Chef onboarding_ in `AGENTS.md` |
 
 **The route selects the role — never the request body.** `role` is absent from every DTO on this path, so a submitted `role` is rejected with `400 property role should not exist`. A sign-up form may show a client/chef choice, but it must map to the endpoint, not to a body field. `admin` is not reachable from any public route; promote via SQL or `PATCH /admin/users/:id/role`.
 
@@ -82,29 +80,29 @@ sequenceDiagram
 
 ### When to call
 
-| Event | Action |
-| ----- | ------ |
-| User completes sign-up | Call `GET /me` once session is active |
-| User completes sign-in | Call `GET /me` once session is active |
+| Event                                 | Action                                                |
+| ------------------------------------- | ----------------------------------------------------- |
+| User completes sign-up                | Call `GET /me` once session is active                 |
+| User completes sign-in                | Call `GET /me` once session is active                 |
 | App loads with existing Clerk session | Call `GET /me` to refresh Postgres profile from Clerk |
-| Before role-gated UI | Use `role` from the latest `/me` response |
+| Before role-gated UI                  | Use `role` from the latest `/me` response             |
 
 ### Reference implementation (Next.js)
 
 ```typescript
-import { useAuth } from '@clerk/nextjs';
+import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 export async function syncLfUser(getToken: () => Promise<string | null>) {
   const token = await getToken();
   if (!token) {
-    throw new Error('No Clerk session token');
+    throw new Error("No Clerk session token");
   }
 
   const response = await fetch(`${API_URL}/me`, {
     headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -117,7 +115,7 @@ export async function syncLfUser(getToken: () => Promise<string | null>) {
     email: string;
     fullName: string | null;
     phone: string | null;
-    role: 'client' | 'chef' | 'admin';
+    role: "client" | "chef" | "admin";
   }>;
 }
 
@@ -131,13 +129,13 @@ export async function syncLfUser(getToken: () => Promise<string | null>) {
 
 When a real `CLERK_SECRET_KEY` is configured, `GET /me` fetches the Clerk user via Backend API and upserts:
 
-| Postgres `users` column | Clerk source |
-| ----------------------- | ------------ |
-| `clerk_user_id` | JWT `sub` |
-| `email` | primary email address |
-| `full_name` | `first_name` + `last_name` |
-| `phone` | primary phone number (if set in Dashboard) |
-| `role` | defaults to `client` on create; never auto-promoted |
+| Postgres `users` column | Clerk source                                        |
+| ----------------------- | --------------------------------------------------- |
+| `clerk_user_id`         | JWT `sub`                                           |
+| `email`                 | primary email address                               |
+| `full_name`             | `first_name` + `last_name`                          |
+| `phone`                 | primary phone number (if set in Dashboard)          |
+| `role`                  | defaults to `client` on create; never auto-promoted |
 
 In local stub mode (`CLERK_SECRET_KEY=sk_test_placeholder`), only JWT `sub` (+ `email` when present in the token) is used.
 
@@ -147,12 +145,10 @@ Use returned `role` from `/me` for routing and feature flags—not Clerk `public
 
 Admins with `users.role = admin` (see bootstrap below) can:
 
-
-| Method  | Path                    | Body                                                     | Notes                                                                   |
-| ------- | ----------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `POST`  | `/admin/users`          | `email`, `password?`, `firstName?`, `lastName?`, `role?` | Creates Clerk user via BAPI + Postgres row                              |
+| Method  | Path                    | Body                                                     | Notes                                                                                                    |
+| ------- | ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `POST`  | `/admin/users`          | `email`, `password?`, `firstName?`, `lastName?`, `role?` | Creates Clerk user via BAPI + Postgres row                                                               |
 | `PATCH` | `/admin/users/:id/role` | `{ role: 'client' \| 'chef' \| 'admin' }`                | Re-syncs profile from Clerk BAPI, then updates Postgres role; optional Clerk `publicMetadata.role` merge |
-
 
 **Requires a real `CLERK_SECRET_KEY`** (`sk_test_…` / `sk_live_…`). Returns `503` when `sk_test_placeholder` is set (local JWT-decode-only mode).
 
@@ -181,93 +177,86 @@ There is **no** self-serve “promote me to admin” endpoint.
 
 ## Sync and consistency
 
-
 | Direction        | Mechanism                                                                               |
 | ---------------- | --------------------------------------------------------------------------------------- |
-| Clerk → Postgres | `GET /me` (`ensurePersistedFromClerk`) + webhooks `POST /webhooks/clerk`              |
+| Clerk → Postgres | `GET /me` (`ensurePersistedFromClerk`) + webhooks `POST /webhooks/clerk`                |
 | Postgres → Clerk | `npm run db:sync:clerk` for placeholder ids; admin `POST /admin/users` for new accounts |
-| RBAC             | **`users.role` in Postgres only** — guards read DB, not Clerk metadata                |
-
+| RBAC             | **`users.role` in Postgres only** — guards read DB, not Clerk metadata                  |
 
 See also: [`clerk-supabase-sync.md`](./clerk-supabase-sync.md).
 
 ## Local development
-
 
 | Mode                         | JWT on API              | `GET /me` profile source     | Admin provisioning | Webhooks                              |
 | ---------------------------- | ----------------------- | ---------------------------- | ------------------ | ------------------------------------- |
 | Stub (`sk_test_placeholder`) | Decode-only stub tokens | JWT `sub` + optional `email` | `503`              | `503` without signing secret          |
 | Real Clerk key               | `verifyToken`           | Clerk BAPI `users.getUser`   | Works              | Configure signing secret + tunnel URL |
 
-
 Generate a local stub JWT (see [`AGENTS.md`](../../AGENTS.md)), call `GET /me`, then promote role in DB for admin route testing.
 
 ## Manual integration checklist (both sides)
-  Use this after unit tests pass, to validate the full flow before frontend E2E exists.
+
+Use this after unit tests pass, to validate the full flow before frontend E2E exists.
 
 ### A. Sign-up → DB sync (simulates frontend)
-  User signs up in Clerk (frontend or Clerk Dashboard).
-  Either:
-    - Webhook user.created hits POST /webhooks/clerk, or
-    - Frontend calls GET /me with Bearer JWT.
-    - Verify in Postgres:
-    ```sql
+
+User signs up in Clerk (frontend or Clerk Dashboard).
+Either: - Webhook user.created hits POST /webhooks/clerk, or - Frontend calls GET /me with Bearer JWT. - Verify in Postgres:
+`sql
     SELECT id, clerk_user_id, email, role FROM users WHERE email = 'you@example.com';
-    ```
-    - Expected: row exists, role = 'client'.
+    ` - Expected: row exists, role = 'client'.
 
 ### B. Sign-in → protected API
-  Frontend getToken() (or dev BAPI session token).
-    Call:
-    ```bash
+
+Frontend getToken() (or dev BAPI session token).
+Call:
+`bash
     curl -s http://localhost:8000/thisUser -H "Authorization: Bearer $TOKEN" | jq .
     curl -s http://localhost:8000/me -H "Authorization: Bearer $TOKEN" | jq .
-    ```
-    - Expected: 200 with user_id / clerkUserId.
+    ` - Expected: 200 with user_id / clerkUserId.
 
 ### C. Bootstrap first admin
-  There is no self-promote endpoint. One-time in Postgres:
-  
-  ```sql
-  UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
-  ```
-  
-### D. Elevate another user to admin
-  
-  ```bash
-  curl -s -X PATCH "http://localhost:8000/admin/users/{postgres-uuid}/role" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{"role": "admin"}' | jq .
-  ```
 
-  - Expected progression:
-    - 401 → token invalid (fix Clerk key / JWT)
-    - 403 → caller is not admin in Postgres
-    - 200 → elevation works
+There is no self-promote endpoint. One-time in Postgres:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+```
+
+### D. Elevate another user to admin
+
+```bash
+curl -s -X PATCH "http://localhost:8000/admin/users/{postgres-uuid}/role" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{"role": "admin"}' | jq .
+```
+
+- Expected progression:
+  - 401 → token invalid (fix Clerk key / JWT)
+  - 403 → caller is not admin in Postgres
+  - 200 → elevation works
 
 ### E. Admin creates a user
-  
-  ```bash
-  curl -s -X POST http://localhost:8000/admin/users -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{
-      "email": "newclient@example.com",
-      "password": "StrongUniquePass123!",
-      "firstName": "New",
-      "lastName": "Client",
-      "role": "client"
-    }' | jq .
-  ```
-  - Requires a real CLERK_SECRET_KEY (not sk_test_placeholder).
 
+```bash
+curl -s -X POST http://localhost:8000/admin/users -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{
+    "email": "newclient@example.com",
+    "password": "StrongUniquePass123!",
+    "firstName": "New",
+    "lastName": "Client",
+    "role": "client"
+  }' | jq .
+```
+
+- Requires a real CLERK_SECRET_KEY (not sk_test_placeholder).
 
 ## Code map
 
-
-| Piece                   | Location                                     |
-| ----------------------- | -------------------------------------------- |
-| JWT guard               | `apps/src/auth/clerk-auth.guard.ts`          |
-| Admin guard             | `apps/src/auth/admin.guard.ts`               |
-| Clerk profile mapping   | `apps/src/auth/clerk-user-payload.ts`        |
-| Clerk BAPI client       | `apps/src/integrations/clerk.service.ts`     |
-| Upsert + admin ops      | `apps/src/modules/users/users.service.ts`    |
-| `GET /me`               | `apps/src/modules/users/users.controller.ts` |
-| Admin routes            | `apps/src/modules/users/users.controller.ts` |
-| Webhooks                | `apps/src/modules/clerk-webhooks/`           |
-
+| Piece                 | Location                                     |
+| --------------------- | -------------------------------------------- |
+| JWT guard             | `apps/src/auth/clerk-auth.guard.ts`          |
+| Admin guard           | `apps/src/auth/admin.guard.ts`               |
+| Clerk profile mapping | `apps/src/auth/clerk-user-payload.ts`        |
+| Clerk BAPI client     | `apps/src/integrations/clerk.service.ts`     |
+| Upsert + admin ops    | `apps/src/modules/users/users.service.ts`    |
+| `GET /me`             | `apps/src/modules/users/users.controller.ts` |
+| Admin routes          | `apps/src/modules/users/users.controller.ts` |
+| Webhooks              | `apps/src/modules/clerk-webhooks/`           |

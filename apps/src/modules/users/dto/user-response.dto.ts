@@ -63,6 +63,15 @@ export class CurrentUserDto {
   phone!: string | null;
 
   @ApiProperty({
+    nullable: true,
+    description:
+      'Profile photo, served from Cloudflare R2, for every role. Set through ' +
+      '`POST /me/avatar/upload-url` and `/me/avatar/confirm`, never sent directly.',
+    example: 'https://photos.labsfood.fr/users/a0eebc99…/avatar/ph_9f2a….jpg',
+  })
+  avatarUrl!: string | null;
+
+  @ApiProperty({
     enum: USER_ROLES,
     description:
       'Which space this person uses. `client`: orders meals and quotes. `chef`: a batch ' +
