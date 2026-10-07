@@ -19,6 +19,7 @@ import {
 import {
   DOCUMENT_LABEL,
   fromWire,
+  requiredDocuments,
   toWire,
   UNDECIDED,
 } from '../domain/chef-onboarding.rules';
@@ -138,8 +139,14 @@ export class ChefApplicationsAdminService {
           city: row.addressCity,
           status: toWire(row.status),
           reactivatedPendingReview,
+          // Waiting for an admin's decision: uploaded, not yet looked at.
           pendingDocuments: [...latest.values()].filter((s) =>
             AWAITING_DECISION.includes(s),
+          ).length,
+          // Blocking documents the candidate has not uploaded at all — the dossiers
+          // to chase. Disjoint from `pendingDocuments`: nothing to decide on yet.
+          missingDocuments: requiredDocuments(this.documents.answersOf(row)).filter(
+            (r) => r.required && !latest.has(r.type),
           ).length,
           submittedAt: row.submittedAt,
           // Drives the « réponse sous 48 h ouvrées » promise: this is what lets the
