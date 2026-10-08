@@ -16,10 +16,11 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['postgres', 'postgresql'] })
     .optional(),
 
-  // Redis not implemented yet
-  // REDIS_URL: Joi.string()
-  //   .uri({ scheme: ['redis', 'rediss'] })
-  //   .required(),
+  /** Optional: messaging falls back to in-process rate limiting and fan-out. */
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .allow('')
+    .optional(),
 
   CLERK_SECRET_KEY: Joi.string().allow('').optional(),
   CLERK_WEBHOOK_SIGNING_SECRET: Joi.string().allow('').optional(),
@@ -36,10 +37,6 @@ export const envValidationSchema = Joi.object({
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
   CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
   CRONOFY_DATA_CENTER: Joi.string().default('us'),
-
-  STREAM_API_KEY: Joi.string().allow('').optional(),
-  STREAM_API_SECRET: Joi.string().allow('').optional(),
-  STREAM_APP_ID: Joi.string().allow('').optional(),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
@@ -60,6 +57,7 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_CHEF_SUSPENDED: Joi.number().optional(),
   BREVO_TPL_SOURCE_CHANGED: Joi.number().optional(),
   BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
+  BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
 
   /** Structured logging, read back from Railway's log explorer. */
   LOG_LEVEL: Joi.string()
@@ -78,6 +76,8 @@ export const envValidationSchema = Joi.object({
   SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
+  /** Private bucket for conversation attachments. Must not allow public reads. */
+  SUPABASE_MESSAGING_BUCKET: Joi.string().default('labsfood-messages'),
   /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */
   R2_ACCOUNT_ID: Joi.string().optional(),
   R2_ACCESS_KEY_ID: Joi.string().optional(),

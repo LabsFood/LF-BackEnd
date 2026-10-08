@@ -12,7 +12,7 @@ Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DA
 | -------------------- | ---- | --------------------------------------------------------- |
 | NestJS API (primary) | 8000 | REST API — booking, auth, integrations                    |
 | PostgreSQL 16        | 5432 | Primary data store via Supabase Postgres URL (**Prisma**) |
-| Redis 7              | 6379 | Cache, queues _(not wired yet — module commented out)_    |
+| Redis 7              | 6379 | Messaging rate limit and realtime fan-out _(optional)_    |
 
 ### Starting backing services
 
@@ -20,7 +20,7 @@ Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DA
 # Start Docker daemon (required first)
 sudo dockerd &>/tmp/dockerd.log &
 
-# Bring up Postgres (Redis optional — not implemented yet)
+# Bring up Postgres (Redis optional: messaging falls back to in-process)
 sudo docker compose up -d postgres
 # sudo docker compose up -d postgres redis
 ```
@@ -41,7 +41,7 @@ sudo docker compose build api && sudo docker compose up api
 cd apps
 npm install
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-# export REDIS_URL="redis://localhost:6379/0"   # not required until Redis is enabled
+# export REDIS_URL="redis://localhost:6379/0"   # optional, see Messaging below
 export CLERK_SECRET_KEY="sk_test_placeholder"   # any non-empty string works locally
 export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
 npm run db:migrate       # apply Prisma migrations once (see docs/database-connection.md)
@@ -225,6 +225,58 @@ fact. Module: `modules/dishes/`. Spec:
 | Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`                                                                                   |
 | Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
 | Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
+
+### Messaging
+
+Conversations between a client and a batch cooker, and between any user and the
+Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
+
+- **Two kinds.** `chef_client`: exactly one per (client, chef profile) pair,
+  whatever the number of bookings. `support`: one per user; admins hold no
+  participant row and answer as a shared inbox.
+- **One access rule**: a conversation the caller does not take part in is `404`,
+  on a read as on a write. The same `/me/conversations` routes serve clients and
+  batch cookers.
+- **One writer**: `MessagingService.postMessage` is the only place a message is
+  stored, for participants and admins alike.
+- **Contact details are masked when served, not when stored.** `messages.body` is
+  always what was written; a detected phone number or email is served as `•••••`
+  to both participants and the conversation is flagged for admins, who read the
+  original. Detection is a regex (`domain/contact-detector.ts`): deterrence, not a
+  guarantee.
+- **J-2**: masking is lifted, and the other person's phone shown, from 48 h before
+  a _confirmed_ booking until it ends (`domain/messaging.rules.ts`). Nothing is
+  stored: moving or cancelling the booking changes the answer.
+- **Writable** while a booking between the two is pending or confirmed, and for 14
+  days after a completed one; then `409 CONVERSATION_READ_ONLY`. Support threads
+  are always open. Admins can write in a closed thread.
+- **A `chef_client` conversation starts from a booking**: `POST /me/conversations`
+  with a `bookingId`. `MessagingService.ensurePair` is exported for the booking
+  flow to call on confirmation, once `POST /bookings` stops answering 501.
+- **Realtime**: listen-only WebSocket on `/ws`. First frame
+  `{"event":"auth","data":{"token":"<Clerk token>"}}`, answered by
+  `{"event":"ready"}`. No subscriptions: the server pushes each person their own
+  conversations, and admins everything. Sockets are closed after an hour so the
+  browser re-authenticates.
+- **Redis is optional.** With `REDIS_URL`, the send rate limit (20 per minute per
+  person) and the events are shared between instances. Without it both are
+  in-process: fine for one instance, wrong for two.
+- **Attachments**: private Supabase bucket `SUPABASE_MESSAGING_BUCKET`, signed PUT
+  then `attachments: [{ uploadId, fileName }]` on the message, 5-minute signed GET
+  to read. PDF, JPEG, PNG, WebP, 10 MB, 3 per message.
+- **Unread counts** are stored (`conversation_participants.unread_count`,
+  `conversations.admin_unread_count`) and moved by the send and read transactions.
+- **Email**: `MessagingNotifierCron` (every 5 minutes) emails a participant whose
+  messages stayed unread 10 minutes, once per burst (`BREVO_TPL_NEW_MESSAGE`).
+  The email never quotes the message.
+- **Audit**: an admin opening, writing in, or dismissing the flag of a
+  `chef_client` conversation writes `conversation.read`, `.intervened`,
+  `.flag_dismissed`.
+
+| Actor                    | Routes                                                                                                                                                                              |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client or batch cooker   | `GET\|POST /me/conversations`, `POST /me/conversations/support`, `GET .../unread-count`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../:id/attachments/…` |
+| Admin                    | `GET /admin/conversations[?type=&filter=unread\|flagged]`, `GET .../counts`, `POST .../support`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../dismiss-flag` |
 
 ### Logging and debugging
 

@@ -11,7 +11,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | API style        | REST controllers, `@nestjs/swagger`                                    |
 | Persistence      | PostgreSQL 16 (Supabase-hosted or local Docker)                        |
 | ORM / migrations | **Prisma 7.6** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
-| Cache / queues   | Redis 7 (scaffolded, not wired yet)                                    |
+| Realtime / limits | Redis 7, optional: messaging rate limit and WebSocket fan-out between instances |
 | Repo path        | [`apps/`](./apps/) — NestJS source (`apps/src/`)                       |
 
 ## Authentication & roles
@@ -28,7 +28,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | Payments       | [Stripe](https://stripe.com/)                                                                                                                | Booking/checkout payment intents, webhooks      |
 | Calendar       | [Cronofy](https://www.cronofy.com/)                                                                                                          | Chef availability / scheduling                  |
-| Messaging      | [Stream](https://getstream.io/)                                                                                                              | Client ↔ chef realtime threads                  |
+| Messaging      | In-house: `modules/messaging` (PostgreSQL, REST, `/ws` WebSocket) | Client ↔ chef and support conversations |
 | Email          | [Brevo](https://www.brevo.com/)                                                                                                              | Transactional notifications                     |
 | Maps           | Google Maps API                                                                                                                              | Zones, routing (when needed)                    |
 | Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) (public, S3-compatible) for dish photos; Supabase Storage (private) for KYC documents | Dish photos (no egress fee), chef KYC documents |
@@ -55,7 +55,6 @@ flowchart TD
     stripe[Stripe]
     cronofy[Cronofy]
     brevo[Brevo]
-    stream[Stream]
     maps[GoogleMaps]
     r2[CloudflareR2]
     storage[SupabaseStorage]
@@ -67,7 +66,6 @@ flowchart TD
     api --> stripe
     api --> cronofy
     api --> brevo
-    api --> stream
     api --> maps
     api --> r2
     api --> storage
@@ -75,8 +73,8 @@ flowchart TD
 
 1. Clients authenticate with **Clerk** and call the NestJS API with a Bearer token.
 2. The API persists domain data in **PostgreSQL** (bookings, catalog, CRM, Kossam, etc. per specs).
-3. **Redis** will back cache and async jobs (email, notifications) when enabled.
-4. **Stripe**, **Cronofy**, **Brevo**, and **Stream** are invoked from integration services under `apps/src/integrations/`.
+3. **Redis** carries the messaging rate limit and the realtime events between API instances; without `REDIS_URL` both stay in-process.
+4. **Stripe**, **Cronofy** and **Brevo** are invoked from integration services under `apps/src/integrations/`. Messaging is not an integration: it lives in `apps/src/modules/messaging/`.
 
 ## Related documentation
 

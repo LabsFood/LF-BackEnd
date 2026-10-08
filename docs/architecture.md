@@ -19,7 +19,7 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 | Auth              | **Clerk**                                                                                            | No first-party `/auth/register` or password routes; JWT from Clerk on protected routes |
 | Booking aggregate | `**bookings`**                                                                                       | Spec “reservation” maps to existing booking module/table naming                        |
 | Chef role         | `**chef**` replaces `provider`                                                                       | E1 migration landed; `provider_id` columns kept temporarily for compatibility          |
-| Calendar / chat   | **Cronofy** + **Stream**                                                                             | Kept per stack; wire to booking lifecycle and messaging modules                        |
+| Calendar / chat   | **Cronofy**; chat is in-house (`modules/messaging`), Stream dropped | One thread per client and chef pair, plus support; see AGENTS.md |
 | Tracking          | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Gap list and delivery status                                                           |
 
 ## Services in this repo
@@ -28,7 +28,7 @@ Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API
 | ---------- | --------------------------------- | --------------------------------------------- | ------------ |
 | NestJS API | `[apps/](../apps/)` (`apps/src/`) | Primary REST API (OpenAPI/Swagger)            | 8000         |
 | PostgreSQL | Docker / Supabase                 | Primary data store                            | 5432         |
-| Redis      | Docker                            | Cache + async queues (module not enabled yet) | 6379         |
+| Redis      | Docker                            | Messaging rate limit + realtime fan-out (optional) | 6379         |
 
 Database: **Prisma** (`apps/prisma/schema.prisma`). Local/Docker: `npm run db:migrate` or `prisma migrate deploy` in the API container entrypoint.
 
@@ -46,8 +46,8 @@ apps/src/
 │   ├── database.module.ts     # imports PrismaModule
 │   └── enums.ts
 ├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser
-├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (KYC storage)
-├── redis/                     # scaffold (commented out of AppModule)
+├── integrations/              # Stripe, Cronofy, Brevo, Supabase (KYC storage)
+├── redis/                     # optional connection (REDIS_URL), in-process fallback
 └── modules/
     ├── health/                # GET /health, GET /ready
     ├── users/                 # GET /thisUser, /me, /me/profile, /admin/clients/*
@@ -70,7 +70,7 @@ Modules below are the **planned** NestJS boundaries. None except those in “Cur
 | `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | `GET /me/bookings`*, `POST /bookings`, cancel; admin list/patch |
 | `shopping-lists` | Ingredient aggregation by aisle                       | Embedded in booking detail + admin                              |
 | `quotes`         | Sur-mesure requests & quotes                          | `POST /quotes`, `/me/quotes`, admin `/admin/quotes`             |
-| `messaging`      | Threads + Stream realtime                             | `/me/thread`, `/admin/threads`                                  |
+| `messaging`      | Conversations, attachments, `/ws` realtime            | `/me/conversations`, `/admin/conversations`                     |
 | `payments`       | Stripe intents & webhooks, tax credit fields          | `/payments/intent`, `/webhooks/stripe`                          |
 | `kossam`         | Kossam product orders                                 | Admin `/admin/kossam-orders`; public submit from main site      |
 | `recruitment`    | Chef applications + documents                         | `/admin/applications`                                           |
@@ -123,7 +123,7 @@ erDiagram
 
 ### Target additions (Prisma schema — spec-aligned)
 
-Core shared entities: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote`, `ChatThread`, `ChatMessage`, `Payment`, `Notification`.
+Core shared entities: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote`, `Conversation`, `ConversationParticipant`, `Message`, `MessageAttachment`, `Payment`, `Notification`.
 
 Admin / main-site entities: `KossamOrder`, `KossamOrderItem`, `ChefApplication`, `ApplicationDocument`, `ContactMessage`, `Review`, `TeamMember`, `ServiceZone`, `AdminSettings`.
 
@@ -138,8 +138,9 @@ erDiagram
     meals ||--o{ booking_meals : "selected"
     bookings ||--o| shopping_lists : "generates"
     bookings ||--o| payments : "paid_by"
-    users ||--o{ chat_threads : "owns"
-    chat_threads ||--o{ chat_messages : "contains"
+    users ||--o{ conversation_participants : "takes part"
+    conversations ||--o{ conversation_participants : "has"
+    conversations ||--o{ messages : "contains"
 ```
 
 `chef_profiles` can later converge with team modeling (`TeamMember`, chef assignment on `bookings`) in a later design pass.
@@ -193,7 +194,6 @@ Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `
 | ------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
 | Stripe        | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending                                  |
 | Cronofy       | `CRONOFY_*`                                  | Scaffold; link to chef availability                                              |
-| Stream        | `STREAM_*`                                   | Scaffold; link to messaging module                                               |
 | Brevo         | `BREVO_*`                                    | Scaffold; notification templates pending                                         |
 | Cloudflare R2 | `R2_*`                                       | Public dish photos (`R2StorageService`); routes answer 503 without all five vars |
 | Supabase API  | `SUPABASE_*`, KYC bucket                     | Private storage for chef KYC documents                                           |
@@ -216,11 +216,11 @@ Protected today: `/thisUser`, `/me`, `/bookings`. Public: `/health`, `/ready`, `
 
 ### Client / public backlog (SPEC-BACKEND)
 
-`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/GDPR routes.
+`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/conversations`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/GDPR routes.
 
 ### Admin backlog (SPEC-ADMIN-DASHBOARD)
 
-`/admin/dashboard`, `/admin/dashboard/badges`, reservations (bookings), quotes, threads, clients, meals, menu-weeks, formules, kossam-orders, applications, contact-messages, reviews, team, zones, settings.
+`/admin/dashboard`, `/admin/dashboard/badges`, reservations (bookings), quotes, conversations, clients, meals, menu-weeks, formules, kossam-orders, applications, contact-messages, reviews, team, zones, settings.
 
 ## Documentation map
 

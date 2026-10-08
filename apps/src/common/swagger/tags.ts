@@ -15,6 +15,7 @@ export const TAGS = {
   bookings: 'Bookings',
   missions: 'Prestations — recipe sheet and shopping list',
   quotes: 'Quotes',
+  messaging: 'Messaging',
   dashboards: 'Dashboards',
   adminUsers: 'Admin — users and clients',
   adminChefs: 'Admin — batch cookers',
@@ -22,6 +23,7 @@ export const TAGS = {
   adminCatalog: 'Admin — catalog',
   adminBookings: 'Admin — bookings',
   adminQuotes: 'Admin — quotes',
+  adminMessaging: 'Admin — messaging',
   adminDashboard: 'Admin — dashboard',
 } as const;
 
@@ -48,6 +50,9 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'The documents a prestation leaves: the recipe sheet of each dish and the ' +
     'shopping list, from the recipe versions it cooks from.',
   quotes: 'Custom quote requests, for events or larger orders.',
+  messaging:
+    'Conversations of the signed-in client or batch cooker: one per client and cook, ' +
+    'plus one with the Lab’s Food team. New messages are pushed over the `/ws` WebSocket.',
   dashboards: 'Summaries for the signed-in client.',
   adminUsers:
     'Create accounts, change roles, manage client profiles and batch cooker flags. Admins only.',
@@ -58,5 +63,8 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
   adminCatalog: 'Meals, weekly menus and pricing formules. Admins only.',
   adminBookings: 'Any booking and its shopping list. Admins only.',
   adminQuotes: 'Price and follow up quote requests. Admins only.',
+  adminMessaging:
+    'The support inbox, and every client and cook conversation for moderation. ' +
+    'Admins only.',
   adminDashboard: 'Figures for the back office. Admins only.',
 };

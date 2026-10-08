@@ -20,8 +20,8 @@ import { StatsModule } from './modules/stats/stats.module';
 import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
 import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
-// Redis not implemented yet — re-enable when cache/queues are wired.
-// import { RedisModule } from './redis/redis.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -51,7 +51,7 @@ import { UsersModule } from './modules/users/users.module';
     // ChefDossierCron for the multi-replica caveat.
     ScheduleModule.forRoot(),
     DatabaseModule,
-    // RedisModule,
+    RedisModule,
     AuditModule,
     AuthModule,
     ClerkWebhooksModule,
@@ -65,6 +65,7 @@ import { UsersModule } from './modules/users/users.module';
     BookingsModule,
     ChefOnboardingModule,
     DishesModule,
+    MessagingModule,
   ],
 })
 export class AppModule {}

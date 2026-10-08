@@ -15,7 +15,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Booking naming | Keep **`bookings`** module/table                                                               | Spec “reservation” is logical only unless API aliases are added                                                                       |
 | Chef role      | **`chef`** replaces **`provider`** in `user_role`                                              | E1 migrated enum + profile table naming, API aliases kept backward compatible                                                         |
 | Calendar       | **Cronofy**                                                                                    | Wire to chef availability / booking scheduling                                                                                        |
-| Messaging      | **Stream**                                                                                     | Wire to client↔chef threads alongside persisted thread metadata if needed                                                             |
+| Messaging      | **In-house** (PostgreSQL + REST + WebSocket), Stream dropped | Contact masking, J-2 release and admin moderation are business rules of ours; see E7 |
 | Object storage | **Cloudflare R2** for public media, **Supabase Storage** for private documents; AWS S3 dropped | No other AWS footprint (Railway + Supabase + Clerk); R2 has no egress fee for storefront images. `AWS_*` env and `config.aws` removed |
 
 ## Documentation alignment (this effort)
@@ -103,9 +103,9 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item                                     | Status | Notes |
 | ---------------------------------------- | ------ | ----- |
-| `ChatThread` / `ChatMessage` persistence | Todo   |       |
-| Stream channels + webhooks               | Todo   |       |
-| `/me/thread`, `/admin/threads`           | Todo   |       |
+| `Conversation` / `Message` persistence   | Done   | One thread per (client, chef) pair + one support thread per user |
+| Realtime (`/ws`), Redis fan-out          | Done   | Listen-only socket; Redis optional |
+| `/me/conversations`, `/admin/conversations` | Done | Replaces the spec's `/me/thread` and `/admin/threads` |
 
 ### E8 — Payments (`payments`)
 
@@ -147,7 +147,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 | Item                    | Status | Notes                                                                              |
 | ----------------------- | ------ | ---------------------------------------------------------------------------------- |
-| Enable Redis module     | Todo   | Queues for notifications                                                           |
+| Enable Redis module     | Done   | Optional (`REDIS_URL`): messaging rate limit and realtime fan-out                  |
 | Upload APIs             | Todo   | Dish photos on R2 (`R2StorageService`, FLOW-02); KYC documents on Supabase Storage |
 | Clerk JWKS verification | Todo   | Phase 2 hardening                                                                  |
 
@@ -159,7 +159,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | Users        | `GET /thisUser`, `GET /me`, `POST /admin/users`, `PATCH /admin/users/:id/role` |
 | Bookings     | `GET /bookings`, `POST /bookings` (stub)                                       |
 | Auth         | `ClerkAuthGuard`, `AdminGuard`                                                 |
-| Integrations | Stripe, Cronofy, Stream, Brevo, Supabase scaffolds                             |
+| Integrations | Stripe, Cronofy, Brevo, Supabase scaffolds                             |
 
 ## Module → spec traceability
 
@@ -171,7 +171,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | reservations                    | **`bookings`**                            | Scaffold                                              |
 | quotes                          | `quotes`                                  | Not started                                           |
 | shopping-lists                  | `shopping-lists`                          | Not started                                           |
-| messaging                       | `messaging` + Stream                      | Not started                                           |
+| messaging                       | `messaging` (in-house)                    | Done; client ↔ chef threads open from a booking       |
 | payments                        | `payments`                                | Not started                                           |
 | kossam                          | `kossam`                                  | Not started                                           |
 | recruitment                     | `recruitment`                             | Not started                                           |
@@ -184,11 +184,11 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 
 ## Admin API checklist (all Todo)
 
-`GET /admin/dashboard`, `GET /admin/dashboard/badges`, bookings CRUD/patch, quotes, threads, clients, meals, menu-weeks, formules, kossam-orders, applications (+ document download), contact-messages, reviews, team, zones, settings.
+`GET /admin/dashboard`, `GET /admin/dashboard/badges`, bookings CRUD/patch, quotes, conversations, clients, meals, menu-weeks, formules, kossam-orders, applications (+ document download), contact-messages, reviews, team, zones, settings.
 
 ## Client API checklist (Todo except noted)
 
-`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/settings/GDPR — plus **Done:** `GET /me`, `GET /thisUser`.
+`GET /me/dashboard`, `/me/bookings`, booking detail/cancel, `/menus/current`, quotes, `/me/conversations`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/settings/GDPR — plus **Done:** `GET /me`, `GET /thisUser`.
 
 ## Intentionally out of scope (spec vs stack)
 

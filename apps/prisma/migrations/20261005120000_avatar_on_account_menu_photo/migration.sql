@@ -5,7 +5,10 @@
 -- their chef profile before that column goes.
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_url" VARCHAR(512);
 
-ALTER TABLE "chef_profiles" DROP COLUMN "avatar_url";
+-- IF EXISTS: the column came from 20261003120000_chef_profile_avatar, which was
+-- removed from the repo. Databases that ran it have the column; a fresh one never
+-- did, and a plain DROP stopped every migration there.
+ALTER TABLE "chef_profiles" DROP COLUMN IF EXISTS "avatar_url";
 
 -- Menus get a cover photo, as dishes have. Nullable, additive.
 ALTER TABLE "menus" ADD COLUMN "image_url" VARCHAR(512);

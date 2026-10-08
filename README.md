@@ -13,7 +13,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)             |
 | ORM / migrations                | **Prisma** (`apps/prisma/`)                                          |
 | Database                        | PostgreSQL 16                                                        |
-| Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
+| Realtime & rate limits          | Redis 7, optional (messaging)                                 |
 | Containers                      | Docker / Docker Compose                                              |
 | Hosting                         | **Railway**                                                          |
 
@@ -23,7 +23,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | ------------------------------- | ------------------------------------------------------------- |
 | Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)                                   |
 | Calendar / chef availability    | [Cronofy](https://www.cronofy.com/)                           |
-| Realtime chat (clients ↔ chefs) | [Stream](https://getstream.io/)                               |
+| Realtime chat (clients ↔ chefs) | In-house: PostgreSQL + REST + WebSocket (`modules/messaging`) |
 | Transactional email             | [Brevo](https://www.brevo.com/)                               |
 | Payments                        | [Stripe](https://stripe.com/)                                 |
 | Maps & routing                  | Google Maps API                                               |
@@ -37,8 +37,8 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** caches hot paths and backs async work.
-3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, **Cloudflare R2**, and **Supabase Storage** are used from the backend as needed.
+2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** (optional) carries the messaging rate limit and realtime events between instances.
+3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Google Maps**, **Cloudflare R2**, and **Supabase Storage** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
 ```mermaid
@@ -61,7 +61,6 @@ graph TD
         I[Stripe]
         J[Cronofy Calendar]
         K[Brevo]
-        L[Stream]
         M[Google Maps API]
         N[Cloudflare R2 dish photos]
     end

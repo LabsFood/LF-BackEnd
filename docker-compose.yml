@@ -16,19 +16,16 @@ services:
       timeout: 5s
       retries: 10
 
-  # Redis not implemented yet — uncomment when cache/queues are wired.
-  # redis:
-  #   image: redis:7-alpine
-  #   command: ["redis-server", "--appendonly", "yes"]
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - lf_redis_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 10
+  # Messaging: rate limit and realtime fan-out. Nothing durable is kept in it.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build:
@@ -43,7 +40,7 @@ services:
       # Docker-local DB defaults; override with DOCKER_* vars if needed.
       SUPABASE_DB_URL: ${DOCKER_SUPABASE_DB_URL:-postgresql://lf:lf@postgres:5432/lf_backend}
       SUPABASE_DB_MIGRATION_URL: ${DOCKER_SUPABASE_DB_MIGRATION_URL:-postgresql://lf:lf@postgres:5432/lf_backend}
-      # REDIS_URL: ${REDIS_URL}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       CLERK_WEBHOOK_SIGNING_SECRET: ${CLERK_WEBHOOK_SIGNING_SECRET:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -51,9 +48,6 @@ services:
       CRONOFY_CLIENT_ID: ${CRONOFY_CLIENT_ID:-}
       CRONOFY_CLIENT_SECRET: ${CRONOFY_CLIENT_SECRET:-}
       CRONOFY_DATA_CENTER: ${CRONOFY_DATA_CENTER:-us}
-      STREAM_API_KEY: ${STREAM_API_KEY:-}
-      STREAM_API_SECRET: ${STREAM_API_SECRET:-}
-      STREAM_APP_ID: ${STREAM_APP_ID:-}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-noreply@labsfood.com}
       BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Labs Food}
@@ -67,12 +61,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # redis:
-      #   condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
     restart: unless-stopped
 
 volumes:
   lf_pg_data:
-  # lf_redis_data:

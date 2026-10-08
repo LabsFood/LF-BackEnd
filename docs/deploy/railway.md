@@ -186,8 +186,8 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
-- [ ] Stripe / Cronofy / Brevo / Stream / R2 keys when those flows ship
+- [ ] Stripe / Cronofy / Brevo / R2 keys when those flows ship
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
 - [ ] Stripe webhook URL when payments ship
 
-Redis is **not** required yet (module disabled in repo).
+Redis is optional with one API instance. Set `REDIS_URL` (Railway Redis plugin) before running a second instance: without it, a message posted on one instance never reaches a WebSocket held by the other. Messaging also needs the private Supabase bucket `SUPABASE_MESSAGING_BUCKET` for attachments, and `BREVO_TPL_NEW_MESSAGE` for the unread-message email.

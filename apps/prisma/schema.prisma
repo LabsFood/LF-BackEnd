@@ -8,29 +8,34 @@ datasource db {
 }
 
 model User {
-  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clerkUserId         String            @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
-  email               String            @unique(map: "uq_users_email") @db.VarChar(320)
-  fullName            String?           @map("full_name") @db.VarChar(255)
-  role                UserRole          @default(client)
-  phone               String?           @db.VarChar(32)
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId             String                    @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
+  email                   String                    @unique(map: "uq_users_email") @db.VarChar(320)
+  fullName                String?                   @map("full_name") @db.VarChar(255)
+  role                    UserRole                  @default(client)
+  phone                   String?                   @db.VarChar(32)
   /// Profile photo on Cloudflare R2, for every role. Set only by the photo upload,
   /// which checks the file.
-  avatarUrl           String?           @map("avatar_url") @db.VarChar(512)
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  avatarUrl               String?                   @map("avatar_url") @db.VarChar(512)
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Set when Clerk deleted the account but bookings keep the row: its personal
   /// data is blanked (`UsersService.deleteByClerkId`).
-  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
-  bookingsAsClient    Booking[]         @relation("BookingClient")
-  chefProfile         ChefProfile?
-  clientProfile       ClientProfile?
-  quotes              Quote[]           @relation("QuoteClient")
-  applicationsDecided ChefApplication[] @relation("ChefApplicationDecidedBy")
-  documentsDecided    ChefDocument[]    @relation("ChefDocumentDecidedBy")
-  auditEntries        AuditLog[]        @relation("AuditLogActor")
-  mealsAuthored       Meal[]            @relation("MealAuthor")
-  menusAuthored       Menu[]            @relation("MenuAuthor")
+  deletedAt               DateTime?                 @map("deleted_at") @db.Timestamptz(6)
+  bookingsAsClient        Booking[]                 @relation("BookingClient")
+  chefProfile             ChefProfile?
+  clientProfile           ClientProfile?
+  quotes                  Quote[]                   @relation("QuoteClient")
+  applicationsDecided     ChefApplication[]         @relation("ChefApplicationDecidedBy")
+  documentsDecided        ChefDocument[]            @relation("ChefDocumentDecidedBy")
+  auditEntries            AuditLog[]                @relation("AuditLogActor")
+  mealsAuthored           Meal[]                    @relation("MealAuthor")
+  menusAuthored           Menu[]                    @relation("MenuAuthor")
+  conversationsAsClient   Conversation[]            @relation("ConversationClient")
+  supportConversation     Conversation?             @relation("ConversationSupportUser")
+  conversationMemberships ConversationParticipant[]
+  messagesSent            Message[]                 @relation("MessageSender")
+  messageAttachments      MessageAttachment[]       @relation("MessageAttachmentUploader")
 
   @@map("users")
 }
@@ -69,6 +74,7 @@ model ChefProfile {
   dishesOffered        Meal[]             @relation("MealOffer")
   menusOffered         Menu[]             @relation("MenuOffer")
   showcaseWeeks        ChefShowcaseWeek[]
+  conversations        Conversation[]     @relation("ConversationChefProfile")
 
   @@map("chef_profiles")
 }
@@ -722,4 +728,118 @@ model MealRecipeVersion {
 
   @@unique([mealId, version], map: "uq_meal_recipe_versions_meal_version")
   @@map("meal_recipe_versions")
+}
+
+enum ConversationType {
+  chef_client
+  support
+
+  @@map("conversation_type")
+}
+
+enum MessageSenderRole {
+  client
+  chef
+  support
+
+  @@map("message_sender_role")
+}
+
+/// One thread. `chef_client`: exactly one per (client, chef) pair, whatever the
+/// number of bookings between them. `support`: one per user, with the Lab's Food
+/// team as a shared inbox, so admins hold no participant row.
+model Conversation {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type             ConversationType
+  /// Set for `chef_client` only, together with `chefProfileId`.
+  clientId         String?          @map("client_id") @db.Uuid
+  chefProfileId    String?          @map("chef_profile_id") @db.Uuid
+  /// Set for `support` only: the user the thread belongs to.
+  supportUserId    String?          @unique(map: "uq_conversations_support_user_id") @map("support_user_id") @db.Uuid
+  /// Sorts the lists. Null until the first message.
+  lastMessageAt    DateTime?        @map("last_message_at") @db.Timestamptz(6)
+  /// When a phone number or an email was last detected in a participant's message.
+  contactFlaggedAt DateTime?        @map("contact_flagged_at") @db.Timestamptz(6)
+  /// Support threads only: messages the team has not opened yet.
+  adminUnreadCount Int              @default(0) @map("admin_unread_count")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client       User?                     @relation("ConversationClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversations_client_id")
+  chefProfile  ChefProfile?              @relation("ConversationChefProfile", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversations_chef_profile_id")
+  supportUser  User?                     @relation("ConversationSupportUser", fields: [supportUserId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversations_support_user_id")
+  participants ConversationParticipant[]
+  messages     Message[]
+  attachments  MessageAttachment[]
+
+  @@unique([clientId, chefProfileId], map: "uq_conversations_client_chef")
+  @@index([chefProfileId], map: "ix_conversations_chef_profile_id")
+  @@index([type, lastMessageAt], map: "ix_conversations_type_last_message_at")
+  @@map("conversations")
+}
+
+/// Who may read and write a thread, and what they have not read yet.
+model ConversationParticipant {
+  conversationId String            @map("conversation_id") @db.Uuid
+  userId         String            @map("user_id") @db.Uuid
+  /// `client` or `chef`: the side this person writes from.
+  role           MessageSenderRole
+  /// Kept in step by the send and read transactions, so a list never counts rows.
+  unreadCount    Int               @default(0) @map("unread_count")
+  lastReadAt     DateTime?         @map("last_read_at") @db.Timestamptz(6)
+  /// When the unread-message email last went out, so one burst sends one email.
+  lastEmailedAt  DateTime?         @map("last_emailed_at") @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversation_participants_conversation_id")
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversation_participants_user_id")
+
+  @@id([conversationId, userId], map: "pk_conversation_participants")
+  @@index([userId], map: "ix_conversation_participants_user_id")
+  @@map("conversation_participants")
+}
+
+/// `body` is always what the sender wrote. Phone numbers and emails are hidden
+/// when the message is served, not when it is stored: admins read the original,
+/// and the text comes back once the contact details are released (J-2).
+model Message {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId  String            @map("conversation_id") @db.Uuid
+  /// Null once the sender's account is deleted.
+  senderUserId    String?           @map("sender_user_id") @db.Uuid
+  senderRole      MessageSenderRole @map("sender_role")
+  body            String
+  contactDetected Boolean           @default(false) @map("contact_detected")
+  /// Chosen by the sender's device, so a retried send does not post twice.
+  clientMessageId String?           @map("client_message_id") @db.VarChar(64)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_messages_conversation_id")
+  sender       User?               @relation("MessageSender", fields: [senderUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_messages_sender_user_id")
+  attachments  MessageAttachment[]
+
+  @@unique([conversationId, senderUserId, clientMessageId], map: "uq_messages_client_message_id")
+  @@index([conversationId, createdAt], map: "ix_messages_conversation_created_at")
+  @@map("messages")
+}
+
+/// A file sent with a message. It lives in the private messaging bucket and is
+/// only ever read through a short-lived signed link.
+model MessageAttachment {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId      String   @map("message_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  uploaderUserId String?  @map("uploader_user_id") @db.Uuid
+  storagePath    String   @unique(map: "uq_message_attachments_storage_path") @map("storage_path") @db.VarChar(512)
+  fileName       String   @map("file_name") @db.VarChar(255)
+  mimeType       String   @map("mime_type") @db.VarChar(127)
+  sizeBytes      Int      @map("size_bytes")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_message_attachments_message_id")
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_message_attachments_conversation_id")
+  uploader     User?        @relation("MessageAttachmentUploader", fields: [uploaderUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_message_attachments_uploader_user_id")
+
+  @@index([messageId], map: "ix_message_attachments_message_id")
+  @@map("message_attachments")
 }
