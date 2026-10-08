@@ -5,3 +5,5 @@
 apps/scripts/* text eol=lf
 Dockerfile text eol=lf
 .husky/* text eol=lf
+# Brevo parses the templates line by line: CRLF breaks the loader and the upload.
+brevo/** text eol=lf
