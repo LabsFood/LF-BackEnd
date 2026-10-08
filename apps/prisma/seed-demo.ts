@@ -287,6 +287,51 @@ async function main(): Promise<void> {
       }),
     );
 
+    // One conversation per booked pair, so the messaging screens have something to
+    // show while bookings cannot be created through the API. Removed with the demo
+    // users: conversations cascade from them.
+    await Promise.all(
+      bookings
+        .filter((booking) => booking.status !== 'cancelled')
+        .map((booking, idx) => {
+          const sentAt = new Date(Date.now() - (idx + 1) * 60 * 60 * 1000);
+          const answeredAt = new Date(sentAt.getTime() + 20 * 60 * 1000);
+          const chefUserId = chefProfiles.find(
+            (chef) => chef.id === booking.chefProfileId,
+          )!.userId;
+          return tx.conversation.create({
+            data: {
+              type: 'chef_client',
+              clientId: booking.clientId,
+              chefProfileId: booking.chefProfileId,
+              lastMessageAt: answeredAt,
+              participants: {
+                create: [
+                  { userId: booking.clientId, role: 'client', unreadCount: 1 },
+                  { userId: chefUserId, role: 'chef', lastReadAt: answeredAt },
+                ],
+              },
+              messages: {
+                create: [
+                  {
+                    senderUserId: booking.clientId,
+                    senderRole: 'client',
+                    body: 'Bonjour ! Est-ce que vous pouvez prévoir un plat sans gluten ?',
+                    createdAt: sentAt,
+                  },
+                  {
+                    senderUserId: chefUserId,
+                    senderRole: 'chef',
+                    body: 'Bonjour, bien sûr, je le note pour la session.',
+                    createdAt: answeredAt,
+                  },
+                ],
+              },
+            },
+          });
+        }),
+    );
+
     await Promise.all(
       bookings.map((booking, idx) =>
         tx.bookingMeal.create({

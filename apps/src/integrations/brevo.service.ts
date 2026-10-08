@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 const BREVO_BASE_URL = 'https://api.brevo.com/v3';
 
-/** The transactional emails FLOW-01 and FLOW-02 send to batch cookers. */
+/** The transactional emails, named as their Brevo template id is in config. */
 export type ChefOnboardingEmail =
   | 'applicationReceived'
   | 'applicationReceivedAdmin'
@@ -17,7 +17,9 @@ export type ChefOnboardingEmail =
   // FLOW-02: a Lab's Food suggestion a chef adopted changed on a safety field, and
   // an admin took one of the chef's dishes or menus down.
   | 'sourceChanged'
-  | 'contentSuspended';
+  | 'contentSuspended'
+  // Messaging: someone has messages they have not opened.
+  | 'newMessage';
 
 @Injectable()
 export class BrevoService {

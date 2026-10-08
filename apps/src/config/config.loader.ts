@@ -14,8 +14,11 @@ export interface AppConfig {
     host: string;
     port: number;
   };
-  /** Redis not implemented yet — uncomment when enabling RedisModule. */
-  // redisUrl: string;
+  /**
+   * Optional. Without it the messaging rate limit and realtime fan-out stay inside
+   * this process, which is right for one instance and for local development.
+   */
+  redisUrl?: string;
   cors: {
     origins: string[];
   };
@@ -39,11 +42,6 @@ export interface AppConfig {
     clientSecret?: string;
     dataCenter: string;
   };
-  stream: {
-    apiKey?: string;
-    apiSecret?: string;
-    appId?: string;
-  };
   brevo: {
     apiKey?: string;
     senderEmail: string;
@@ -61,6 +59,7 @@ export interface AppConfig {
       chefSuspended?: number;
       sourceChanged?: number;
       contentSuspended?: number;
+      newMessage?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -92,6 +91,8 @@ export interface AppConfig {
     anonKey?: string;
     /** Private bucket holding KYC documents. Never publicly readable. */
     kycBucket: string;
+    /** Private bucket holding the files sent in conversations. Never publicly readable. */
+    messagingBucket: string;
   };
   /**
    * Cloudflare R2, for dish and profile photos (FLOW-02). Optional: without all five, photo
@@ -114,7 +115,7 @@ export const configLoader = (): AppConfig => ({
     host: process.env.API_HOST ?? '0.0.0.0',
     port: Number(process.env.API_PORT ?? process.env.PORT ?? 8000),
   },
-  // redisUrl: process.env.REDIS_URL ?? '',
+  redisUrl: process.env.REDIS_URL || undefined,
   cors: {
     origins: resolveAllowedOrigins(process.env.CORS_ORIGINS, process.env.ENVIRONMENT),
   },
@@ -137,11 +138,6 @@ export const configLoader = (): AppConfig => ({
     clientSecret: process.env.CRONOFY_CLIENT_SECRET,
     dataCenter: process.env.CRONOFY_DATA_CENTER ?? 'us',
   },
-  stream: {
-    apiKey: process.env.STREAM_API_KEY,
-    apiSecret: process.env.STREAM_API_SECRET,
-    appId: process.env.STREAM_APP_ID,
-  },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,
     senderEmail: process.env.BREVO_SENDER_EMAIL ?? 'noreply@labsfood.com',
@@ -160,6 +156,7 @@ export const configLoader = (): AppConfig => ({
       chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
       sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
       contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
+      newMessage: optionalNumber(process.env.BREVO_TPL_NEW_MESSAGE),
     },
   },
   logging: {
@@ -188,6 +185,7 @@ export const configLoader = (): AppConfig => ({
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     anonKey: process.env.SUPABASE_ANON_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
+    messagingBucket: process.env.SUPABASE_MESSAGING_BUCKET ?? 'labsfood-messages',
   },
   r2: {
     accountId: process.env.R2_ACCOUNT_ID,

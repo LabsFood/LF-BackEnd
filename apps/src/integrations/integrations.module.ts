@@ -4,7 +4,6 @@ import { BrevoService } from './brevo.service';
 import { ClerkService } from './clerk.service';
 import { CronofyService } from './cronofy.service';
 import { R2StorageService } from './r2-storage.service';
-import { StreamService } from './stream.service';
 import { StripeService } from './stripe.service';
 import { SupabaseService } from './supabase.service';
 
@@ -15,7 +14,6 @@ import { SupabaseService } from './supabase.service';
     ClerkService,
     CronofyService,
     R2StorageService,
-    StreamService,
     StripeService,
     SupabaseService,
   ],
@@ -24,7 +22,6 @@ import { SupabaseService } from './supabase.service';
     ClerkService,
     CronofyService,
     R2StorageService,
-    StreamService,
     StripeService,
     SupabaseService,
   ],
