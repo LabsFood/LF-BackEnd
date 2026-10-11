@@ -52,7 +52,7 @@ const makePrisma = () => {
     },
     chefProfile: {
       update: jest.fn(),
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ userId: 'u-1' }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ userId: 'u-1', isActive: true }),
     },
     chefDocument: { findFirst: jest.fn(), update: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -399,11 +399,12 @@ describe('ChefApplicationsAdminService.detail', () => {
       decidedAt: null,
       chefProfileId: 'cp-1',
       userId: 'u-1',
+      isActive: true,
       ...validatedDossier,
     });
     expect(prisma.chefProfile.findUniqueOrThrow).toHaveBeenCalledWith({
       where: { id: 'cp-1' },
-      select: { userId: true },
+      select: { userId: true, isActive: true },
     });
   });
 });

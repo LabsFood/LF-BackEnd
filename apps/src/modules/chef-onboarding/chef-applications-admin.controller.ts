@@ -79,7 +79,8 @@ export class ChefApplicationsAdminController {
     description:
       'The review queue, one page at a time. Batch cookers taken offline by an expired ' +
       'document come first; `reactivatedPendingReview: true` marks those already back ' +
-      'online on a replacement nobody has checked. Then the longest wait first: ' +
+      'online on a replacement nobody has checked. `isActive` says whether clients can book ' +
+      'the batch cooker right now. Then the longest wait first: ' +
       '`waitingSinceHours` helps keep the promise of an answer within 48 working hours.\n\n' +
       'Example: `?status=submitted&hasPendingDocuments=true` lists what needs a look now.',
   })
@@ -97,7 +98,8 @@ export class ChefApplicationsAdminController {
     summary: 'Open one candidature',
     description:
       'Everything the candidate sent, their documents with the state of each, and ' +
-      '`dossierStatus`. `canApprove: true` means every blocking document is valid, so ' +
+      '`dossierStatus`. `isActive` says whether clients can book the batch cooker right now. ' +
+      '`canApprove: true` means every blocking document is valid, so ' +
       'the candidature can be approved. To look at a file, ask for its link with ' +
       '`download-url`.',
   })

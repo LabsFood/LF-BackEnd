@@ -198,6 +198,7 @@ export const QUEUE_EXAMPLE = {
       name: 'Marie Dupont',
       city: 'Lyon',
       status: 'submitted',
+      isActive: false,
       reactivatedPendingReview: false,
       pendingDocuments: 2,
       submittedAt: '2026-09-20T09:12:03.412Z',
@@ -224,6 +225,7 @@ export const APPLICATION_DETAIL_EXAMPLE = {
   decidedAt: null,
   chefProfileId: CHEF_PROFILE_ID,
   userId: USER_ID,
+  isActive: false,
   ...DOSSIER_EXAMPLE,
 };
 

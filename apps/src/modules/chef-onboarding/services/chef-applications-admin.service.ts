@@ -137,6 +137,8 @@ export class ChefApplicationsAdminService {
           name: `${row.firstName} ${row.lastName}`,
           city: row.addressCity,
           status: toWire(row.status),
+          // Bookable right now, as `PATCH /admin/chefs/{id}/verification` last left it.
+          isActive: row.chefProfile?.isActive ?? false,
           reactivatedPendingReview,
           pendingDocuments: [...latest.values()].filter((s) =>
             AWAITING_DECISION.includes(s),
@@ -155,14 +157,14 @@ export class ChefApplicationsAdminService {
   async detail(id: string) {
     const application = await this.load(id);
 
-    const [dossier, { userId }] = await Promise.all([
+    const [dossier, { userId, isActive }] = await Promise.all([
       this.documents.dossier(
         application.chefProfileId,
         this.documents.answersOf(application),
       ),
       this.prisma.chefProfile.findUniqueOrThrow({
         where: { id: application.chefProfileId },
-        select: { userId: true },
+        select: { userId: true, isActive: true },
       }),
     ]);
 
@@ -176,6 +178,8 @@ export class ChefApplicationsAdminService {
       chefProfileId: application.chefProfileId,
       // The account, for `POST /admin/chef-users/:id/resend-invitation`.
       userId,
+      // Bookable right now, as `PATCH /admin/chefs/{id}/verification` last left it.
+      isActive,
       ...dossier,
     };
   }
