@@ -13,6 +13,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
 import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
@@ -66,6 +67,7 @@ import { RedisModule } from './redis/redis.module';
     ChefOnboardingModule,
     DishesModule,
     MessagingModule,
+    ContactModule,
   ],
 })
 export class AppModule {}

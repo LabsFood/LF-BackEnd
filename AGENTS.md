@@ -278,6 +278,33 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
 | Client or batch cooker   | `GET\|POST /me/conversations`, `POST /me/conversations/support`, `GET .../unread-count`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../:id/attachments/…` |
 | Admin                    | `GET /admin/conversations[?type=&filter=unread\|flagged]`, `GET .../counts`, `POST .../support`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../dismiss-flag` |
 
+### Contact forms
+
+The contact forms of the public sites (`labsfood.fr`, `batchcooking.labsfood.fr`)
+and the admin inbox they feed. Module `modules/contact/`. Senders have no account.
+
+- **Stored first, emailed second.** `POST /contact-messages` writes the row, then
+  tells the team (`CONTACT_NOTIFICATION_EMAIL`, template
+  `BREVO_TPL_CONTACT_RECEIVED_ADMIN`) without waiting: an email outage never loses
+  a message. That email's Reply-To is the visitor.
+- **Public, so rate-limited twice** (`CONTACT_RATE_LIMIT`): 5 per hour per IP
+  (`ThrottlerGuard`) and 5 per hour per email address (counted from the stored
+  rows, `429 TOO_MANY_MESSAGES`). A filled `website` field (honeypot) is answered
+  `201` like a person and not stored.
+- **A reply is emailed before it is recorded.** `POST …/reply` sends
+  `BREVO_TPL_CONTACT_REPLY`; if the email does not leave, nothing is stored and
+  the answer is `503 EMAIL_NOT_SENT`. `replied` cannot be set by hand.
+- **Shared inbox**: one status per message (`new`, `read`, `replied`, `archived`),
+  the same for every admin.
+- **Legacy table**: `20261011120000_contact_messages` renames the unused
+  `contact_messages` table and `contact_message_status` enum from
+  `20250522130000_spec_domain` to `*_legacy`. Renamed, not dropped.
+
+| Actor  | Routes                                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------ |
+| Public | `POST /contact-messages`                                                                                           |
+| Admin  | `GET /admin/contact-messages[?status=]`, `GET …/counts`, `GET …/:id`, `PATCH …/:id`, `POST …/:id/reply`            |
+
 ### Logging and debugging
 
 - `LOG_JSON=true` (default in production) makes both the Nest app logs and the

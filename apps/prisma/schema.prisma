@@ -36,6 +36,7 @@ model User {
   conversationMemberships ConversationParticipant[]
   messagesSent            Message[]                 @relation("MessageSender")
   messageAttachments      MessageAttachment[]       @relation("MessageAttachmentUploader")
+  contactReplies          ContactMessageReply[]     @relation("ContactReplySender")
 
   @@map("users")
 }
@@ -842,4 +843,51 @@ model MessageAttachment {
 
   @@index([messageId], map: "ix_message_attachments_message_id")
   @@map("message_attachments")
+}
+
+enum ContactMessageStatus {
+  new
+  read
+  replied
+  archived
+
+  @@map("contact_message_status")
+}
+
+/// A message sent through a public contact form. The sender has no account: the
+/// only way back to them is the email they typed.
+model ContactMessage {
+  id        String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Which site the form is on: `labsfood` or `batchcooking`.
+  source    String               @db.VarChar(24)
+  name      String               @db.VarChar(255)
+  email     String               @db.VarChar(320)
+  phone     String?              @db.VarChar(32)
+  subject   String               @db.VarChar(160)
+  message   String
+  status    ContactMessageStatus @default(new)
+  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  replies ContactMessageReply[]
+
+  @@index([status, createdAt], map: "ix_contact_messages_status_created_at")
+  @@map("contact_messages")
+}
+
+/// What the team answered, as it was emailed. Kept so that the next admin reads
+/// what was already said.
+model ContactMessageReply {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contactMessageId String   @map("contact_message_id") @db.Uuid
+  body             String
+  /// Null once the admin's account is deleted.
+  sentByUserId     String?  @map("sent_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  contactMessage ContactMessage @relation(fields: [contactMessageId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_contact_message_replies_contact_message_id")
+  sentBy         User?          @relation("ContactReplySender", fields: [sentByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_contact_message_replies_sent_by_user_id")
+
+  @@index([contactMessageId], map: "ix_contact_message_replies_contact_message_id")
+  @@map("contact_message_replies")
 }

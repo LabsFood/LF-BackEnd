@@ -60,6 +60,8 @@ export interface AppConfig {
       sourceChanged?: number;
       contentSuspended?: number;
       newMessage?: number;
+      contactReceivedAdmin?: number;
+      contactReply?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -77,6 +79,13 @@ export interface AppConfig {
     publicSiteUrl: string;
     /** Where the internal "new candidature" notification goes. */
     adminNotificationEmail?: string;
+  };
+  /** The public contact forms and the admin inbox they feed. */
+  contact: {
+    /** Where the "new contact message" heads-up goes. Unset: no email, the inbox only. */
+    notificationEmail?: string;
+    /** The admin console, for the link in that email. */
+    adminSiteUrl: string;
   };
   google: {
     mapsApiKey?: string;
@@ -157,6 +166,8 @@ export const configLoader = (): AppConfig => ({
       sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
       contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
       newMessage: optionalNumber(process.env.BREVO_TPL_NEW_MESSAGE),
+      contactReceivedAdmin: optionalNumber(process.env.BREVO_TPL_CONTACT_RECEIVED_ADMIN),
+      contactReply: optionalNumber(process.env.BREVO_TPL_CONTACT_REPLY),
     },
   },
   logging: {
@@ -170,6 +181,10 @@ export const configLoader = (): AppConfig => ({
   chefOnboarding: {
     publicSiteUrl: process.env.PUBLIC_SITE_URL ?? 'https://batchcooking.labsfood.fr',
     adminNotificationEmail: process.env.CHEF_APPLICATION_ADMIN_EMAIL,
+  },
+  contact: {
+    notificationEmail: process.env.CONTACT_NOTIFICATION_EMAIL || undefined,
+    adminSiteUrl: process.env.ADMIN_SITE_URL ?? 'https://admin.labsfood.fr',
   },
   google: {
     mapsApiKey: process.env.GOOGLE_MAPS_API_KEY,

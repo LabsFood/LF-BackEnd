@@ -58,6 +58,12 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_SOURCE_CHANGED: Joi.number().optional(),
   BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
+  BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
+  BREVO_TPL_CONTACT_REPLY: Joi.number().optional(),
+
+  /** Contact forms: who is told about a new message, and where the console lives. */
+  CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
+  ADMIN_SITE_URL: Joi.string().uri().optional(),
 
   /** Structured logging, read back from Railway's log explorer. */
   LOG_LEVEL: Joi.string()
