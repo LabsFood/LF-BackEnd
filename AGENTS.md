@@ -278,6 +278,29 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
 | Client or batch cooker   | `GET\|POST /me/conversations`, `POST /me/conversations/support`, `GET .../unread-count`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../:id/attachments/…` |
 | Admin                    | `GET /admin/conversations[?type=&filter=unread\|flagged]`, `GET .../counts`, `POST .../support`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../dismiss-flag` |
 
+### Batch cookers in the back office (LF-0164)
+
+`GET /admin/chefs`, `GET /admin/chefs/counts`, `GET /admin/chefs/:id`
+(`modules/users/admin-chefs.*`). Read-only.
+
+- **Built on `chef_profiles`, not on candidatures.** A profile created before the
+  candidature flow, or by hand, has no candidature and is still listed. Accounts
+  with `users.deleted_at` set are never listed.
+- **`{id}` is `chefProfile.id`**, as for `/admin/chefs/:id/{dishes,menus,verification}`.
+  Not the account id, not the candidature id.
+- **One `state` per profile**, from `is_verified`, `is_active` and
+  `auto_suspended_at`: `online`, `offline`, `suspended`, `pending`. `STATE_WHERE`
+  is the single definition: the filter, the counts and the value on each row read
+  it. `state=verified` is the first three together.
+- **Zones** are read from the profile, and from the candidature while the profile
+  has none (they are copied at approval). `region=` matches either.
+- **The detail is deliberately thin**: the dossier and documents stay at
+  `GET /admin/chef-applications/{application.id}`, the content at
+  `/admin/chefs/:id/dishes` and `/menus`. No rating: there is no reviews module.
+- **Quote assignment**: `PATCH /admin/quotes/:id` takes `assignedChefUserId` (a
+  verified batch cooker's account id, `null` to unassign, else
+  `422 CHEF_NOT_ASSIGNABLE`), and quotes come back with `assignedChef`.
+
 ### Contact forms
 
 The contact forms of the public sites (`labsfood.fr`, `batchcooking.labsfood.fr`)

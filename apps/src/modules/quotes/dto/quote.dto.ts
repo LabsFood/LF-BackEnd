@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 /** Quote statuses in the order a quote goes through them. */
 export const QUOTE_STATUSES = [
@@ -105,4 +113,17 @@ export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
   @IsOptional()
   @IsString()
   quoteNote?: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'The batch cooker who will take the request: their account id (`userId` in ' +
+      '`GET /admin/chefs`). Only a verified batch cooker can be assigned, else ' +
+      '`422 CHEF_NOT_ASSIGNABLE`. Send `null` to unassign.',
+    example: 'f5eebc99-9c0b-4ef8-bb6d-6bb9bd380a66',
+  })
+  // Left out: untouched. `null`: unassign. Anything else must be a uuid.
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsUUID()
+  assignedChefUserId?: string | null;
 }
