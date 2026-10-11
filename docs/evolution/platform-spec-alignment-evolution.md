@@ -138,7 +138,7 @@ Track the gap between [`SPEC-BACKEND.md`](../SPEC-BACKEND.md) / [`SPEC-ADMIN-DAS
 | ------------------------------------ | ------ | -------------------------------------------------------------------- |
 | Kossam orders                        | Todo   |                                                                      |
 | Chef applications + secure documents | Todo   | Supabase Storage private bucket (`SUPABASE_KYC_BUCKET`), signed URLs |
-| Contact messages + reply             | Todo   |                                                                      |
+| Contact messages + reply             | Done   | `modules/contact`: public form, admin inbox, reply by email           |
 | Reviews moderation                   | Todo   |                                                                      |
 | Team & service zones                 | Todo   |                                                                      |
 | `AdminSettings` singleton            | Todo   |                                                                      |

@@ -16,6 +16,7 @@ export const TAGS = {
   missions: 'Prestations — recipe sheet and shopping list',
   quotes: 'Quotes',
   messaging: 'Messaging',
+  contact: 'Contact forms',
   dashboards: 'Dashboards',
   adminUsers: 'Admin — users and clients',
   adminChefs: 'Admin — batch cookers',
@@ -24,6 +25,7 @@ export const TAGS = {
   adminBookings: 'Admin — bookings',
   adminQuotes: 'Admin — quotes',
   adminMessaging: 'Admin — messaging',
+  adminContact: 'Admin — contact inbox',
   adminDashboard: 'Admin — dashboard',
 } as const;
 
@@ -63,8 +65,13 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
   adminCatalog: 'Meals, weekly menus and pricing formules. Admins only.',
   adminBookings: 'Any booking and its shopping list. Admins only.',
   adminQuotes: 'Price and follow up quote requests. Admins only.',
+  contact:
+    'The contact forms of the public sites. No account needed: the message lands in ' +
+    'the admin inbox.',
   adminMessaging:
     'The support inbox, and every client and cook conversation for moderation. ' +
     'Admins only.',
   adminDashboard: 'Figures for the back office. Admins only.',
+  adminContact:
+    'Read, answer by email and archive what the contact forms receive. Admins only.',
 };

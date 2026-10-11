@@ -19,7 +19,10 @@ export type ChefOnboardingEmail =
   | 'sourceChanged'
   | 'contentSuspended'
   // Messaging: someone has messages they have not opened.
-  | 'newMessage';
+  | 'newMessage'
+  // Contact forms: the heads-up to the team, and the team's answer to the sender.
+  | 'contactReceivedAdmin'
+  | 'contactReply';
 
 @Injectable()
 export class BrevoService {
@@ -71,6 +74,8 @@ export class BrevoService {
     templateId?: number;
     to: { email: string; name?: string };
     params?: Record<string, unknown>;
+    /** Where "Reply" goes, when it must not be the sender address. */
+    replyTo?: { email: string; name?: string };
     /** Surfaces in the log line and in the audit row. */
     label: string;
   }): Promise<{ sent: boolean; messageId?: string }> {
@@ -90,6 +95,7 @@ export class BrevoService {
           templateId: input.templateId,
           to: [input.to],
           sender: { email: this.senderEmail, name: this.senderName },
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
           params: input.params ?? {},
         }),
       });
