@@ -59,7 +59,7 @@ export class R2StorageService {
     ) {
       this.client = new S3Client({
         region: 'auto',
-        endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
+        endpoint: `https://${r2.accountId}.eu.r2.cloudflarestorage.com`,
         credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
         // Since SDK 3.729 a presigned PUT embeds a CRC32 of the empty body, which R2
         // then rejects against the browser's real upload.
