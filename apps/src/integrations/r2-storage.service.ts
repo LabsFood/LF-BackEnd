@@ -61,6 +61,9 @@ export class R2StorageService {
         region: 'auto',
         endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
         credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
+        // Since SDK 3.729 a presigned PUT embeds a CRC32 of the empty body, which R2
+        // then rejects against the browser's real upload.
+        requestChecksumCalculation: 'WHEN_REQUIRED',
       });
       this.bucket = r2.bucket;
       this.publicBaseUrl = r2.publicBaseUrl.replace(/\/$/, '');
