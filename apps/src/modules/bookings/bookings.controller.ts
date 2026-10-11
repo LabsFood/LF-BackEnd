@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -26,6 +27,7 @@ import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
 } from '../../common/swagger/auth-responses';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { TAGS } from '../../common/swagger/tags';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
@@ -106,6 +108,25 @@ export class BookingsController {
   async list(): Promise<BookingReadDto[]> {
     const rows = await this.bookings.list();
     return rows.map((row) => BookingReadDto.fromEntity(row));
+  }
+
+  @Get('me')
+  @ApiTags(TAGS.bookings)
+  @ApiOperation({
+    summary: 'List my bookings',
+    description:
+      'Only the caller’s bookings: those they booked as a client, and those assigned ' +
+      'to them as a batch cooker (**Mes prestations**). Latest first, one page at a ' +
+      'time: `?page=2&limit=50`.',
+  })
+  @ApiOkResponse({ description: 'One page of bookings, with `meta` for the paging.' })
+  @ApiClerkAuthResponses()
+  async listMine(
+    @CurrentClerkUser() user: ClerkUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    const page = await this.bookings.listMine(user.userId, query);
+    return { data: page.data.map((row) => BookingReadDto.fromEntity(row)), meta: page.meta };
   }
 
   @Post()
