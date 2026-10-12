@@ -12,7 +12,7 @@ import type { Http2ServerRequest } from 'node:http2';
 import { SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
-import { CLERK_WEBHOOK_PATH } from './auth/fastify-raw-body';
+import { registerWebhookRawBodyHook } from './auth/fastify-raw-body';
 import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
 import { buildOpenApiDocument } from './swagger';
 
@@ -53,18 +53,7 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService);
 
   const fastify = app.getHttpAdapter().getInstance();
-  fastify.addHook('preParsing', async (request, _reply, payload) => {
-    if (!request.url?.startsWith(CLERK_WEBHOOK_PATH)) {
-      return payload;
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of payload) {
-      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    }
-    const rawBody = Buffer.concat(chunks);
-    (request as { rawBody?: Buffer }).rawBody = rawBody;
-    return rawBody;
-  });
+  registerWebhookRawBodyHook(fastify);
 
   fastify.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);

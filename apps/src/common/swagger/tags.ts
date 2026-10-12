@@ -15,6 +15,7 @@ export const TAGS = {
   bookings: 'Bookings',
   missions: 'Prestations — recipe sheet and shopping list',
   quotes: 'Quotes',
+  payments: 'Payments',
   messaging: 'Messaging',
   contact: 'Contact forms',
   dashboards: 'Dashboards',
@@ -52,6 +53,10 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'The documents a prestation leaves: the recipe sheet of each dish and the ' +
     'shopping list, from the recipe versions it cooks from.',
   quotes: 'Custom quote requests, for events or larger orders.',
+  payments:
+    'Paying a prestation: card, prefinanced CESU and URSSAF immediate advance. ' +
+    'Also the batch cooker’s payout account, the commission invoices collected by ' +
+    'SEPA direct debit, and the fiscal data of services à la personne.',
   messaging:
     'Conversations of the signed-in client or batch cooker: one per client and cook, ' +
     'plus one with the Lab’s Food team. New messages are pushed over the `/ws` WebSocket.',
