@@ -62,6 +62,11 @@ export interface AppConfig {
       newMessage?: number;
       contactReceivedAdmin?: number;
       contactReply?: number;
+      quoteRequestChef?: number;
+      quoteNeedsChefAdmin?: number;
+      quoteOfferClient?: number;
+      quoteOfferDeclinedChef?: number;
+      bookingConfirmed?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -168,6 +173,13 @@ export const configLoader = (): AppConfig => ({
       newMessage: optionalNumber(process.env.BREVO_TPL_NEW_MESSAGE),
       contactReceivedAdmin: optionalNumber(process.env.BREVO_TPL_CONTACT_RECEIVED_ADMIN),
       contactReply: optionalNumber(process.env.BREVO_TPL_CONTACT_REPLY),
+      quoteRequestChef: optionalNumber(process.env.BREVO_TPL_QUOTE_REQUEST_CHEF),
+      quoteNeedsChefAdmin: optionalNumber(process.env.BREVO_TPL_QUOTE_NEEDS_CHEF_ADMIN),
+      quoteOfferClient: optionalNumber(process.env.BREVO_TPL_QUOTE_OFFER_CLIENT),
+      quoteOfferDeclinedChef: optionalNumber(
+        process.env.BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF,
+      ),
+      bookingConfirmed: optionalNumber(process.env.BREVO_TPL_BOOKING_CONFIRMED),
     },
   },
   logging: {

@@ -301,6 +301,57 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
   verified batch cooker's account id, `null` to unassign, else
   `422 CHEF_NOT_ASSIGNABLE`), and quotes come back with `assignedChef`.
 
+### Custom requests and offers (BLK-10)
+
+A client asks for a prestation that is not in the catalogue, a batch cooker
+prices it, the client accepts: that creates the prestation. Module
+`modules/quotes/` (`quotes.service` for the request, `quote-offers.service` for
+the offers, `quote.views` for what each side reads, `domain/quote.rules` for the
+pure rules).
+
+- **The batch cooker prices, in net.** `POST /me/chef/quotes/:id/offers` takes
+  `netCents`; the client price is derived (`priceOffer`): the commission is taken
+  out of the client price, `client = net / (1 − rate)`. An offer stores its net,
+  its rate and both client amounts, and is never recomputed. An admin can price
+  in the batch cooker's name (`POST /admin/quotes/:id/offers`).
+- **The commission is a setting**, not a constant: `platform_settings.commission_bps`
+  (seeded at 1500), read through `PlatformSettingsService`, changed with
+  `PATCH /admin/settings/commission` (0 to 5000, audited). The fronts read
+  `GET /pricing-rules`. The tax credit (`TAX_CREDIT_BPS`, 50 %) is the law's, not ours.
+- **One offer at a time**, history kept: `uq_quote_offers_one_active` allows a
+  single `sent|viewed` offer per request (`409 OFFER_ALREADY_ACTIVE`). Opening the
+  request as the client turns `sent` into `viewed`. An offer past `validUntil` is
+  `expired` by a cron every 10 minutes, and on the spot if someone tries to accept it.
+- **Statuses** (`QUOTE_STATUS_HELP`): `submitted` → `quoted` → `accepted`, with
+  `declined` (the client refused, the batch cooker may offer again),
+  `chef_declined` (the batch cooker said no: the request loses its batch cooker
+  and the team is emailed to reassign), `cancelled` (withdrawn by the client).
+  `quoted` and `accepted` cannot be set by hand.
+- **Who the request is with** is `quotes.assigned_chef_user_id`: set from the
+  `chefProfileId` the client chose (verified and active, else
+  `422 CHEF_NOT_AVAILABLE`), or by an admin (`PATCH /admin/quotes/:id`).
+  `GET /admin/quotes?filter=needs_chef` lists the ones with nobody.
+- **Acceptance creates the booking**, in one transaction: a `confirmed` booking at
+  the client price, on the offer's date and slot (`slotWindow`, Paris hours), on a
+  hidden "Prestation sur-mesure" line of the batch cooker, reference `LF-SM-…`
+  from the request's `DEM-…`. `quotes.booking_id` is unique: one request, one
+  prestation. Then, best-effort, the two get a conversation and the recap email.
+  **No payment is taken here**: it comes after the prestation (FLOW-03).
+- **What a batch cooker sees**: the town and a short client name until the offer
+  is accepted, the street and contact details after. A client never sees the net
+  nor the rate. Why a batch cooker declined is for admins only.
+- **Emails**, all best-effort: `BREVO_TPL_QUOTE_REQUEST_CHEF`,
+  `BREVO_TPL_QUOTE_NEEDS_CHEF_ADMIN` (to `CONTACT_NOTIFICATION_EMAIL`),
+  `BREVO_TPL_QUOTE_OFFER_CLIENT`, `BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF`,
+  `BREVO_TPL_BOOKING_CONFIRMED` (one template, client and batch cooker).
+
+| Actor        | Routes                                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Signed in    | `GET /pricing-rules`                                                                                                                |
+| Client       | `POST /quotes`, `GET /me/quotes`, `GET\|DELETE /me/quotes/:id`, `POST /me/quotes/:id/offers/:offerId/accept\|decline`               |
+| Batch cooker | `GET /me/chef/quotes`, `GET …/:id`, `POST …/:id/offers`, `POST …/:id/offers/:offerId/withdraw`, `POST …/:id/decline`                |
+| Admin        | `GET /admin/quotes[?status=&filter=needs_chef]`, `GET\|PATCH …/:id`, `POST …/:id/offers`, `GET\|PATCH /admin/settings/commission`   |
+
 ### Contact forms
 
 The contact forms of the public sites (`labsfood.fr`, `batchcooking.labsfood.fr`)

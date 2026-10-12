@@ -1,125 +1,232 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
+  IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Length,
+  Max,
+  MaxLength,
   Min,
   ValidateIf,
 } from 'class-validator';
 
-/** Quote statuses in the order a quote goes through them. */
-export const QUOTE_STATUSES = [
-  'submitted',
-  'in_review',
-  'quoted',
-  'accepted',
-  'declined',
-];
-export const QUOTE_STATUS_HELP =
-  '`submitted`: just sent by the client. `in_review`: an admin is working on it. ' +
-  '`quoted`: a price was sent. `accepted` / `declined`: the client answered.';
+import {
+  MAX_NET_CENTS,
+  MAX_VALIDITY_DAYS,
+  MIN_NET_CENTS,
+  MIN_VALIDITY_DAYS,
+  QUOTE_STATUSES,
+  QUOTE_STATUS_HELP,
+  TIME_SLOT_KEYS,
+  TimeSlot,
+} from '../domain/quote.rules';
+
+export { QUOTE_STATUSES, QUOTE_STATUS_HELP };
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+const SLOT_HELP =
+  '`morning` (9 h–13 h), `afternoon` (14 h–18 h) or `evening` (18 h–22 h), Paris time.';
 
 export class CreateQuoteDto {
   @ApiProperty({
     description: 'Short label for the event or request.',
-    example: 'Birthday dinner for 12',
+    example: 'Dîner d’anniversaire pour 12',
+    maxLength: 255,
   })
+  @Transform(trim)
   @IsString()
+  @Length(3, 255)
   title!: string;
 
-  @ApiProperty({
-    minimum: 1,
-    description: 'Number of guests to cater for.',
-    example: 12,
+  @ApiPropertyOptional({
+    description:
+      'The batch cooker the client wants (`id` in `GET /chefs/{id}`). Must be ' +
+      'verified. Left out: an admin gives the request to one.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
+  @IsOptional()
+  @IsUUID()
+  chefProfileId?: string;
+
+  @ApiPropertyOptional({ example: 'Anniversaire', maxLength: 160 })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(160)
+  occasion?: string;
+
+  @ApiProperty({
+    description:
+      'The day wanted for the prestation (`YYYY-MM-DD`), tomorrow at the earliest.',
+    example: '2026-11-14',
+  })
+  @IsDateString({ strict: true })
+  @Length(10, 10)
+  desiredDate!: string;
+
+  @ApiProperty({ enum: TIME_SLOT_KEYS, description: SLOT_HELP, example: 'evening' })
+  @IsIn(TIME_SLOT_KEYS)
+  timeSlot!: TimeSlot;
+
+  @ApiProperty({ minimum: 1, maximum: 200, example: 12 })
   @IsInt()
   @Min(1)
+  @Max(200)
   persons!: number;
 
   @ApiProperty({
     minimum: 1,
-    description: 'Number of courses or meals requested.',
+    maximum: 50,
+    description: 'Number of dishes wanted.',
     example: 3,
   })
   @IsInt()
   @Min(1)
+  @Max(50)
   mealsCount!: number;
 
   @ApiProperty({
     description: 'Desired cuisine style or region.',
-    example: 'Mediterranean',
+    example: 'Méditerranéenne',
+    maxLength: 120,
   })
+  @Transform(trim)
   @IsString()
+  @Length(2, 120)
   cuisine!: string;
 
-  @ApiPropertyOptional({
-    type: [String],
-    description: 'Dietary constraints to respect (e.g. vegetarian, nut-free).',
-    example: ['vegetarian'],
+  @ApiPropertyOptional({ type: [String], example: ['végétarien'] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  diet?: string[];
+
+  @ApiPropertyOptional({ type: [String], example: ['gluten', 'fruits à coque'] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  allergies?: string[];
+
+  @ApiProperty({
+    description: 'What the client wants, in their words.',
+    example: 'Dîner dans le jardin, service simple, dessert indispensable.',
+    maxLength: 4000,
   })
+  @Transform(trim)
+  @IsString()
+  @Length(10, 4000)
+  brief!: string;
+
+  @ApiProperty({
+    description:
+      'Where the prestation takes place. The batch cooker only sees the city and ' +
+      'the postcode until an offer is accepted.',
+    example: '12 rue des Lilas',
+    maxLength: 255,
+  })
+  @Transform(trim)
+  @IsString()
+  @Length(3, 255)
+  addressLine!: string;
+
+  @ApiProperty({ example: 'Nice', maxLength: 120 })
+  @Transform(trim)
+  @IsString()
+  @Length(1, 120)
+  addressCity!: string;
+
+  @ApiProperty({ example: '06000', maxLength: 16 })
+  @Transform(trim)
+  @IsString()
+  @Length(4, 16)
+  addressPostalCode!: string;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    description: 'A budget hint for the batch cooker, in cents. Not a commitment.',
+    example: 40000,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  budgetCents?: number;
+}
+
+/** The fields an admin may correct on a request. Never the client's address. */
+class EditableQuoteFieldsDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Length(3, 255)
+  title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  persons?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  mealsCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Length(2, 120)
+  cuisine?: string;
+
+  @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   diet?: string[];
 
-  @ApiProperty({
-    description: 'Free-text brief describing the event, venue, and expectations.',
-    example: 'Garden party, informal service, dessert required.',
-  })
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
   @IsString()
-  brief!: string;
+  @Length(10, 4000)
+  brief?: string;
 }
 
-export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
+export class UpdateQuoteAdminDto extends PartialType(EditableQuoteFieldsDto) {
   @ApiPropertyOptional({
-    enum: QUOTE_STATUSES,
+    enum: ['submitted', 'in_review'],
     description:
-      `${QUOTE_STATUS_HELP} Set \`quoted\` when sending a price. Only these values ` +
-      'are valid; another one fails with a server error today.',
-    example: 'quoted',
+      '`in_review` to show the team is on it, `submitted` to put it back. The other ' +
+      'statuses follow what the batch cooker and the client do: they cannot be set.',
   })
   @IsOptional()
-  @IsString()
-  status?: string;
-
-  @ApiPropertyOptional({
-    minimum: 0,
-    description: 'The price before the tax credit, in cents.',
-    example: 45000,
-  })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  quoteAmountTtc?: number;
-
-  @ApiPropertyOptional({
-    minimum: 0,
-    description:
-      'What the client really pays after the 50 % "services à la personne" tax ' +
-      'credit, in cents.',
-    example: 22500,
-  })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  quoteAmountAfterTax?: number;
-
-  @ApiPropertyOptional({
-    description: 'A note for the client, shown with the price.',
-    example: 'Includes service staff and cleanup.',
-  })
-  @IsOptional()
-  @IsString()
-  quoteNote?: string;
+  @IsIn(['submitted', 'in_review'])
+  status?: 'submitted' | 'in_review';
 
   @ApiPropertyOptional({
     nullable: true,
     description:
-      'The batch cooker who will take the request: their account id (`userId` in ' +
+      'The batch cooker who takes the request: their account id (`userId` in ' +
       '`GET /admin/chefs`). Only a verified batch cooker can be assigned, else ' +
-      '`422 CHEF_NOT_ASSIGNABLE`. Send `null` to unassign.',
+      '`422 CHEF_NOT_ASSIGNABLE`. Send `null` to unassign.\n\n' +
+      'Assigning puts the request back to `submitted`, withdraws an offer the ' +
+      'previous batch cooker left open, and emails the new one.',
     example: 'f5eebc99-9c0b-4ef8-bb6d-6bb9bd380a66',
   })
   // Left out: untouched. `null`: unassign. Anything else must be a uuid.
@@ -127,3 +234,77 @@ export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
   @IsUUID()
   assignedChefUserId?: string | null;
 }
+
+/** Body of `POST …/quotes/:id/offers`. */
+export class CreateQuoteOfferDto {
+  @ApiProperty({
+    minimum: MIN_NET_CENTS,
+    maximum: MAX_NET_CENTS,
+    description:
+      'What the batch cooker wants to receive, in cents. The API adds the platform ' +
+      'commission to get the client price, and returns both.',
+    example: 17000,
+  })
+  @IsInt()
+  @Min(MIN_NET_CENTS)
+  @Max(MAX_NET_CENTS)
+  netCents!: number;
+
+  @ApiPropertyOptional({
+    minimum: MIN_VALIDITY_DAYS,
+    maximum: MAX_VALIDITY_DAYS,
+    default: 7,
+    description: 'How many days the client has to answer. After that the offer expires.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_VALIDITY_DAYS)
+  @Max(MAX_VALIDITY_DAYS)
+  validityDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'What is included, what is not: shopping, travel, service.',
+    example: 'Courses incluses. Déplacement compris dans un rayon de 30 km.',
+    maxLength: 2000,
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2000)
+  conditions?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Another day than the one asked (`YYYY-MM-DD`), when the batch cooker is not ' +
+      'free then. Left out: the day the client asked for.',
+    example: '2026-11-15',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Length(10, 10)
+  proposedDate?: string;
+
+  @ApiPropertyOptional({
+    enum: TIME_SLOT_KEYS,
+    description: `Another slot. ${SLOT_HELP}`,
+  })
+  @IsOptional()
+  @IsIn(TIME_SLOT_KEYS)
+  proposedTimeSlot?: TimeSlot;
+}
+
+/** Body of the routes that say no, with an optional reason. */
+export class DeclineDto {
+  @ApiPropertyOptional({
+    description: 'Why, in a sentence. Read by the other side.',
+    example: 'Je ne suis pas disponible ce week-end.',
+    maxLength: 1000,
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export const ADMIN_QUOTE_FILTERS = ['needs_chef'] as const;

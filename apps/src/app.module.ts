@@ -22,6 +22,7 @@ import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.
 import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { RedisModule } from './redis/redis.module';
 
 @Module({
@@ -68,6 +69,7 @@ import { RedisModule } from './redis/redis.module';
     DishesModule,
     MessagingModule,
     ContactModule,
+    PlatformSettingsModule,
   ],
 })
 export class AppModule {}
