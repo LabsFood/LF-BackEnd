@@ -10,6 +10,12 @@ const BPS = 10_000;
 export const MIN_NET_CENTS = 1_000; // 10 €
 export const MAX_NET_CENTS = 2_000_000; // 20 000 €
 export const MIN_VALIDITY_DAYS = 1;
+/** A prestation is asked for, or proposed, at most a year ahead. */
+export const MAX_DAYS_AHEAD = 365;
+/** Requests one client may have open at once: past that it is noise for the cooks. */
+export const MAX_OPEN_REQUESTS = 10;
+/** The same request sent again within this window is a double click, not a wish. */
+export const DUPLICATE_WINDOW_MS = 2 * 60_000;
 export const MAX_VALIDITY_DAYS = 30;
 
 /**

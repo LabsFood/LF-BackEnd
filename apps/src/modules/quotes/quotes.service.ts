@@ -1,6 +1,8 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,6 +17,9 @@ import {
   ACTIVE_OFFER,
   AWAITING_CHEF,
   CLOSED,
+  DUPLICATE_WINDOW_MS,
+  MAX_DAYS_AHEAD,
+  MAX_OPEN_REQUESTS,
   QuoteStatusKey,
   parisToday,
 } from './domain/quote.rules';
@@ -70,6 +75,39 @@ export class QuotesService {
         code: 'DATE_TOO_SOON',
         message: 'desiredDate must be tomorrow at the earliest.',
       });
+    }
+    if (desiredDate.getTime() > parisToday().getTime() + MAX_DAYS_AHEAD * 86_400_000) {
+      throw new UnprocessableEntityException({
+        code: 'DATE_TOO_FAR',
+        message: `desiredDate must be within ${MAX_DAYS_AHEAD} days.`,
+      });
+    }
+
+    // Checked here and not in the browser: the form can be replayed by anything.
+    const open = await this.prisma.quote.findMany({
+      where: { clientId: user.id, status: { notIn: [...CLOSED] } },
+      select: { title: true, desiredDate: true, createdAt: true },
+    });
+    const justSent = open.some(
+      (quote) =>
+        quote.title === dto.title &&
+        quote.desiredDate?.getTime() === desiredDate.getTime() &&
+        Date.now() - quote.createdAt.getTime() < DUPLICATE_WINDOW_MS,
+    );
+    if (justSent) {
+      throw new ConflictException({
+        code: 'DUPLICATE_REQUEST',
+        message: 'This request was just sent.',
+      });
+    }
+    if (open.length >= MAX_OPEN_REQUESTS) {
+      throw new HttpException(
+        {
+          code: 'TOO_MANY_OPEN_REQUESTS',
+          message: `A client can have ${MAX_OPEN_REQUESTS} requests open at once.`,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const chef = dto.chefProfileId

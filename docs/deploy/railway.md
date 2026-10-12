@@ -41,7 +41,9 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | Variable | When needed |
 |----------|-------------|
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments — **live**. Without them `/payments/*` answers `503` |
+| `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). **`1500` is a placeholder — set the negotiated rate** |
+| `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
 | `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
@@ -186,8 +188,10 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
-- [ ] Stripe / Cronofy / Brevo / R2 keys when those flows ship
+- [ ] **Stripe live keys + Connect enabled** (Express accounts, FR) — payments are shipped
+- [ ] Cronofy / Brevo / R2 keys when those flows ship
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
-- [ ] Stripe webhook URL when payments ship
+- [ ] Stripe webhook `https://<api-domain>/webhooks/stripe` + `STRIPE_WEBHOOK_SECRET`, subscribed to `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `account.updated`, `setup_intent.succeeded` — see [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md)
+- [ ] Negotiated commission rate in `PAYMENTS_COMMISSION_RATE_BPS` (the 15 % default is a placeholder)
 
 Redis is optional with one API instance. Set `REDIS_URL` (Railway Redis plugin) before running a second instance: without it, a message posted on one instance never reaches a WebSocket held by the other. Messaging also needs the private Supabase bucket `SUPABASE_MESSAGING_BUCKET` for attachments, and `BREVO_TPL_NEW_MESSAGE` for the unread-message email.

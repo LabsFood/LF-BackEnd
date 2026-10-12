@@ -26,7 +26,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 
 | Domain         | Service                                                                                                                                      | Role in backend                                 |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Payments       | [Stripe](https://stripe.com/)                                                                                                                | Booking/checkout payment intents, webhooks      |
+| Payments       | [Stripe](https://stripe.com/)                                                                                                                | **Connect destination charges** on bookings, platform commission as `application_fee_amount`, chef Express onboarding, SEPA commission mandates, `POST /webhooks/stripe` |
 | Calendar       | [Cronofy](https://www.cronofy.com/)                                                                                                          | Chef availability / scheduling                  |
 | Messaging      | In-house: `modules/messaging` (PostgreSQL, REST, `/ws` WebSocket) | Client ↔ chef and support conversations |
 | Email          | [Brevo](https://www.brevo.com/)                                                                                                              | Transactional notifications                     |
