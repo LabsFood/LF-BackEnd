@@ -6,6 +6,9 @@ const optionalNumber = (value?: string): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
+export const URSSAF_GATEWAY_MODES = ['disabled', 'simulated'] as const;
+export type UrssafGatewayMode = (typeof URSSAF_GATEWAY_MODES)[number];
+
 /**
  * Both branches share `executeDebit()`; only the moment a `CommissionInvoice` is cut
  * differs, so switching does not rewrite the engine.
@@ -50,6 +53,14 @@ export interface AppConfig {
     webhookSecret?: string;
     /** Signing secret of the "Connected accounts" endpoint (`account.updated`). */
     connectWebhookSecret?: string;
+  };
+  urssaf: {
+    /**
+     * `disabled`: the immediate advance is not offered at all. `simulated`: it runs
+     * end to end with an admin answering in URSSAF's place. There is no `live` yet:
+     * it arrives with the URSSAF API access, behind `UrssafGateway`.
+     */
+    gateway: UrssafGatewayMode;
   };
   payments: {
     /** Platform commission on the pre-VAT amount, in basis points. 1500 = the
@@ -187,6 +198,10 @@ export const configLoader = (): AppConfig => ({
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
     connectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+  },
+  urssaf: {
+    // Joi (env.validation.ts) rejects any other value, and `simulated` in production.
+    gateway: (process.env.URSSAF_GATEWAY ?? 'disabled') as UrssafGatewayMode,
   },
   payments: {
     commissionRateBps: Number(process.env.PAYMENTS_COMMISSION_RATE_BPS ?? 1500),

@@ -352,6 +352,62 @@ pure rules).
 | Batch cooker | `GET /me/chef/quotes`, `GET …/:id`, `POST …/:id/offers`, `POST …/:id/offers/:offerId/withdraw`, `POST …/:id/decline`                |
 | Admin        | `GET /admin/quotes[?status=&filter=needs_chef]`, `GET\|PATCH …/:id`, `POST …/:id/offers`, `GET\|PATCH /admin/settings/commission`   |
 
+### Paying a prestation (FLOW-03)
+
+Module `modules/payments/` (card, CESU, commission invoices, Stripe Connect, SEPA
+mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
+(payment options, URSSAF immediate advance) and `modules/stripe-webhooks/`.
+
+- **A prestation is paid after it took place.** `payment-rules.ts` is the single
+  rule: a `confirmed` booking is payable once `endsAt` has passed
+  (`409 BOOKING_NOT_DUE` before), a `pending` one at once (paying confirms it), a
+  `cancelled` one never. The booking status does not change when a confirmed
+  prestation is paid: "paid" is read from its payments (`bookingCoverage`).
+- **The screen asks one route**: `GET /me/bookings/:id/payment-options` gives the
+  state (`not-due`, `due`, `processing`, `paid`, `failed`), the amounts and the
+  methods this client can use with this batch cooker. A method the batch cooker
+  does not take is left out; `dueNowCents` is computed here, never in the browser.
+- **What a batch cooker takes is derived, not declared twice**: card when their
+  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`
+  and a `crcesu_nan`, immediate advance when
+  `sap_profiles.urssaf_tiers_prestation_status = active`.
+- **Card**: `POST /payments/checkout-session` returns a Stripe Checkout `url`. A
+  destination charge: the batch cooker receives the amount less the commission,
+  withheld by Stripe. The amount is recomputed (`409 AMOUNT_MISMATCH`), return URLs
+  must be on our own sites, a second click gets the same page. The intent of a
+  Checkout page is unknown when the row is written: it carries
+  `metadata.paymentId` and `paymentOfIntent` attaches it on the first webhook.
+  `POST /payments/intent` (Stripe.js) remains for an embedded form.
+- **CESU**: the client declares (`POST /payments/cesu`), the batch cooker confirms
+  receipt, and only then is that part paid. The rest goes by card.
+- **Immediate advance**: `POST /bookings/:id/settle` charges nothing. The request
+  goes to URSSAF through `UrssafGateway`, the one door to URSSAF, and the
+  prestation is `processing` until the answer. Refused: the payment fails and the
+  prestation is due again. It exists per client **and** batch cooker
+  (`urssaf_links`).
+- **URSSAF is simulated** (`URSSAF_GATEWAY`: `disabled` by default, `simulated`
+  refused in production). While simulated an admin answers in URSSAF's place, and
+  each answer is audited. The live gateway replaces `UrssafGateway` and feeds
+  `BookingPaymentsService.recordUrssafOutcome`; nothing else moves.
+- **The commission of a prestation born from an offer is the offer's**
+  (`commission-policy.ts`): client price less the batch cooker's net, VAT inside,
+  pro rata on a partial payment. It is never recomputed from today's rate, or the
+  batch cooker would not get the net they were shown. Other bookings take the
+  admin's rate. On card Stripe withholds it; on CESU and immediate advance the
+  money never crosses the platform, so it is invoiced and debited by SEPA.
+- **An unpaid commission stops new work, not payments**: a batch cooker with an
+  exhausted commission debit cannot send an offer (`409 COMMISSION_UNPAID`); a
+  client can always pay a prestation already done.
+- **`POST /bookings` stays closed** (`501`): a prestation is created by an accepted
+  offer. The payment branch's direct booking creation was not ported.
+
+| Actor        | Routes                                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client       | `GET /me/bookings/:id/payment-options`, `POST /payments/checkout-session`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links` |
+| Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap`              |
+| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*` |
+| Stripe       | `POST /webhooks/stripe`                                                                                                                            |
+
 ### Contact forms
 
 The contact forms of the public sites (`labsfood.fr`, `batchcooking.labsfood.fr`)

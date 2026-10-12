@@ -38,6 +38,9 @@ describe('PaymentsService', () => {
     };
     commission: { findFirst: jest.Mock; updateMany: jest.Mock };
     commissionInvoice: { findFirst: jest.Mock };
+    // No accepted offer and no saved rate: the environment default applies.
+    quote: { findUnique: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let tx: {
@@ -88,6 +91,8 @@ describe('PaymentsService', () => {
       },
       commission: { findFirst: jest.fn().mockResolvedValue(null), updateMany: jest.fn() },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
+      quote: { findUnique: jest.fn().mockResolvedValue(null) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
     stripeClient = {

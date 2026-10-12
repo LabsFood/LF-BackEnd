@@ -74,6 +74,9 @@ describe('CesuPaymentsService', () => {
     };
     commission: { findFirst: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     commissionInvoice: { findFirst: jest.Mock };
+    // No accepted offer and no saved rate: the environment default applies.
+    quote: { findUnique: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
     cesuSettlement: { update: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -137,6 +140,8 @@ describe('CesuPaymentsService', () => {
         updateMany: jest.fn(),
       },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
+      quote: { findUnique: jest.fn().mockResolvedValue(null) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       cesuSettlement: { update: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };

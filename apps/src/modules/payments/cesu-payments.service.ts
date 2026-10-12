@@ -13,13 +13,14 @@ import { UsersService } from '../users/users.service';
 import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from './chef-cesu-info';
 import { CommissionDebitsService } from './commission-debits.service';
 import { assertNoCommissionBlock } from './commission-standing';
-import { computeCommission } from './commission.util';
+import { commissionForPayment } from './commission-policy';
 import {
   BookingPaymentStatusDto,
   CesuPaymentDto,
   ChefCesuInfoDto,
   DeclareCesuPaymentDto,
 } from './dto/cesu.dto';
+import { assertPayable, commissionBlockApplies } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
 
 /** Rows the list/detail mappers read. */
@@ -87,16 +88,13 @@ export class CesuPaymentsService {
     if (!booking) {
       throw new NotFoundException('Booking not found.');
     }
-    if (booking.status !== 'pending') {
-      throw new ConflictException(
-        `Booking ${booking.id} is ${booking.status}; only a pending booking can be paid.`,
-      );
-    }
+    assertPayable(booking);
 
     const chef = booking.chefProfile;
     // Re-checked here, not only at booking time: vetting can be revoked in between, and
     // this is what puts a chef's NAN in front of a paying client.
-    if (!chef.isActive || !chef.isVerified) {
+    // Being offline does not excuse a client from paying a prestation already done.
+    if (!chef.isVerified || (commissionBlockApplies(booking) && !chef.isActive)) {
       throw new ConflictException(
         'The chef is not verified by an admin, so this booking cannot be paid.',
       );
@@ -107,11 +105,13 @@ export class CesuPaymentsService {
       );
     }
     // §6 guard: an uncollectable commission stops the chef taking on new work.
-    await assertNoCommissionBlock(
-      this.prisma,
-      chef.id,
-      this.commissionDebits.maxAttempts,
-    );
+    if (commissionBlockApplies(booking)) {
+      await assertNoCommissionBlock(
+        this.prisma,
+        chef.id,
+        this.commissionDebits.maxAttempts,
+      );
+    }
 
     const coverage = await bookingCoverage(this.prisma, booking);
     if (coverage.remainingAmountCents <= 0) {
@@ -124,10 +124,15 @@ export class CesuPaymentsService {
       );
     }
 
-    const commission = computeCommission(payload.amountTtc, {
-      rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
-      vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
-    });
+    const commission = await commissionForPayment(
+      this.prisma,
+      booking,
+      payload.amountTtc,
+      {
+        rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
+        vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
+      },
+    );
 
     try {
       const payment = await this.prisma.payment.create({

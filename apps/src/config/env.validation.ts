@@ -79,6 +79,19 @@ export const envValidationSchema = Joi.object({
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
   STRIPE_CONNECT_RETURN_URL: Joi.string().uri().optional(),
 
+  /**
+   * The URSSAF immediate advance. `simulated` lets an admin answer in URSSAF's place,
+   * so it is refused in production: a simulated payment there would mark a real
+   * prestation as paid with no money behind it.
+   */
+  URSSAF_GATEWAY: Joi.string()
+    .valid('disabled', 'simulated')
+    .default('disabled')
+    .when('ENVIRONMENT', {
+      is: 'production',
+      then: Joi.string().valid('disabled'),
+    }),
+
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
   CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
   CRONOFY_DATA_CENTER: Joi.string().default('us'),

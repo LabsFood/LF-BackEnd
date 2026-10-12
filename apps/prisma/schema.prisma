@@ -38,6 +38,7 @@ model User {
   messageAttachments       MessageAttachment[]       @relation("MessageAttachmentUploader")
   contactReplies           ContactMessageReply[]     @relation("ContactReplySender")
   cesuSettlementsConfirmed CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
+  urssafLinks              UrssafLink[]              @relation("UrssafLinkClient")
 
   @@map("users")
 }
@@ -86,6 +87,7 @@ model ChefProfile {
   sepaMandate            SepaMandate?
   commissions            Commission[]
   commissionInvoices     CommissionInvoice[]
+  urssafLinks            UrssafLink[]
 
   @@map("chef_profiles")
 }
@@ -1358,4 +1360,38 @@ enum CommissionDebitStatus {
   reversed
 
   @@map("commission_debit_status")
+}
+
+/// The URSSAF "avance immédiate" enrolment of **one client with one batch cooker**.
+/// The immediate advance exists per pair: a client enrolled with one cook cannot use
+/// it for a prestation by another (FLOW-03 §1.2), which is why this is a table and not
+/// a flag on the account.
+///
+/// ponytail: `pending` to `active` or `refused` is decided by URSSAF. Until the API
+/// access exists, an admin plays URSSAF (`POST /admin/urssaf-links/{id}/decision`), and
+/// only while `URSSAF_GATEWAY=simulated`.
+model UrssafLink {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId      String           @map("client_id") @db.Uuid
+  chefProfileId String           @map("chef_profile_id") @db.Uuid
+  status        UrssafLinkStatus @default(pending)
+  refusalReason String?          @map("refusal_reason")
+  requestedAt   DateTime         @default(now()) @map("requested_at") @db.Timestamptz(6)
+  decidedAt     DateTime?        @map("decided_at") @db.Timestamptz(6)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  client        User             @relation("UrssafLinkClient", fields: [clientId], references: [id], onDelete: Cascade, map: "fk_urssaf_links_client_id")
+  chefProfile   ChefProfile      @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_urssaf_links_chef_profile_id")
+
+  @@unique([clientId, chefProfileId], map: "uq_urssaf_links_client_chef")
+  @@index([status], map: "ix_urssaf_links_status")
+  @@map("urssaf_links")
+}
+
+enum UrssafLinkStatus {
+  pending
+  active
+  refused
+
+  @@map("urssaf_link_status")
 }

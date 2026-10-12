@@ -4,17 +4,25 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Stripe from 'stripe';
 
-import { PaymentStatus } from '../../generated/prisma/client';
+import { PaymentStatus, Prisma } from '../../generated/prisma/client';
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { resolveAllowedOrigins } from '../../config/allowed-origins';
+import { commissionForPayment } from './commission-policy';
 import { assertNoCommissionBlock } from './commission-standing';
-import { computeCommission } from './commission.util';
-import { PaymentIntentDto } from './dto/payment.dto';
+import type { CommissionBreakdown } from './commission.util';
+import {
+  CheckoutSessionDto,
+  CreateCheckoutSessionDto,
+  PaymentIntentDto,
+} from './dto/payment.dto';
+import { assertPayable, commissionBlockApplies } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
 
 /** PaymentIntent states that can still be confirmed by the client. */
@@ -54,73 +62,14 @@ export class PaymentsService {
     clerkUserId: string,
     bookingId: string,
   ): Promise<PaymentIntentDto> {
-    if (!this.stripe.configured) {
-      throw new ServiceUnavailableException(
-        'Stripe is not configured (STRIPE_SECRET_KEY missing).',
-      );
-    }
-
-    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, clientId: user.id },
-      include: { chefProfile: true },
-    });
-    if (!booking) {
-      throw new NotFoundException('Booking not found.');
-    }
-    if (booking.status !== 'pending') {
-      throw new ConflictException(
-        `Booking ${booking.id} is ${booking.status}; only a pending booking can be paid.`,
-      );
-    }
-
-    const chef = booking.chefProfile;
-    // Re-checked here, not just at booking time: vetting can be revoked between the
-    // booking and the payment, and this is the last gate before money moves to the
-    // chef's connected account. Finishing Stripe onboarding is not admin approval.
-    if (!chef.isActive || !chef.isVerified) {
-      throw new ConflictException(
-        'The chef is not verified by an admin, so this booking cannot be paid.',
-      );
-    }
-    if (
-      !chef.stripeAccountId ||
-      !chef.stripeChargesEnabled ||
-      !chef.stripePayoutsEnabled
-    ) {
-      throw new ConflictException(
-        'The chef has not finished Stripe Connect onboarding, so this booking cannot be paid yet.',
-      );
-    }
-    // §6 guard: an uncollected commission stops the chef taking on new work.
-    await assertNoCommissionBlock(
-      this.prisma,
-      chef.id,
-      this.config.getOrThrow<number>('payments.commissionDebitMaxAttempts'),
-    );
-
-    // The card charge covers **what is left**, not the booking total: the client may
-    // already have paid part of it in CESU, and charging the full amount again would
-    // overcharge them.
-    const coverage = await bookingCoverage(this.prisma, booking);
-    const amountTtc = coverage.remainingAmountCents;
-    if (amountTtc <= 0) {
-      throw new ConflictException(
-        coverage.amountTtcCents <= 0
-          ? 'Booking amount must be greater than zero.'
-          : 'This booking is already fully paid.',
-      );
-    }
+    const { booking, chef, amountTtc } = await this.cardCharge(clerkUserId, bookingId);
 
     const reusable = await this.findReusableIntent(booking.id, amountTtc);
     if (reusable) {
       return reusable;
     }
 
-    const commission = computeCommission(amountTtc, {
-      rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
-      vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
-    });
+    const commission = await this.commissionOn(booking, amountTtc);
 
     // ponytail: no `on_behalf_of` here — decided 2026-09-05 (see
     // docs/evolution/payments-stripe-cb-evolution.md) to make the chef merchant of
@@ -138,7 +87,111 @@ export class PaymentsService {
       metadata: { bookingId: booking.id, bookingReference: booking.reference ?? '' },
     });
 
-    const payment = await this.prisma.$transaction(async (tx) => {
+    const payment = await this.openCardPayment(booking, chef.id, amountTtc, commission, {
+      stripePaymentIntentId: intent.id,
+    });
+
+    return {
+      paymentId: payment.id,
+      clientSecret: intent.client_secret ?? '',
+      amountTtc,
+      currency: booking.currency,
+      commissionTtc: commission.amountTtcCents,
+    };
+  }
+
+  /**
+   * Everything that must hold before a card moves money for a booking, and the
+   * amount it moves: what is **left** to pay, never the booking total.
+   */
+  private async cardCharge(clerkUserId: string, bookingId: string) {
+    if (!this.stripe.configured) {
+      throw new ServiceUnavailableException(
+        'Stripe is not configured (STRIPE_SECRET_KEY missing).',
+      );
+    }
+
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, clientId: user.id },
+      include: { chefProfile: true },
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found.');
+    }
+    assertPayable(booking);
+
+    const chef = booking.chefProfile;
+    // Re-checked here, not just at booking time: vetting can be revoked between the
+    // booking and the payment, and this is the last gate before money moves to the
+    // chef's connected account. Finishing Stripe onboarding is not admin approval.
+    // Being offline does not excuse a client from paying a prestation already done.
+    if (!chef.isVerified || (commissionBlockApplies(booking) && !chef.isActive)) {
+      throw new ConflictException(
+        'The chef is not verified by an admin, so this booking cannot be paid.',
+      );
+    }
+    if (
+      !chef.stripeAccountId ||
+      !chef.stripeChargesEnabled ||
+      !chef.stripePayoutsEnabled
+    ) {
+      throw new ConflictException(
+        'The chef has not finished Stripe Connect onboarding, so this booking cannot be paid yet.',
+      );
+    }
+    // §6 guard: an uncollected commission stops the chef taking on new work.
+    if (commissionBlockApplies(booking)) {
+      await assertNoCommissionBlock(
+        this.prisma,
+        chef.id,
+        this.config.getOrThrow<number>('payments.commissionDebitMaxAttempts'),
+      );
+    }
+
+    // The card charge covers **what is left**, not the booking total: the client may
+    // already have paid part of it in CESU, and charging the full amount again would
+    // overcharge them.
+    const coverage = await bookingCoverage(this.prisma, booking);
+    const amountTtc = coverage.remainingAmountCents;
+    if (amountTtc <= 0) {
+      throw new ConflictException(
+        coverage.amountTtcCents <= 0
+          ? 'Booking amount must be greater than zero.'
+          : 'This booking is already fully paid.',
+      );
+    }
+    return {
+      booking,
+      chef: { ...chef, stripeAccountId: chef.stripeAccountId },
+      amountTtc,
+    };
+  }
+
+  /** What Lab's Food keeps on this payment: the accepted offer's deal, or the rate in force. */
+  private commissionOn(
+    booking: { id: string },
+    amountCents: number,
+  ): Promise<CommissionBreakdown> {
+    return commissionForPayment(this.prisma, booking, amountCents, {
+      rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
+      vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
+    });
+  }
+
+  /**
+   * The `pending` card payment and the commission Stripe withholds with it. The
+   * commission's rate and VAT are frozen on the row, so a later rate change cannot
+   * rewrite history.
+   */
+  private openCardPayment(
+    booking: { id: string; currency: string },
+    chefProfileId: string,
+    amountTtc: number,
+    commission: CommissionBreakdown,
+    stripe: { stripePaymentIntentId?: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
       const created = await tx.payment.create({
         data: {
           bookingId: booking.id,
@@ -146,10 +199,12 @@ export class PaymentsService {
           status: 'pending',
           amountTtc,
           currency: booking.currency,
-          stripePaymentIntentId: intent.id,
+          ...(stripe.stripePaymentIntentId
+            ? { stripePaymentIntentId: stripe.stripePaymentIntentId }
+            : {}),
           commission: {
             create: {
-              chefProfileId: chef.id,
+              chefProfileId,
               rateBps: commission.rateBps,
               vatRateBps: commission.vatRateBps,
               // What the rate was applied to. On a booking paid in several instalments
@@ -165,20 +220,181 @@ export class PaymentsService {
           },
         },
       });
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: { stripePaymentIntentId: intent.id },
-      });
+      if (stripe.stripePaymentIntentId) {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { stripePaymentIntentId: stripe.stripePaymentIntentId },
+        });
+      }
       return created;
     });
+  }
 
-    return {
-      paymentId: payment.id,
-      clientSecret: intent.client_secret ?? '',
+  /**
+   * `POST /payments/checkout-session` (FLOW-03 §3): the card payment as a Stripe
+   * Checkout page the browser is sent to. Same destination charge as the intent, so
+   * the same webhook settles it.
+   *
+   * - The amount is ours. `amountCents` from the browser is only compared with it
+   *   (`409 AMOUNT_MISMATCH`): the screen may be showing a stale balance.
+   * - Two quick clicks get the same session back, not two.
+   * - The return URLs must point at one of our own sites: Stripe would otherwise
+   *   send a paying client wherever the caller asked.
+   */
+  async createCheckoutSession(
+    clerkUserId: string,
+    payload: CreateCheckoutSessionDto,
+  ): Promise<CheckoutSessionDto> {
+    this.assertOwnUrl(payload.successUrl);
+    this.assertOwnUrl(payload.cancelUrl);
+
+    const { booking, chef, amountTtc } = await this.cardCharge(
+      clerkUserId,
+      payload.orderId,
+    );
+    if (payload.amountCents !== amountTtc) {
+      throw new ConflictException({
+        code: 'AMOUNT_MISMATCH',
+        message: `${amountTtc} minor units are due on this booking, not ${payload.amountCents}.`,
+        amountCents: amountTtc,
+      });
+    }
+
+    const open = await this.findOpenCheckout(booking.id, amountTtc);
+    if (open) return open;
+
+    const commission = await this.commissionOn(booking, amountTtc);
+    const payment = await this.openCardPayment(
+      booking,
+      chef.id,
       amountTtc,
-      currency: booking.currency,
-      commissionTtc: commission.amountTtcCents,
-    };
+      commission,
+      {},
+    );
+    const metadata = { bookingId: booking.id, paymentId: payment.id };
+
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await this.stripe.getClient().checkout.sessions.create(
+        {
+          mode: 'payment',
+          client_reference_id: booking.id,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: booking.currency.toLowerCase(),
+                unit_amount: amountTtc,
+                product_data: {
+                  name: `Prestation Lab’s Food ${booking.reference ?? ''}`.trim(),
+                },
+              },
+            },
+          ],
+          payment_intent_data: {
+            transfer_data: { destination: chef.stripeAccountId },
+            ...(commission.amountTtcCents > 0
+              ? { application_fee_amount: commission.amountTtcCents }
+              : {}),
+            // The intent only exists once the client pays: this is how its webhook
+            // finds the payment row.
+            metadata,
+          },
+          metadata,
+          success_url: payload.successUrl,
+          cancel_url: payload.cancelUrl,
+        },
+        { idempotencyKey: `checkout:${payment.id}` },
+      );
+    } catch (error) {
+      await this.retireAttempt(
+        payment.id,
+        `Stripe refused the checkout session: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      throw error;
+    }
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { metadata: { checkoutSessionId: session.id } },
+    });
+    return { sessionId: session.id, url: session.url ?? '' };
+  }
+
+  /** A checkout page already open for this booking and this amount, if any. */
+  private async findOpenCheckout(
+    bookingId: string,
+    amountTtc: number,
+  ): Promise<CheckoutSessionDto | null> {
+    const pending = await this.prisma.payment.findFirst({
+      where: {
+        bookingId,
+        method: 'cb',
+        status: 'pending',
+        stripePaymentIntentId: null,
+        metadata: { path: ['checkoutSessionId'], not: Prisma.AnyNull },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const sessionId = (pending?.metadata as { checkoutSessionId?: string } | null)
+      ?.checkoutSessionId;
+    if (!pending || !sessionId) return null;
+
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await this.stripe.getClient().checkout.sessions.retrieve(sessionId);
+    } catch {
+      // Stripe has not said this session is dead: leave the row, open a new page.
+      return null;
+    }
+    if (session.payment_status === 'paid') {
+      // The webhook has not landed yet; a second page would bill the client twice.
+      throw new ConflictException('This booking has already been paid.');
+    }
+    if (session.status !== 'open' || !session.url || pending.amountTtc !== amountTtc) {
+      await this.retireAttempt(pending.id, `Checkout session is ${session.status}.`);
+      return null;
+    }
+    return { sessionId: session.id, url: session.url };
+  }
+
+  private assertOwnUrl(url: string): void {
+    const allowed = this.config.get<string[]>('cors.origins', resolveAllowedOrigins());
+    let origin: string | null = null;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      origin = null;
+    }
+    if (!origin || !allowed.includes(origin)) {
+      throw new UnprocessableEntityException({
+        code: 'RETURN_URL_NOT_ALLOWED',
+        message: 'successUrl and cancelUrl must point at a Lab’s Food site.',
+      });
+    }
+  }
+
+  /**
+   * The payment row of a client PaymentIntent. An intent created by a Checkout page
+   * is not known when the row is written: it names its row in `metadata.paymentId`,
+   * and is attached here the first time Stripe mentions it.
+   */
+  private async paymentOfIntent(intent: Stripe.PaymentIntent) {
+    const known = await this.prisma.payment.findUnique({
+      where: { stripePaymentIntentId: intent.id },
+    });
+    if (known) return known;
+
+    const paymentId = intent.metadata?.paymentId;
+    if (!paymentId) return null;
+    const fromCheckout = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'cb', stripePaymentIntentId: null },
+    });
+    if (!fromCheckout) return null;
+    return this.prisma.payment.update({
+      where: { id: fromCheckout.id },
+      data: { stripePaymentIntentId: intent.id },
+    });
   }
 
   /**
@@ -278,9 +494,7 @@ export class PaymentsService {
    * booking only once its payments cover it — a booking may be part card, part CESU.
    */
   async handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent): Promise<void> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { stripePaymentIntentId: intent.id },
-    });
+    const payment = await this.paymentOfIntent(intent);
     if (!payment) {
       this.logger.warn(`No payment row for PaymentIntent ${intent.id}; ignoring.`);
       return;
@@ -317,9 +531,7 @@ export class PaymentsService {
    * retry with a fresh `POST /payments/intent`.
    */
   async handlePaymentIntentFailed(intent: Stripe.PaymentIntent): Promise<void> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { stripePaymentIntentId: intent.id },
-    });
+    const payment = await this.paymentOfIntent(intent);
     if (!payment) {
       this.logger.warn(`No payment row for PaymentIntent ${intent.id}; ignoring.`);
       return;
