@@ -97,7 +97,8 @@ docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
   SPEC-ADMIN-DASHBOARD.md
   architecture.md      # backend architecture (spec-aligned)
-  evolution/           # change registers
+  payments/            # Stripe payment flow & webhook contract
+  evolution/           # change registers (platform + payments)
 docker-compose.yml     # postgres, api (local); Railway uses apps/Dockerfile
 .env.example           # template for required environment variables
 stack.md               # backend stack and decisions
@@ -115,6 +116,7 @@ Do **not** use `https://<service>.railway.internal` — that hostname is **priva
 | OpenAPI JSON      | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json) | `https://lf-api.labsfood.fr/openapi.json` |
 | Health (liveness) | [http://localhost:8000/health](http://localhost:8000/health)             | `https://lf-api.labsfood.fr/health`       |
 | Readiness (DB)    | [http://localhost:8000/ready](http://localhost:8000/ready)               | `https://lf-api.labsfood.fr/ready`        |
+| Stripe webhook    | `http://localhost:8000/webhooks/stripe`                                  | `https://lf-api.labsfood.fr/webhooks/stripe` |
 
 **Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
 
@@ -126,8 +128,13 @@ Do **not** use `https://<service>.railway.internal` — that hostname is **priva
 
 ```bash
 cp .env.example .env
-# fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, … as needed
+# fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, … as needed
 ```
+
+Payments need `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; without them the
+`/payments/*` routes answer `503`. The platform commission defaults to **15 % HT + 20 % VAT**
+(`PAYMENTS_COMMISSION_RATE_BPS=1500`) — **a placeholder, not the negotiated rate**. See
+[docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md).
 
 ### 2. Run with Docker Compose (local)
 
@@ -194,6 +201,8 @@ npm test          # jest unit tests
 - `[docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md)` — admin API spec.
 - `[docs/architecture.md](./docs/architecture.md)` — backend architecture (spec-aligned).
 - `[docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md)` — spec gap backlog & decisions.
+- `[docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md)` — Stripe payment flow, Connect onboarding, commissions, webhook contract.
+- `[docs/evolution/payments-stripe-cb-evolution.md](./docs/evolution/payments-stripe-cb-evolution.md)` — payments change register (files, routes, data model, tests).
 - `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
 - `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
 - `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.

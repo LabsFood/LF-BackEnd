@@ -52,6 +52,10 @@ model ChefProfile {
   isVerified           Boolean            @default(false) @map("is_verified")
   cronofyProfileId     String?            @map("cronofy_profile_id") @db.VarChar(128)
   stripeAccountId      String?            @map("stripe_account_id") @db.VarChar(128)
+  // Mirrored 1:1 from the Stripe `account.updated` webhook — never set by hand.
+  stripeChargesEnabled   Boolean       @default(false) @map("stripe_charges_enabled")
+  stripePayoutsEnabled   Boolean       @default(false) @map("stripe_payouts_enabled")
+  stripeDetailsSubmitted Boolean       @default(false) @map("stripe_details_submitted")
   /// Zones the chef covers, copied from the approved candidature. Shape matches
   /// `chef_applications.intervention_zones`.
   interventionZones    Json               @default("[]") @map("intervention_zones")
@@ -76,6 +80,9 @@ model ChefProfile {
   menusOffered         Menu[]             @relation("MenuOffer")
   showcaseWeeks        ChefShowcaseWeek[]
   conversations        Conversation[]     @relation("ConversationChefProfile")
+  sapProfile           SapProfile?
+  sepaMandate          SepaMandate?
+  commissions          Commission[]
 
   @@map("chef_profiles")
 }
@@ -142,6 +149,7 @@ model Booking {
   formule               Formule?      @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
   shoppingList          ShoppingList?
   serviceOffer          ServiceOffer  @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
+  payments              Payment[]
 
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
@@ -356,6 +364,100 @@ model Quote {
 
   @@index([clientId], map: "ix_quotes_client_id")
   @@map("quotes")
+}
+
+/// One row per payment attempt on a booking. Deliberately not unique on `bookingId`:
+/// a failed CB attempt must be retryable with a fresh PaymentIntent, so a booking may
+/// carry several rows — the most recent non-`failed` one is the live attempt.
+model Payment {
+  id                      String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId               String        @map("booking_id") @db.Uuid
+  method                  PaymentMethod @default(cb)
+  status                  PaymentStatus @default(pending)
+  amountTtc               Int           @map("amount_ttc")
+  currency                String        @default("EUR") @db.VarChar(3)
+  stripePaymentIntentId   String?       @unique(map: "uq_payments_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar(128)
+  stripeChargeId          String?       @map("stripe_charge_id") @db.VarChar(128)
+  taxCreditEligibleAmount Int?          @map("tax_credit_eligible_amount")
+  paidAt                  DateTime?     @map("paid_at") @db.Timestamptz(6)
+  refundedAmount          Int?          @map("refunded_amount")
+  refundedAt              DateTime?     @map("refunded_at") @db.Timestamptz(6)
+  failureReason           String?       @map("failure_reason")
+  /// Extension slot for the avance immédiate / CESU flows — avoids a throwaway migration.
+  metadata                Json?
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  booking                 Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
+  commission              Commission?
+
+  @@index([bookingId], map: "ix_payments_booking_id")
+  @@index([status], map: "ix_payments_status")
+  @@map("payments")
+}
+
+/// Platform commission on a payment. Rate and VAT are frozen at creation time so an
+/// audit can replay the amounts even after the configured rate changes.
+/// `chefProfileId` is denormalised (unlike on `Payment`) because "commission generated
+/// by chef X" is a recurring admin query.
+model Commission {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId        String                     @unique(map: "uq_commissions_payment_id") @map("payment_id") @db.Uuid
+  chefProfileId    String                     @map("chef_profile_id") @db.Uuid
+  rateBps          Int                        @map("rate_bps")
+  vatRateBps       Int                        @map("vat_rate_bps")
+  amountHtCents    Int                        @map("amount_ht_cents")
+  amountVatCents   Int                        @map("amount_vat_cents")
+  amountTtcCents   Int                        @map("amount_ttc_cents")
+  collectionMethod CommissionCollectionMethod @default(stripe_application_fee) @map("collection_method")
+  status           CommissionStatus           @default(pending)
+  collectedAt      DateTime?                  @map("collected_at") @db.Timestamptz(6)
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment          Payment                    @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_commissions_payment_id")
+  chefProfile      ChefProfile                @relation(fields: [chefProfileId], references: [id], map: "fk_commissions_chef_profile_id")
+
+  @@index([chefProfileId], map: "ix_commissions_chef_profile_id")
+  @@map("commissions")
+}
+
+/// "Service à la personne" declaration for a chef. Type A = the chef holds their own
+/// NOVA declaration; Type B = the chef declares through a cooperative (Unipros-style).
+/// Both external statuses stay inert until the URSSAF / CRCESU integrations exist.
+model SapProfile {
+  id                          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId               String             @unique(map: "uq_sap_profiles_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  declarationType             SapDeclarationType @map("declaration_type")
+  novaCode                    String?            @map("nova_code") @db.VarChar(64)
+  urssafTiersPrestationStatus SapExternalStatus  @default(not_started) @map("urssaf_tiers_prestation_status")
+  cooperativeName             String?            @map("cooperative_name") @db.VarChar(255)
+  cooperativeMembershipProof  String?            @map("cooperative_membership_proof") @db.VarChar(512)
+  crcesuNan                   String?            @map("crcesu_nan") @db.VarChar(64)
+  crcesuAffiliationStatus     SapExternalStatus  @default(not_started) @map("crcesu_affiliation_status")
+  createdAt                   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile                 ChefProfile        @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_sap_profiles_chef_profile_id")
+
+  @@map("sap_profiles")
+}
+
+/// SEPA Direct Debit mandate used to collect the platform commission from the chef.
+/// Foundation only: this phase records the mandate, it never debits. CB payments do
+/// not require one — their commission is split by Stripe Connect at charge time.
+model SepaMandate {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId         String            @unique(map: "uq_sepa_mandates_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  stripeCustomerId      String?           @map("stripe_customer_id") @db.VarChar(128)
+  stripeSetupIntentId   String?           @map("stripe_setup_intent_id") @db.VarChar(128)
+  stripePaymentMethodId String?           @map("stripe_payment_method_id") @db.VarChar(128)
+  stripeMandateId       String?           @map("stripe_mandate_id") @db.VarChar(128)
+  status                SepaMandateStatus @default(pending)
+  ibanLast4             String?           @map("iban_last4") @db.VarChar(4)
+  signedAt              DateTime?         @map("signed_at") @db.Timestamptz(6)
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile           ChefProfile       @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_sepa_mandates_chef_profile_id")
+
+  @@map("sepa_mandates")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -890,4 +992,72 @@ model ContactMessageReply {
 
   @@index([contactMessageId], map: "ix_contact_message_replies_contact_message_id")
   @@map("contact_message_replies")
+}
+
+enum PaymentMethod {
+  cb
+  avance_immediate
+  cesu
+
+  @@map("payment_method")
+}
+
+/// Order matches the stored Postgres labels: pending -> succeeded (Stripe settled) ->
+/// paid (invoiceable), with failed / refunded / partially_refunded as exit states.
+enum PaymentStatus {
+  pending
+  succeeded
+  /// Reserved for invoicing — **no code path sets this today**. A CB payment stops at
+  /// `succeeded`, which is what the fiscal attestation totals count. Kept because the
+  /// label predates this branch (`20250522130000_spec_domain`) and Prisma throws on an
+  /// enum value it does not know, so dropping it here would break reads of any legacy
+  /// row. Give it a writer or retire it deliberately — do not treat it as a synonym
+  /// for `succeeded`.
+  paid
+  failed
+  refunded
+  partially_refunded
+
+  @@map("payment_status")
+}
+
+enum CommissionCollectionMethod {
+  stripe_application_fee
+  sepa_direct_debit
+
+  @@map("commission_collection_method")
+}
+
+enum CommissionStatus {
+  pending
+  collected
+  failed
+
+  @@map("commission_status")
+}
+
+enum SapDeclarationType {
+  type_a_nova
+  type_b_cooperative
+
+  @@map("sap_declaration_type")
+}
+
+/// Shared by the URSSAF "tiers de prestation" habilitation and the CRCESU affiliation.
+/// Inert this phase: no integration writes it, it is admin-maintained metadata.
+enum SapExternalStatus {
+  not_started
+  pending
+  active
+
+  @@map("sap_external_status")
+}
+
+enum SepaMandateStatus {
+  pending
+  active
+  revoked
+  failed
+
+  @@map("sepa_mandate_status")
 }

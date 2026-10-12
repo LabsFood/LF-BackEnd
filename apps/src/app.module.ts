@@ -15,9 +15,11 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
+import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
 import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
@@ -56,6 +58,7 @@ import { RedisModule } from './redis/redis.module';
     AuditModule,
     AuthModule,
     ClerkWebhooksModule,
+    StripeWebhooksModule,
     IntegrationsModule,
     HealthModule,
     UsersModule,
@@ -64,6 +67,7 @@ import { RedisModule } from './redis/redis.module';
     QuotesModule,
     StatsModule,
     BookingsModule,
+    PaymentsModule,
     ChefOnboardingModule,
     DishesModule,
     MessagingModule,
