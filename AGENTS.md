@@ -386,7 +386,8 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   prestation is due again. It exists per client **and** batch cooker
   (`urssaf_links`).
 - **URSSAF is simulated** (`URSSAF_GATEWAY`: `disabled` by default, `simulated`
-  refused in production). While simulated an admin answers in URSSAF's place, and
+  refused beside a live Stripe key: the test deployment runs with
+  `ENVIRONMENT=production` too, so the environment name cannot be the guard). While simulated an admin answers in URSSAF's place, and
   each answer is audited. The live gateway replaces `UrssafGateway` and feeds
   `BookingPaymentsService.recordUrssafOutcome`; nothing else moves.
 - **The commission of a prestation born from an offer is the offer's**

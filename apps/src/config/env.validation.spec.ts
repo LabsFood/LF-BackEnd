@@ -29,3 +29,33 @@ describe('envValidationSchema — CLERK_SECRET_KEY in production', () => {
     expect(error).toBeUndefined();
   });
 });
+
+describe('envValidationSchema — URSSAF_GATEWAY', () => {
+  const validate = (env: Record<string, string>) =>
+    envValidationSchema.validate(
+      { ...REQUIRED, ...env },
+      { allowUnknown: true, abortEarly: false },
+    );
+
+  it('is disabled unless asked for', () => {
+    expect(validate({}).value.URSSAF_GATEWAY).toBe('disabled');
+  });
+
+  it('can be simulated on the test deployment, which runs as production too', () => {
+    const { error } = validate({
+      ENVIRONMENT: 'production',
+      CLERK_SECRET_KEY: 'sk_test_abc123',
+      STRIPE_SECRET_KEY: 'sk_test_abc123',
+      URSSAF_GATEWAY: 'simulated',
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it('is never simulated beside live Stripe keys', () => {
+    const { error } = validate({
+      STRIPE_SECRET_KEY: 'sk_live_abc123',
+      URSSAF_GATEWAY: 'simulated',
+    });
+    expect(error?.message).toMatch(/URSSAF_GATEWAY/);
+  });
+});

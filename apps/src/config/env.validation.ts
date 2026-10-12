@@ -81,15 +81,20 @@ export const envValidationSchema = Joi.object({
 
   /**
    * The URSSAF immediate advance. `simulated` lets an admin answer in URSSAF's place,
-   * so it is refused in production: a simulated payment there would mark a real
-   * prestation as paid with no money behind it.
+   * so it never runs beside live Stripe keys: where real money moves, a simulated
+   * payment would mark a real prestation as paid with nothing behind it.
+   *
+   * Tied to the Stripe key and not to `ENVIRONMENT`, because the shared test
+   * deployment also runs with `ENVIRONMENT=production`.
    */
   URSSAF_GATEWAY: Joi.string()
     .valid('disabled', 'simulated')
     .default('disabled')
-    .when('ENVIRONMENT', {
-      is: 'production',
-      then: Joi.string().valid('disabled'),
+    .when('STRIPE_SECRET_KEY', {
+      is: Joi.string()
+        .pattern(/^sk_live_/)
+        .required(),
+      then: Joi.string().invalid('simulated'),
     }),
 
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),

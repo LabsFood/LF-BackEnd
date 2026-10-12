@@ -263,7 +263,7 @@ export class AdminUrssafController {
   @ApiOperation({
     summary: 'Answer an enrolment in URSSAF’s place (simulation)',
     description:
-      'Only while `URSSAF_GATEWAY=simulated`, which production refuses. Sets the ' +
+      'Only while `URSSAF_GATEWAY=simulated`, never beside live Stripe keys. Sets the ' +
       'enrolment `active` or `refused`, as URSSAF will once the API access exists.',
   })
   @ApiParam({ name: 'id', description: 'The enrolment id.', example: LINK_ID })

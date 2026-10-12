@@ -200,7 +200,7 @@ export const configLoader = (): AppConfig => ({
     connectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
   },
   urssaf: {
-    // Joi (env.validation.ts) rejects any other value, and `simulated` in production.
+    // Joi (env.validation.ts) rejects any other value, and `simulated` beside live Stripe keys.
     gateway: (process.env.URSSAF_GATEWAY ?? 'disabled') as UrssafGatewayMode,
   },
   payments: {
