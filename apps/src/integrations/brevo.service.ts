@@ -22,7 +22,13 @@ export type ChefOnboardingEmail =
   | 'newMessage'
   // Contact forms: the heads-up to the team, and the team's answer to the sender.
   | 'contactReceivedAdmin'
-  | 'contactReply';
+  | 'contactReply'
+  // Custom requests: each step that hands the request to someone else.
+  | 'quoteRequestChef'
+  | 'quoteNeedsChefAdmin'
+  | 'quoteOfferClient'
+  | 'quoteOfferDeclinedChef'
+  | 'bookingConfirmed';
 
 @Injectable()
 export class BrevoService {

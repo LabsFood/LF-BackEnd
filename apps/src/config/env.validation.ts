@@ -75,6 +75,11 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
   BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
   BREVO_TPL_CONTACT_REPLY: Joi.number().optional(),
+  BREVO_TPL_QUOTE_REQUEST_CHEF: Joi.number().optional(),
+  BREVO_TPL_QUOTE_NEEDS_CHEF_ADMIN: Joi.number().optional(),
+  BREVO_TPL_QUOTE_OFFER_CLIENT: Joi.number().optional(),
+  BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CONFIRMED: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
