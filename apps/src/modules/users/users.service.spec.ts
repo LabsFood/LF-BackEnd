@@ -614,16 +614,19 @@ describe('UsersService', () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('rejects a client profile when a chef profile already exists', async () => {
+    it('lets a batch cooker open a client profile on the same account, keeping the role', async () => {
       jest
         .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
+        .mockResolvedValue({ ...currentUser, role: UserRole.chef } as never);
       prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+      prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
 
-      await expect(
-        service.updateProfileByClerkUserId('user_1', { firstName: 'Marie' }),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.clientProfile.upsert).not.toHaveBeenCalled();
+      await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
+
+      expect(prisma.clientProfile.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'uuid-1' } }),
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
@@ -801,18 +804,63 @@ describe('UsersService', () => {
   });
 
   describe('getProfileByClerkUserId', () => {
+    const asRole = (role: UserRole) =>
+      jest
+        .spyOn(service, 'ensurePersistedFromClerk')
+        .mockResolvedValue({ id: 'uuid-1', role } as never);
+
     it('returns the chef profile for a chef user', async () => {
-      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
-        id: 'uuid-1',
-        role: UserRole.chef,
-      } as never);
+      asRole(UserRole.chef);
       prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
 
       const result = await service.getProfileByClerkUserId('user_1');
 
       expect(result.profileType).toBe('chef');
       expect(result.profile).toEqual({ id: 'chef-1' });
-      expect(prisma.clientProfile.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('returns the chef profile of an admin who holds one', async () => {
+      asRole(UserRole.admin);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.profileType).toBe('chef');
+    });
+
+    describe('an account holding both profiles', () => {
+      beforeEach(() => {
+        prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+        prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
+      });
+
+      it.each([
+        [UserRole.client, 'client'],
+        [UserRole.chef, 'chef'],
+      ])('gets the profile of its role (%s) first', async (role, expected) => {
+        asRole(role);
+        const result = await service.getProfileByClerkUserId('user_1');
+        expect(result.profileType).toBe(expected);
+      });
+
+      it.each(['client', 'chef'] as const)(
+        'gets the %s profile when asked',
+        async (type) => {
+          asRole(UserRole.client);
+          const result = await service.getProfileByClerkUserId('user_1', type);
+          expect(result.profileType).toBe(type);
+          expect(result.profile).toEqual({ id: `${type}-1` });
+        },
+      );
+    });
+
+    it('reports none for a profile asked for that the account does not hold', async () => {
+      asRole(UserRole.client);
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
+
+      const result = await service.getProfileByClerkUserId('user_1', 'chef');
+
+      expect(result).toMatchObject({ profileType: 'none', profile: null });
     });
 
     it('reports none when the user has not completed onboarding', async () => {
@@ -826,6 +874,59 @@ describe('UsersService', () => {
 
       expect(result.profileType).toBe('none');
       expect(result.profile).toBeNull();
+    });
+  });
+
+  describe('currentUser — which spaces the account opens', () => {
+    const chefProfile = { id: 'chef-1', isVerified: false, isActive: false };
+    beforeEach(() => {
+      // What Prisma answers for a profile the account does not hold.
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+    });
+    const me = (role: UserRole) => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        role,
+      } as never);
+      return service.currentUser('user_1');
+    };
+
+    it('gives a client who has not filled in a profile yet the client space', async () => {
+      await expect(me(UserRole.client)).resolves.toMatchObject({
+        spaces: ['client'],
+        chefProfile: null,
+      });
+    });
+
+    it('lists both spaces for a client who applied as a batch cooker, role unchanged', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(chefProfile);
+
+      await expect(me(UserRole.client)).resolves.toMatchObject({
+        role: UserRole.client,
+        spaces: ['client', 'chef'],
+        chefProfile,
+      });
+    });
+
+    it('lists both spaces for a batch cooker who filled in a client profile', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(chefProfile);
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
+
+      await expect(me(UserRole.chef)).resolves.toMatchObject({
+        spaces: ['client', 'chef'],
+      });
+    });
+
+    it('gives a batch cooker only the chef space until they open a client profile', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(chefProfile);
+
+      await expect(me(UserRole.chef)).resolves.toMatchObject({ spaces: ['chef'] });
+    });
+
+    it('gives an admin with no profile no space — the back office is the role', async () => {
+      await expect(me(UserRole.admin)).resolves.toMatchObject({ spaces: [] });
     });
   });
 
@@ -860,6 +961,12 @@ describe('UsersService', () => {
   describe('listClients', () => {
     const clientProfile = { id: 'profile-1', userId: 'uuid-1' };
     const clientUser = { id: 'uuid-1', role: UserRole.client };
+    // Clients, plus batch cookers who also order. Never an admin who saved a
+    // profile while testing: the admin console's list must not change for them.
+    const clients = [
+      { role: UserRole.client },
+      { role: UserRole.chef, clientProfile: { isNot: null } },
+    ];
 
     beforeEach(() => {
       prisma.user.findMany.mockResolvedValue([{ ...clientUser, clientProfile }]);
@@ -870,7 +977,7 @@ describe('UsersService', () => {
       const result = await service.listClients();
 
       expect(prisma.user.findMany).toHaveBeenCalledWith({
-        where: { role: UserRole.client },
+        where: { OR: clients },
         include: { clientProfile: true },
         // `id` is the tiebreaker that keeps paging stable across equal timestamps.
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -922,7 +1029,7 @@ describe('UsersService', () => {
       });
 
       const where = {
-        role: UserRole.client,
+        OR: clients,
         clientProfile: { status: ClientProfileStatus.vip },
       };
       expect(prisma.user.findMany).toHaveBeenCalledWith(

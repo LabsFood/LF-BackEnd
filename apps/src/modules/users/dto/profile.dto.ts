@@ -1,7 +1,34 @@
 import { ApiPropertyOptional, IntersectionType, PartialType } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
+
+/** The two spaces one account can hold, each backed by its own profile. */
+export const PROFILE_TYPES = ['client', 'chef'] as const;
+export type ProfileType = (typeof PROFILE_TYPES)[number];
+
+/** Query of `GET /me/profile`. */
+export class MeProfileQueryDto {
+  @ApiPropertyOptional({
+    enum: PROFILE_TYPES,
+    description:
+      'Which profile to return, for an account that holds both. Without it: the one ' +
+      'matching `role`, else the other.',
+    example: 'chef',
+  })
+  @IsOptional()
+  @IsIn(PROFILE_TYPES)
+  type?: ProfileType;
+}
 
 /**
  * Fields that live on `client_profiles`. Every property here must map to a real

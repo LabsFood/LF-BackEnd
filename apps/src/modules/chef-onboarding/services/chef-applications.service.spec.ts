@@ -6,7 +6,11 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 
-import { ChefApplicationStatus, UserRole } from '../../../generated/prisma/client';
+import {
+  ChefApplicationStatus,
+  Prisma,
+  UserRole,
+} from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -540,6 +544,130 @@ describe('ChefApplicationsService', () => {
       ],
       ['terms', (p: CreateChefApplicationDto) => (p.consent.terms = false)],
     ])('refuses when consent.%s is not given', (_name, mutate) => expectRejected(mutate));
+  });
+
+  describe('applyFromAccount — an existing account applies, signed in', () => {
+    const account = (over: Record<string, unknown> = {}) => ({
+      id: 'u-1',
+      email: 'Marie.Dupont@exemple.fr',
+      chefProfile: null,
+      ...over,
+    });
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue(account());
+      prisma.chefProfile.findFirst.mockResolvedValue({
+        id: 'cp-1',
+        userId: 'u-1',
+        isVerified: false,
+        isActive: false,
+        autoSuspendedAt: null,
+        application: storedApplication(),
+      });
+    });
+
+    const apply = (mutate: (p: CreateChefApplicationDto) => void = () => {}) => {
+      const payload = validPayload();
+      mutate(payload);
+      return service.applyFromAccount('user_2n', payload);
+    };
+
+    it('adds an unverified chef profile and its candidature to the account', async () => {
+      const view = await apply();
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { clerkUserId: 'user_2n' } }),
+      );
+      const { data } = prisma.chefProfile.create.mock.calls[0][0];
+      expect(data).toEqual({ userId: 'u-1', displayName: 'Marie Dupont', city: 'Lyon' });
+      expect(prisma.chefApplication.create.mock.calls[0][0].data).toMatchObject({
+        chefProfileId: 'cp-1',
+        // The account's address as stored, never one from the body.
+        email: 'Marie.Dupont@exemple.fr',
+      });
+      expect(view).toMatchObject({ reference: 'APP-2026-0042', dossierStatus: 'draft' });
+    });
+
+    it('keeps the role — it only picks the space opened first', async () => {
+      await apply();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u-1' },
+        data: { fullName: 'Marie Dupont', phone: '+33612345678' },
+      });
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+    });
+
+    it('creates no Clerk account and sends no sign-in link: the person is signed in', async () => {
+      await apply();
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+      expect(signInTokens.createSignInToken).not.toHaveBeenCalled();
+      expect(mailer.applicationReceived).not.toHaveBeenCalled();
+      expect(mailer.applicationReceivedAdmin).toHaveBeenCalled();
+    });
+
+    it('records the submission against the account, marked as an existing one', async () => {
+      await apply();
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'application.submitted',
+          actorUserId: 'u-1',
+          metadata: expect.objectContaining({ existingAccount: true }),
+        }),
+      );
+    });
+
+    it('refuses an account that already has a candidature', async () => {
+      prisma.user.findUnique.mockResolvedValue(account({ chefProfile: { id: 'cp-1' } }));
+      await expect(apply()).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'APPLICATION_EXISTS' },
+      });
+      expect(prisma.chefProfile.create).not.toHaveBeenCalled();
+    });
+
+    const duplicate = () =>
+      new Prisma.PrismaClientKnownRequestError('dup', {
+        code: 'P2002',
+        clientVersion: 'test',
+      });
+
+    it('answers the same to the loser of two simultaneous calls', async () => {
+      // The winner's profile is there by the time the loser looks.
+      prisma.chefProfile.create.mockRejectedValue(duplicate());
+      await expect(apply()).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'APPLICATION_EXISTS' },
+      });
+      expect(prisma.chefProfile.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'u-1' },
+      });
+    });
+
+    it('lets any other duplicate through, such as a reference clash', async () => {
+      const clash = duplicate();
+      prisma.chefApplication.create.mockRejectedValue(clash);
+      prisma.chefProfile.findFirst.mockResolvedValue(null);
+      await expect(apply()).rejects.toBe(clash);
+    });
+
+    it('refuses an address other than the account’s own', async () => {
+      await expect(
+        apply((p) => (p.identity.email = 'someone.else@exemple.fr')),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(prisma.chefProfile.create).not.toHaveBeenCalled();
+    });
+
+    it('validates the answers before reading the account', async () => {
+      await expect(apply((p) => (p.address.postcode = '97400'))).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the session has no account row yet', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(apply()).rejects.toMatchObject({ status: 404 });
+    });
   });
 
   describe('mine — the signed-in candidate’s view', () => {

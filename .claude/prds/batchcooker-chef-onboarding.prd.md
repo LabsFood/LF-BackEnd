@@ -120,9 +120,10 @@ Decisions taken before planning; `/plan` works inside them rather than reopening
   PRD ships the `isVerified` gate FLOW-02 depends on, nothing more.
 - **Real SIRET existence check against INSEE Sirene** — form and Luhn validation only. Flagged in
   FLOW-01 §10.1 as a separate improvement; it changes the refusal rate, not the flow.
-- **Merging a client account into a chef account** — a client who applies with an existing address
-  is refused with `EMAIL_ALREADY_USED`. A client ↔ chef switcher was analysed and found cheap on the
-  backend; the decision is pending and it would ship with a self-dealing guard on bookings.
+- **Merging a client account into a chef account** — out of this PRD. Adopted afterwards
+  (11/10/2026) as the client ↔ chef switcher: the public route still answers
+  `EMAIL_ALREADY_USED`, and the holder applies signed in with `POST /me/chef-application`. It
+  ships with a self-dealing guard on bookings.
 - **`approval` and `criminal-record` document types** — exist in the reference list, no screen
   triggers them, and the policy for vulnerable-public work is not settled (FLOW-01 §10.4).
 - **Automated candidate reminders** — the cadence is undecided (FLOW-01 §10.3). Expiry alerts for

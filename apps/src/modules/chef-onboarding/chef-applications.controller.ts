@@ -74,8 +74,9 @@ export class ChefApplicationsController {
       '`documents` in the answer lists what to upload. The API decides it from the ' +
       'answers: a candidate with no company is not asked for `registration`, for ' +
       'example. None is needed to submit.\n\n' +
-      'An email that already has an account is refused: its owner should sign in ' +
-      'instead. Limited to 5 candidatures per hour per IP address.',
+      'An email that already has an account is refused: its owner signs in and applies ' +
+      'from that account with `POST /me/chef-application`. Limited to 5 candidatures ' +
+      'per hour per IP address.',
   })
   @ApiCreatedResponse({
     description: 'The candidature, and the documents to provide.',
@@ -113,6 +114,50 @@ export class ChefApplicationsController {
 @UseGuards(ClerkAuthGuard)
 export class MyChefApplicationController {
   constructor(private readonly applications: ChefApplicationsService) {}
+
+  @Post()
+  @ApiOperation({
+    summary: 'Apply from my account',
+    description:
+      'For someone who already has an account, a client for example: same body as ' +
+      '`POST /chef-applications`, and `identity.email` must be the email of this ' +
+      'account. The account keeps everything it has and gains a batch cooker space, ' +
+      'browse-only until an admin approves the candidature. `GET /me` then lists both ' +
+      'spaces in `spaces`; `role` does not change.\n\n' +
+      'No email with a sign-in link: the person is already signed in. Upload the ' +
+      'documents listed in `documents` with `/me/chef-documents`.',
+  })
+  @ApiCreatedResponse({
+    description: 'The candidature, with its documents.',
+    example: MY_APPLICATION_EXAMPLES.reviewing.value,
+  })
+  @ApiBadRequestResponse({
+    description: 'A field is missing or malformed, or the body has an unknown field.',
+  })
+  @ApiConflictResponse({
+    description:
+      '`APPLICATION_EXISTS`: this account already has a candidature. Follow it with ' +
+      '`GET /me/chef-application`, or `POST /me/chef-application/reapply` after a refusal.',
+    example: errorExample(
+      'APPLICATION_EXISTS',
+      'This account already has a candidature: follow it with GET /me/chef-application.',
+    ),
+  })
+  @ApiUnprocessableEntityResponse({
+    ...VALIDATION_FAILED,
+    description: `${VALIDATION_FAILED.description} Also when \`identity.email\` is not this account's email.`,
+  })
+  @ApiNotFoundResponse({
+    description: 'No account for this session yet: call `GET /me` first.',
+  })
+  @ApiClerkAuthResponses()
+  apply(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: CreateChefApplicationDto,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.applications.applyFromAccount(user.userId, payload, reqId(req));
+  }
 
   @Get()
   @ApiOperation({

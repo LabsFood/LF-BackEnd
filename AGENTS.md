@@ -131,11 +131,9 @@ PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooke
 the `users` row (`role: chef`) and a chef profile with `isVerified` and
 `isActive` false. The candidate is **browse-only** until approval — the
 candidature and its documents are the only things they can act on, enforced in
-the API (`PATCH /me/chef-profile` → `403 CHEF_NOT_VERIFIED`). **Not yet enforced
-on the client-side routes** — `POST /bookings`, `POST /quotes` and
-`POST /me/quotes/:id/accept` accept any chef account, verified or not; that waits
-on the self-dealing guard (see the `ponytail:` note on
-`assertNoConflictingProfile`). Approval sets
+the API (`PATCH /me/chef-profile` → `403 CHEF_NOT_VERIFIED`). That limit is on
+the chef space only: the same account may also be a client (see *One account, two
+spaces* below). Approval sets
 `isVerified` (and `isActive` if asked) and is refused with
 `409 DOCUMENT_REQUIRED` unless every blocking document is `valid`. A refused
 candidate keeps the account, sees the reason and the reapply date, and can
@@ -144,7 +142,7 @@ reapply from it.
 | Actor                       | Routes                                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Public                      | `POST /chef-applications`, `GET /referentials/regions`                                                                                                                                                             |
-| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`                      |
+| Signed-in candidate or chef | `POST /me/chef-application` (apply from an existing account), `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions` |
 | Admin                       | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
 
 - **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
@@ -163,9 +161,18 @@ reapply from it.
   refuses `isVerified: true` for a profile whose candidature is not approved, and
   `isActive: true` for an unverified profile. Profiles older than FLOW-01 (no
   candidature) keep the manual path.
-- **One profile per account** (`assertNoConflictingProfile`): an existing client
-  cannot apply from their account. The client ↔ chef switcher is deferred — see
-  the `ponytail:` note there.
+- **One account, two spaces**: an account may hold a client profile and a chef
+  profile at once. `GET /me` lists them in `spaces` (`role` is only the space
+  opened first and authorises nothing besides `admin`); `GET /me/profile?type=`
+  picks one. A signed-in account applies with `POST /me/chef-application` (no
+  Clerk call, role unchanged); a chef opens the client space with
+  `PATCH /me/profile`. Only the holder's own session can add a chef profile to an
+  existing account — the public route still refuses a known address.
+- **Nobody books themselves**: `BookingsService.assertNotOwnChef` refuses a
+  booking of the caller's own chef page (`409 SAME_PERSON`): with URSSAF avance
+  immédiate it would collect the tax credit for paying yourself. Booking creation
+  is `501` today, but the check already runs; whoever builds creation keeps it.
+  Messaging has the same guard (`ensurePair`). Quotes have no chef side yet.
 - **Documents** live in one append-only `chef_documents` table owned by the chef
   profile from the first upload, so the candidature and the living dossier are
   the same rows and history cannot drift. `missing` is derived, never stored.

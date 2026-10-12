@@ -51,9 +51,9 @@ A candidature creates the chef profile with `is_active: false` and `is_verified:
 
 > **Not yet enforced:** chef listings, booking assignment, and any future `ChefGuard` **must** filter on `is_active && is_verified`, or unvetted candidates will appear in live booking flows.
 
-### Not supported yet
+### One account, two spaces
 
-One profile per account: a user with a client profile cannot hold a chef profile (and vice versa) — reconciling the orphaned profile, bookings, and payouts is planned as separate work. A client ↔ chef switcher has been analysed; the decision is pending.
+One account may hold a client profile and a chef profile at once. `GET /me` returns `spaces` (`client`, `chef`, or both), derived from the profiles held; `role` is the space to open first and authorises nothing besides `admin`. A signed-in account applies with `POST /me/chef-application`; a chef opens the client space with `PATCH /me/profile`. Nobody books their own chef page (`409 SAME_PERSON`).
 
 ## First sign-in sync (frontend required)
 

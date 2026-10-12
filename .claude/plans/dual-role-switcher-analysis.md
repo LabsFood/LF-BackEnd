@@ -1,5 +1,10 @@
 # One account, two spaces — client ↔ chef switcher
 
+> **Status 11/10/2026: adopted. Backend implemented on `feat/dual-role-switcher`**
+> (`spaces` on `GET /me`, `GET /me/profile?type=`, `POST /me/chef-application`,
+> guard removed, `409 SAME_PERSON` on booking creation). The frontend part below
+> is still to do in `batchcooking-web`.
+
 > Feasibility analysis for FLOW-01 §10.2 ("un client existant candidate : fusionner
 > ou refuser ?"). Decision pending. Written 21/09/2026 from a read of the code on
 > `feat/batchcooker-chef-onboarding` (PR #37) and `batchcooking-web`.

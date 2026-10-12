@@ -50,6 +50,12 @@ const EMAIL_ALREADY_USED = {
   message: 'An account already exists for this email address. Sign in to continue.',
 };
 
+const APPLICATION_EXISTS = {
+  code: 'APPLICATION_EXISTS',
+  message:
+    'This account already has a candidature: follow it with GET /me/chef-application.',
+};
+
 const APPLICATION_DECIDED = {
   code: 'APPLICATION_DECIDED',
   message: 'This candidature has been decided and can no longer be corrected.',
@@ -125,17 +131,7 @@ export class ChefApplicationsService {
           },
           update: { fullName, phone: answers.phone, role: UserRole.chef },
         });
-        // `isVerified` and `isActive` keep their `false` defaults until approval.
-        const profile = await tx.chefProfile.create({
-          data: { userId: user.id, displayName: fullName, city: answers.addressCity },
-        });
-        const application = await tx.chefApplication.create({
-          data: {
-            ...answers,
-            reference: await this.nextReference(tx),
-            chefProfileId: profile.id,
-          },
-        });
+        const application = await this.createCandidate(tx, user.id, answers);
         return { userId: user.id, application };
       });
     } catch (error) {
@@ -207,6 +203,80 @@ export class ChefApplicationsService {
     };
   }
 
+  /**
+   * `POST /me/chef-application` — someone who already has an account, a client
+   * for instance, applies from it. The account gains a chef profile, unverified
+   * and inactive, beside what it holds; its client space stays fully usable.
+   *
+   * This is the only way a chef profile joins an existing account, and it needs the
+   * holder's own session: the public route still refuses an address that has an
+   * account, so nobody gains anything on someone else's account from an email
+   * address alone. No Clerk call and no sign-in link: the person is signed in.
+   * `users.role` stays as it is; it only picks the space opened first.
+   */
+  async applyFromAccount(
+    clerkUserId: string,
+    payload: CreateChefApplicationDto,
+    requestId?: string,
+  ) {
+    this.assertValid(payload);
+
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+      select: { id: true, email: true, chefProfile: { select: { id: true } } },
+    });
+    if (!user) throw new NotFoundException('No account for this session.');
+    if (user.chefProfile) throw new ConflictException(APPLICATION_EXISTS);
+    this.assertOwnEmail(payload, user.email);
+
+    const answers = this.answers(payload, user.email);
+    let application: ChefApplication;
+    try {
+      application = await this.prisma.$transaction(async (tx) => {
+        // The candidature names the person; the account follows, as on submission.
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            fullName: `${answers.firstName} ${answers.lastName}`,
+            phone: answers.phone,
+          },
+        });
+        return this.createCandidate(tx, user.id, answers);
+      });
+    } catch (error) {
+      // Two calls at once: `chef_profiles.user_id` is unique, so the second loses.
+      // Checked rather than assumed: a clash on `reference` is another P2002.
+      const lostRace =
+        isUniqueViolation(error) &&
+        (await this.prisma.chefProfile.findFirst({ where: { userId: user.id } }));
+      if (lostRace) throw new ConflictException(APPLICATION_EXISTS);
+      throw error;
+    }
+
+    await this.audit.record({
+      actorType: 'candidate',
+      actorUserId: user.id,
+      action: 'application.submitted',
+      subjectType: 'chef_application',
+      subjectId: application.id,
+      requestId,
+      metadata: {
+        reference: application.reference,
+        city: application.addressCity,
+        existingAccount: true,
+      },
+    });
+
+    await this.mailer.applicationReceivedAdmin({
+      reference: application.reference,
+      applicationId: application.id,
+      name: `${application.firstName} ${application.lastName}`,
+      city: application.addressCity,
+    });
+
+    return this.mine(clerkUserId);
+  }
+
   /** `GET /me/chef-application` — the caller's candidature and its dossier. */
   async mine(clerkUserId: string) {
     const profile = await this.prisma.chefProfile.findFirst({
@@ -269,14 +339,7 @@ export class ChefApplicationsService {
       });
     }
 
-    // The account's own address: this route cannot redirect anything to another inbox.
-    const email = payload.identity.email.trim().toLowerCase();
-    if (email !== profile.user.email.toLowerCase()) {
-      throw new UnprocessableEntityException({
-        code: 'VALIDATION_FAILED',
-        message: 'identity.email must be the address of this account.',
-      });
-    }
+    this.assertOwnEmail(payload, profile.user.email);
 
     const now = new Date();
     const reopened = await this.prisma.chefApplication.update({
@@ -558,6 +621,41 @@ export class ChefApplicationsService {
     }
   }
 
+  /** The account's own address: a signed-in route cannot redirect anything to another inbox. */
+  private assertOwnEmail(payload: CreateChefApplicationDto, accountEmail: string): void {
+    if (payload.identity.email.trim().toLowerCase() !== accountEmail.toLowerCase()) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: 'identity.email must be the address of this account.',
+      });
+    }
+  }
+
+  /**
+   * The chef profile and its candidature, for an account. `isVerified` and
+   * `isActive` keep their `false` defaults until approval: browse-only until then.
+   */
+  private async createCandidate(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    answers: ReturnType<ChefApplicationsService['answers']>,
+  ): Promise<ChefApplication> {
+    const profile = await tx.chefProfile.create({
+      data: {
+        userId,
+        displayName: `${answers.firstName} ${answers.lastName}`,
+        city: answers.addressCity,
+      },
+    });
+    return tx.chefApplication.create({
+      data: {
+        ...answers,
+        reference: await this.nextReference(tx),
+        chefProfileId: profile.id,
+      },
+    });
+  }
+
   /** The candidature's own columns, as submitted. Shared by submission and reapplication. */
   private answers(payload: CreateChefApplicationDto, email: string) {
     return {
@@ -702,6 +800,9 @@ export function toAnswersView(application: ChefApplication): CreateChefApplicati
     },
   };
 }
+
+const isUniqueViolation = (error: unknown): boolean =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
 /** Equal as JSON, whatever the key order: jsonb hands keys back sorted, not as sent. */
 const sameValue = (a: unknown, b: unknown): boolean =>

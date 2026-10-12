@@ -32,7 +32,11 @@ import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
-import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
+import {
+  type ProfileType,
+  UpdateAdminClientDto,
+  UpdateMeProfileDto,
+} from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
   clerkUserId: string;
@@ -347,43 +351,44 @@ export class UsersService {
   }
 
   /**
-   * Returns whichever profile row the user actually holds.
+   * `GET /me/profile` — the person and one of their profiles.
    *
-   * Resolved from the data rather than from `users.role`: onboarding no longer forces
-   * the role to match the profile, so an admin may hold a chef profile while keeping
-   * `admin`. Branching on the role would report `none` for that user despite the row
-   * existing. The second query only runs when the first misses.
+   * An account may hold a client profile and a batch cooker page at once, so `type`
+   * picks one. Without it, the profile matching `users.role` comes first and the
+   * other is the fallback: an admin may hold a chef profile while keeping `admin`,
+   * and branching on the role alone would report `none` for them.
    */
-  async getProfileByClerkUserId(clerkUserId: string) {
+  async getProfileByClerkUserId(clerkUserId: string, type?: ProfileType) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
 
-    const chef = await this.prisma.chefProfile.findUnique({
-      where: { userId: user.id },
-    });
-    if (chef) {
-      return { user, profileType: 'chef' as const, profile: chef };
+    const [chef, client] = await Promise.all([
+      this.prisma.chefProfile.findUnique({ where: { userId: user.id } }),
+      this.prisma.clientProfile.findUnique({ where: { userId: user.id } }),
+    ]);
+    const order: ProfileType[] = type
+      ? [type]
+      : user.role === UserRole.client
+        ? ['client', 'chef']
+        : ['chef', 'client'];
+    for (const kind of order) {
+      const profile = kind === 'chef' ? chef : client;
+      if (profile) return { user, profileType: kind, profile };
     }
-
-    const client = await this.prisma.clientProfile.findUnique({
-      where: { userId: user.id },
-    });
-    return {
-      user,
-      profileType: client ? ('client' as const) : ('none' as const),
-      profile: client,
-    };
+    return { user, profileType: 'none' as const, profile: null };
   }
 
   /**
    * Client onboarding (`PATCH /me/profile`, form 2).
    * Splits user-level identity fields out of the payload before touching
    * `client_profiles`, which has no columns for them.
+   *
+   * A batch cooker may hold a client profile on the same account, candidate or
+   * approved: the client space never depends on the chef side.
    */
   async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateMeProfileDto) {
     const { firstName, lastName, phone, ...profileFields } = payload;
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
-    await this.assertNoConflictingProfile(user.id, 'client');
     // No role argument: saving a client profile must never change `users.role`.
     await this.applyOwnUserFields(user, { firstName, lastName, phone });
 
@@ -501,41 +506,6 @@ export class UsersService {
   }
 
   /**
-   * Switching profile type after onboarding is deliberately blocked for now; it needs
-   * reconciliation of the orphaned profile, bookings, and payouts. Tracked as separate
-   * work — the schema already supports both rows existing, so this is the only guard.
-   *
-   * ponytail: one profile per account. Ceiling: an existing client cannot become a
-   * batch cooker without a second account and email (FLOW-01 §10.2). Upgrade path: a
-   * client ↔ chef switcher — drop this guard, expose both profiles on `GET /me` — which
-   * must ship with a self-dealing guard on bookings and quotes. Decision pending; see
-   * `.claude/plans/dual-role-switcher-analysis.md`.
-   */
-  private async assertNoConflictingProfile(
-    userId: string,
-    target: 'client' | 'chef',
-  ): Promise<void> {
-    const other =
-      target === 'client'
-        ? await this.prisma.chefProfile.findUnique({
-            where: { userId },
-            select: { id: true },
-          })
-        : await this.prisma.clientProfile.findUnique({
-            where: { userId },
-            select: { id: true },
-          });
-
-    if (other) {
-      throw new ConflictException(
-        `User already has a ${target === 'client' ? 'chef' : 'client'} profile. ` +
-          'Switching profile type is not supported yet.',
-      );
-    }
-  }
-
-  /** Writes shared identity fields to `users` and mirrors names into Clerk. */
-  /**
    * Writes shared identity fields to `users` and mirrors names into Clerk.
    *
    * `role` is only written when a caller explicitly passes one. Onboarding must not
@@ -586,7 +556,9 @@ export class UsersService {
    * Reads `users`, not `client_profiles`: a profile only exists once the client has
    * saved their preferences (`PATCH /me/profile`), so listing profiles hid every
    * client who signed up and never did. Those rows carry `clientProfile: null`, and
-   * a `status` filter leaves them out since they have no CRM status yet.
+   * a `status` filter leaves them out since they have no CRM status yet. A batch
+   * cooker who also orders is listed too: their role is `chef`, but they hold a
+   * client profile. An admin who saved one is not: the list stays what it was.
    *
    * `findMany` and `count` run in a single transaction so `meta.total` can never
    * disagree with the rows served — otherwise a concurrent signup between the two
@@ -600,7 +572,10 @@ export class UsersService {
   ): Promise<Paginated<AdminClientListItem>> {
     const bounds = resolvePageBounds(query);
     const where = {
-      role: UserRole.client,
+      OR: [
+        { role: UserRole.client },
+        { role: UserRole.chef, clientProfile: { isNot: null } },
+      ],
       clientProfile: query.status ? { status: query.status } : undefined,
     };
 
@@ -706,21 +681,32 @@ export class UsersService {
    *
    * Clients and batch cookers sign in at the same place, so until this responds the
    * user is looking at a waiting screen; the frontend gives up after 6 seconds and
-   * falls back to the client space. It is therefore deliberately one indexed read
-   * with a single join, and nothing else.
+   * falls back to the client space. It is therefore deliberately two indexed reads
+   * by `user_id`, run in parallel, and nothing else.
+   *
+   * `spaces` lists what the account can open, from the profiles it holds rather
+   * than from its role: one account may be a client and a batch cooker at once. A
+   * client who has not filled in their profile yet still has the client space.
+   * `role` stays the space to open by default.
    */
   async currentUser(clerkUserId: string, email?: string) {
     const persisted = await this.ensurePersistedFromClerk(clerkUserId, { email });
 
-    const [chefProfile, hasPassword] = await Promise.all([
-      persisted.role === UserRole.chef
-        ? this.prisma.chefProfile.findUnique({
-            where: { userId: persisted.id },
-            select: { id: true, isVerified: true, isActive: true },
-          })
-        : Promise.resolve(null),
+    const [chefProfile, clientProfile, hasPassword] = await Promise.all([
+      this.prisma.chefProfile.findUnique({
+        where: { userId: persisted.id },
+        select: { id: true, isVerified: true, isActive: true },
+      }),
+      this.prisma.clientProfile.findUnique({
+        where: { userId: persisted.id },
+        select: { id: true },
+      }),
       this.hasClerkPassword(persisted.clerkUserId),
     ]);
+
+    const spaces: ProfileType[] = [];
+    if (persisted.role === UserRole.client || clientProfile) spaces.push('client');
+    if (chefProfile) spaces.push('chef');
 
     return {
       id: persisted.id,
@@ -730,6 +716,7 @@ export class UsersService {
       phone: persisted.phone,
       avatarUrl: persisted.avatarUrl,
       role: persisted.role,
+      spaces,
       hasPassword,
       chefProfile,
     };

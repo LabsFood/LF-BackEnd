@@ -35,7 +35,11 @@ import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
-import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
+import {
+  MeProfileQueryDto,
+  UpdateAdminClientDto,
+  UpdateMeProfileDto,
+} from './dto/profile.dto';
 import { UpdateChefVerificationDto } from './dto/admin-chef.dto';
 import {
   AdminClientDto,
@@ -104,11 +108,13 @@ export class UsersController {
   @ApiOperation({
     summary: 'Who am I, and which space do I open?',
     description:
-      'Call this right after sign-in. `role` says which space to open: `client`, `chef` ' +
-      'or `admin`. For a batch cooker, `chefProfile.isVerified` says whether the space ' +
-      'is fully usable (`true`) or browse-only while the candidature is reviewed ' +
-      '(`false`). `hasPassword: false` means the account has no password yet (a batch ' +
-      'cooker who came in through the emailed link): ask them to choose one.\n\n' +
+      'Call this right after sign-in. `role` says which space to open first: `client`, ' +
+      '`chef` or `admin`. `spaces` lists every space the account can open: one account ' +
+      'can be a client and a batch cooker at once, and then the app shows a switcher. ' +
+      'For the batch cooker space, `chefProfile.isVerified` says whether it is fully ' +
+      'usable (`true`) or browse-only while the candidature is reviewed (`false`). ' +
+      '`hasPassword: false` means the account has no password yet (a batch cooker who ' +
+      'came in through the emailed link): ask them to choose one.\n\n' +
       'The first call for a new Clerk account also creates its record here, as a client.',
   })
   @ApiOkResponse({
@@ -127,7 +133,10 @@ export class UsersController {
     description:
       'The person plus their profile. `profileType` tells which kind `profile` is: ' +
       '`client` (tastes, address, household), `chef` (public batch cooker page), or ' +
-      '`none` with `profile: null` for a client who has not filled in the profile yet.',
+      '`none` with `profile: null` for a client who has not filled in the profile yet.\n\n' +
+      'An account that holds both (see `spaces` in `GET /me`) picks one with ' +
+      '`?type=client` or `?type=chef`. Without `type`, the profile matching `role` ' +
+      'comes back, else the other one.',
   })
   @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
@@ -135,8 +144,11 @@ export class UsersController {
     description: 'The person and their profile, if any.',
   })
   @ApiClerkAuthResponses()
-  meProfile(@CurrentClerkUser() user: ClerkUser): Promise<UserWithProfileDto> {
-    return this.users.getProfileByClerkUserId(user.userId);
+  meProfile(
+    @CurrentClerkUser() user: ClerkUser,
+    @Query() query: MeProfileQueryDto,
+  ): Promise<UserWithProfileDto> {
+    return this.users.getProfileByClerkUserId(user.userId, query.type);
   }
 
   @Patch('me/profile')
@@ -148,16 +160,14 @@ export class UsersController {
       'The first call creates it; later calls change only the fields sent. ' +
       '`firstName`, `lastName` and `phone` go to the account itself (and to Clerk for ' +
       'the names). Never changes the role.\n\n' +
+      'A batch cooker can call it too: the account then opens the client space as well ' +
+      '(`spaces` in `GET /me`).\n\n' +
       'Example: `{ "allergies": ["arachides"], "householdAdults": 2 }` updates those two ' +
       'fields and leaves the rest as it was.',
   })
   @ApiOkResponse({
     type: ClientProfileDto,
     description: 'The saved client profile.',
-  })
-  @ApiConflictResponse({
-    description:
-      'This account is a batch cooker. One account holds one kind of profile for now.',
   })
   @ApiClerkAuthResponses()
   patchMeProfile(
@@ -188,7 +198,8 @@ export class UsersController {
   })
   @ApiNotFoundResponse({
     description:
-      'This account is not a batch cooker. Becoming one goes through `POST /chef-applications`.',
+      'This account is not a batch cooker. Becoming one goes through ' +
+      '`POST /me/chef-application` when signed in, `POST /chef-applications` otherwise.',
   })
   @ApiClerkAuthResponses()
   patchMeChefProfile(

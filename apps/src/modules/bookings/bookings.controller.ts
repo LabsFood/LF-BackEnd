@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiNotImplementedResponse,
@@ -126,7 +127,10 @@ export class BookingsController {
     @Query() query: PaginationQueryDto,
   ) {
     const page = await this.bookings.listMine(user.userId, query);
-    return { data: page.data.map((row) => BookingReadDto.fromEntity(row)), meta: page.meta };
+    return {
+      data: page.data.map((row) => BookingReadDto.fromEntity(row)),
+      meta: page.meta,
+    };
   }
 
   @Post()
@@ -135,21 +139,35 @@ export class BookingsController {
   @ApiOperation({
     summary: 'Book a batch cooker (not available yet)',
     description:
-      '**Not built yet: always answers `501`.** It only checks the body first, so a ' +
-      'bad body still gets its `400` or `422`. Nothing is saved.',
+      '**Not built yet: always answers `501`.** It only checks the request first, so a ' +
+      'bad body still gets its `400` or `422`, and booking your own batch cooker page ' +
+      'its `409`. Nothing is saved.',
   })
   @ApiNotImplementedResponse({ description: 'Booking is not available yet.' })
+  @ApiConflictResponse({
+    description:
+      '`SAME_PERSON`: this batch cooker page belongs to the caller. One account can ' +
+      'be a client and a batch cooker, but never books itself.',
+  })
   @ApiUnprocessableEntityResponse({
     description: '`endsAt` is not after `startsAt`.',
   })
   @ApiClerkAuthResponses()
-  create(@Body() payload: CreateBookingDto, @CurrentClerkUser() user: ClerkUser): never {
+  async create(
+    @Body() payload: CreateBookingDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ): Promise<never> {
     if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
       throw new HttpException(
         'endsAt must be after startsAt',
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
+    // Keep this when booking creation is built: it is the self-dealing guard.
+    await this.bookings.assertNotOwnChef(
+      user.userId,
+      payload.chefId ?? payload.providerId,
+    );
 
     throw new HttpException(
       `Booking creation is not wired yet (Phase 1 scaffold). Authenticated as Clerk user ${user.userId}.`,

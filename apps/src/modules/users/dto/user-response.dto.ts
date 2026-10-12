@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger
 import { PaginationMetaDto } from '../../../common/dto/pagination.dto';
 import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
 import { USER_ROLES } from './admin-user.dto';
+import { PROFILE_TYPES, type ProfileType } from './profile.dto';
 
 /** Claims extracted from the Clerk session JWT (no database lookup). */
 export class ClerkJwtClaimsDto {
@@ -90,6 +91,18 @@ export class CurrentUserDto {
  */
 export class MeResponseDto extends CurrentUserDto {
   @ApiProperty({
+    enum: PROFILE_TYPES,
+    isArray: true,
+    description:
+      'The spaces this account can open. `client`: a client account, or any account ' +
+      'that filled in a client profile. `chef`: the account holds a batch cooker page, ' +
+      'approved or not. With both, show a switcher; `role` is the one to open first. ' +
+      'Empty for an admin with neither.',
+    example: ['client', 'chef'],
+  })
+  spaces!: ProfileType[];
+
+  @ApiProperty({
     description:
       '`false` while the account has no password, which is the case for a batch cooker ' +
       'who came in through the emailed sign-in link. Show the "choose a password" screen.',
@@ -100,7 +113,8 @@ export class MeResponseDto extends CurrentUserDto {
   @ApiProperty({
     nullable: true,
     description:
-      '`null` unless this person is a batch cooker. `isVerified: false`: the candidature ' +
+      '`null` unless this account holds a batch cooker page, whatever its `role`. ' +
+      '`isVerified: false`: the candidature ' +
       'is still reviewed, the space is browse-only. `isActive: false`: clients cannot ' +
       'book them yet, even if verified.',
     example: {
@@ -237,7 +251,7 @@ export class ChefProfileDto {
   isVerified!: boolean;
 }
 
-/** `GET /me/profile` — persisted user plus whichever profile matches `users.role`. */
+/** `GET /me/profile` — persisted user plus one profile: the one asked, else the role's. */
 export class UserWithProfileDto {
   @ApiProperty({ type: CurrentUserDto, description: 'Persisted application user.' })
   user!: CurrentUserDto;

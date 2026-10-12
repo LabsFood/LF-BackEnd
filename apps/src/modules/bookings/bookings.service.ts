@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { Booking } from '../../generated/prisma/client';
 
 import {
@@ -42,6 +42,28 @@ export class BookingsService {
       this.prisma.booking.count({ where }),
     ]);
     return { data, meta: buildPaginationMeta(bounds, total) };
+  }
+
+  /**
+   * Nobody books their own batch cooker page, which one account holding both a
+   * client and a chef profile makes possible. With URSSAF avance immédiate, Urssaf
+   * pays the batch cooker the full price and debits the client only what the tax
+   * credit leaves, so booking yourself would collect the state's share for nothing.
+   * Booking creation must run this before writing.
+   * An unknown page passes: creation answers 404 for it.
+   */
+  async assertNotOwnChef(clerkUserId: string, chefProfileId: string): Promise<void> {
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { id: chefProfileId },
+      select: { userId: true },
+    });
+    if (chef?.userId === user.id) {
+      throw new ConflictException({
+        code: 'SAME_PERSON',
+        message: 'You cannot book your own batch cooker page.',
+      });
+    }
   }
 
   async getMyBookingDetail(clerkUserId: string, bookingId: string) {
