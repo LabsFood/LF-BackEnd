@@ -14,6 +14,7 @@ import { MessagingService } from '../messaging/services/messaging.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import {
   ACTIVE_OFFER,
+  MAX_DAYS_AHEAD,
   TimeSlot,
   parisToday,
   priceOffer,
@@ -320,6 +321,15 @@ export class QuoteOffersService {
       throw new UnprocessableEntityException({
         code: 'DATE_TOO_SOON',
         message: 'proposedDate must be tomorrow at the earliest.',
+      });
+    }
+    if (
+      proposedDate &&
+      proposedDate.getTime() > parisToday().getTime() + MAX_DAYS_AHEAD * 86_400_000
+    ) {
+      throw new UnprocessableEntityException({
+        code: 'DATE_TOO_FAR',
+        message: `proposedDate must be within ${MAX_DAYS_AHEAD} days.`,
       });
     }
 

@@ -26,6 +26,7 @@ function setup() {
   const prisma = {
     quote: {
       count: jest.fn().mockResolvedValue(12),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation(({ data }) =>
         Promise.resolve({
           ...data,
@@ -77,6 +78,48 @@ describe('QuotesService.createQuote', () => {
     await expect(
       service.createQuote('clerk_1', form({ desiredDate: inDays(-1) })),
     ).rejects.toMatchObject({ response: { code: 'DATE_TOO_SOON' } });
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a date more than a year ahead', async () => {
+    const { service } = setup();
+
+    await expect(
+      service.createQuote('clerk_1', form({ desiredDate: inDays(400) })),
+    ).rejects.toMatchObject({ response: { code: 'DATE_TOO_FAR' } });
+  });
+
+  it('takes a second identical send for a double click', async () => {
+    const { service, prisma } = setup();
+    const sent = form();
+    prisma.quote.findMany.mockResolvedValue([
+      {
+        title: sent.title,
+        desiredDate: new Date(`${sent.desiredDate}T00:00:00.000Z`),
+        createdAt: new Date(),
+      },
+    ]);
+
+    await expect(service.createQuote('clerk_1', sent)).rejects.toMatchObject({
+      response: { code: 'DUPLICATE_REQUEST' },
+    });
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('caps the requests one client keeps open', async () => {
+    const { service, prisma } = setup();
+    prisma.quote.findMany.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => ({
+        title: `Autre ${i}`,
+        desiredDate: new Date('2027-01-01T00:00:00.000Z'),
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      })),
+    );
+
+    await expect(service.createQuote('clerk_1', form())).rejects.toMatchObject({
+      status: 429,
+      response: { code: 'TOO_MANY_OPEN_REQUESTS' },
+    });
     expect(prisma.quote.create).not.toHaveBeenCalled();
   });
 });
