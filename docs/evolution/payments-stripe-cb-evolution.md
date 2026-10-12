@@ -70,7 +70,7 @@ Working contract for frontends and operators:
 | `apps/src/modules/users/dto/sap-profile.dto.ts` | Created | Conditional validation per declaration type |
 | `apps/src/modules/users/users.controller.ts` | Updated | `GET` / `PATCH /me/chef-profile/sap` |
 | `apps/src/modules/users/users.service.ts` | Updated | `getSapProfileByClerkUserId`, `updateSapProfileByClerkUserId`, `requireOwnChefProfile` |
-| `apps/src/modules/bookings/bookings.controller.ts` | Unchanged | `POST /bookings` stays closed (`501`); a prestation comes from an accepted offer |
+| `apps/src/modules/bookings/bookings.controller.ts` | Updated | `POST /bookings` implemented — the `501` scaffold is gone |
 | `apps/src/modules/bookings/bookings.service.ts` | Updated | `create()` + `nextReference()` (`LF-<year>-NNNN`) |
 | `apps/src/modules/bookings/dto/booking-read.dto.ts` | Updated | Exposes `reference`, `amountTtc`, `amountAfterTax` |
 | `.env.example` | Updated | Stripe webhook guidance + the four `PAYMENTS_*` / `STRIPE_CONNECT_*` variables |
@@ -91,7 +91,7 @@ Working contract for frontends and operators:
 | `GET /admin/fiscal-attestations` | Created | Admin | `?year=`, defaults to the current UTC year |
 | `GET /admin/fiscal-attestations/:clientId` | Created | Admin | `404` on unknown client |
 | `POST /webhooks/stripe` | Created | Signature | Public, raw-body verified, excluded from Swagger |
-| `POST /bookings` | Unchanged | Clerk | Still `501`: bookings are created by an accepted offer |
+| `POST /bookings` | **Changed** | Clerk | Was a `501` scaffold; now persists a `pending` booking. **Breaking for any caller that asserted `501`** |
 
 All new authenticated routes answer `409` when the chef profile does not exist yet, and
 `503` when `STRIPE_SECRET_KEY` is unset.
@@ -239,13 +239,318 @@ no test exercises the migration's backfill against legacy rows.
 | **`is_active` / `is_verified` still unread** | An unvetted chef who finishes Connect onboarding is payable — inherited gap, now with money attached |
 | **Email verification off** | Flagged as a pre-payments risk in the Clerk contract; payments shipped first, the gap is still open |
 | **Legacy `payments` rows** | The migration deletes rows it cannot attach to a booking |
+| **Invoicing — two invoice types + S3 archival** | Not implemented. Business rule confirmed 2026-09-05 — see dedicated section below |
+
+### Invoicing — two invoice types (not yet implemented, confirmed 2026-09-05)
+
+Every booking needs **two separate invoices**, not one:
+
+**A — Service invoice, client-facing, issued in the prestataire's name**
+
+| Field | Value |
+|-------|-------|
+| Issuer (named party) | The chef/prestataire — the platform generates the document on their behalf |
+| Recipient | The client |
+| Content | Client name, prestataire name, the invoice line item(s) (the service/booking rendered) |
+| Payment method shown | Which `payment_method` was used for the booking: `cb`, `cesu` (shown as "CESU financé"), or — future — `avance_immediate` |
+| Trigger | When the prestataire has **delivered the service** — **to confirm**: this is not necessarily `payment_intent.succeeded` (that only means the client was charged). Check whether bookings have a "completed"/"delivered" status distinct from `confirmed`, or whether one needs to be added |
+
+**B — Commission invoice, chef-facing, issued by the platform**
+
+| Field | Value |
+|-------|-------|
+| Issuer | The platform |
+| Recipient ("client" of this invoice) | The chef/prestataire |
+| Object | The commission the platform collects on the booking (the existing `commissions` row — frozen `rate_bps` / `vat_rate_bps`) |
+| Role | This invoice is the **legal basis for collecting the commission** — the prélèvement is made against it, not just against the raw `application_fee_amount` |
+| Collection method | Depends on how the client paid, which already matches the existing `commission_collection_method` enum: `cb` → commission already withheld atomically as `application_fee_amount` on the destination charge (implemented; invoice B documents a collection that already happened); `cesu` / future `avance_immediate` → per the existing SEPA mandate decision ("the fee cannot be split at charge time"), the commission has to be collected afterward via a separate SEPA prélèvement, issued against invoice B |
+
+**Both invoice types get the S3 backup** from the follow-up above: whichever party the
+invoice is issued to (client for A, prestataire for B) is served directly by Stripe
+(or the platform's generated PDF) — never by S3. S3 only holds a private, write-only
+copy for the 10-year legal retention (Code de commerce), with the object key recorded
+in Postgres against the owning row (new `invoices` table, or columns on `payments` /
+`commissions` — shape TBD).
+
+**Confirmed 2026-09-05**: invoice B does show which underlying payment method the
+booking used (mirrors invoice A's field) — that's exactly what decides whether the
+commission was already taken via `stripe_application_fee` or still needs a
+`sepa_direct_debit` prélèvement.
+
+**Resolved 2026-09-05 — Stripe mechanism for invoice A's seller-of-record**: keep the
+existing **destination charge** (no switch to direct charges — the CB split stays
+exactly as implemented). Add **`on_behalf_of`** (the chef's Connect account id)
+alongside the existing `transfer_data.destination` and `application_fee_amount` on the
+PaymentIntent/charge, and the same trio on the Invoice object if/when a real Stripe
+`Invoice` is created for the document. This is Stripe's documented pattern for making
+the connected account the **merchant of record** on an indirect charge ("Indirect
+charges using the `on_behalf_of` parameter: the merchant of record is the connected
+account" — [Understand the merchant of record](https://docs.stripe.com/connect/merchant-of-record)):
+Stripe then uses the chef's account branding on the receipt/invoice instead of the
+platform's, satisfying "invoice A in the prestataire's name" with **one added
+parameter**, no restructuring.
+
+No re-onboarding needed: `on_behalf_of` requires the connected account to be under
+Stripe's `full` service agreement, and any account with the `card_payments` capability
+(which the chef Express accounts already request — see Scope decisions above) is
+already on `full` — `recipient`-agreement accounts can't request `card_payments` at
+all, so this isn't a gap here.
+
+Still not implemented: `PaymentsService.createIntentForBooking()` doesn't set
+`on_behalf_of` today. When this ships, add it there for invoice A; invoice B (the
+platform's own commission invoice) does **not** use `on_behalf_of` — the platform is
+already the seller on that one.
+
+## Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine
+
+**Delivered:** 2026-09-05. Branch: `evol/payment-stripe-flux-cb` (continuation).
+Migration: `20260905120000_payments_cesu_commission_debits` (idempotent).
+
+### What makes this flow structurally different from the card one
+
+**The funds never transit through the platform.** The client pays from their issuer's
+beneficiary area (Pluxee, Edenred, UP, BIMPLI, Domiserve): they add the chef as an
+intervenant using the chef's **NAN**, choose e-CESU, enter an amount and validate; the
+issuer credits the chef directly and mails a confirmation to both parties.
+
+Three consequences drive every design decision below:
+
+1. **Nothing is programmatically verifiable.** No issuer exposes a public API, no
+   transaction reference is normalised, and Domiserve runs its own circuit outside the
+   CRCESU. The confirmation the client receives is a supporting document, **not a proof**.
+   So the **chef** confirms — they are the party who receives both the notification and
+   the money — with a traced admin override for support cases.
+2. **The NAN has to be published before any payment exists.** Without it a client cannot
+   add the chef on their portal at all, and invoice A is only issued once the service has
+   been delivered — far too late to be the sole carrier.
+3. **The commission cannot be withheld at charge time**, so it is invoiced (facture B) and
+   collected by a separate SEPA direct debit. That engine — deferred out of the card phase
+   — is the bulk of this work, and it will serve the avance immédiate unchanged.
+
+Titre expiry is a non-issue: the issuer's portal refuses to spend an expired titre.
+
+### Scope decisions (do not re-litigate without ADR)
+
+| Topic | Decision | Rationale |
+|-------|----------|-----------|
+| Debit trigger | **On confirmation** (`on_payment`), switchable to `monthly_batch` by config | Both paths share `executeDebit()`, so switching changes *when* an invoice is cut, never *how* it is collected |
+| Who confirms a CESU payment | **The chef**, with a traced admin override | Only party receiving the issuer's notification and the funds. Nothing else is verifiable |
+| Titre millésime | **Moot** | The issuer's portal refuses an expired titre |
+| CESU eligibility | `sapProfile.acceptsCesu` **and** a `crcesuNan` | An opt-in without the number is a dead end: the client cannot add the chef on their portal |
+| SEPA scheme | Stripe's **CORE** accepted; risk carried by dispute tracking **and** a booking block | B2B is not available on Stripe at all — see the Stripe facts table below |
+| Facture B | Delivered as a **numbered receivable + JSON**; PDF and S3 belong to the invoicing workstream | The debit has no legal basis without the invoice; the rendering has no bearing on collection |
+| Paper CESU | **Secondary and deliberately unmanaged** | The platform provides the payment method, the invoice and the commission debit. Depositing, validating and cashing the titres is the chef's own responsibility — **must be written into the chef terms** |
+| Client proof reference | Optional free text + issuer | Nothing about it can be checked; the attachment waits on S3 |
+| Fiscal attestation | e-CESU **excluded** from what the platform attests; paper CESU still attested | The issuer already attests the share it financed. ⚠️ open with the accountant — see "Open before production" |
+
+### Stripe facts this phase is built on
+
+| Fact (Stripe documentation) | Consequence in the code |
+|---|---|
+| Stripe supports the SEPA Direct Debit **Core** scheme and **not** the B2B scheme | The "mandat SEPA B2B" of the commercial documentation **is not buildable on Stripe**. The mandate the chefs already signed is a CORE mandate |
+| CORE: "no questions asked" dispute for **8 weeks**, honoured automatically, plus a dispute fee | A collected commission is **never final before 56 days** → `CommissionDebit.clawbackWindowEndsAt`, and a `reversed` state rather than a boolean |
+| `paymentIntents.create` on `sepa_debit` returns `processing`, **never** `succeeded`. A late failure surfaces as **`requires_payment_method`** (a PaymentIntent has no `failed` status) | The engine is **webhook-driven**; the API response is only recorded, never trusted |
+| 10 000 € per-transaction cap; `payment_method_options.sepa_debit.target_date` (3–15 days) can stagger | `SEPA_MAX_AMOUNT_CENTS` precondition, and `target_date` spreading in the batch |
+| On a SetupIntent the parameter is `usage`, not `setup_future_usage` | Already correct in `sepa-mandates.service.ts` — unchanged |
+
+**`on_behalf_of` — two charges, two opposite rules.** On the **client's card charge**
+(destination charge) it is *to be added*, making the chef merchant of record for invoice A
+— resolved 2026-09-05, still not implemented, and explicitly out of scope here. On the
+**commission debit** it must **never** be sent: the platform is the seller on facture B,
+and `on_behalf_of` would invalidate the mandate already collected by forcing a fresh
+authorisation. Same for `transfer_data` and `application_fee_amount`. A dedicated test
+asserts their absence.
+
+### CESU lifecycle
+
+```
+CLIENT declares a payment  → Payment(cesu, pending) + Commission(pending, sepa_direct_debit)
+  (amount, medium, issuer,    + CesuSettlement(declared)
+   optional reference)
+CHEF confirms receipt      → Payment.succeeded, paidAt, taxCreditEligibleAmount
+                             CesuSettlement.confirmed (who, when, admin override + proof)
+                             Booking.confirmed once the payments cover it
+                             ⇒ facture B issued, then debited
+CHEF rejects               → Payment.failed, Commission.failed, CesuSettlement.rejected
+                             Booking stays pending — payable again by any method
+```
+
+`settlePayment()` (`payment-settlement.ts`), extracted from the card handler, is now the
+**only** writer of `Payment.status = 'succeeded'`, `paidAt` and `taxCreditEligibleAmount`,
+shared by both flows. It also owns the booking transition, which is what makes a mixed
+CESU + card booking possible.
+
+### Mixed CESU + card
+
+`coverage(bookingId)` counts **`succeeded` payments only** — never "everything that is not
+`failed`". `findReusableIntent` abandons a `pending` row whenever `paymentIntents.retrieve`
+throws, and that row used to stay `pending` forever; counting it would inflate coverage and
+a split booking would never reach `confirmed`. `POST /payments/intent` now charges **the
+remaining amount** rather than `booking.amountTtc`, and refuses with 409 when nothing is
+left. An abandoned attempt Stripe has confirmed dead (or whose amount is superseded) is
+retired to `failed`; one that merely failed to load is left alone, because it may still
+succeed and arrive by webhook.
+
+Commission is computed **per payment line** — card part withheld via
+`application_fee_amount`, CESU part debited via SEPA. No proportional split. The CRCESU
+"no surcharge" rule is enforced structurally: a declaration can never exceed what is due,
+and there is no fee field anywhere on that path.
+
+Concurrency is held by a **partial unique index**,
+`payments (booking_id) WHERE method = 'cesu' AND status <> 'failed'` — two simultaneous
+declarations would each pass the coverage check. Prisma cannot express a partial index, so
+it lives only in the migration.
+
+### Webhook routing — the correction that matters most
+
+**Never discriminate on `metadata`.** A `charge.dispute.created` carries a `Dispute` whose
+`metadata` is empty and a `Mandate` has none at all, so metadata-based routing silently
+misfiles exactly the events that matter. Both flows produce PaymentIntents on the platform
+account, and only a **database lookup** tells them apart:
+
+```
+payment_intent.processing / .succeeded / .payment_failed
+   → CommissionDebit.findUnique({ stripePaymentIntentId })  ?  commission engine
+                                                            :  existing client flow
+charge.dispute.created / .closed → dispute.payment_intent → same lookup
+```
+
+Newly handled: `payment_intent.processing`, `charge.dispute.created` (→ debit `reversed`,
+commission `reversed`, invoice reopened, admin alert), `charge.dispute.closed` (restores
+only a dispute **won**), `mandate.updated` (→ `SepaMandate.revoked`).
+
+Every delivery passes through `StripeEventLog`. ⚠️ The de-duplication guard tests
+**`processedAt`**, not the row's existence: a handler that throws has already inserted its
+row, and an existence check would read Stripe's retry — the one chance to get the event
+right — as a duplicate and lose it permanently.
+
+### Unpaid-commission guard
+
+`BookingsService.create`, `PaymentsService.createIntentForBooking` and `POST /payments/cesu`
+refuse with 409 when a chef has a `CommissionInvoice` still `issued` whose debits have run
+out of attempts, or a commission `reversed` after a dispute. Same double check as the
+`isActive` / `isVerified` vetting — standing can change between booking and payment.
+
+This is the counterweight to accepting CORE: rather than trying to make an eight-week
+revocable debit safe, the exposure is capped at what is already owed.
+
+### File Evolution
+
+| File | Status | Role |
+|------|--------|------|
+| `apps/prisma/migrations/20260905120000_payments_cesu_commission_debits/migration.sql` | Created | Five enums, three `commission_status` values, four tables, the partial unique index, `basis_amount_cents` backfill |
+| `apps/src/modules/payments/payment-settlement.ts` | Created | `settlePayment()` (sole writer of `succeeded`), `coveredAmount()`, `bookingCoverage()` |
+| `apps/src/modules/payments/commission-standing.ts` | Created | `findCommissionBlock()` — the §6 guard, callable without a module import |
+| `apps/src/modules/payments/chef-cesu-info.ts` | Created | One mapper publishing the NAN on the public profile, the booking and the quote |
+| `apps/src/modules/payments/cesu-payments.service.ts` | Created | Declare / confirm / reject / force-settle, coverage reads, chef CESU info |
+| `apps/src/modules/payments/cesu-payments.controller.ts` | Created | `PublicCesuController` (public NAN read) + client, chef and admin CESU routes |
+| `apps/src/modules/payments/commission-debits.service.ts` | Created | Facture B issuance, the SEPA debit engine, the batch, the four webhook handlers |
+| `apps/src/modules/payments/commission-invoices.controller.ts` | Created | Chef and admin invoice reads, `retry-debit`, `run-due` |
+| `apps/src/modules/payments/dto/cesu.dto.ts` | Created | Declaration, rejection, force-settle, batch window, coverage, chef CESU info |
+| `apps/src/modules/payments/dto/commission-invoice.dto.ts` | Created | Facture B and its debit attempts |
+| `apps/src/modules/payments/payments.service.ts` | Changed | Charges the remaining amount; commission guard; `basisAmountCents`; settles through `settlePayment()`; retires superseded attempts |
+| `apps/src/modules/payments/fiscal-attestations.service.ts` | Changed | `isPlatformAttestable()`, `platformAttestedAmountCents`, `paymentMethods`, `notes` |
+| `apps/src/modules/stripe-webhooks/stripe-webhooks.service.ts` | Changed | Lookup-based routing, four new event types, `StripeEventLog` de-duplication |
+| `apps/src/modules/bookings/bookings.service.ts` | Changed | Commission guard on create; `chefCesu` on the booking detail |
+| `apps/src/modules/quotes/quotes.service.ts` | Changed | `chefCesu` on each quote once a chef is assigned |
+| `apps/src/modules/users/users.service.ts` + `dto/sap-profile.dto.ts` | Changed | `acceptsCesu` opt-in; `setSapExternalStatus()` — the writer `crcesuAffiliationStatus` never had |
+| `apps/src/config/config.loader.ts`, `env.validation.ts` | Changed | Debit trigger, max attempts, invoice prefix |
+
+### Routes added
+
+| Method | Route | Auth |
+|---|---|---|
+| GET | `/chefs/:chefProfileId/cesu-info` | **Public** |
+| POST | `/payments/cesu` | Clerk (booking owner) |
+| GET | `/me/bookings/:id/payment-status` | Clerk (booking owner) |
+| GET | `/me/chef/cesu-payments` | Clerk (chef) |
+| POST | `/me/chef/cesu-payments/:id/{confirm,reject}` | Clerk (chef) |
+| GET | `/me/chef/commission-invoices` | Clerk (chef) |
+| PATCH | `/admin/chefs/:id/sap-external-status` | Admin |
+| GET | `/admin/cesu-payments` | Admin |
+| POST | `/admin/cesu-payments/:id/force-settle` | Admin (**proof reference required**) |
+| GET | `/admin/commission-invoices` | Admin |
+| POST | `/admin/commission-invoices/:id/retry-debit` | Admin |
+| POST | `/admin/commission-invoices/run-due` | Admin (advisory-locked) |
+
+**No scheduler in this phase.** The repo has none, and with the debit triggered on
+confirmation and no titre reimbursement to follow, nothing time-based is mandatory: the
+batch and the retries are admin endpoints.
+
+### Configuration
+
+```
+PAYMENTS_COMMISSION_DEBIT_TRIGGER=on_payment      # | monthly_batch
+PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS=3
+PAYMENTS_COMMISSION_INVOICE_PREFIX=LF-COM
+```
+
+The 56-day CORE revocation window is a **hard-coded constant**, deliberately not
+configurable: it is the scheme's rule, not the platform's, and a variable invites someone
+to "fix" a non-conformity by editing a value.
+
+Stripe Dashboard events to enable: `payment_intent.processing`, `charge.dispute.created`,
+`charge.dispute.closed`, `mandate.updated`.
+
+### Verification
+
+`npm run lint`, `npm run build`, `npm test` — 32 suites / 319 tests green.
+New: `cesu-payments.service.spec.ts` (26), `commission-debits.service.spec.ts` (29).
+Extended: `stripe-webhooks.service.spec.ts` (a commission `payment_intent.succeeded` must
+never touch a client `Payment`; dispute routing; `processedAt` de-duplication),
+`payments.service.spec.ts` (card on the remaining amount), `fiscal-attestations.service.spec.ts`
+(paper attested, e-CESU not, type B excluded), `bookings.service.spec.ts` (commission guard).
+
+**The migration has not been executed** — no Postgres was reachable in the working
+environment. Run `npm run db:migrate` against a scratch database before deploying.
+
+Manual replay against Stripe test mode: IBAN `FR1420041010050500013M02606`, and the
+`generatedSepaDebitIntentsSucceed@example.com`,
+`…FailsDueToInsufficientFunds@example.com`, `…SucceedDisputed@example.com` customer emails
+reproduce success, late failure and dispute without waiting for real settlement.
+
+### Open before production
+
+1. **🔴 The CESU tax-credit basis — to be validated with the accountant.** The current rule
+   excludes e-CESU and keeps paper attested. **Reservation on the record**: the medium is
+   probably not the fiscally relevant axis — paper and e-CESU are both *prefinanced*, from
+   the same issuers, partly funded by the employer or the CSE, and the issuer's attestation
+   covers both. Attesting paper may carry the same over-declaration exposure under art. 199
+   sexdecies CGI, and it is LAB'S FOOD that signs. If confirmed, the fix is **one line** in
+   `isPlatformAttestable()`.
+2. **Contractual vocabulary.** "Mandat SEPA B2B" in the commercial documentation and the
+   terms is inaccurate and contradicts the CORE mandate actually signed, whose French text
+   explicitly grants the 8-week right of withdrawal.
+3. **Chef terms — paper CESU.** Decision #7 puts deposit, validation and reimbursement of
+   paper titres entirely on the chef. **No chef-facing contractual document exists in the
+   repos**, so this clause has nowhere to live yet. Proposed wording, pending legal review:
+   > Pour les titres CESU préfinancés au format papier, LAB'S FOOD assure exclusivement la
+   > mise à disposition du moyen de paiement, l'émission de la facture et le prélèvement de
+   > sa commission. Le dépôt des titres auprès du CRCESU, leur validation et l'obtention de
+   > leur remboursement relèvent de la seule responsabilité de l'intervenant indépendant,
+   > qui en assume l'intégralité des délais et des risques.
+4. **Invoice A trigger.** `payment_intent.succeeded` does not mean "service delivered", and
+   CESU sharpens it: a CESU settlement can precede the service by days. Whether `bookings`
+   needs a `delivered` status distinct from `confirmed` is still open.
+5. **Type B — who owes the commission?** The chef or the cooperative? This phase keeps the
+   chef (`SepaMandate.chefProfileId` is `@unique` on `ChefProfile`).
+
+### Explicitly out of scope
+
+Invoice A · PDF rendering and S3 archival of either invoice · the client proof attachment ·
+avance immédiate · any CRCESU API · tracking paper-titre deposit and reimbursement (the
+chef's responsibility, decision #7) · netting arrears against card payments · a cron
+scheduler · CESU refunds to the client · adding `on_behalf_of` to the card charge.
 
 ## Change Log
 
 | Date | Change | Reason |
 |------|--------|--------|
-| 2026-08-31 | Stripe Connect onboarding, destination-charge PaymentIntent, commissions, SEPA mandate, SAP profile, fiscal attestations, `POST /webhooks/stripe` (`50d36d2`; its `POST /bookings` part was dropped when merging develop) | Deliver E8 |
+| 2026-08-31 | Stripe Connect onboarding, destination-charge PaymentIntent, commissions, SEPA mandate, SAP profile, fiscal attestations, `POST /webhooks/stripe`, `POST /bookings` implementation (`50d36d2`) | Deliver E8 and the booking creation E2 depends on |
 | 2026-08-31 | `payment_status` extended in place instead of recreated; `payments` altered rather than created (`dad2255`) | The enum and table already existed from `20250522130000_spec_domain` |
 | 2026-09-01 | Every migration statement made idempotent with guarded `DO` blocks (`9bf8456`) | Prisma runs migration files outside a transaction; two partial failures left debris that `migrate deploy` replayed into |
 | 2026-09-01 | Created this register and `docs/payments/stripe-payments-contract.md`; refreshed the platform register, architecture, deploy, and README docs | Document the branch |
 | 2026-09-04 | Attestation reshaped per issuing chef (`providers[]`); commission rate confirmed at 15 % HT (no longer a placeholder) | The chef is the declared provider (prestataire), so one attestation is issued per chef, carrying that chef's own SAP declaration |
+| 2026-09-05 | Added "Invoicing — two invoice types" follow-up: a client-facing service invoice issued in the prestataire's name, and a chef-facing commission invoice issued by the platform, both backed up (never served) to S3 for legal retention | Product decision: two distinct invoices per booking, not one — the service invoice and the commission invoice have different issuers, recipients, and objects, and the commission invoice's collection method (`stripe_application_fee` vs `sepa_direct_debit` prélèvement) depends on the booking's payment method. No code change — planned for after the payment-methods work on this branch |
+| 2026-09-05 | Resolved invoice A's seller-of-record mechanism: add `on_behalf_of` to the existing destination-charge PaymentIntent, keep `transfer_data.destination` + `application_fee_amount` unchanged | Confirmed via Stripe docs — `on_behalf_of` on an indirect (destination) charge makes the connected account the merchant of record without switching to direct charges; chef Express accounts already qualify (they hold `card_payments`, which requires the `full` service agreement). No code change yet |
+| 2026-09-05 | **Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine.** `CesuSettlement`, `CommissionInvoice` (facture B), `CommissionDebit`, `StripeEventLog`; `settlePayment()` extracted and shared; card charges the remaining amount so a booking can be split CESU + card; webhook routing by database lookup instead of metadata; unpaid-commission booking guard; `platformAttestedAmountCents`. Migration `20260905120000_payments_cesu_commission_debits` | The funds never transit through the platform on CESU, so the commission cannot be withheld at charge time and has to be invoiced then debited — the engine deferred out of the card phase, reusable as-is for the avance immédiate |

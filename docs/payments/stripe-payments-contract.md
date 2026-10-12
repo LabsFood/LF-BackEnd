@@ -38,7 +38,7 @@ sequenceDiagram
 
 | Actor | Must have | How |
 |-------|-----------|-----|
-| Client | Clerk session, a `pending` booking they own | created from an accepted offer (`POST /bookings` answers `501`) |
+| Client | Clerk session, a `pending` booking they own | `POST /bookings` |
 | Chef | `chef_profiles` row | `PATCH /me/chef-profile` |
 | Chef | Connect account with `chargesEnabled` **and** `payoutsEnabled` | `POST /me/chef-profile/stripe-connect/link`, then Stripe hosted onboarding |
 | Platform | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | see §6 |
@@ -190,11 +190,13 @@ that year are omitted from the list.
 **JSON only — no signed PDF is rendered yet.** Pending validation of the legal
 template; the per-provider shape above is the unit that template must render.
 
-### Booking creation (closed)
+### Booking creation (now live)
 
-`POST /bookings` stays closed and answers `501`: a prestation is created by an accepted
-offer, not by the client posting a body. This module only needs the resulting `pending`
-booking (`amountTtc`, `amountAfterTax` = half of it, the 50 % SAP tax credit, SPEC-BACKEND §4.3).
+`POST /bookings` no longer returns `501`. It persists a `pending` booking for the
+authenticated client with a `LF-<year>-NNNN` reference, `amountTtc = priceCents`, and
+`amountAfterTax = amountTtc / 2` (the 50 % SAP tax credit, SPEC-BACKEND §4.3). Shopping
+list generation, notifications, and the `cooking` / `delivered` transitions remain out of
+scope. `chefId` wins over the legacy `providerId` alias when both are sent.
 
 ## 4. Webhook — `POST /webhooks/stripe`
 

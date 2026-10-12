@@ -37,7 +37,7 @@ describe('UsersService', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
     };
-    sapProfile: { findUnique: jest.Mock; upsert: jest.Mock };
+    sapProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
     $transaction: jest.Mock;
   };
   let clerk: {
@@ -70,7 +70,7 @@ describe('UsersService', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
-      sapProfile: { findUnique: jest.fn(), upsert: jest.fn() },
+      sapProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
       $transaction: jest.fn((operations: unknown[]) => Promise.all(operations)),
     };
     clerk = {
@@ -990,6 +990,7 @@ describe('UsersService', () => {
         expect.objectContaining({
           where: { chefProfileId: 'chef-1' },
           update: {
+            acceptsCesu: false,
             declarationType: 'type_a_nova',
             novaCode: 'SAP123456789',
             cooperativeName: null,
@@ -1011,6 +1012,7 @@ describe('UsersService', () => {
       expect(prisma.sapProfile.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           update: {
+            acceptsCesu: false,
             declarationType: 'type_b_cooperative',
             novaCode: null,
             cooperativeName: 'Unipros',
@@ -1036,6 +1038,21 @@ describe('UsersService', () => {
       }
     });
 
+    it('records the CESU opt-in the chef sent', async () => {
+      await service.updateSapProfileByClerkUserId('clerk_1', {
+        declarationType: 'type_a_nova',
+        novaCode: 'SAP123456789',
+        crcesuNan: '1234567',
+        acceptsCesu: true,
+      });
+
+      expect(prisma.sapProfile.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({ acceptsCesu: true, crcesuNan: '1234567' }),
+        }),
+      );
+    });
+
     it('refuses to write before the chef profile exists', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(null);
 
@@ -1046,6 +1063,45 @@ describe('UsersService', () => {
         }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.sapProfile.upsert).not.toHaveBeenCalled();
+    });
+
+    describe('setSapExternalStatus', () => {
+      it('is the writer the CRCESU affiliation never had', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
+
+        await service.setSapExternalStatus('chef-1', {
+          crcesuAffiliationStatus: 'active',
+        });
+
+        expect(prisma.sapProfile.update).toHaveBeenCalledWith({
+          where: { chefProfileId: 'chef-1' },
+          data: { crcesuAffiliationStatus: 'active' },
+        });
+      });
+
+      it('leaves an omitted status untouched', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
+
+        await service.setSapExternalStatus('chef-1', {
+          urssafTiersPrestationStatus: 'pending',
+        });
+
+        const [{ data }] = prisma.sapProfile.update.mock.calls[0] as [
+          { data: Record<string, unknown> },
+        ];
+        expect(data).not.toHaveProperty('crcesuAffiliationStatus');
+      });
+
+      it('404s when the chef has not declared a SAP route', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.setSapExternalStatus('chef-1', { crcesuAffiliationStatus: 'active' }),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(prisma.sapProfile.update).not.toHaveBeenCalled();
+      });
     });
 
     it('reads the declaration of the authenticated chef', async () => {

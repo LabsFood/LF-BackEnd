@@ -12,9 +12,8 @@ import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
 import { StripeConnectService } from './stripe-connect.service';
-import { TAGS } from '../../common/swagger/tags';
 
-@ApiTags(TAGS.payments)
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller('me/chef-profile/stripe-connect')
 @UseGuards(ClerkAuthGuard)

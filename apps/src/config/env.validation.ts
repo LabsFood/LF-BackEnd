@@ -1,5 +1,7 @@
 import * as Joi from 'joi';
 
+import { CLERK_SECRET_KEY_PATTERN } from '../auth/clerk-auth.guard';
+
 export const envValidationSchema = Joi.object({
   ENVIRONMENT: Joi.string()
     .valid('development', 'staging', 'production', 'test')
@@ -22,7 +24,19 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .optional(),
 
-  CLERK_SECRET_KEY: Joi.string().allow('').optional(),
+  /**
+   * Unverified-JWT fallback (see clerk-auth.guard.ts `shouldVerifyClerkJwt`) only kicks in
+   * for the local stub or a key that doesn't match `sk_(test|live)_...` — required + pattern
+   * here in production so a malformed key fails startup instead of silently disabling
+   * signature verification on every guarded route.
+   */
+  CLERK_SECRET_KEY: Joi.string()
+    .allow('')
+    .optional()
+    .when('ENVIRONMENT', {
+      is: 'production',
+      then: Joi.string().pattern(CLERK_SECRET_KEY_PATTERN).required(),
+    }),
   CLERK_WEBHOOK_SIGNING_SECRET: Joi.string().allow('').optional(),
   /** Sign-in ticket handed to the frontend after `POST /auth/register`. Keep it short. */
   CLERK_SIGN_IN_TOKEN_TTL_SECONDS: Joi.number().min(600).max(6000).default(3600),
@@ -30,6 +44,9 @@ export const envValidationSchema = Joi.object({
   /** Rate limit for the public registration endpoint. */
   REGISTER_THROTTLE_TTL_MS: Joi.number().min(1000).default(3_600_000),
   REGISTER_THROTTLE_LIMIT: Joi.number().min(1).default(5),
+  /** Rate limit for money-moving payment endpoints (create intent / declare CESU / SEPA setup). */
+  PAYMENTS_THROTTLE_TTL_MS: Joi.number().min(1000).default(60_000),
+  PAYMENTS_THROTTLE_LIMIT: Joi.number().min(1).default(20),
 
   STRIPE_SECRET_KEY: Joi.string().allow('').optional(),
   /** Signing secret of the "Your account" Stripe webhook endpoint. */
@@ -45,9 +62,40 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_RATE_BPS: Joi.number().min(0).max(10_000).default(1500),
   /** VAT on the commission, in basis points. 2000 = 20 % (French standard rate). */
   PAYMENTS_COMMISSION_VAT_RATE_BPS: Joi.number().min(0).max(10_000).default(2000),
+  /**
+   * When the commission that Stripe could not withhold at charge time is invoiced and
+   * debited. `on_payment` (default) bills each CESU payment as it is confirmed;
+   * `monthly_batch` defers to `POST /admin/commission-invoices/run-due`.
+   */
+  PAYMENTS_COMMISSION_DEBIT_TRIGGER: Joi.string()
+    .valid('on_payment', 'monthly_batch')
+    .default('on_payment'),
+  /** Debit attempts per facture B before an admin has to step in. */
+  PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
+  /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
+  PAYMENTS_COMMISSION_INVOICE_PREFIX: Joi.string().max(16).default('LF-COM'),
+
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
   STRIPE_CONNECT_RETURN_URL: Joi.string().uri().optional(),
+
+  /**
+   * The URSSAF immediate advance. `simulated` lets an admin answer in URSSAF's place,
+   * so it never runs beside live Stripe keys: where real money moves, a simulated
+   * payment would mark a real prestation as paid with nothing behind it.
+   *
+   * Tied to the Stripe key and not to `ENVIRONMENT`, because the shared test
+   * deployment also runs with `ENVIRONMENT=production`.
+   */
+  URSSAF_GATEWAY: Joi.string()
+    .valid('disabled', 'simulated')
+    .default('disabled')
+    .when('STRIPE_SECRET_KEY', {
+      is: Joi.string()
+        .pattern(/^sk_live_/)
+        .required(),
+      then: Joi.string().invalid('simulated'),
+    }),
 
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
   CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),

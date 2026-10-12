@@ -7,6 +7,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
+
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
@@ -15,9 +17,8 @@ import {
   SepaMandateStatusDto,
 } from './dto/stripe-connect.dto';
 import { SepaMandatesService } from './sepa-mandates.service';
-import { TAGS } from '../../common/swagger/tags';
 
-@ApiTags(TAGS.payments)
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller('me/chef-profile/sepa-mandate')
 @UseGuards(ClerkAuthGuard)
@@ -26,6 +27,8 @@ export class SepaMandatesController {
 
   @Post('setup-intent')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ register: true })
   @ApiOperation({
     summary: 'Start signing the commission direct-debit mandate',
     description:

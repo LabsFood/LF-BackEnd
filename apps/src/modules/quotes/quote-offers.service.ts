@@ -5,12 +5,14 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../messaging/services/messaging.service';
+import { findCommissionBlock } from '../payments/commission-standing';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import {
   ACTIVE_OFFER,
@@ -56,6 +58,7 @@ export class QuoteOffersService {
     private readonly messaging: MessagingService,
     private readonly mailer: QuotesMailer,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   // ── Batch cooker ──────────────────────────────────────────────────────────
@@ -313,6 +316,17 @@ export class QuoteOffersService {
     actor: { actorType: 'chef' | 'admin'; actorUserId: string; requestId?: string },
   ): Promise<void> {
     this.quotes.assertAwaitingChef(quote);
+
+    // A commission Lab's Food could not collect stops a batch cooker taking on new
+    // work. An offer is where new work starts here, so this is where it stops.
+    const block = await findCommissionBlock(
+      this.prisma,
+      chef.chefProfileId,
+      this.config.get<number>('payments.commissionDebitMaxAttempts', 3),
+    );
+    if (block) {
+      throw new ConflictException({ code: 'COMMISSION_UNPAID', message: block.message });
+    }
 
     const proposedDate = dto.proposedDate
       ? new Date(`${dto.proposedDate}T00:00:00.000Z`)

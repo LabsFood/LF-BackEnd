@@ -49,13 +49,14 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'What clients can order: the week’s cooks and their menus, each cook’s page. ' +
     'Public.',
   bookings: "The signed-in client's bookings.",
-  payments:
-    'Pay a prestation by card, the batch cooker’s Stripe Connect account and SEPA ' +
-    'mandate, and the fiscal attestations.',
   missions:
     'The documents a prestation leaves: the recipe sheet of each dish and the ' +
     'shopping list, from the recipe versions it cooks from.',
   quotes: 'Custom quote requests, for events or larger orders.',
+  payments:
+    'Paying a prestation: card, prefinanced CESU and URSSAF immediate advance. ' +
+    'Also the batch cooker’s payout account, the commission invoices collected by ' +
+    'SEPA direct debit, and the fiscal data of services à la personne.',
   messaging:
     'Conversations of the signed-in client or batch cooker: one per client and cook, ' +
     'plus one with the Lab’s Food team. New messages are pushed over the `/ws` WebSocket.',

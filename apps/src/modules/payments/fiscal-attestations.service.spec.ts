@@ -19,14 +19,20 @@ function payment(
     } | null;
   },
   client = CLIENT,
+  paid: { method?: string; medium?: 'ecesu' | 'cesu_paper' } = {},
 ) {
   return {
     amountTtc: amount,
     currency: 'EUR',
     taxCreditEligibleAmount: amount,
+    method: paid.method ?? 'cb',
+    cesuSettlement: paid.medium ? { medium: paid.medium } : null,
     booking: { client, chefProfile: { sapProfile: null, ...chef } },
   };
 }
+
+const ECESU = { method: 'cesu', medium: 'ecesu' } as const;
+const PAPER_CESU = { method: 'cesu', medium: 'cesu_paper' } as const;
 
 const CHEF_A = {
   id: 'chef-a',
@@ -181,6 +187,77 @@ describe('FiscalAttestationsService', () => {
       paymentsCount: 0,
       currency: 'EUR',
       providers: [],
+    });
+  });
+
+  describe('what the platform itself attests', () => {
+    it('counts a card payment to a type A chef in full', async () => {
+      prisma.payment.findMany.mockResolvedValue([payment(10_000, CHEF_A)]);
+
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.eligibleAmountCents).toBe(10_000);
+      expect(result.platformAttestedAmountCents).toBe(10_000);
+      expect(result.providers[0].notes).toEqual([]);
+    });
+
+    it('attests paper CESU but not e-CESU', async () => {
+      // Both are prefinanced titres from the same issuers; only the electronic circuit is
+      // excluded today. See the accountant question logged against `isPlatformAttestable`.
+      prisma.payment.findMany.mockResolvedValue([
+        payment(4_000, CHEF_A, CLIENT, PAPER_CESU),
+        payment(6_000, CHEF_A, CLIENT, ECESU),
+      ]);
+
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.eligibleAmountCents).toBe(10_000);
+      expect(result.platformAttestedAmountCents).toBe(4_000);
+    });
+
+    it('tells the client who attests the e-CESU part', async () => {
+      prisma.payment.findMany.mockResolvedValue([payment(6_000, CHEF_A, CLIENT, ECESU)]);
+
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.providers[0].notes).toEqual([
+        'Part réglée en e-CESU — attestation délivrée par votre émetteur.',
+      ]);
+    });
+
+    it('excludes a type B provider even when they were paid by card', async () => {
+      // The cooperative issues both the invoice and the attestation.
+      prisma.payment.findMany.mockResolvedValue([payment(30_000, CHEF_B)]);
+
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.eligibleAmountCents).toBe(30_000);
+      expect(result.platformAttestedAmountCents).toBe(0);
+      expect(result.providers[0].notes[0]).toMatch(/coopérative/);
+    });
+
+    it('lists the payment methods used with each provider', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        payment(4_000, CHEF_A),
+        payment(6_000, CHEF_A, CLIENT, ECESU),
+      ]);
+
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.providers[0].paymentMethods).toEqual(['cb', 'cesu']);
+    });
+
+    it('reads the method and the CESU medium from the query', async () => {
+      await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(prisma.payment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({
+            method: true,
+            cesuSettlement: { select: { medium: true } },
+          }),
+        }),
+      );
     });
   });
 
