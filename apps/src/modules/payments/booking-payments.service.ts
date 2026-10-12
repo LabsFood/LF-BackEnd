@@ -128,6 +128,9 @@ export class BookingPaymentsService {
     return {
       bookingId: booking.id,
       reference: booking.reference,
+      // Who is paid, and the id an enrolment is asked with (`POST /me/urssaf-links`).
+      chef: { chefProfileId: chef.id, displayName: chef.displayName },
+      startsAt: booking.startsAt,
       status: await this.state(booking, coverage.fullyCovered),
       // The day the prestation ends is the day its payment falls due.
       dueAt: booking.endsAt.toISOString().slice(0, 10),

@@ -96,6 +96,8 @@ export class BookingPaymentsController {
     example: {
       bookingId: BOOKING_ID,
       reference: 'LF-SM-2026-0001',
+      chef: { chefProfileId: CHEF_ID, displayName: 'Alice Martin' },
+      startsAt: '2026-10-05T16:00:00.000Z',
       status: 'due',
       dueAt: '2026-10-05',
       amounts: {
