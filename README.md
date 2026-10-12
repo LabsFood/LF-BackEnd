@@ -7,31 +7,27 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 ## Stack summary
 
-
 | Layer                           | Choice                                                               |
 | ------------------------------- | -------------------------------------------------------------------- |
 | Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                   |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)             |
 | ORM / migrations                | **Prisma** (`apps/prisma/`)                                          |
 | Database                        | PostgreSQL 16                                                        |
-| Cache & queues                  | Redis 7 (availability/slots cache; async jobs: email, notifications) |
+| Realtime & rate limits          | Redis 7, optional (messaging)                                 |
 | Containers                      | Docker / Docker Compose                                              |
 | Hosting                         | **Railway**                                                          |
 
-
 ## Third-party services
 
-
-| Domain                          | Service                             |
-| ------------------------------- | ----------------------------------- |
-| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)         |
-| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/) |
-| Realtime chat (clients ↔ chefs) | [Stream](https://getstream.io/)     |
-| Transactional email             | [Brevo](https://www.brevo.com/)     |
-| Payments                        | [Stripe](https://stripe.com/)       |
-| Maps & routing                  | Google Maps API                     |
-| Object storage                  | AWS S3                              |
-
+| Domain                          | Service                                                       |
+| ------------------------------- | ------------------------------------------------------------- |
+| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)                                   |
+| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/)                           |
+| Realtime chat (clients ↔ chefs) | In-house: PostgreSQL + REST + WebSocket (`modules/messaging`) |
+| Transactional email             | [Brevo](https://www.brevo.com/)                               |
+| Payments                        | [Stripe](https://stripe.com/)                                 |
+| Maps & routing                  | Google Maps API                                               |
+| Object storage                  | Cloudflare R2 (dish photos), Supabase Storage (KYC documents) |
 
 ## Frontends (outside this repo)
 
@@ -41,8 +37,8 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** caches hot paths and backs async work.
-3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Stream**, **Google Maps**, and **S3** are used from the backend as needed.
+2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** (optional) carries the messaging rate limit and realtime events between instances.
+3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Google Maps**, **Cloudflare R2**, and **Supabase Storage** are used from the backend as needed.
 4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
 
 ```mermaid
@@ -65,9 +61,8 @@ graph TD
         I[Stripe]
         J[Cronofy Calendar]
         K[Brevo]
-        L[Stream]
         M[Google Maps API]
-        N[AWS S3 images]
+        N[Cloudflare R2 dish photos]
     end
 
     subgraph Infra
@@ -96,7 +91,7 @@ graph TD
 
 ## Repository layout
 
-``` bash
+```bash
 apps/                  # NestJS + Fastify primary API (src/, package.json)
 docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
@@ -114,17 +109,14 @@ stack.md               # backend stack and decisions
 Use the **public Railway domain** for production (browser, Swagger, frontends, `curl` from your machine).  
 Do **not** use `https://<service>.railway.internal` — that hostname is **private** (service-to-service inside Railway only).
 
-
-| Endpoint                      | Local                                                                          | Production (public)                       |
-| ----------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| Base API                      | [http://localhost:8000](http://localhost:8000)                                 | `https://lf-api.labsfood.fr`      |
-| Swagger UI                    | [http://localhost:8000/docs](http://localhost:8000/docs)                       | `https://lf-api.labsfood.fr/docs`            |
-| OpenAPI JSON                  | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)       | `https://lf-api.labsfood.fr/openapi.json`    |
-| Health (liveness)             | [http://localhost:8000/health](http://localhost:8000/health)                   | `https://lf-api.labsfood.fr/health`          |
-| Readiness (DB)                | [http://localhost:8000/ready](http://localhost:8000/ready)                     | `https://lf-api.labsfood.fr/ready`           |
-| Concept CMS (public read) | [http://localhost:8000/content/concept](http://localhost:8000/content/concept) | `https://lf-api.labsfood.fr/content/concept` |
-| Stripe webhook (signature-verified) | `http://localhost:8000/webhooks/stripe`                                        | `https://lf-api.labsfood.fr/webhooks/stripe` |
-
+| Endpoint          | Local                                                                    | Production (public)                       |
+| ----------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
+| Base API          | [http://localhost:8000](http://localhost:8000)                           | `https://lf-api.labsfood.fr`              |
+| Swagger UI        | [http://localhost:8000/docs](http://localhost:8000/docs)                 | `https://lf-api.labsfood.fr/docs`         |
+| OpenAPI JSON      | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json) | `https://lf-api.labsfood.fr/openapi.json` |
+| Health (liveness) | [http://localhost:8000/health](http://localhost:8000/health)             | `https://lf-api.labsfood.fr/health`       |
+| Readiness (DB)    | [http://localhost:8000/ready](http://localhost:8000/ready)               | `https://lf-api.labsfood.fr/ready`        |
+| Stripe webhook    | `http://localhost:8000/webhooks/stripe`                                  | `https://lf-api.labsfood.fr/webhooks/stripe` |
 
 **Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
 
@@ -176,7 +168,6 @@ After deploy, open Swagger at `**https://<public-domain>/docs**`. Smoke test:
 export API_BASE="https://<custom-domain>"   # from Railway → Networking
 curl -s "$API_BASE/health"
 curl -s "$API_BASE/ready"
-curl -s "$API_BASE/content/concept"
 ```
 
 ### 4. Run locally (without Docker API image)
@@ -212,11 +203,6 @@ npm test          # jest unit tests
 - `[docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md)` — spec gap backlog & decisions.
 - `[docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md)` — Stripe payment flow, Connect onboarding, commissions, webhook contract.
 - `[docs/evolution/payments-stripe-cb-evolution.md](./docs/evolution/payments-stripe-cb-evolution.md)` — payments change register (files, routes, data model, tests).
-- `[docs/features/f19-concept-cms.md](./docs/features/f19-concept-cms.md)` — F19 concept CMS analysis and implementation scope.
-- `[docs/testing/f19-concept-cms-cahier-de-test.md](./docs/testing/f19-concept-cms-cahier-de-test.md)` — F19 test book and acceptance qualification cases.
-- `[docs/testing/f19-concept-cms-test-execution.md](./docs/testing/f19-concept-cms-test-execution.md)` — F19 execution evidence and blocked/passed status.
-- `[docs/evolution/f19-concept-cms-evolution.md](./docs/evolution/f19-concept-cms-evolution.md)` — F19 variables, functions, files, and route evolution register.
 - `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
 - `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
 - `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.
-

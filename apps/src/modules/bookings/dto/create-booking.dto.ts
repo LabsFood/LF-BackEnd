@@ -13,16 +13,16 @@ import {
 export class CreateBookingDto {
   @ApiProperty({
     format: 'uuid',
-    description:
-      'Chef profile id to assign. Accepted for backward compatibility; prefer `chefId`.',
+    description: 'The batch cooker page id. Old name of `chefId`; still required.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @IsUUID()
   providerId!: string;
 
   @ApiPropertyOptional({
     format: 'uuid',
-    description:
-      'Chef profile id (preferred field name). When provided, should match `providerId`.',
+    description: 'The batch cooker page id, same value as `providerId`.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @IsOptional()
   @IsUUID()
@@ -30,7 +30,8 @@ export class CreateBookingDto {
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Service offer (menu package) the client is booking.',
+    description: 'The service offer to book.',
+    example: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
   })
   @IsUUID()
   serviceOfferId!: string;

@@ -1,5 +1,25 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+
+/** Quote statuses in the order a quote goes through them. */
+export const QUOTE_STATUSES = [
+  'submitted',
+  'in_review',
+  'quoted',
+  'accepted',
+  'declined',
+];
+export const QUOTE_STATUS_HELP =
+  '`submitted`: just sent by the client. `in_review`: an admin is working on it. ' +
+  '`quoted`: a price was sent. `accepted` / `declined`: the client answered.';
 
 export class CreateQuoteDto {
   @ApiProperty({
@@ -54,7 +74,10 @@ export class CreateQuoteDto {
 
 export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
   @ApiPropertyOptional({
-    description: 'Workflow status (e.g. `pending`, `quoted`, `accepted`, `declined`).',
+    enum: QUOTE_STATUSES,
+    description:
+      `${QUOTE_STATUS_HELP} Set \`quoted\` when sending a price. Only these values ` +
+      'are valid; another one fails with a server error today.',
     example: 'quoted',
   })
   @IsOptional()
@@ -63,7 +86,7 @@ export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
 
   @ApiPropertyOptional({
     minimum: 0,
-    description: 'Quoted price including tax, in minor currency units (cents).',
+    description: 'The price before the tax credit, in cents.',
     example: 45000,
   })
   @IsOptional()
@@ -73,8 +96,10 @@ export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
 
   @ApiPropertyOptional({
     minimum: 0,
-    description: 'Quoted net price after tax, in minor currency units (cents).',
-    example: 37500,
+    description:
+      'What the client really pays after the 50 % "services à la personne" tax ' +
+      'credit, in cents.',
+    example: 22500,
   })
   @IsOptional()
   @IsInt()
@@ -82,10 +107,23 @@ export class UpdateQuoteAdminDto extends PartialType(CreateQuoteDto) {
   quoteAmountAfterTax?: number;
 
   @ApiPropertyOptional({
-    description: 'Admin note sent back to the client with the quote.',
+    description: 'A note for the client, shown with the price.',
     example: 'Includes service staff and cleanup.',
   })
   @IsOptional()
   @IsString()
   quoteNote?: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'The batch cooker who will take the request: their account id (`userId` in ' +
+      '`GET /admin/chefs`). Only a verified batch cooker can be assigned, else ' +
+      '`422 CHEF_NOT_ASSIGNABLE`. Send `null` to unassign.',
+    example: 'f5eebc99-9c0b-4ef8-bb6d-6bb9bd380a66',
+  })
+  // Left out: untouched. `null`: unassign. Anything else must be a uuid.
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsUUID()
+  assignedChefUserId?: string | null;
 }

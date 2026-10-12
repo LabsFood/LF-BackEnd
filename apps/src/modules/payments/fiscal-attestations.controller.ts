@@ -18,6 +18,7 @@ import {
 } from '../../common/swagger/auth-responses';
 import { FiscalAttestationDto } from './dto/payment.dto';
 import { FiscalAttestationsService } from './fiscal-attestations.service';
+import { TAGS } from '../../common/swagger/tags';
 
 const ATTESTATION_DESCRIPTION =
   'Amounts eligible for the 50 % "service à la personne" tax credit across succeeded ' +
@@ -28,7 +29,7 @@ const ATTESTATION_DESCRIPTION =
   'A provider with `sapDeclared: false` has not declared a SAP route and cannot issue one. ' +
   'JSON only — the rendered PDF is a separate deliverable, pending the legal template.';
 
-@ApiTags('payments')
+@ApiTags(TAGS.payments)
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)

@@ -15,8 +15,9 @@ import {
   SepaMandateStatusDto,
 } from './dto/stripe-connect.dto';
 import { SepaMandatesService } from './sepa-mandates.service';
+import { TAGS } from '../../common/swagger/tags';
 
-@ApiTags('payments')
+@ApiTags(TAGS.payments)
 @ApiBearerAuth()
 @Controller('me/chef-profile/sepa-mandate')
 @UseGuards(ClerkAuthGuard)

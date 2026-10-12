@@ -1,0 +1,15 @@
+<!-- subject: Réponse à votre candidature batch cooker -->
+{% comment %}
+params: firstName reason allowReapplyAfter
+allowReapplyAfter is an ISO date or null: without it the candidate may reapply at once. The account stays.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Réponse à votre candidature</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Merci pour l’intérêt que vous portez à Lab’s Food. Après examen de votre dossier, nous ne pouvons pas donner suite à votre candidature pour le moment. Voici le motif&nbsp;:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;white-space:pre-line;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{{ params.reason }}</td></tr></table>
+{% if params.allowReapplyAfter %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Vous pourrez déposer une nouvelle candidature à partir du <strong>{{ params.allowReapplyAfter|slice:":10"|time_parse:"2006-01-02"|date:"02/01/2006" }}</strong>, depuis votre espace Lab’s Food.</p>
+{% else %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Si votre situation évolue, vous pouvez déposer une nouvelle candidature à tout moment depuis votre espace Lab’s Food.</p>
+{% endif %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#4B5867;">Sans nouvelle candidature de votre part, les documents de votre dossier seront supprimés 3&nbsp;mois après cette décision.</p>

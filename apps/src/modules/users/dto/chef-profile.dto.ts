@@ -1,16 +1,25 @@
-import { ApiProperty, ApiPropertyOptional, IntersectionType } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  IntersectionType,
+  PartialType,
+} from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 import { UpdateOwnUserFieldsDto } from './profile.dto';
 
 /**
- * Fields a chef may set on their own `chef_profiles` row.
+ * Public fields a batch cooker may edit on their own `chef_profiles` row.
  *
- * `isActive`, `isVerified`, `stripeAccountId`, and `cronofyProfileId` are absent by
- * design: self-registered chefs must not be able to mark themselves live or attach a
- * payout account. Vetting happens through `PATCH /admin/chefs/:id/verification`.
+ * Deliberately absent: `isActive` and `isVerified` (set at candidature approval
+ * and by the dossier), `stripeAccountId` and `cronofyProfileId` (payout and
+ * calendar wiring), and the SAP route and intervention zones, which were verified
+ * against documents during the candidature. `avatarUrl` is on the account and set
+ * only by the photo upload (`/me/avatar`), which checks the file. The global `ValidationPipe` runs with
+ * `forbidNonWhitelisted`, so a body carrying any of them is refused rather than
+ * silently stripped.
  */
-export class UpsertChefProfileDto {
+export class ChefProfileFieldsDto {
   @ApiProperty({
     maxLength: 255,
     description: 'Public display name shown to clients.',
@@ -53,10 +62,12 @@ export class UpsertChefProfileDto {
 }
 
 /**
- * Body for `PATCH /me/chef-profile` (chef onboarding, form 2).
- * Combines `chef_profiles` columns with the shared user-level identity fields.
+ * Body for `PATCH /me/chef-profile` — a batch cooker editing their own profile.
+ *
+ * Every field is optional: this only ever updates an existing profile, so there
+ * is nothing to require. A field that is sent is still validated, which is what
+ * stops `displayName` from being blanked.
  */
-export class UpdateMeChefProfileDto extends IntersectionType(
-  UpsertChefProfileDto,
-  UpdateOwnUserFieldsDto,
+export class UpdateMeChefProfileDto extends PartialType(
+  IntersectionType(ChefProfileFieldsDto, UpdateOwnUserFieldsDto),
 ) {}

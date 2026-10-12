@@ -63,8 +63,11 @@ export class StatsService {
         _count: { _all: true },
         where: { formuleId: { not: null } },
       }),
+      // Lab's Food meals only, as before chefs owned dishes. Counting chef dishes
+      // too is a change of meaning, not a fix: drop the filter when that is wanted.
       this.prisma.bookingMeal.groupBy({
         by: ['mealId'],
+        where: { meal: { chefProfileId: null } },
         _sum: { portions: true },
         orderBy: { _sum: { portions: 'desc' } },
         take: 5,

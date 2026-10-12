@@ -1,0 +1,9 @@
+<!-- subject: Re : {{ params.subject }} -->
+{% comment %}
+params: firstName subject reply originalMessage
+The team's answer to a contact form, written by an admin in the console and sent as written. The visitor's own message is quoted below it. Reply-To is the team's address.
+{% endcomment %}
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;"><tr><td style="white-space:pre-line;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{{ params.reply }}</td></tr></table>
+<p style="margin:0 0 8px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#7B8794;">Votre message&nbsp;:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;white-space:pre-line;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#4B5867;">{{ params.originalMessage }}</td></tr></table>

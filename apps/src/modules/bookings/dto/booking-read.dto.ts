@@ -5,32 +5,36 @@ import { Booking, BookingStatus } from '../../../supabase/entities';
 export class BookingReadDto {
   @ApiProperty({
     format: 'uuid',
-    description: 'Booking primary key.',
-    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    description: 'The booking id.',
+    example: '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88',
   })
   id!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Postgres user id of the client who placed the booking.',
+    description: 'The account of the client who booked.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   clientId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Chef profile id assigned to the booking (legacy field name: provider).',
+    description: 'The batch cooker page id. Old name of `chefId`, same value.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   providerId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Alias of `providerId` — preferred name in Phase 1+ responses.',
+    description: 'The batch cooker page id. Prefer this name to `providerId`.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   chefId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Service offer (menu package) booked by the client.',
+    description: 'The service offer booked.',
+    example: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
   })
   serviceOfferId!: string;
 
@@ -51,8 +55,10 @@ export class BookingReadDto {
   endsAt!: Date;
 
   @ApiProperty({
-    enum: BookingStatus,
-    description: 'Booking lifecycle status.',
+    enum: ['pending', 'confirmed', 'completed', 'cancelled'],
+    description:
+      '`pending`: waiting for confirmation. `confirmed`: going ahead. `completed`: done. ' +
+      '`cancelled`: will not happen.',
     example: 'confirmed',
   })
   status!: BookingStatus;

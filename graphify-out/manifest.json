@@ -1,0 +1,500 @@
+{
+  ".claude/settings.local.json": {
+    "mtime": 1786568201.555585,
+    "seen": 1788977896.239074,
+    "ast_hash": "782a53214821b3f500f560f7b54e5241",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1788977974.9212852,
+    "seen": 1788977978.453501,
+    "ast_hash": "e04b69ee3f335edaa576ac7e4d83d82e",
+    "semantic_hash": ""
+  },
+  "docker-compose.yml": {
+    "mtime": 1788977974.936435,
+    "seen": 1788977978.453503,
+    "ast_hash": "280171432bfbf9c5171f60040f109a2f",
+    "semantic_hash": ""
+  },
+  "docs/architecture.md": {
+    "mtime": 1788977974.9366574,
+    "seen": 1788977978.453504,
+    "ast_hash": "00354ac887ed3a5193ca614c056549bb",
+    "semantic_hash": ""
+  },
+  "stack.md": {
+    "mtime": 1788977974.9374466,
+    "seen": 1788977978.453505,
+    "ast_hash": "cbf2e2f1948f1bda05dde43cc2573ab7",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/alembic/env.py": {
+    "mtime": 1788977974.9230537,
+    "seen": 1788977978.4534621,
+    "ast_hash": "110b8ff23f6c75700055f8f6d35f9d26",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/alembic/versions/0001_init.py": {
+    "mtime": 1788977974.9236848,
+    "seen": 1788977978.453464,
+    "ast_hash": "49352f57d53ffc732494a7b99068137b",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/__init__.py": {
+    "mtime": 1788977974.9239056,
+    "seen": 1788977978.453464,
+    "ast_hash": "000d1828d8c57c650139c732834e3397",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/auth/__init__.py": {
+    "mtime": 1788977974.9241142,
+    "seen": 1788977978.453465,
+    "ast_hash": "aac2606f95efc01662bdb6947fb80df5",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/auth/clerk.py": {
+    "mtime": 1788977974.924413,
+    "seen": 1788977978.4534662,
+    "ast_hash": "2f0f8c5b0212938166c71c8d4bbe4f70",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/config.py": {
+    "mtime": 1788977974.9246678,
+    "seen": 1788977978.4534662,
+    "ast_hash": "b6f40921daf9a9cd0dc2c29751bc7a94",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/database.py": {
+    "mtime": 1788977974.9255528,
+    "seen": 1788977978.453467,
+    "ast_hash": "58d662a3ef01202a6c130b12fde4bc5f",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/__init__.py": {
+    "mtime": 1788977974.9257295,
+    "seen": 1788977978.453467,
+    "ast_hash": "1365816efc088ea042bf497f8f781ee2",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/brevo.py": {
+    "mtime": 1788977974.9258533,
+    "seen": 1788977978.4534678,
+    "ast_hash": "c9fee39ed8502f6e88f4e2771dca0f71",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/cronofy.py": {
+    "mtime": 1788977974.92607,
+    "seen": 1788977978.4534678,
+    "ast_hash": "58dbd6039c1e0acc60246a5e578f5715",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/redis_client.py": {
+    "mtime": 1788977974.9262009,
+    "seen": 1788977978.453469,
+    "ast_hash": "4e0fb207907589803239822189798550",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/stream.py": {
+    "mtime": 1788977974.92636,
+    "seen": 1788977978.453469,
+    "ast_hash": "64eca71603e4a97aae151516b0218da2",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/integrations/stripe_client.py": {
+    "mtime": 1788977974.9265127,
+    "seen": 1788977978.45347,
+    "ast_hash": "e0533157cf83f814b69766067a6000d2",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/main.py": {
+    "mtime": 1788977974.9267917,
+    "seen": 1788977978.45347,
+    "ast_hash": "fe3b17ee488e8191414008ba7f626a1b",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/models/__init__.py": {
+    "mtime": 1788977974.9270115,
+    "seen": 1788977978.453471,
+    "ast_hash": "1343a6276398baff54e8af3ef22a12c3",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/models/booking.py": {
+    "mtime": 1788977974.9271727,
+    "seen": 1788977978.453471,
+    "ast_hash": "e6ed2dba5ee94c8e3defd2bb30d99ce2",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/models/provider.py": {
+    "mtime": 1788977974.9273186,
+    "seen": 1788977978.453472,
+    "ast_hash": "e9356ddcc405b163cf5e7014d4cec07b",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/models/slot.py": {
+    "mtime": 1788977974.9275858,
+    "seen": 1788977978.453473,
+    "ast_hash": "c3b191250c68d8670c289bb1fda95c3f",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/models/user.py": {
+    "mtime": 1788977974.927753,
+    "seen": 1788977978.453473,
+    "ast_hash": "8a6a825aa17f48845cad990e6633d197",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/routers/__init__.py": {
+    "mtime": 1788977974.9279635,
+    "seen": 1788977978.453474,
+    "ast_hash": "fc4a96585869fd6cdf7de051cfaf65d8",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/routers/bookings.py": {
+    "mtime": 1788977974.9281957,
+    "seen": 1788977978.453474,
+    "ast_hash": "1773175bc700747b16bfd593bd30e9d2",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/routers/health.py": {
+    "mtime": 1788977974.9284377,
+    "seen": 1788977978.453475,
+    "ast_hash": "f6d20751aed87a52239e09e07aec7fc4",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/app/routers/thisUser.py": {
+    "mtime": 1788977974.928614,
+    "seen": 1788977978.453475,
+    "ast_hash": "2f5a263632d5fe28b09e6df847624aba",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/pyproject.toml": {
+    "mtime": 1788977974.9288018,
+    "seen": 1788977978.4534762,
+    "ast_hash": "441f7efd8cb7e7b06687c58e61ddcfed",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/nest-cli.json": {
+    "mtime": 1788977974.9298599,
+    "seen": 1788977978.4534762,
+    "ast_hash": "807c918001c4cfb0b55c3c2967e258cf",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/package.json": {
+    "mtime": 1788977974.9315128,
+    "seen": 1788977978.4534771,
+    "ast_hash": "c066877b8cce333bc14385c3496570bf",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/app.module.ts": {
+    "mtime": 1788977974.9318223,
+    "seen": 1788977978.4534771,
+    "ast_hash": "8213d9a1ca0df80d9707eceab5243aa5",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/auth/auth.module.ts": {
+    "mtime": 1788977974.9322064,
+    "seen": 1788977978.4534779,
+    "ast_hash": "4be4cec7a331eeae53487240ef4e639f",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/auth/clerk-auth.guard.ts": {
+    "mtime": 1788977974.9324558,
+    "seen": 1788977978.4534779,
+    "ast_hash": "eea6d528008d633f915ff4c378bfc40b",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/config/config.loader.ts": {
+    "mtime": 1788977974.9333754,
+    "seen": 1788977978.4534788,
+    "ast_hash": "a5bc4c3b40818d1edce71709063d9683",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/integrations/brevo.service.ts": {
+    "mtime": 1788977974.933581,
+    "seen": 1788977978.4534788,
+    "ast_hash": "a9fdbc4e1ea9a728fde0c48b1ef3ca19",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/integrations/cronofy.service.ts": {
+    "mtime": 1788977974.9337218,
+    "seen": 1788977978.45348,
+    "ast_hash": "6f95997ce5eae1cb05eccea8fc2ddf82",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/integrations/integrations.module.ts": {
+    "mtime": 1788977974.934057,
+    "seen": 1788977978.45348,
+    "ast_hash": "b48d669b564fcc28a1e3a0d7c9d1ce1f",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/integrations/stream.service.ts": {
+    "mtime": 1788977974.9342096,
+    "seen": 1788977978.45348,
+    "ast_hash": "76d584ac3fedc86145a3043627af7665",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/integrations/stripe.service.ts": {
+    "mtime": 1788977974.9343688,
+    "seen": 1788977978.453481,
+    "ast_hash": "97d8e3da1892209fab09bcb567af23e4",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/main.ts": {
+    "mtime": 1788977974.9345303,
+    "seen": 1788977978.453481,
+    "ast_hash": "bce3a643ce40a0e6b508c83fff152133",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/modules/bookings/bookings.controller.ts": {
+    "mtime": 1788977974.934907,
+    "seen": 1788977978.453482,
+    "ast_hash": "53141614b4df18c29310d83a03fa6f80",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/modules/bookings/bookings.module.ts": {
+    "mtime": 1788977974.9351454,
+    "seen": 1788977978.453482,
+    "ast_hash": "7f21657d66f864c474c0adf1cafc5938",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/modules/health/health.controller.ts": {
+    "mtime": 1788977974.9353895,
+    "seen": 1788977978.453483,
+    "ast_hash": "9c7a2acfe996169e9319a0143366b1d0",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/src/modules/health/health.module.ts": {
+    "mtime": 1788977974.9356365,
+    "seen": 1788977978.453484,
+    "ast_hash": "764a15d5b1c8706fececca7a7437b820",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/tsconfig.build.json": {
+    "mtime": 1788977974.9359283,
+    "seen": 1788977978.453484,
+    "ast_hash": "0a68ee6ba0a615e133cc534404fbef15",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/tsconfig.json": {
+    "mtime": 1788977974.936197,
+    "seen": 1788977978.453485,
+    "ast_hash": "fb1bc12aaa731c9e9498d3b6323e6d19",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/browser.ts": {
+    "mtime": 1788617630.52296,
+    "seen": 1788977978.453485,
+    "ast_hash": "536afbc0e198459fd1b6118765211260",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/client.ts": {
+    "mtime": 1788617630.5229568,
+    "seen": 1788977978.453486,
+    "ast_hash": "29641a57f256d3a521721217fca9308e",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/commonInputTypes.ts": {
+    "mtime": 1788617630.5230176,
+    "seen": 1788977978.453486,
+    "ast_hash": "a845b7c1ffee7ce5ac746f57616e49a7",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/enums.ts": {
+    "mtime": 1788617630.5230002,
+    "seen": 1788977978.4534872,
+    "ast_hash": "b40e2217e424fdf4af82152be32f9e9f",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/internal/class.ts": {
+    "mtime": 1788617630.5277538,
+    "seen": 1788977978.4534872,
+    "ast_hash": "540d267f262f1a78f267a348c75b451a",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/internal/prismaNamespace.ts": {
+    "mtime": 1788617630.52763,
+    "seen": 1788977978.4534872,
+    "ast_hash": "23b8d5fc97ad2adf9988ac912edbd06e",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/internal/prismaNamespaceBrowser.ts": {
+    "mtime": 1788617630.5277166,
+    "seen": 1788977978.453488,
+    "ast_hash": "aedbceca6925c1d4df928696897def3a",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models.ts": {
+    "mtime": 1788617630.5231123,
+    "seen": 1788977978.453488,
+    "ast_hash": "519963768d8485fce049333174105f58",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/AvailabilitySlot.ts": {
+    "mtime": 1788617630.5278196,
+    "seen": 1788977978.4534888,
+    "ast_hash": "afd02f992426174fcfc6ecf8fac54b94",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Booking.ts": {
+    "mtime": 1788617630.5278597,
+    "seen": 1788977978.4534888,
+    "ast_hash": "0c059ce242f5fa24f9e41f8d254b4d62",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/BookingMeal.ts": {
+    "mtime": 1788617630.5279593,
+    "seen": 1788977978.45349,
+    "ast_hash": "ef8acd9d1edc9560d78d37ec5798f8bd",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/CesuSettlement.ts": {
+    "mtime": 1788617630.5281286,
+    "seen": 1788977978.45349,
+    "ast_hash": "28b08a272f0561ece56a239e4b7860c4",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/ChefProfile.ts": {
+    "mtime": 1788617630.5277357,
+    "seen": 1788977978.453491,
+    "ast_hash": "9a6adbd7b47b278d4949874ade921fc8",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/ClientProfile.ts": {
+    "mtime": 1788617630.5278978,
+    "seen": 1788977978.453491,
+    "ast_hash": "7314da90da51224931031942e49b1116",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/CmsPage.ts": {
+    "mtime": 1788617630.5278366,
+    "seen": 1788977978.453492,
+    "ast_hash": "5867d01f91a17e697769112f8fc682c1",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Commission.ts": {
+    "mtime": 1788617630.5280628,
+    "seen": 1788977978.453492,
+    "ast_hash": "a0573cb260c4d2a4015d50019d243b54",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/CommissionDebit.ts": {
+    "mtime": 1788617630.5281396,
+    "seen": 1788977978.453492,
+    "ast_hash": "1eaf23dbadfc58243c05d24aa8151ad1",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/CommissionInvoice.ts": {
+    "mtime": 1788617630.5281675,
+    "seen": 1788977978.4534929,
+    "ast_hash": "3d09178548759d8b5939aed8c6aa7dee",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Formule.ts": {
+    "mtime": 1788617630.527952,
+    "seen": 1788977978.4534929,
+    "ast_hash": "3d664556ef33a5b089f902ec36025904",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Meal.ts": {
+    "mtime": 1788617630.5279107,
+    "seen": 1788977978.453494,
+    "ast_hash": "a7f996b16866840e7ff8e78e05335b34",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/MenuWeek.ts": {
+    "mtime": 1788617630.5279138,
+    "seen": 1788977978.453495,
+    "ast_hash": "f4a2df9b4cdb8b91be336d1e0057a6f3",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/MenuWeekMeal.ts": {
+    "mtime": 1788617630.5279176,
+    "seen": 1788977978.453495,
+    "ast_hash": "64667eb8006cc69c2a4828fecf25e417",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Payment.ts": {
+    "mtime": 1788617630.5280693,
+    "seen": 1788977978.453495,
+    "ast_hash": "56a59515ec5f0ff7760bc6ce9cd38bba",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/Quote.ts": {
+    "mtime": 1788617630.5279934,
+    "seen": 1788977978.453496,
+    "ast_hash": "14bdf32af2dab6d40de54c76676453a9",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/SapProfile.ts": {
+    "mtime": 1788617630.528064,
+    "seen": 1788977978.453496,
+    "ast_hash": "02f4cb212126860b570fcc4bb0565942",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/SepaMandate.ts": {
+    "mtime": 1788617630.5280647,
+    "seen": 1788977978.4534972,
+    "ast_hash": "b0ea583f546865e3eba8c9fe17375f83",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/ServiceOffer.ts": {
+    "mtime": 1788617630.5278242,
+    "seen": 1788977978.4534972,
+    "ast_hash": "4d4e3b881f3546ab6af7f95cf971cb33",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/ShoppingItem.ts": {
+    "mtime": 1788617630.5279815,
+    "seen": 1788977978.4534981,
+    "ast_hash": "ee343aadaa5132a66ee8af4ce0c41abc",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/ShoppingList.ts": {
+    "mtime": 1788617630.5279827,
+    "seen": 1788977978.4534981,
+    "ast_hash": "db63a733a51d894058812db24034e897",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/StripeEventLog.ts": {
+    "mtime": 1788617630.5281608,
+    "seen": 1788977978.4534988,
+    "ast_hash": "1920a870c90fa7087fe963a3dd46af1d",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/User.ts": {
+    "mtime": 1788617630.5277522,
+    "seen": 1788977978.4534988,
+    "ast_hash": "cc5fb446782c64227ae49c65a31869b4",
+    "semantic_hash": ""
+  },
+  "apps/src/generated/prisma/models/typeorm_migrations.ts": {
+    "mtime": 1788617630.5281777,
+    "seen": 1788977978.4534998,
+    "ast_hash": "ee803a8080035037dab6257395f932f2",
+    "semantic_hash": ""
+  },
+  "infra/db/migrations/0001_init.sql": {
+    "mtime": 1788977974.9369695,
+    "seen": 1788977978.4534998,
+    "ast_hash": "dbda95d4822e2b6e8ec108668b83b487",
+    "semantic_hash": ""
+  },
+  "apps/api-fastapi/README.md": {
+    "mtime": 1788977974.9219613,
+    "seen": 1788977978.453502,
+    "ast_hash": "adb8ba517eec70b9113da9a1357ee94a",
+    "semantic_hash": ""
+  },
+  "apps/api-nestjs/README.md": {
+    "mtime": 1788977974.9295428,
+    "seen": 1788977978.453502,
+    "ast_hash": "f0d3a8b20484bbe71793c8f45a931c21",
+    "semantic_hash": ""
+  },
+  "infra/db/migrations/README.md": {
+    "mtime": 1788977974.9371347,
+    "seen": 1788977978.453504,
+    "ast_hash": "5feb25fbd1e52b44c73998e397a9cced",
+    "semantic_hash": ""
+  }
+}

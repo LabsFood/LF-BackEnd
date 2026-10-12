@@ -4,12 +4,10 @@
 
 ## Roles
 
-
-| Layer                             | Responsibility                                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Clerk**                         | Sign-in, sessions, JWTs (`sub` = Clerk user id). No bookings, roles, or CRM fields.                                |
-| **Postgres (`users` via Prisma)** | Single source of truth: `clerk_user_id`, `email`, `full_name`, `role`, profiles, bookings, quotes, CMS audit, etc. |
-
+| Layer                             | Responsibility                                                                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Clerk**                         | Sign-in, sessions, JWTs (`sub` = Clerk user id). No bookings, roles, or CRM fields.                     |
+| **Postgres (`users` via Prisma)** | Single source of truth: `clerk_user_id`, `email`, `full_name`, `role`, profiles, bookings, quotes, etc. |
 
 Frontends authenticate with Clerk and call this API with `Authorization: Bearer <session_jwt>`. The API never uses the Supabase JS client for `users`; it uses `SUPABASE_DB_URL` with Prisma (service connection). **RLS** on Supabase applies when a frontend talks to Postgres/Storage through Supabase directly—not on this API path.
 
@@ -43,7 +41,7 @@ npm run db:backfill:clerk -- --email someone@example.com --role admin --yes
 - **Writes require `--yes`.** Without it the script dry-runs and prints the target database host.
 - `--role` defaults to `client` on create. Existing rows **keep their role** unless `--role` is passed, so a backfill cannot silently demote an admin.
 - Clerk accounts with no email address are skipped (`users.email` is `NOT NULL`).
-- If the email already exists on a row with a *different* `clerk_user_id`, the script reports a conflict and skips rather than failing on `uq_users_email`. Fix the row's `clerk_user_id` by hand, then re-run.
+- If the email already exists on a row with a _different_ `clerk_user_id`, the script reports a conflict and skips rather than failing on `uq_users_email`. Fix the row's `clerk_user_id` by hand, then re-run.
 - Requires a real `CLERK_SECRET_KEY` for both dry run and write.
 
 > ⚠️ **Env precedence:** `loadRepoEnv()` lets repo-root `.env.local` **override shell-exported variables**. Exporting `SUPABASE_DB_URL` or `CLERK_SECRET_KEY` on the command line does **not** redirect this script — it will use `.env` / `.env.local`. Always read the `Database :` line the script prints before passing `--yes`.
@@ -52,19 +50,17 @@ npm run db:backfill:clerk -- --email someone@example.com --role admin --yes
 
 There is **no** Clerk Dashboard action to “import Supabase users”. Options:
 
-
 | Approach                             | When                                                                                                                                                                                           |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `**npm run db:sync:clerk`**          | DB rows with placeholder `clerk_user_id` (demo seed tag or non-`user_…` id). Creates or links Clerk users via Backend API and updates `users.clerk_user_id`. Requires real `CLERK_SECRET_KEY`. |
 | **Clerk Dashboard → Users → Create** | Manual test accounts; match email to an existing row or let webhook/`GET /me` create the row.                                                                                                  |
 | **Clerk Backend API**                | Scripts/automation same as `db:sync:clerk`.                                                                                                                                                    |
 
-
 Dry-run (`npm run db:sync:clerk:dry`) uses the same real `CLERK_SECRET_KEY` and queries Clerk per email (create vs link existing) without writing to Postgres.
 
 ### 3. Request-time upsert (first sign-in)
 
-`GET /me` (and other guarded routes) call `ensurePersistedFromClerk`: JWT `sub` identifies the user; when a real `CLERK_SECRET_KEY` is set the API also calls Clerk BAPI `users.getUser` to persist email, full name, and phone before returning. 
+`GET /me` (and other guarded routes) call `ensurePersistedFromClerk`: JWT `sub` identifies the user; when a real `CLERK_SECRET_KEY` is set the API also calls Clerk BAPI `users.getUser` to persist email, full name, and phone before returning.
 
 Ensures a complete row exists even before webhooks arrive. See `[clerk-integration-contract.md](./clerk-integration-contract.md)` for the required frontend `GET /me` call after sign-in.
 
@@ -80,23 +76,19 @@ Admin/chef roles are set in Postgres (`users.role`); Clerk does not drive RBAC i
 
 ### Admin provisioning (Backend API)
 
-
 | Method  | Path                    | Purpose                                                          |
 | ------- | ----------------------- | ---------------------------------------------------------------- |
 | `POST`  | `/admin/users`          | Create Clerk user (BAPI) + Postgres row with explicit role       |
 | `PATCH` | `/admin/users/:id/role` | Update `users.role`; optional Clerk `publicMetadata.role` mirror |
 
-
 Requires real `CLERK_SECRET_KEY` for create. BAPI auto-verifies email on admin create (documented in integration contract). First admin: manual DB promotion — no self-serve endpoint.
 
 ## Local vs production Clerk
-
 
 | Mode       | `CLERK_SECRET_KEY`        | JWT on API                         | Webhooks                                        |
 | ---------- | ------------------------- | ---------------------------------- | ----------------------------------------------- |
 | Local stub | `sk_test_placeholder`     | Decode only (see AGENTS.md)        | Not verified against Clerk cloud                |
 | Real Clerk | `sk_test_…` / `sk_live_…` | `verifyToken` via `@clerk/backend` | Point tunnel or deploy URL to `/webhooks/clerk` |
-
 
 ## Webhook setup (Clerk Dashboard)
 
@@ -112,7 +104,6 @@ See `[docs/deploy/railway.md](../deploy/railway.md)`: set `CLERK_WEBHOOK_SIGNING
 
 ## Code map
 
-
 | Piece                  | Location                                     |
 | ---------------------- | -------------------------------------------- |
 | JWT guard              | `apps/src/auth/clerk-auth.guard.ts`          |
@@ -126,10 +117,8 @@ See `[docs/deploy/railway.md](../deploy/railway.md)`: set `CLERK_WEBHOOK_SIGNING
 | Placeholder id helpers | `apps/src/auth/clerk-ids.ts`                 |
 | Integration contract   | `docs/auth/clerk-integration-contract.md`    |
 
-
 ## Gaps (frontend / product)
 
 - First admin bootstrap is manual DB promotion; subsequent roles via `PATCH /admin/users/:id/role`.
 - Stream, Stripe, Cronofy identities are separate integrations.
 - Optional: store `clerk_user_id` in `public_metadata` from sync script for Dashboard visibility (not required for API).
-

@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+import { AuditModule } from './common/audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
 import { resolveEnvFilePaths } from './config/env-files';
@@ -11,16 +13,18 @@ import { IntegrationsModule } from './integrations/integrations.module';
 import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
 import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
-import { ContentCmsModule } from './modules/content-cms/content-cms.module';
+import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
+import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
-// Redis not implemented yet — re-enable when cache/queues are wired.
-// import { RedisModule } from './redis/redis.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -46,12 +50,15 @@ import { UsersModule } from './modules/users/users.module';
         ],
       }),
     }),
+    // In-process scheduler for the daily chef-dossier job. No queue: see
+    // ChefDossierCron for the multi-replica caveat.
+    ScheduleModule.forRoot(),
     DatabaseModule,
-    // RedisModule,
+    RedisModule,
+    AuditModule,
     AuthModule,
     ClerkWebhooksModule,
     StripeWebhooksModule,
-    ContentCmsModule,
     IntegrationsModule,
     HealthModule,
     UsersModule,
@@ -61,6 +68,10 @@ import { UsersModule } from './modules/users/users.module';
     StatsModule,
     BookingsModule,
     PaymentsModule,
+    ChefOnboardingModule,
+    DishesModule,
+    MessagingModule,
+    ContactModule,
   ],
 })
 export class AppModule {}

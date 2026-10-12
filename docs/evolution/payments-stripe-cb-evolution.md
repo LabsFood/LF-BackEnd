@@ -70,7 +70,7 @@ Working contract for frontends and operators:
 | `apps/src/modules/users/dto/sap-profile.dto.ts` | Created | Conditional validation per declaration type |
 | `apps/src/modules/users/users.controller.ts` | Updated | `GET` / `PATCH /me/chef-profile/sap` |
 | `apps/src/modules/users/users.service.ts` | Updated | `getSapProfileByClerkUserId`, `updateSapProfileByClerkUserId`, `requireOwnChefProfile` |
-| `apps/src/modules/bookings/bookings.controller.ts` | Updated | `POST /bookings` implemented — the `501` scaffold is gone |
+| `apps/src/modules/bookings/bookings.controller.ts` | Unchanged | `POST /bookings` stays closed (`501`); a prestation comes from an accepted offer |
 | `apps/src/modules/bookings/bookings.service.ts` | Updated | `create()` + `nextReference()` (`LF-<year>-NNNN`) |
 | `apps/src/modules/bookings/dto/booking-read.dto.ts` | Updated | Exposes `reference`, `amountTtc`, `amountAfterTax` |
 | `.env.example` | Updated | Stripe webhook guidance + the four `PAYMENTS_*` / `STRIPE_CONNECT_*` variables |
@@ -91,7 +91,7 @@ Working contract for frontends and operators:
 | `GET /admin/fiscal-attestations` | Created | Admin | `?year=`, defaults to the current UTC year |
 | `GET /admin/fiscal-attestations/:clientId` | Created | Admin | `404` on unknown client |
 | `POST /webhooks/stripe` | Created | Signature | Public, raw-body verified, excluded from Swagger |
-| `POST /bookings` | **Changed** | Clerk | Was a `501` scaffold; now persists a `pending` booking. **Breaking for any caller that asserted `501`** |
+| `POST /bookings` | Unchanged | Clerk | Still `501`: bookings are created by an accepted offer |
 
 All new authenticated routes answer `409` when the chef profile does not exist yet, and
 `503` when `STRIPE_SECRET_KEY` is unset.
@@ -244,7 +244,7 @@ no test exercises the migration's backfill against legacy rows.
 
 | Date | Change | Reason |
 |------|--------|--------|
-| 2026-08-31 | Stripe Connect onboarding, destination-charge PaymentIntent, commissions, SEPA mandate, SAP profile, fiscal attestations, `POST /webhooks/stripe`, `POST /bookings` implementation (`50d36d2`) | Deliver E8 and the booking creation E2 depends on |
+| 2026-08-31 | Stripe Connect onboarding, destination-charge PaymentIntent, commissions, SEPA mandate, SAP profile, fiscal attestations, `POST /webhooks/stripe` (`50d36d2`; its `POST /bookings` part was dropped when merging develop) | Deliver E8 |
 | 2026-08-31 | `payment_status` extended in place instead of recreated; `payments` altered rather than created (`dad2255`) | The enum and table already existed from `20250522130000_spec_domain` |
 | 2026-09-01 | Every migration statement made idempotent with guarded `DO` blocks (`9bf8456`) | Prisma runs migration files outside a transaction; two partial failures left debris that `migrate deploy` replayed into |
 | 2026-09-01 | Created this register and `docs/payments/stripe-payments-contract.md`; refreshed the platform register, architecture, deploy, and README docs | Document the branch |

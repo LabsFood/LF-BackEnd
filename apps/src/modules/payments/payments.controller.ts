@@ -13,8 +13,9 @@ import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { CreatePaymentIntentDto, PaymentIntentDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
+import { TAGS } from '../../common/swagger/tags';
 
-@ApiTags('payments')
+@ApiTags(TAGS.payments)
 @ApiBearerAuth()
 @Controller('payments')
 @UseGuards(ClerkAuthGuard)

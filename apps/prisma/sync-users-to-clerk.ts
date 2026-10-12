@@ -7,7 +7,11 @@
  */
 import { createClerkClient } from '@clerk/backend';
 
-import { isPlaceholderClerkUserId, isRealClerkSecretKey, splitFullName } from '../src/auth/clerk-ids';
+import {
+  isPlaceholderClerkUserId,
+  isRealClerkSecretKey,
+  splitFullName,
+} from '../src/auth/clerk-ids';
 import { normalizeEmailForClerk } from '../src/common/demo-seed-constants';
 import { loadRepoEnv } from '../src/config/env-files';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
@@ -85,9 +89,7 @@ async function main(): Promise<void> {
 
     if (dryRun) {
       const action = await previewClerkUser(clerkEmail);
-      console.log(
-        `  [dry-run] ${clerkEmail} (${row.clerkUserId}) → ${action}`,
-      );
+      console.log(`  [dry-run] ${clerkEmail} (${row.clerkUserId}) → ${action}`);
       continue;
     }
 

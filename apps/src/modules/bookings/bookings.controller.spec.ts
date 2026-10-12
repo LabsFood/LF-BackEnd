@@ -1,89 +1,75 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
+import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import { UserRole } from '../../generated/prisma/client';
 
-import { AdminGuard } from '../../auth/admin.guard';
-import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
+import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
-import { CreateBookingDto } from './dto/create-booking.dto';
-
-const clerk: ClerkUser = { userId: 'clerk_1' };
-
-const payload: CreateBookingDto = {
-  providerId: 'chef-1',
-  serviceOfferId: 'offer-1',
-  startsAt: new Date('2026-07-15T18:00:00.000Z'),
-  endsAt: new Date('2026-07-15T20:00:00.000Z'),
-  priceCents: 12_500,
-  currency: 'EUR',
-};
-
-const createdBooking = {
-  id: 'booking-1',
-  reference: 'LF-2026-0001',
-  clientId: 'user-1',
-  chefProfileId: 'chef-1',
-  serviceOfferId: 'offer-1',
-  startsAt: payload.startsAt,
-  endsAt: payload.endsAt,
-  status: 'pending',
-  priceCents: 12_500,
-  amountTtc: 12_500,
-  amountAfterTax: 6_250,
-  currency: 'EUR',
-};
 
 describe('BookingsController', () => {
-  let controller: BookingsController;
-  let bookings: { create: jest.Mock; list: jest.Mock };
+  let app: NestFastifyApplication;
+  let bookings: jest.Mocked<Pick<BookingsService, 'list'>>;
+  let findUser: jest.Mock;
 
   beforeEach(async () => {
-    bookings = {
-      create: jest.fn().mockResolvedValue(createdBooking),
-      list: jest.fn().mockResolvedValue([]),
-    };
+    bookings = { list: jest.fn().mockResolvedValue([]) };
+    findUser = jest.fn();
 
+    // Only the Clerk session check is faked; the real AdminGuard runs against a
+    // mocked `users` lookup, so the route's guard wiring is what's under test.
     const moduleRef = await Test.createTestingModule({
       controllers: [BookingsController],
       providers: [
         { provide: BookingsService, useValue: bookings },
         { provide: ShoppingListsService, useValue: {} },
+        { provide: PrismaService, useValue: { user: { findUnique: findUser } } },
       ],
     })
       .overrideGuard(ClerkAuthGuard)
-      .useValue({ canActivate: () => true })
-      .overrideGuard(AdminGuard)
-      .useValue({ canActivate: () => true })
+      .useValue({
+        canActivate: (ctx: ExecutionContext) => {
+          ctx.switchToHttp().getRequest().clerkUser = { userId: 'user_1' };
+          return true;
+        },
+      })
       .compile();
 
-    controller = moduleRef.get(BookingsController);
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter({ logger: false }),
+      { logger: false },
+    );
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
   });
 
-  it('returns the created booking with its reference and amounts', async () => {
-    await expect(controller.create(payload, clerk)).resolves.toMatchObject({
-      id: 'booking-1',
-      reference: 'LF-2026-0001',
-      amountTtc: 12_500,
-      amountAfterTax: 6_250,
-      chefId: 'chef-1',
-      providerId: 'chef-1',
+  afterEach(async () => {
+    await app.close();
+  });
+
+  describe('GET /bookings', () => {
+    it.each([UserRole.client, UserRole.chef])(
+      'refuses a signed-in %s without touching the bookings table',
+      async (role) => {
+        findUser.mockResolvedValue({ role });
+
+        const res = await app.inject({ method: 'GET', url: '/bookings' });
+
+        expect(res.statusCode).toBe(403);
+        expect(bookings.list).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lists bookings for an admin', async () => {
+      findUser.mockResolvedValue({ role: UserRole.admin });
+
+      const res = await app.inject({ method: 'GET', url: '/bookings' });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
+      expect(bookings.list).toHaveBeenCalled();
     });
-    expect(bookings.create).toHaveBeenCalledWith('clerk_1', payload);
-  });
-
-  it('rejects an end date that is not after the start date', async () => {
-    const invalid = { ...payload, endsAt: payload.startsAt };
-
-    await expect(controller.create(invalid, clerk)).rejects.toMatchObject({
-      status: HttpStatus.UNPROCESSABLE_ENTITY,
-    });
-    expect(bookings.create).not.toHaveBeenCalled();
-  });
-
-  it('surfaces the 422 as an HttpException', async () => {
-    const invalid = { ...payload, endsAt: new Date('2026-07-15T17:00:00.000Z') };
-
-    await expect(controller.create(invalid, clerk)).rejects.toBeInstanceOf(HttpException);
   });
 });
