@@ -201,6 +201,7 @@ export const QUEUE_EXAMPLE = {
       isActive: false,
       reactivatedPendingReview: false,
       pendingDocuments: 2,
+      missingDocuments: 1,
       submittedAt: '2026-09-20T09:12:03.412Z',
       waitingSinceHours: 26,
     },

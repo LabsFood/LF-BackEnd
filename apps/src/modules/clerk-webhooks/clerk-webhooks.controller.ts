@@ -10,7 +10,7 @@ import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
 import {
-  getClerkWebhookRawBody,
+  getWebhookRawBody,
   type RawBodyFastifyRequest,
 } from '../../auth/fastify-raw-body';
 import { ClerkWebhooksService } from './clerk-webhooks.service';
@@ -41,7 +41,7 @@ export class ClerkWebhooksController {
   ): Promise<{ received: true }> {
     let rawBody: string;
     try {
-      rawBody = getClerkWebhookRawBody(req);
+      rawBody = getWebhookRawBody(req);
     } catch {
       throw new BadRequestException('Missing raw webhook body.');
     }
