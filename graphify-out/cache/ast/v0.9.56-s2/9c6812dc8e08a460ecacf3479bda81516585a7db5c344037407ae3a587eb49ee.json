@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_apps_prisma_migrations_20260923120000_remove_cms_pages_migration_sql", "label": "migration.sql", "file_type": "code", "source_file": "apps/prisma/migrations/20260923120000_remove_cms_pages/migration.sql", "source_location": null}], "edges": []}
