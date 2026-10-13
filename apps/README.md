@@ -1,7 +1,7 @@
 # lf-api-nestjs
 
 Primary backend for Labs Food: **NestJS 11 + Fastify** REST API documented via
-OpenAPI/Swagger, backed by **Prisma 7** + `@prisma/adapter-pg` + Supabase Postgres. Redis is scaffolded but not enabled yet.
+OpenAPI/Swagger, backed by **Prisma 7** + `@prisma/adapter-pg` + Supabase Postgres. Redis is optional: it carries the messaging rate limit and realtime events between instances.
 
 Prisma CLI config: [`prisma.config.ts`](./prisma.config.ts). Generated client: `src/generated/prisma/` (created by `prisma generate`).
 
@@ -15,7 +15,7 @@ docker compose up -d postgres
 
 cd apps
 npm install
-cp ../../.env.example ../../.env   # if not done yet, fill values (see docs/database-connection.md)
+cp ../.env.example ../.env   # if not done yet, fill values (see docs/database-connection.md)
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
 export SUPABASE_DB_MIGRATION_URL="${SUPABASE_DB_MIGRATION_URL:-$SUPABASE_DB_URL}"
 npm run db:migrate
@@ -64,10 +64,12 @@ curl -s -X POST http://localhost:8000/admin/users \
 
 `PaymentsModule` (`src/modules/payments/`) + `StripeWebhooksModule` (`src/modules/stripe-webhooks/`).
 Full contract: [`../docs/payments/stripe-payments-contract.md`](../docs/payments/stripe-payments-contract.md).
+Every payment route, CESU and immediate advance included: _Paying a prestation_ in [`../AGENTS.md`](../AGENTS.md).
 
 | Method | Path | Auth |
 |--------|------|------|
-| `POST` | `/payments/intent` | Clerk bearer (booking owner) |
+| `GET` | `/me/bookings/:id/payment-options` | Clerk bearer (booking owner) |
+| `POST` | `/payments/checkout-session` · `/payments/intent` | Clerk bearer (booking owner) |
 | `POST` / `GET` | `/me/chef-profile/stripe-connect/link` · `/status` | Clerk bearer (chef) |
 | `POST` / `GET` | `/me/chef-profile/sepa-mandate/setup-intent` · `/me/chef-profile/sepa-mandate` | Clerk bearer (chef) |
 | `GET` / `PATCH` | `/me/chef-profile/sap` | Clerk bearer (chef) |
@@ -76,7 +78,7 @@ Full contract: [`../docs/payments/stripe-payments-contract.md`](../docs/payments
 | `POST` | `/webhooks/stripe` | Stripe signature (public, hidden from Swagger) |
 
 ```bash
-# Create a PaymentIntent for a pending booking you own
+# Create a PaymentIntent for a booking you own that is due
 curl -s -X POST http://localhost:8000/payments/intent \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -88,7 +90,8 @@ stripe trigger payment_intent.succeeded
 ```
 
 Needs `STRIPE_SECRET_KEY` (else `503`) and `STRIPE_WEBHOOK_SECRET` for the webhook. Commission
-rate: `PAYMENTS_COMMISSION_RATE_BPS` (default `1500` — **a placeholder**).
+rate: the admin setting (`PATCH /admin/settings/commission`), falling back to
+`PAYMENTS_COMMISSION_RATE_BPS` (default `1500` = 15 % HT).
 
 ## Run with Docker Compose
 
@@ -107,9 +110,9 @@ The `api` container runs `prisma migrate deploy` before starting the API.
 | `npm run build`          | `prisma generate` + compile to `dist/`      |
 | `npm run start:dev`      | Watch mode with hot reload                  |
 | `npm run start:prod`     | Run the compiled `dist/main.js`             |
-| `npm run lint`           | ESLint + Prettier check                     |
+| `npm run lint`           | ESLint (with Prettier rules)                |
 | `npm test`               | Jest unit tests                             |
 | `npm run db:migrate`     | Apply pending Prisma migrations (`deploy`)  |
-| `npm run db:resolve`     | Mark a migration applied (TypeORM baseline) |
+| `npm run db:resolve`     | Mark a migration applied or rolled back     |
 | `npm run db:migrate:dev` | Create/apply migrations in dev              |
 | `npm run db:studio`      | Prisma Studio                               |

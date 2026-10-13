@@ -1,6 +1,6 @@
 # Clerk identity + Supabase/Prisma app data
 
-> **Frontend/backend boundary:** see `[clerk-integration-contract.md](./clerk-integration-contract.md)` — sign-in/sign-up stay on Next.js (`@clerk/nextjs`); this API verifies JWTs and manages Postgres RBAC only.
+> **Frontend/backend boundary:** see [clerk-integration-contract.md](./clerk-integration-contract.md) — sign-in stays on Next.js (`@clerk/nextjs`); this API owns sign-up (`POST /auth/register`, `POST /chef-applications`), verifies JWTs and manages Postgres RBAC.
 
 ## Roles
 
@@ -21,7 +21,7 @@ Frontends authenticate with Clerk and call this API with `Authorization: Bearer 
 - Set **Signing secret** → `CLERK_WEBHOOK_SIGNING_SECRET` (Svix).
 - Handler verifies with `@clerk/backend/webhooks` (`verifyWebhook`) and:
   - `user.created` / `user.updated` → `UsersService.upsertFromClerkUserJson`
-  - `user.deleted` → `UsersService.deleteByClerkId`
+  - `user.deleted` → `UsersService.deleteByClerkId` (deletes the row, or anonymises it when bookings still reference it)
 
 Webhooks are **eventually consistent**; do not block sign-in on webhook delivery.
 
@@ -52,7 +52,7 @@ There is **no** Clerk Dashboard action to “import Supabase users”. Options:
 
 | Approach                             | When                                                                                                                                                                                           |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**npm run db:sync:clerk`**          | DB rows with placeholder `clerk_user_id` (demo seed tag or non-`user_…` id). Creates or links Clerk users via Backend API and updates `users.clerk_user_id`. Requires real `CLERK_SECRET_KEY`. |
+| **`npm run db:sync:clerk`**          | DB rows with placeholder `clerk_user_id` (demo seed tag or non-`user_…` id). Creates or links Clerk users via Backend API and updates `users.clerk_user_id`. Requires real `CLERK_SECRET_KEY`. |
 | **Clerk Dashboard → Users → Create** | Manual test accounts; match email to an existing row or let webhook/`GET /me` create the row.                                                                                                  |
 | **Clerk Backend API**                | Scripts/automation same as `db:sync:clerk`.                                                                                                                                                    |
 
@@ -62,7 +62,7 @@ Dry-run (`npm run db:sync:clerk:dry`) uses the same real `CLERK_SECRET_KEY` and 
 
 `GET /me` (and other guarded routes) call `ensurePersistedFromClerk`: JWT `sub` identifies the user; when a real `CLERK_SECRET_KEY` is set the API also calls Clerk BAPI `users.getUser` to persist email, full name, and phone before returning.
 
-Ensures a complete row exists even before webhooks arrive. See `[clerk-integration-contract.md](./clerk-integration-contract.md)` for the required frontend `GET /me` call after sign-in.
+Ensures a complete row exists even before webhooks arrive. See [clerk-integration-contract.md](./clerk-integration-contract.md) for the required frontend `GET /me` call after sign-in.
 
 ## Dashboard / frontend contract
 
@@ -100,7 +100,7 @@ Requires real `CLERK_SECRET_KEY` for create. BAPI auto-verifies email on admin c
 
 ## Railway
 
-See `[docs/deploy/railway.md](../deploy/railway.md)`: set `CLERK_WEBHOOK_SIGNING_SECRET` with `CLERK_SECRET_KEY` and public API domain.
+See [docs/deploy/railway.md](../deploy/railway.md): set `CLERK_WEBHOOK_SIGNING_SECRET` with `CLERK_SECRET_KEY` and public API domain.
 
 ## Code map
 
@@ -120,5 +120,5 @@ See `[docs/deploy/railway.md](../deploy/railway.md)`: set `CLERK_WEBHOOK_SIGNING
 ## Gaps (frontend / product)
 
 - First admin bootstrap is manual DB promotion; subsequent roles via `PATCH /admin/users/:id/role`.
-- Stream, Stripe, Cronofy identities are separate integrations.
+- Stripe and Cronofy identities are separate integrations.
 - Optional: store `clerk_user_id` in `public_metadata` from sync script for Dashboard visibility (not required for API).

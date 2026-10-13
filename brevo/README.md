@@ -1,6 +1,6 @@
 # Brevo email templates
 
-The transactional emails the API sends through Brevo (candidature, KYC documents, dishes).
+The transactional emails the API sends through Brevo (candidature, KYC documents, dishes, messaging, contact forms, custom requests).
 The repo is the source of truth for their text; Brevo holds a copy that `upload.mjs` keeps in sync.
 
 | File | What it is |
@@ -58,25 +58,27 @@ Renaming a file creates a new template: point the env var at the new id and dele
 6. Output is built from the static files only.
 
 ## Test usage from Local
-1. Make the BREVO_TPL_ID* is saved in the environnement variable.
-   ```bash 
-      export $(grep ^BREVO_API_KEY= .env)
+
+1. Load `BREVO_API_KEY` from the repo-root `.env`:
+   ```bash
+   export $(grep ^BREVO_API_KEY= .env)
    ```
-2.    
-   ``` bash
+2. Send a template to a test address. `templateId` is the id held by its `BREVO_TPL_*`
+   variable; `params` are the ones on the template's `params:` line (here
+   `BREVO_TPL_APPLICATION_RECEIVED`):
+   ```bash
    curl -s https://api.brevo.com/v3/smtp/email \
-   -H "api-key: $BREVO_API_KEY" -H 'content-type: application/json' \
-   -d '{
-      "templateId": 123,
-      "to": [{"email": "test@example.com"}],
-      "params": {
+     -H "api-key: $BREVO_API_KEY" -H 'content-type: application/json' \
+     -d '{
+       "templateId": 123,
+       "to": [{"email": "test@example.com"}],
+       "params": {
          "firstName": "Tester 01",
          "reference": "CAND-TEST-001",
          "signInUrl": "https://example.com/sign-in?token=test",
          "expiresAt": "2026-10-06T12:00:00.000Z"
-      }
-   }'
-
+       }
+     }'
    ```
 
 ## Traps

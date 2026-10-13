@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-### Application specifiactions
+### Application specifications
 
 Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](docs/SPEC-ADMIN-DASHBOARD.md) as the main guide for product intent and API direction. Track gaps and decisions in [`docs/evolution/platform-spec-alignment-evolution.md`](docs/evolution/platform-spec-alignment-evolution.md). Stack and backend architecture: [`stack.md`](stack.md), [`docs/architecture.md`](docs/architecture.md).
 
@@ -103,7 +103,7 @@ node -e '
 ```
 
 Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
-`/bookings`.
+`/bookings/me`.
 
 ### Clerk webhooks and DB sync
 
@@ -128,19 +128,22 @@ Change register: [`docs/evolution/payments-stripe-cb-evolution.md`](docs/evoluti
 
 - Modules: `modules/payments/` (`PaymentsModule`) + `modules/stripe-webhooks/` (`StripeWebhooksModule`).
 - A card payment is a **Stripe Connect destination charge**: the platform keeps the commission as
-  `application_fee_amount`, the chef's connected account gets the rest. The booking becomes
-  `confirmed` **only** on the `payment_intent.succeeded` webhook.
-- Client: `POST /payments/intent` → `{ clientSecret, … }`, confirmed with Stripe.js on the frontend.
-  Requires a `pending` booking owned by the caller **and** a chef with `chargesEnabled` +
-  `payoutsEnabled`, otherwise `409`.
+  `application_fee_amount`, the chef's connected account gets the rest. A payment is settled
+  **only** by the webhook, never on the client's word.
+- Client: `POST /payments/checkout-session` → a Stripe Checkout `url`, or `POST /payments/intent`
+  → `{ clientSecret, … }` for Stripe.js. Both require a payable booking owned by the caller (see
+  _Paying a prestation_ below) **and** a verified chef with `chargesEnabled` + `payoutsEnabled`,
+  otherwise `409`.
 - Chef: `POST/GET /me/chef-profile/stripe-connect/{link,status}` (Express onboarding — links are
-  single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (**records a mandate,
-  never debits**), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
+  single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (the mandate the CESU and
+  immediate-advance commissions are debited against), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
 - Fiscal attestation totals: `GET /me/fiscal-attestations/:year`, `GET /admin/fiscal-attestations[/:clientId]`.
   JSON only — no PDF.
 - Without `STRIPE_SECRET_KEY` every payment route answers `503`; the webhook also needs
-  `STRIPE_WEBHOOK_SECRET`. Commission defaults: `PAYMENTS_COMMISSION_RATE_BPS=1500` (**placeholder
-  rate**), `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`.
+  `STRIPE_WEBHOOK_SECRET`, plus `STRIPE_CONNECT_WEBHOOK_SECRET` on deployed environments
+  (`account.updated` comes from a second, "Connected accounts" Dashboard endpoint).
+  Commission: the admin setting, falling back to `PAYMENTS_COMMISSION_RATE_BPS=1500` (15 % HT)
+  and `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`.
 
 Local webhook loop:
 
@@ -178,7 +181,7 @@ reapply from it.
 | Actor                       | Routes                                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Public                      | `POST /chef-applications`, `GET /referentials/regions`                                                                                                                                                             |
-| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`                      |
+| Signed-in candidate or chef | `GET\|PATCH /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`, `.../preview-url` |
 | Admin                       | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
 
 - **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
@@ -227,7 +230,7 @@ reapply from it.
 
 Batch cookers publish their own dishes and weekly menus; admins moderate after the
 fact. Module: `modules/dishes/`. Spec:
-[`FLOW-02-plats-et-menus.md`](../FLOW-02-plats-et-menus.md), PRD:
+[`FLOW-02-plats-et-menus.md`](../batchcooking-web/docs/api/FLOW-02-plats-et-menus.md) (in `batchcooking-web`), PRD:
 [`.claude/prds/chef-dishes-menus.prd.md`](.claude/prds/chef-dishes-menus.prd.md).
 
 - **`meals` is the dish.** `chef_profile_id` is the owner (null: Lab's Food
@@ -285,8 +288,8 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
   days after a completed one; then `409 CONVERSATION_READ_ONLY`. Support threads
   are always open. Admins can write in a closed thread.
 - **A `chef_client` conversation starts from a booking**: `POST /me/conversations`
-  with a `bookingId`. `MessagingService.ensurePair` is exported for the booking
-  flow to call on confirmation, once `POST /bookings` stops answering 501.
+  with a `bookingId`. Accepting an offer opens it too, through
+  `MessagingService.ensurePair`.
 - **Realtime**: listen-only WebSocket on `/ws`. First frame
   `{"event":"auth","data":{"token":"<Clerk token>"}}`, answered by
   `{"event":"ready"}`. No subscriptions: the server pushes each person their own
@@ -438,9 +441,10 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
 
 | Actor        | Routes                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Client       | `GET /me/bookings/:id/payment-options`, `POST /payments/checkout-session`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links` |
-| Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap`              |
-| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*` |
+| Public       | `GET /chefs/:chefProfileId/cesu-info`                                                                                                              |
+| Client       | `GET /me/bookings/:id/payment-options`, `GET …/payment-status`, `POST /payments/checkout-session`, `POST /payments/intent`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links`, `GET /me/fiscal-attestations/:year` |
+| Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `GET /me/chef/commission-invoices`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap` |
+| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status` |
 | Stripe       | `POST /webhooks/stripe`                                                                                                                            |
 
 ### Contact forms

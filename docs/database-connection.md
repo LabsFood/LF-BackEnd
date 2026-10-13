@@ -10,15 +10,15 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
 | `DATABASE_URL`              | No (deprecated)              | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above.                                                            |
 
-Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, and `SUPABASE_KYC_BUCKET` for chef KYC documents.
+Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_KYC_BUCKET` for chef KYC documents and `SUPABASE_MESSAGING_BUCKET` for message attachments.
 
 ## URI formats (placeholders)
 
 **Local (docker compose):**
 
 ```env
-SUPABASE_DB_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
-SUPABASE_DB_MIGRATION_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
+SUPABASE_DB_URL=postgresql://lf:lf@localhost:5432/lf_backend
+SUPABASE_DB_MIGRATION_URL=postgresql://lf:lf@localhost:5432/lf_backend
 ```
 
 **Supabase cloud — runtime (Transaction pooler, port 6543):**
@@ -123,7 +123,7 @@ failure will need manual SQL to unblock.
 ## Behavior in this repo
 
 - `PrismaService` connects with `SUPABASE_DB_URL` at API startup.
-- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/Dockerfile`).
+- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/scripts/docker-entrypoint.sh`).
 - Cloud hosts (`*.supabase.co`) use TLS via the connection string / Prisma defaults.
 
 ## Verify
@@ -132,9 +132,9 @@ failure will need manual SQL to unblock.
 docker compose up -d postgres
 
 cd apps
-npm run db:migrate
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-export CLERK_SECRET_KEY="<sk_test_placeholder>"
+export CLERK_SECRET_KEY="sk_test_placeholder"
+npm run db:migrate
 npm run start:dev
 curl -s http://localhost:8000/ready | jq .
 ```

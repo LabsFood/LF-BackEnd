@@ -26,13 +26,13 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 
 | Domain         | Service                                                                                                                                      | Role in backend                                 |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Payments       | [Stripe](https://stripe.com/)                                                                                                                | **Connect destination charges** on bookings, platform commission as `application_fee_amount`, chef Express onboarding, SEPA commission mandates, `POST /webhooks/stripe` |
-| Calendar       | [Cronofy](https://www.cronofy.com/)                                                                                                          | Chef availability / scheduling                  |
+| Payments       | [Stripe](https://stripe.com/)                                                                                                                | **Connect destination charges** (Checkout page or PaymentIntent), platform commission as `application_fee_amount`, chef Express onboarding, SEPA mandates and commission debits, `POST /webhooks/stripe` |
+| Calendar       | [Cronofy](https://www.cronofy.com/)                                                                                                          | Planned for chef availability; `CronofyService` is a scaffold no route uses |
 | Messaging      | In-house: `modules/messaging` (PostgreSQL, REST, `/ws` WebSocket) | Client ↔ chef and support conversations |
 | Email          | [Brevo](https://www.brevo.com/)                                                                                                              | Transactional notifications                     |
-| Maps           | Google Maps API                                                                                                                              | Zones, routing (when needed)                    |
-| Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) (public, S3-compatible) for dish photos; Supabase Storage (private) for KYC documents | Dish photos (no egress fee), chef KYC documents |
-| Hosting        | Railway                                                                                                                                      | API + Postgres + Redis containers               |
+| Maps           | Google Maps API                                                                                                                              | Key configured (`GOOGLE_MAPS_API_KEY`), not used yet |
+| Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) (public, S3-compatible) for photos; Supabase Storage (private) for documents | Dish, menu and profile photos (no egress fee); chef KYC documents and message attachments |
+| Hosting        | Railway                                                                                                                                      | API container (Postgres on Supabase; Redis plugin once the API runs on more than one instance) |
 
 ## Domain naming (resolved)
 
@@ -40,8 +40,8 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | ----------------------- | -------------------------------------------------------------------- |
 | `Reservation` (spec)    | Keep **`bookings`** table/module naming                              |
 | `provider` (legacy)     | Migrated to **`chef`** (E1)                                          |
-| Spec email/password JWT | **Clerk** remains the auth source; no `/auth/register` routes in API |
-| Spec Prisma examples    | **Prisma** is the target ORM (replacing interim TypeORM in `apps/`)  |
+| Spec email/password JWT | **Clerk** remains the auth source; the API owns sign-up (`POST /auth/register`), never sign-in |
+| Spec Prisma examples    | **Prisma** is the ORM (TypeORM removed)                              |
 
 ## Runtime flow
 
@@ -72,9 +72,9 @@ flowchart TD
 ```
 
 1. Clients authenticate with **Clerk** and call the NestJS API with a Bearer token.
-2. The API persists domain data in **PostgreSQL** (bookings, catalog, CRM, Kossam, etc. per specs).
+2. The API persists domain data in **PostgreSQL** (users and profiles, candidatures, dishes and menus, quotes, bookings, conversations, payments, audit log).
 3. **Redis** carries the messaging rate limit and the realtime events between API instances; without `REDIS_URL` both stay in-process.
-4. **Stripe**, **Cronofy** and **Brevo** are invoked from integration services under `apps/src/integrations/`. Messaging is not an integration: it lives in `apps/src/modules/messaging/`.
+4. **Stripe**, **Brevo**, **Clerk**, **Cloudflare R2** and **Supabase Storage** are invoked from integration services under `apps/src/integrations/`. Messaging is not an integration: it lives in `apps/src/modules/messaging/`.
 
 ## Related documentation
 

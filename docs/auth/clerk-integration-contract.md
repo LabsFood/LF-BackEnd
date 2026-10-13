@@ -28,7 +28,7 @@ sequenceDiagram
   API-->>UI: user + signInToken
   UI->>Clerk: signIn.create({ strategy ticket })
   Clerk-->>UI: active session
-  UI->>API: PATCH /me/profile or /me/chef-profile (Bearer JWT)
+  UI->>API: PATCH /me/profile (Bearer JWT)
   API->>DB: upsert profile + users identity fields
   API-->>UI: saved profile
 ```
@@ -49,7 +49,7 @@ Single-use, 60s TTL (`CLERK_SIGN_IN_TOKEN_TTL_SECONDS`). Treat it as a credentia
 
 A candidature creates the chef profile with `is_active: false` and `is_verified: false`. `is_verified` is granted by approving the candidature (`POST /admin/chef-applications/:id/approve`); `PATCH /admin/chefs/:id/verification` refuses to verify a profile whose candidature is not approved, and to activate an unverified one. `PATCH /me/chef-profile` is update-only self-edit for verified chefs and accepts neither flag.
 
-> **Not yet enforced:** chef listings, booking assignment, and any future `ChefGuard` **must** filter on `is_active && is_verified`, or unvetted candidates will appear in live booking flows.
+> **Enforced:** the public vitrine lists only verified and active chefs, a custom request can only go to a verified batch cooker, and a card payment is refused for an unverified chef. Any new chef listing or assignment must filter the same way, or unvetted candidates will appear in live flows.
 
 ### Not supported yet
 
@@ -156,7 +156,7 @@ Admins with `users.role = admin` (see bootstrap below) can:
 
 ### BAPI email verification note
 
-Clerk Backend API `users.createUser` **auto-verifies email addresses**. This applies to admin-driven provisioning, to public sign-up via `POST /auth/register` (since 2026-08-03, see below), and to `POST /chef-applications`. The candidature path compensates: its account has no password and the sign-in link goes only to the submitted inbox, so the address is proven before anyone can act on the account.
+Clerk Backend API `users.createUser` **auto-verifies email addresses**. This applies to admin-driven provisioning, to public sign-up via `POST /auth/register` (since 2026-08-03), and to `POST /chef-applications`. The candidature path compensates: its account has no password and the sign-in link goes only to the submitted inbox, so the address is proven before anyone can act on the account.
 
 > **Consequence:** users created through either path skip the email-verification step your Clerk Dashboard enforces on the frontend FAPI flow. Nothing proves the address belongs to the registrant, so typo'd and disposable addresses reach `users`. The registration endpoint is IP rate-limited to blunt bulk abuse, but if you need real address ownership — before transactional booking mail or payments — the endpoint must additionally trigger a Clerk verification flow, or sign-up must move back to frontend FAPI.
 
@@ -200,20 +200,29 @@ Use this after unit tests pass, to validate the full flow before frontend E2E ex
 
 ### A. Sign-up → DB sync (simulates frontend)
 
-User signs up in Clerk (frontend or Clerk Dashboard).
-Either: - Webhook user.created hits POST /webhooks/clerk, or - Frontend calls GET /me with Bearer JWT. - Verify in Postgres:
-`sql
-    SELECT id, clerk_user_id, email, role FROM users WHERE email = 'you@example.com';
-    ` - Expected: row exists, role = 'client'.
+User signs up in Clerk (frontend or Clerk Dashboard). Either:
+
+- Webhook `user.created` hits `POST /webhooks/clerk`, or
+- Frontend calls `GET /me` with Bearer JWT.
+
+Verify in Postgres:
+
+```sql
+SELECT id, clerk_user_id, email, role FROM users WHERE email = 'you@example.com';
+```
+
+- Expected: row exists, `role = 'client'`.
 
 ### B. Sign-in → protected API
 
-Frontend getToken() (or dev BAPI session token).
-Call:
-`bash
-    curl -s http://localhost:8000/thisUser -H "Authorization: Bearer $TOKEN" | jq .
-    curl -s http://localhost:8000/me -H "Authorization: Bearer $TOKEN" | jq .
-    ` - Expected: 200 with user_id / clerkUserId.
+Frontend `getToken()` (or dev BAPI session token). Call:
+
+```bash
+curl -s http://localhost:8000/thisUser -H "Authorization: Bearer $TOKEN" | jq .
+curl -s http://localhost:8000/me -H "Authorization: Bearer $TOKEN" | jq .
+```
+
+- Expected: `200` with `user_id` / `clerkUserId`.
 
 ### C. Bootstrap first admin
 
@@ -246,7 +255,7 @@ curl -s -X POST http://localhost:8000/admin/users -H "Authorization: Bearer $ADM
   }' | jq .
 ```
 
-- Requires a real CLERK_SECRET_KEY (not sk_test_placeholder).
+- Requires a real `CLERK_SECRET_KEY` (not `sk_test_placeholder`).
 
 ## Code map
 
