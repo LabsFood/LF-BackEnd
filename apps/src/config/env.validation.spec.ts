@@ -59,3 +59,27 @@ describe('envValidationSchema — URSSAF_GATEWAY', () => {
     expect(error?.message).toMatch(/URSSAF_GATEWAY/);
   });
 });
+
+describe('envValidationSchema — Cronofy', () => {
+  const validate = (env: Record<string, string>) =>
+    envValidationSchema.validate(
+      { ...REQUIRED, ...env },
+      { allowUnknown: true, abortEarly: false },
+    );
+
+  it('takes the EU data center unless told otherwise, and only de or uk', () => {
+    expect(validate({}).value.CRONOFY_DATA_CENTER).toBe('de');
+    expect(validate({ CRONOFY_DATA_CENTER: 'uk' }).error).toBeUndefined();
+    expect(validate({ CRONOFY_DATA_CENTER: 'us' }).error?.message).toMatch(
+      /CRONOFY_DATA_CENTER/,
+    );
+  });
+
+  it('wants a 32-byte token key', () => {
+    const key = Buffer.alloc(32, 7).toString('base64');
+    expect(validate({ CRONOFY_TOKEN_KEY: key }).error).toBeUndefined();
+    expect(validate({ CRONOFY_TOKEN_KEY: 'c2hvcnQ=' }).error?.message).toMatch(
+      /32 bytes/,
+    );
+  });
+});

@@ -1,6 +1,7 @@
 import * as Joi from 'joi';
 
 import { CLERK_SECRET_KEY_PATTERN } from '../auth/clerk-auth.guard';
+import { CRONOFY_DATA_CENTERS } from './config.loader';
 
 export const envValidationSchema = Joi.object({
   ENVIRONMENT: Joi.string()
@@ -99,7 +100,21 @@ export const envValidationSchema = Joi.object({
 
   CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
   CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
-  CRONOFY_DATA_CENTER: Joi.string().default('us'),
+  /** The Cronofy application is created in one data center: `de` (EU) or `uk`. */
+  CRONOFY_DATA_CENTER: Joi.string()
+    .valid(...CRONOFY_DATA_CENTERS)
+    .default('de'),
+  /** The batchcooking-web page Cronofy redirects to after the batch cooker agrees. */
+  CRONOFY_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+  /** 32 random bytes, base64 (`openssl rand -base64 32`). Seals the stored tokens. */
+  CRONOFY_TOKEN_KEY: Joi.string()
+    .allow('')
+    .optional()
+    .custom((value: string, helpers) =>
+      !value || Buffer.from(value, 'base64').length === 32
+        ? value
+        : helpers.message({ custom: 'CRONOFY_TOKEN_KEY must be 32 bytes, base64' }),
+    ),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
@@ -128,6 +143,8 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_QUOTE_OFFER_CLIENT: Joi.number().optional(),
   BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF: Joi.number().optional(),
   BREVO_TPL_BOOKING_CONFIRMED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_HOLD_REMINDER_CLIENT: Joi.number().optional(),
+  BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
