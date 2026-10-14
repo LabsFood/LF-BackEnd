@@ -41,6 +41,13 @@ describe('messaging rules', () => {
     it('never releases for a booking that is not confirmed', () => {
       expect(isContactReleased([booking('pending', 10)], NOW)).toBe(false);
     });
+
+    it.each(['shopping', 'cooking', 'delivered'] as const)(
+      'keeps releasing while the prestation is %s',
+      (status) => {
+        expect(isContactReleased([booking(status, -1)], NOW)).toBe(true);
+      },
+    );
   });
 
   it('tells when the next release is due', () => {
@@ -58,6 +65,12 @@ describe('messaging rules', () => {
     it('stays open 14 days after a completed prestation, then closes', () => {
       expect(isWritable([booking('completed', -13 * 24)], NOW)).toBe(true);
       expect(isWritable([booking('completed', -15 * 24)], NOW)).toBe(false);
+    });
+
+    it('stays open during the prestation, and 14 days after delivery', () => {
+      expect(isWritable([booking('cooking', -1)], NOW)).toBe(true);
+      expect(isWritable([booking('delivered', -13 * 24)], NOW)).toBe(true);
+      expect(isWritable([booking('delivered', -15 * 24)], NOW)).toBe(false);
     });
 
     it('is closed with no booking left', () => {

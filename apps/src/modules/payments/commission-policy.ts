@@ -38,37 +38,62 @@ export async function commissionForPayment(
 ): Promise<CommissionBreakdown> {
   const quote = await db.quote.findUnique({
     where: { bookingId: booking.id },
-    select: {
-      offers: {
-        where: { status: 'accepted' },
-        take: 1,
-        select: { netCents: true, clientPriceCents: true, commissionBps: true },
-      },
-    },
+    select: { offers: ACCEPTED_OFFER },
   });
-  const offer = quote?.offers[0];
+  const offer = quote?.offers[0] ?? null;
+  const rates = hasDeal(offer)
+    ? defaults
+    : { ...defaults, rateBps: await rateInForce(db, defaults.rateBps) };
+  return commissionFor(offer, amountCents, rates);
+}
 
-  if (offer && offer.clientPriceCents > 0) {
-    const whole = Math.max(0, offer.clientPriceCents - offer.netCents);
-    const amountTtcCents = Math.min(
-      amountCents,
-      Math.round((whole * amountCents) / offer.clientPriceCents),
-    );
-    const amountHtCents = Math.round(
-      (amountTtcCents * BPS) / (BPS + defaults.vatRateBps),
-    );
-    return {
-      rateBps: offer.commissionBps,
-      vatRateBps: defaults.vatRateBps,
-      amountHtCents,
-      amountVatCents: amountTtcCents - amountHtCents,
-      amountTtcCents,
-    };
-  }
+/** The accepted offer of a booking's request, as `commissionFor` reads it. */
+export const ACCEPTED_OFFER = {
+  where: { status: 'accepted' },
+  take: 1,
+  select: { netCents: true, clientPriceCents: true, commissionBps: true },
+} as const;
 
+export interface OfferDeal {
+  netCents: number;
+  clientPriceCents: number;
+  commissionBps: number;
+}
+
+const hasDeal = (offer: OfferDeal | null): offer is OfferDeal =>
+  Boolean(offer && offer.clientPriceCents > 0);
+
+/** The admin's rate, or `fallbackBps` while none was ever saved. */
+export async function rateInForce(
+  db: Pick<Prisma.TransactionClient, 'platformSetting'>,
+  fallbackBps: number,
+): Promise<number> {
   const setting = await db.platformSetting.findUnique({ where: { key: COMMISSION_KEY } });
-  return computeCommission(amountCents, {
-    rateBps: typeof setting?.value === 'number' ? setting.value : defaults.rateBps,
-    vatRateBps: defaults.vatRateBps,
-  });
+  return typeof setting?.value === 'number' ? setting.value : fallbackBps;
+}
+
+/**
+ * The pure core of `commissionForPayment`: the offer's deal when there is one,
+ * otherwise `rates`, whose `rateBps` must already be the rate in force.
+ */
+export function commissionFor(
+  offer: OfferDeal | null,
+  amountCents: number,
+  rates: CommissionRates,
+): CommissionBreakdown {
+  if (!hasDeal(offer)) return computeCommission(amountCents, rates);
+
+  const whole = Math.max(0, offer.clientPriceCents - offer.netCents);
+  const amountTtcCents = Math.min(
+    amountCents,
+    Math.round((whole * amountCents) / offer.clientPriceCents),
+  );
+  const amountHtCents = Math.round((amountTtcCents * BPS) / (BPS + rates.vatRateBps));
+  return {
+    rateBps: offer.commissionBps,
+    vatRateBps: rates.vatRateBps,
+    amountHtCents,
+    amountVatCents: amountTtcCents - amountHtCents,
+    amountTtcCents,
+  };
 }

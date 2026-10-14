@@ -1,7 +1,13 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
 import { CesuPaymentsService } from './cesu-payments.service';
 import { CommissionDebitsService } from './commission-debits.service';
@@ -25,11 +31,14 @@ const PENDING_BOOKING = {
   chefProfile: CESU_READY_CHEF,
 };
 
+const PROOF_ID = 'up_0123456789abcdef01234567';
+
 const DECLARATION: DeclareCesuPaymentDto = {
   bookingId: 'booking-1',
   amountTtc: 6_000,
   medium: 'ecesu',
   issuer: 'pluxee',
+  proofUploadId: PROOF_ID,
 };
 
 /** Row shape the DTO mapper reads back after a write. */
@@ -46,6 +55,8 @@ const declaredRow = (overrides: Record<string, unknown> = {}) => ({
     issuer: 'pluxee',
     status: 'declared',
     clientProofRef: null,
+    clientProofPath: 'cesu-proofs/booking-1/proof/up_old',
+    clientProofUploadedAt: new Date('2026-09-05T09:58:00.000Z'),
     confirmedAt: null,
     rejectionReason: null,
     adminOverride: false,
@@ -71,6 +82,8 @@ describe('CesuPaymentsService', () => {
       findUnique: jest.Mock;
       findMany: jest.Mock;
       aggregate: jest.Mock;
+      findFirst: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
     };
     commission: { findFirst: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     commissionInvoice: { findFirst: jest.Mock };
@@ -93,6 +106,14 @@ describe('CesuPaymentsService', () => {
   };
   let commissionDebits: { maxAttempts: number; onCommissionDue: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock; requireOwnChefProfile: jest.Mock };
+  let proofs: {
+    buildPath: jest.Mock;
+    statObject: jest.Mock;
+    assertAcceptable: jest.Mock;
+    createUploadUrl: jest.Mock;
+    createDownloadUrl: jest.Mock;
+    removeObjects: jest.Mock;
+  };
   let service: CesuPaymentsService;
 
   const covered = (amount: number) => ({ _sum: { amountTtc: amount } });
@@ -133,6 +154,8 @@ describe('CesuPaymentsService', () => {
         findUnique: jest.fn().mockResolvedValue(declaredRow()),
         findMany: jest.fn().mockResolvedValue([declaredRow()]),
         aggregate: jest.fn().mockResolvedValue(covered(0)),
+        findFirst: jest.fn().mockResolvedValue(declaredRow()),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(declaredRow()),
       },
       commission: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -165,11 +188,34 @@ describe('CesuPaymentsService', () => {
     );
     const config = { get, getOrThrow: get };
 
+    proofs = {
+      buildPath: jest.fn(
+        (prefix: string, type: string, id: string) => `${prefix}/${type}/${id}`,
+      ),
+      statObject: jest
+        .fn()
+        .mockResolvedValue({ sizeBytes: 120_000, mimeType: 'application/pdf' }),
+      assertAcceptable: jest.fn(),
+      createUploadUrl: jest.fn().mockResolvedValue({
+        uploadId: PROOF_ID,
+        storagePath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+        method: 'PUT',
+        url: 'https://storage.example/upload',
+        headers: { 'Content-Type': 'application/pdf' },
+        expiresAt: new Date('2026-09-05T12:00:00.000Z'),
+      }),
+      createDownloadUrl: jest
+        .fn()
+        .mockResolvedValue({ url: 'https://storage.example/read' }),
+      removeObjects: jest.fn(),
+    };
+
     service = new CesuPaymentsService(
       prisma as unknown as PrismaService,
       config as unknown as ConfigService,
       users as unknown as UsersService,
       commissionDebits as unknown as CommissionDebitsService,
+      proofs as unknown as KycStorageService,
     );
   });
 
@@ -325,6 +371,116 @@ describe('CesuPaymentsService', () => {
       await expect(service.declare('clerk_1', DECLARATION)).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+
+    it('keeps the e-CESU proof, under the booking, on the settlement', async () => {
+      await service.declare('clerk_1', DECLARATION);
+
+      expect(proofs.statObject).toHaveBeenCalledWith(
+        `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+      );
+      expect(prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cesuSettlement: {
+              create: expect.objectContaining({
+                clientProofPath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+                clientProofUploadedAt: expect.any(Date),
+              }),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('refuses a proof that never arrived', async () => {
+      proofs.statObject.mockRejectedValue(new ConflictException('no file'));
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+    });
+
+    it('declares paper CESU without any proof', async () => {
+      await service.declare('clerk_1', {
+        ...DECLARATION,
+        medium: 'cesu_paper',
+        proofUploadId: undefined,
+      });
+
+      expect(proofs.statObject).not.toHaveBeenCalled();
+      expect(prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cesuSettlement: {
+              create: expect.objectContaining({ clientProofPath: null }),
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('e-CESU proof', () => {
+    it('hands out an upload link under the client’s own booking', async () => {
+      const upload = await service.proofUploadUrl('clerk_1', 'booking-1', {
+        contentType: 'application/pdf',
+        sizeBytes: 120_000,
+      });
+
+      expect(proofs.createUploadUrl).toHaveBeenCalledWith(
+        'cesu-proofs/booking-1',
+        'proof',
+        'application/pdf',
+        120_000,
+      );
+      expect(upload).not.toHaveProperty('storagePath');
+    });
+
+    it('404s the upload link on someone else’s booking', async () => {
+      prisma.booking.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.proofUploadUrl('clerk_1', 'booking-1', {
+          contentType: 'application/pdf',
+          sizeBytes: 1,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('replaces a wrong file while the chef has not answered', async () => {
+      prisma.cesuSettlement.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.replaceProof('clerk_1', 'payment-1', PROOF_ID);
+
+      expect(prisma.cesuSettlement.updateMany).toHaveBeenCalledWith({
+        where: { paymentId: 'payment-1', status: 'declared' },
+        data: expect.objectContaining({
+          clientProofPath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+        }),
+      });
+      expect(proofs.removeObjects).toHaveBeenCalledWith([
+        'cesu-proofs/booking-1/proof/up_old',
+      ]);
+    });
+
+    it('keeps the proof as it is once the chef answered', async () => {
+      prisma.cesuSettlement.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.replaceProof('clerk_1', 'payment-1', PROOF_ID),
+      ).rejects.toThrow(ConflictException);
+      expect(proofs.removeObjects).not.toHaveBeenCalled();
+    });
+
+    it('gives an admin a short-lived link for a dispute', async () => {
+      const link = await service.adminProofUrl('payment-1');
+
+      expect(proofs.createDownloadUrl).toHaveBeenCalledWith(
+        'cesu-proofs/booking-1/proof/up_old',
+      );
+      expect(link).toEqual({ url: 'https://storage.example/read' });
     });
   });
 

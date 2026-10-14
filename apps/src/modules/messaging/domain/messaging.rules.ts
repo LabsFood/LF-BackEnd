@@ -4,6 +4,9 @@
  * changes the answer at the next read.
  */
 
+import type { BookingStatus } from '../../../generated/prisma/client';
+import { GOING_AHEAD } from '../../bookings/domain/booking-status';
+
 /** Contact details are released this long before a confirmed prestation (J-2). */
 export const CONTACT_RELEASE_HOURS = 48;
 
@@ -26,20 +29,20 @@ const DAY_MS = 24 * HOUR_MS;
 export interface PairBooking {
   id: string;
   reference: string | null;
-  status: 'pending' | 'confirmed' | 'completed';
+  status: Exclude<BookingStatus, 'cancelled'>;
   startsAt: Date;
   endsAt: Date;
 }
 
 /**
- * Phone numbers and emails are readable from 48 h before a confirmed prestation
- * until it ends. Outside that window they are masked again, so the release of one
- * prestation does not carry over to the next.
+ * Phone numbers and emails are readable from 48 h before a prestation that is going
+ * ahead (confirmed, or under way) until it ends. Outside that window they are
+ * masked again, so the release of one prestation does not carry over to the next.
  */
 export function isContactReleased(bookings: PairBooking[], now: Date): boolean {
   return bookings.some(
     (b) =>
-      b.status === 'confirmed' &&
+      GOING_AHEAD.includes(b.status) &&
       b.startsAt.getTime() - CONTACT_RELEASE_HOURS * HOUR_MS <= now.getTime() &&
       now.getTime() <= b.endsAt.getTime(),
   );
@@ -49,7 +52,7 @@ export function isContactReleased(bookings: PairBooking[], now: Date): boolean {
 export function nextContactReleaseAt(bookings: PairBooking[], now: Date): Date | null {
   if (isContactReleased(bookings, now)) return null;
   const upcoming = bookings
-    .filter((b) => b.status === 'confirmed' && b.startsAt.getTime() > now.getTime())
+    .filter((b) => GOING_AHEAD.includes(b.status) && b.startsAt.getTime() > now.getTime())
     .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())[0];
   return upcoming
     ? new Date(upcoming.startsAt.getTime() - CONTACT_RELEASE_HOURS * HOUR_MS)
@@ -57,14 +60,14 @@ export function nextContactReleaseAt(bookings: PairBooking[], now: Date): Date |
 }
 
 /**
- * Open while a prestation is ahead or under way, and for 14 days after one is
- * completed. After that the thread is read-only and questions go to support.
+ * Open while a prestation is ahead or under way, and for 14 days after one ends
+ * (`delivered` or `completed`). After that the thread is read-only and questions
+ * go to support.
  */
 export function isWritable(bookings: PairBooking[], now: Date): boolean {
   return bookings.some(
     (b) =>
-      b.status === 'pending' ||
-      b.status === 'confirmed' ||
+      (b.status !== 'delivered' && b.status !== 'completed') ||
       b.endsAt.getTime() + WRITE_GRACE_DAYS * DAY_MS >= now.getTime(),
   );
 }
