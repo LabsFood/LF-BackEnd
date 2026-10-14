@@ -2,7 +2,6 @@ import { Global, Module } from '@nestjs/common';
 
 import { BrevoService } from './brevo.service';
 import { ClerkService } from './clerk.service';
-import { CronofyService } from './cronofy.service';
 import { R2StorageService } from './r2-storage.service';
 import { StripeService } from './stripe.service';
 import { SupabaseService } from './supabase.service';
@@ -12,7 +11,6 @@ import { SupabaseService } from './supabase.service';
   providers: [
     BrevoService,
     ClerkService,
-    CronofyService,
     R2StorageService,
     StripeService,
     SupabaseService,
@@ -20,7 +18,6 @@ import { SupabaseService } from './supabase.service';
   exports: [
     BrevoService,
     ClerkService,
-    CronofyService,
     R2StorageService,
     StripeService,
     SupabaseService,
