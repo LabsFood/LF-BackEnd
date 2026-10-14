@@ -26,7 +26,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Transactional email             | [Brevo](https://www.brevo.com/) (templates in [`brevo/`](./brevo/README.md)) |
 | Payments                        | [Stripe](https://stripe.com/) (Connect, Checkout, SEPA)                    |
 | Object storage                  | Cloudflare R2 (public photos), Supabase Storage (KYC documents, message attachments) |
-| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/) — client scaffolded, not wired to any route |
+| Calendar / chef availability    | |
 | Maps & routing                  | Google Maps API — key configured, not used yet                             |
 
 ## Frontends (outside this repo)
@@ -38,7 +38,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
 2. **API** — Every product flow hits the NestJS backend; **PostgreSQL** holds users and profiles, candidatures and KYC documents, dishes and menus, quotes and bookings, conversations, payments and the audit log; **Redis** (optional) carries the messaging rate limit and realtime events between instances.
-3. **Integrations** — **Stripe**, **Brevo**, **Cloudflare R2** and **Supabase Storage** are called from the backend. Cronofy and Google Maps are configured but not used yet.
+3. **Integrations** — **Stripe**, **Brevo**, **Cloudflare R2** and **Supabase Storage** are called from the backend. Google Maps are configured but not used yet.
 4. **Deploy** — The backend runs in **Docker** on **Railway**, against Supabase Postgres; frontends deploy on their own hosts.
 
 ```mermaid

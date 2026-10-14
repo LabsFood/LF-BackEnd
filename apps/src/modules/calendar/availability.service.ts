@@ -9,7 +9,6 @@ import { DAY_MS, parisToday, ymd } from '../../common/paris-time';
 import { PrismaService } from '../../prisma/prisma.service';
 import { HOLDS_SLOT } from '../bookings/domain/booking-status';
 import { UsersService } from '../users/users.service';
-import { CalendarConnectionService } from './calendar-connection.service';
 import {
   DayException,
   MAX_WINDOW_DAYS,
@@ -32,8 +31,7 @@ const invalid = (message: string) =>
 /**
  * When a batch cooker can take a prestation: their working hours (a weekly
  * template and dated exceptions, as batchcooking-web's agenda edits them), minus
- * every booking that holds their time, minus their calendar's busy time when one
- * is linked.
+ * every booking that holds their time.
  *
  * A batch cooker who never set working hours is `scheduled: false`: no slot is
  * offered, and a booking is checked against the rest only, as the vitrine already
@@ -44,7 +42,6 @@ export class AvailabilityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
-    private readonly calendar: CalendarConnectionService,
   ) {}
 
   async schedule(clerkUserId: string) {
@@ -182,23 +179,20 @@ export class AvailabilityService {
     to: Date,
     ignoreBookingId?: string,
   ): Promise<Span[]> {
-    const [bookings, calendar] = await Promise.all([
-      this.prisma.booking.findMany({
-        where: {
-          chefProfileId,
-          status: { in: [...HOLDS_SLOT] },
-          startsAt: { lt: to },
-          endsAt: { gt: from },
-          ...(ignoreBookingId && { id: { not: ignoreBookingId } }),
-        },
-        select: { startsAt: true, endsAt: true },
-      }),
-      this.calendar.busy(chefProfileId, from, to),
-    ]);
-    return [
-      ...bookings.map((b) => ({ start: b.startsAt.getTime(), end: b.endsAt.getTime() })),
-      ...calendar,
-    ];
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        chefProfileId,
+        status: { in: [...HOLDS_SLOT] },
+        startsAt: { lt: to },
+        endsAt: { gt: from },
+        ...(ignoreBookingId && { id: { not: ignoreBookingId } }),
+      },
+      select: { startsAt: true, endsAt: true },
+    });
+    return bookings.map((b) => ({
+      start: b.startsAt.getTime(),
+      end: b.endsAt.getTime(),
+    }));
   }
 
   private async load(chefProfileId: string, from: Date, to: Date) {

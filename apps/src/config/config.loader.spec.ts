@@ -38,9 +38,9 @@ describe('configLoader', () => {
     expect(configLoader().api.port).toBe(3000);
   });
 
-  it('defaults the Cronofy data centre to de (EU)', () => {
+  it('defaults Cronofy data centre to us', () => {
     delete process.env.CRONOFY_DATA_CENTER;
-    expect(configLoader().cronofy.dataCenter).toBe('de');
+    expect(configLoader().cronofy.dataCenter).toBe('us');
   });
 
   it('reads both Stripe webhook signing secrets', () => {

@@ -27,7 +27,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Domain         | Service                                                                                                                                      | Role in backend                                 |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | Payments       | [Stripe](https://stripe.com/)                                                                                                                | **Connect destination charges** (Checkout page or PaymentIntent), platform commission as `application_fee_amount`, chef Express onboarding, SEPA mandates and commission debits, `POST /webhooks/stripe` |
-| Calendar       | [Cronofy](https://www.cronofy.com/)                                                                                                          | Planned for chef availability; `CronofyService` is a scaffold no route uses |
+| Calendar       |  |
 | Messaging      | In-house: `modules/messaging` (PostgreSQL, REST, `/ws` WebSocket) | Client ↔ chef and support conversations |
 | Email          | [Brevo](https://www.brevo.com/)                                                                                                              | Transactional notifications                     |
 | Maps           | Google Maps API                                                                                                                              | Key configured (`GOOGLE_MAPS_API_KEY`), not used yet |
@@ -53,7 +53,6 @@ flowchart TD
     pg[PostgreSQL]
     redis[Redis]
     stripe[Stripe]
-    cronofy[Cronofy]
     brevo[Brevo]
     maps[GoogleMaps]
     r2[CloudflareR2]
@@ -64,7 +63,6 @@ flowchart TD
     api --> pg
     api --> redis
     api --> stripe
-    api --> cronofy
     api --> brevo
     api --> maps
     api --> r2

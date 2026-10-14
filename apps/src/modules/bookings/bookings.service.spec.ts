@@ -4,7 +4,6 @@ import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
-import { CalendarConnectionService } from '../calendar/calendar-connection.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -67,7 +66,6 @@ describe('BookingsService', () => {
   let users: Record<string, jest.Mock>;
   let lists: Record<string, jest.Mock>;
   let availability: { assertBookable: jest.Mock };
-  let calendar: { syncBooking: jest.Mock };
   let audit: { record: jest.Mock };
   let mailer: { holdReminder: jest.Mock };
   let service: BookingsService;
@@ -110,7 +108,6 @@ describe('BookingsService', () => {
       regenerateForBooking: jest.fn().mockResolvedValue({}),
     };
     availability = { assertBookable: jest.fn().mockResolvedValue(undefined) };
-    calendar = { syncBooking: jest.fn().mockResolvedValue(undefined) };
     audit = { record: jest.fn() };
     mailer = { holdReminder: jest.fn() };
     const config = {
@@ -128,7 +125,6 @@ describe('BookingsService', () => {
       users as unknown as UsersService,
       lists as unknown as ShoppingListsService,
       availability as unknown as AvailabilityService,
-      calendar as unknown as CalendarConnectionService,
       audit as unknown as AuditService,
       mailer as unknown as BookingsMailer,
       config as unknown as ConfigService,
@@ -250,7 +246,6 @@ describe('BookingsService', () => {
           }),
         }),
       );
-      expect(calendar.syncBooking).toHaveBeenCalledWith('booking-1');
     });
 
     it('prices from the formule when one is chosen', async () => {
@@ -353,14 +348,13 @@ describe('BookingsService', () => {
       ).rejects.toMatchObject({ response: { code: 'BOOKING_PAID' } });
     });
 
-    it('cancels an unpaid booking and frees the calendar', async () => {
+    it('cancels an unpaid booking', async () => {
       await service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' });
 
       expect(prisma.booking.update).toHaveBeenCalledWith({
         where: { id: 'booking-1', status: 'pending' },
         data: expect.objectContaining({ status: 'cancelled' }),
       });
-      expect(calendar.syncBooking).toHaveBeenCalledWith('booking-1');
     });
 
     it('reports a change made meanwhile instead of overwriting it', async () => {
@@ -444,7 +438,7 @@ describe('BookingsService', () => {
       expect(mailer.holdReminder).not.toHaveBeenCalled();
     });
 
-    it('cancels at 72 h, only what is still unpaid, and frees the calendar', async () => {
+    it('cancels at 72 h, only what is still unpaid', async () => {
       prisma.booking.findMany
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ id: 'booking-1' }, { id: 'booking-2' }]);
@@ -460,7 +454,6 @@ describe('BookingsService', () => {
         id: 'booking-1',
         status: 'pending',
       });
-      expect(calendar.syncBooking).toHaveBeenCalledTimes(1);
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'booking.expired', subjectId: 'booking-1' }),
       );

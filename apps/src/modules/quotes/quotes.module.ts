@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 
-import { CalendarModule } from '../calendar/calendar.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 import { UsersModule } from '../users/users.module';
@@ -18,7 +17,7 @@ import { QuotesService } from './quotes.service';
  * accepted offer becomes a prestation.
  */
 @Module({
-  imports: [UsersModule, MessagingModule, PlatformSettingsModule, CalendarModule],
+  imports: [UsersModule, MessagingModule, PlatformSettingsModule],
   controllers: [QuotesController, ChefQuotesController, AdminQuotesController],
   providers: [QuotesService, QuoteOffersService, QuotesMailer],
 })

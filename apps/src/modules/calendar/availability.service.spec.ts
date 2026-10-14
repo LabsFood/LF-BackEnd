@@ -1,7 +1,6 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AvailabilityService } from './availability.service';
-import { CalendarConnectionService } from './calendar-connection.service';
 
 // Thursday 12 March 2030, 9:00–12:00 in Paris (UTC+1).
 const START = new Date('2030-03-12T08:00:00Z');
@@ -10,7 +9,6 @@ const MORNINGS = [{ weekday: 1, startMinute: 480, endMinute: 780 }]; // Tuesdays
 
 describe('AvailabilityService', () => {
   let prisma: Record<string, Record<string, jest.Mock>> & { $transaction: jest.Mock };
-  let calendar: { busy: jest.Mock };
   let service: AvailabilityService;
 
   beforeEach(() => {
@@ -30,7 +28,6 @@ describe('AvailabilityService', () => {
       serviceOffer: { findFirst: jest.fn() },
       $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     } as never;
-    calendar = { busy: jest.fn().mockResolvedValue([]) };
     const users = {
       chefIdentity: jest
         .fn()
@@ -39,7 +36,6 @@ describe('AvailabilityService', () => {
     service = new AvailabilityService(
       prisma as unknown as PrismaService,
       users as unknown as UsersService,
-      calendar as unknown as CalendarConnectionService,
     );
   });
 
@@ -55,21 +51,11 @@ describe('AvailabilityService', () => {
       ).rejects.toMatchObject({ response: { code: 'SLOT_UNAVAILABLE' } });
     });
 
-    it('refuses a time another booking or the calendar holds', async () => {
+    it('refuses a time another booking holds', async () => {
       prisma.booking.findMany.mockResolvedValueOnce([
         {
           startsAt: new Date('2030-03-12T10:00:00Z'),
           endsAt: new Date('2030-03-12T11:30:00Z'),
-        },
-      ]);
-      await expect(service.assertBookable('chef-1', START, END)).rejects.toMatchObject({
-        response: { code: 'SLOT_UNAVAILABLE' },
-      });
-
-      calendar.busy.mockResolvedValueOnce([
-        {
-          start: Date.parse('2030-03-12T08:30:00Z'),
-          end: Date.parse('2030-03-12T09:00:00Z'),
         },
       ]);
       await expect(service.assertBookable('chef-1', START, END)).rejects.toMatchObject({

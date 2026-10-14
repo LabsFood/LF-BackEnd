@@ -63,8 +63,7 @@ export class ChefAvailabilityController {
     description:
       'Sends the whole schedule; what is not in it is removed. A `closed` day takes ' +
       'the template off that date, an `extra` range adds to it. Clients can only book ' +
-      'inside these hours, outside other prestations and, once linked, outside the busy ' +
-      'time of the calendar.',
+      'inside these hours, outside other prestations.',
   })
   @ApiOkResponse({ description: 'The schedule as saved.', example: SCHEDULE_EXAMPLE })
   @ApiUnprocessableEntityResponse({

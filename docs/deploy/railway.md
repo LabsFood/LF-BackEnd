@@ -46,7 +46,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
 | `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER`, `CRONOFY_REDIRECT_URI`, `CRONOFY_TOKEN_KEY` | Batch cooker calendars (`/chef/calendar`). `CRONOFY_DATA_CENTER` is `de` (default) or `uk`, the data center the Cronofy application was created in — **any other value stops the API at startup**. `CRONOFY_REDIRECT_URI` is the batchcooking-web agenda page Cronofy sends the batch cooker back to (registered in the Cronofy app). `CRONOFY_TOKEN_KEY` is 32 random bytes, base64 (`openssl rand -base64 32`): it seals the stored tokens, so changing it disconnects every calendar. Without all five, `/chef/calendar` answers 503 `CALENDAR_UNAVAILABLE` and bookings are checked against working hours and other bookings only |
+| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar — not used yet |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |

@@ -6,9 +6,6 @@ const optionalNumber = (value?: string): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
-export const CRONOFY_DATA_CENTERS = ['uk', 'de'] as const;
-export type CronofyDataCenter = (typeof CRONOFY_DATA_CENTERS)[number];
-
 export const URSSAF_GATEWAY_MODES = ['disabled', 'simulated'] as const;
 export type UrssafGatewayMode = (typeof URSSAF_GATEWAY_MODES)[number];
 
@@ -87,20 +84,10 @@ export interface AppConfig {
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
   };
-  /**
-   * Batch cooker calendars (`/chef/calendar`). Optional: without the id, secret,
-   * redirect and key, those routes answer 503 CALENDAR_UNAVAILABLE and bookings
-   * are checked against working hours and other bookings only.
-   */
   cronofy: {
     clientId?: string;
     clientSecret?: string;
-    /** Where the Cronofy application lives: `de` (EU) or `uk`. */
-    dataCenter: CronofyDataCenter;
-    /** The batchcooking-web page Cronofy sends the batch cooker back to. */
-    redirectUri?: string;
-    /** 32 bytes, base64: seals the tokens at rest and signs the OAuth `state`. */
-    tokenKey?: string;
+    dataCenter: string;
   };
   brevo: {
     apiKey?: string;
@@ -237,11 +224,9 @@ export const configLoader = (): AppConfig => ({
       'http://localhost:3005/chef/onboarding/stripe/return',
   },
   cronofy: {
-    clientId: process.env.CRONOFY_CLIENT_ID || undefined,
-    clientSecret: process.env.CRONOFY_CLIENT_SECRET || undefined,
-    dataCenter: (process.env.CRONOFY_DATA_CENTER ?? 'de') as CronofyDataCenter,
-    redirectUri: process.env.CRONOFY_REDIRECT_URI || undefined,
-    tokenKey: process.env.CRONOFY_TOKEN_KEY || undefined,
+    clientId: process.env.CRONOFY_CLIENT_ID,
+    clientSecret: process.env.CRONOFY_CLIENT_SECRET,
+    dataCenter: process.env.CRONOFY_DATA_CENTER ?? 'us',
   },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,

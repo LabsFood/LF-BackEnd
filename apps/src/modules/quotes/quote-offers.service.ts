@@ -11,7 +11,6 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CalendarConnectionService } from '../calendar/calendar-connection.service';
 import { MessagingService } from '../messaging/services/messaging.service';
 import { findCommissionBlock } from '../payments/commission-standing';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
@@ -59,7 +58,6 @@ export class QuoteOffersService {
     private readonly messaging: MessagingService,
     private readonly mailer: QuotesMailer,
     private readonly audit: AuditService,
-    private readonly calendar: CalendarConnectionService,
     private readonly config: ConfigService,
   ) {}
 
@@ -431,7 +429,7 @@ export class QuoteOffersService {
     return count;
   }
 
-  /** Conversation, calendar and emails. Best-effort: the prestation already exists. */
+  /** Conversation and emails. Best-effort: the prestation already exists. */
   private async afterAcceptance(
     quote: LoadedQuote,
     offer: LoadedQuote['offers'][number],
@@ -445,7 +443,6 @@ export class QuoteOffersService {
         error instanceof Error ? error.stack : String(error),
       );
     }
-    await this.calendar.syncBooking(ctx.bookingId);
     try {
       const [chef, booking] = await Promise.all([
         this.prisma.chefProfile.findUnique({

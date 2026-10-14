@@ -9,7 +9,6 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Length,
   Matches,
   Max,
   MaxLength,
@@ -140,23 +139,4 @@ export class PublicSlotsQueryDto extends WindowQueryDto {
   })
   @IsUUID()
   offerId!: string;
-}
-
-export class ConnectCalendarDto {
-  @ApiProperty({ description: 'The `code` Cronofy put in the redirect.' })
-  @IsString()
-  @Length(1, 512)
-  code!: string;
-
-  @ApiProperty({ description: 'The `state` Cronofy put in the redirect, unchanged.' })
-  @IsString()
-  @Length(1, 512)
-  state!: string;
-}
-
-export class SelectCalendarDto {
-  @ApiProperty({ description: 'One of the `calendars[].id` the agenda lists.' })
-  @IsString()
-  @Length(1, 128)
-  calendarId!: string;
 }

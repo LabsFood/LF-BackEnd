@@ -1,5 +1,9 @@
 # Role-segmented bookings, batch cooker availability and Cronofy
 
+> **2026-10-14: Phase C (Cronofy) was dropped and rolled back.** The calendar is built in-house:
+> see [`in-house-calendar.plan.md`](./in-house-calendar.plan.md). Phases A and B stand. Everything
+> below about Cronofy, tokens, `CRONOFY_*`, `chef_calendar_connections` and `syncBooking` is history.
+
 ## Context
 
 **Bookings.** The bookings API is still a read-only stub under `@Controller('bookings')`:

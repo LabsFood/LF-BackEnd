@@ -47,8 +47,8 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'A batch cooker writes dishes with their recipe, composes menus and publishes ' +
     'them. Public at once; admins check afterwards.',
   chefBookings:
-    'The batch cooker’s prestations (bookings) and agenda: working hours, free ' +
-    'slots, and the calendar linked through Cronofy.',
+    'The batch cooker’s prestations (bookings) and agenda: working hours and the ' +
+    'free slots they leave.',
   catalog:
     'What clients can order: the week’s cooks and their menus, each cook’s page. ' +
     'Public.',

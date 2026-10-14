@@ -15,7 +15,7 @@ import { PublicSlotsQueryDto } from './dto/availability.dto';
 
 /** No token: what a visitor sees before booking. Free start times only, never why. */
 @Controller('chefs')
-// Public, and it may call Cronofy: rate-limited per route and IP.
+// Public and unauthenticated: rate-limited per route and IP.
 @UseGuards(ThrottlerGuard)
 @Throttle({ register: { limit: 30, ttl: 60_000 } })
 export class PublicAvailabilityController {

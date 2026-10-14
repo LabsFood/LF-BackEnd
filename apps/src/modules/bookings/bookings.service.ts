@@ -24,7 +24,6 @@ import {
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
-import { CalendarConnectionService } from '../calendar/calendar-connection.service';
 import { RECIPE_FIELDS } from '../catalog/catalog.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
 import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
@@ -113,7 +112,6 @@ export class BookingsService {
     private readonly users: UsersService,
     private readonly lists: ShoppingListsService,
     private readonly availability: AvailabilityService,
-    private readonly calendar: CalendarConnectionService,
     private readonly audit: AuditService,
     private readonly mailer: BookingsMailer,
     private readonly config: ConfigService,
@@ -290,8 +288,6 @@ export class BookingsService {
         },
       });
     }
-    // Best-effort and logged: a slow calendar never holds the answer back.
-    void this.calendar.syncBooking(id);
     return this.view(caller, id);
   }
 
@@ -401,7 +397,6 @@ export class BookingsService {
         },
       });
     }
-    if (moving || when) void this.calendar.syncBooking(id);
     return this.view(caller, id);
   }
 
@@ -481,7 +476,6 @@ export class BookingsService {
           subjectId: id,
           metadata: { reason: 'unpaid 72 h after booking' },
         });
-        await this.calendar.syncBooking(id);
       }
 
       if (reminded || expired) {
