@@ -8,74 +8,86 @@ datasource db {
 }
 
 model User {
-  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clerkUserId             String                    @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
-  email                   String                    @unique(map: "uq_users_email") @db.VarChar(320)
-  fullName                String?                   @map("full_name") @db.VarChar(255)
-  role                    UserRole                  @default(client)
-  phone                   String?                   @db.VarChar(32)
+  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId              String                    @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
+  email                    String                    @unique(map: "uq_users_email") @db.VarChar(320)
+  fullName                 String?                   @map("full_name") @db.VarChar(255)
+  role                     UserRole                  @default(client)
+  phone                    String?                   @db.VarChar(32)
   /// Profile photo on Cloudflare R2, for every role. Set only by the photo upload,
   /// which checks the file.
-  avatarUrl               String?                   @map("avatar_url") @db.VarChar(512)
-  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  avatarUrl                String?                   @map("avatar_url") @db.VarChar(512)
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Set when Clerk deleted the account but bookings keep the row: its personal
   /// data is blanked (`UsersService.deleteByClerkId`).
-  deletedAt               DateTime?                 @map("deleted_at") @db.Timestamptz(6)
-  bookingsAsClient        Booking[]                 @relation("BookingClient")
-  chefProfile             ChefProfile?
-  clientProfile           ClientProfile?
-  quotes                  Quote[]                   @relation("QuoteClient")
-  applicationsDecided     ChefApplication[]         @relation("ChefApplicationDecidedBy")
-  documentsDecided        ChefDocument[]            @relation("ChefDocumentDecidedBy")
-  auditEntries            AuditLog[]                @relation("AuditLogActor")
-  mealsAuthored           Meal[]                    @relation("MealAuthor")
-  menusAuthored           Menu[]                    @relation("MenuAuthor")
-  conversationsAsClient   Conversation[]            @relation("ConversationClient")
-  supportConversation     Conversation?             @relation("ConversationSupportUser")
-  conversationMemberships ConversationParticipant[]
-  messagesSent            Message[]                 @relation("MessageSender")
-  messageAttachments      MessageAttachment[]       @relation("MessageAttachmentUploader")
-  contactReplies          ContactMessageReply[]     @relation("ContactReplySender")
+  deletedAt                DateTime?                 @map("deleted_at") @db.Timestamptz(6)
+  bookingsAsClient         Booking[]                 @relation("BookingClient")
+  chefProfile              ChefProfile?
+  clientProfile            ClientProfile?
+  quotes                   Quote[]                   @relation("QuoteClient")
+  applicationsDecided      ChefApplication[]         @relation("ChefApplicationDecidedBy")
+  documentsDecided         ChefDocument[]            @relation("ChefDocumentDecidedBy")
+  auditEntries             AuditLog[]                @relation("AuditLogActor")
+  mealsAuthored            Meal[]                    @relation("MealAuthor")
+  menusAuthored            Menu[]                    @relation("MenuAuthor")
+  conversationsAsClient    Conversation[]            @relation("ConversationClient")
+  supportConversation      Conversation?             @relation("ConversationSupportUser")
+  conversationMemberships  ConversationParticipant[]
+  messagesSent             Message[]                 @relation("MessageSender")
+  messageAttachments       MessageAttachment[]       @relation("MessageAttachmentUploader")
+  contactReplies           ContactMessageReply[]     @relation("ContactReplySender")
+  cesuSettlementsConfirmed CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
+  urssafLinks              UrssafLink[]              @relation("UrssafLinkClient")
 
   @@map("users")
 }
 
 model ChefProfile {
-  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId               String             @unique(map: "uq_chef_profiles_user_id") @map("user_id") @db.Uuid
-  displayName          String             @map("display_name") @db.VarChar(255)
-  bio                  String?
-  city                 String?            @db.VarChar(120)
-  serviceRadiusKm      Int                @default(10) @map("service_radius_km")
-  isActive             Boolean            @default(false) @map("is_active")
-  isVerified           Boolean            @default(false) @map("is_verified")
-  cronofyProfileId     String?            @map("cronofy_profile_id") @db.VarChar(128)
-  stripeAccountId      String?            @map("stripe_account_id") @db.VarChar(128)
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String              @unique(map: "uq_chef_profiles_user_id") @map("user_id") @db.Uuid
+  displayName            String              @map("display_name") @db.VarChar(255)
+  bio                    String?
+  city                   String?             @db.VarChar(120)
+  serviceRadiusKm        Int                 @default(10) @map("service_radius_km")
+  isActive               Boolean             @default(false) @map("is_active")
+  isVerified             Boolean             @default(false) @map("is_verified")
+  cronofyProfileId       String?             @map("cronofy_profile_id") @db.VarChar(128)
+  stripeAccountId        String?             @map("stripe_account_id") @db.VarChar(128)
   /// Zones the chef covers, copied from the approved candidature. Shape matches
   /// `chef_applications.intervention_zones`.
-  interventionZones    Json               @default("[]") @map("intervention_zones")
+  interventionZones      Json                @default("[]") @map("intervention_zones")
   /// Service-a-la-personne declaration route, carried over from the candidature.
-  sapPath              SapPath?           @map("sap_path")
-  sapDeclarationNumber String?            @map("sap_declaration_number") @db.VarChar(16)
+  sapPath                SapPath?            @map("sap_path")
+  sapDeclarationNumber   String?             @map("sap_declaration_number") @db.VarChar(16)
   /// Set by the daily dossier job when a blocking document expires, cleared when a
   /// valid one is deposited. Distinguishes an automatic suspension from an admin
   /// deactivation: only an automatic one may be undone automatically.
-  autoSuspendedAt      DateTime?          @map("auto_suspended_at") @db.Timestamptz(6)
-  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  availabilitySlots    AvailabilitySlot[]
-  bookings             Booking[]          @relation("BookingChefProfile")
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_profiles_user_id")
-  serviceOffers        ServiceOffer[]
-  documents            ChefDocument[]
-  application          ChefApplication?   @relation("ChefProfileApplication")
-  dishes               Meal[]             @relation("MealOwner")
-  menus                Menu[]             @relation("MenuOwner")
-  dishesOffered        Meal[]             @relation("MealOffer")
-  menusOffered         Menu[]             @relation("MenuOffer")
-  showcaseWeeks        ChefShowcaseWeek[]
-  conversations        Conversation[]     @relation("ConversationChefProfile")
+  autoSuspendedAt        DateTime?           @map("auto_suspended_at") @db.Timestamptz(6)
+  createdAt              DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  availabilitySlots      AvailabilitySlot[]
+  bookings               Booking[]           @relation("BookingChefProfile")
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_profiles_user_id")
+  serviceOffers          ServiceOffer[]
+  documents              ChefDocument[]
+  application            ChefApplication?    @relation("ChefProfileApplication")
+  dishes                 Meal[]              @relation("MealOwner")
+  menus                  Menu[]              @relation("MenuOwner")
+  dishesOffered          Meal[]              @relation("MealOffer")
+  menusOffered           Menu[]              @relation("MenuOffer")
+  showcaseWeeks          ChefShowcaseWeek[]
+  conversations          Conversation[]      @relation("ConversationChefProfile")
+  quoteOffers            QuoteOffer[]        @relation("QuoteOfferChefProfile")
+  /// Mirrored 1:1 from the Stripe `account.updated` webhook: never set by hand.
+  stripeChargesEnabled   Boolean             @default(false) @map("stripe_charges_enabled")
+  stripePayoutsEnabled   Boolean             @default(false) @map("stripe_payouts_enabled")
+  stripeDetailsSubmitted Boolean             @default(false) @map("stripe_details_submitted")
+  sapProfile             SapProfile?
+  sepaMandate            SepaMandate?
+  commissions            Commission[]
+  commissionInvoices     CommissionInvoice[]
+  urssafLinks            UrssafLink[]
 
   @@map("chef_profiles")
 }
@@ -141,7 +153,9 @@ model Booking {
   chefProfile           ChefProfile   @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
   formule               Formule?      @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
   shoppingList          ShoppingList?
+  quote                 Quote?        @relation("QuoteBooking")
   serviceOffer          ServiceOffer  @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
+  payments              Payment[]
 
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
@@ -336,26 +350,102 @@ model ShoppingItem {
 }
 
 model Quote {
-  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reference           String      @unique(map: "quotes_reference_key") @db.VarChar(32)
-  clientId            String      @map("client_id") @db.Uuid
-  title               String      @db.VarChar(255)
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference           String       @unique(map: "quotes_reference_key") @db.VarChar(32)
+  clientId            String       @map("client_id") @db.Uuid
+  title               String       @db.VarChar(255)
   persons             Int
-  mealsCount          Int         @map("meals_count")
-  cuisine             String      @db.VarChar(120)
-  diet                String[]    @default([])
+  mealsCount          Int          @map("meals_count")
+  cuisine             String       @db.VarChar(120)
+  diet                String[]     @default([])
   brief               String
-  status              QuoteStatus @default(submitted)
-  assignedChefUserId  String?     @map("assigned_chef_user_id") @db.Uuid
-  quoteAmountTtc      Int?        @map("quote_amount_ttc")
-  quoteAmountAfterTax Int?        @map("quote_amount_after_tax")
-  quoteNote           String?     @map("quote_note")
-  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  client              User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
+  status              QuoteStatus  @default(submitted)
+  assignedChefUserId  String?      @map("assigned_chef_user_id") @db.Uuid
+  quoteAmountTtc      Int?         @map("quote_amount_ttc")
+  quoteAmountAfterTax Int?         @map("quote_amount_after_tax")
+  quoteNote           String?      @map("quote_note")
+  /// What the request is for, in the client's words ("Anniversaire", "Repas de famille").
+  occasion            String?      @db.VarChar(160)
+  /// The day the client wants the prestation. Null on requests older than the offer flow.
+  desiredDate         DateTime?    @map("desired_date") @db.Date
+  /// `morning`, `afternoon` or `evening`: see `TIME_SLOTS`.
+  timeSlot            String?      @map("time_slot") @db.VarChar(16)
+  addressLine         String?      @map("address_line") @db.VarChar(255)
+  addressCity         String?      @map("address_city") @db.VarChar(120)
+  addressPostalCode   String?      @map("address_postal_code") @db.VarChar(16)
+  allergies           String[]     @default([])
+  /// What the client is ready to spend, as a hint for the batch cooker. Cents.
+  budgetCents         Int?         @map("budget_cents")
+  /// Why the batch cooker turned the request down, read by the admin who reassigns it.
+  chefDeclineReason   String?      @map("chef_decline_reason")
+  chefDeclinedAt      DateTime?    @map("chef_declined_at") @db.Timestamptz(6)
+  /// The prestation an accepted offer became. Set once, by the acceptance.
+  bookingId           String?      @unique(map: "uq_quotes_booking_id") @map("booking_id") @db.Uuid
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  client              User         @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
+  booking             Booking?     @relation("QuoteBooking", fields: [bookingId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_quotes_booking_id")
+  offers              QuoteOffer[]
 
   @@index([clientId], map: "ix_quotes_client_id")
+  @@index([assignedChefUserId, status], map: "ix_quotes_assigned_chef_status")
   @@map("quotes")
+}
+
+enum QuoteOfferStatus {
+  sent
+  viewed
+  accepted
+  declined
+  expired
+  withdrawn
+
+  @@map("quote_offer_status")
+}
+
+/// What a batch cooker proposes for a request. The batch cooker types what they
+/// want to earn; the three amounts are computed once, with the commission rate
+/// of that day, and never recomputed: an offer the client has read must not move.
+model QuoteOffer {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteId             String           @map("quote_id") @db.Uuid
+  chefProfileId       String           @map("chef_profile_id") @db.Uuid
+  /// What the batch cooker receives. Cents.
+  netCents            Int              @map("net_cents")
+  /// The commission rate applied, in basis points (1500 = 15 %).
+  commissionBps       Int              @map("commission_bps")
+  /// What the client pays. Cents.
+  clientPriceCents    Int              @map("client_price_cents")
+  /// What the client really bears after the 50 % tax credit. Cents.
+  afterTaxCreditCents Int              @map("after_tax_credit_cents")
+  /// Set when the batch cooker proposes another day or slot than the one asked.
+  proposedDate        DateTime?        @map("proposed_date") @db.Date
+  proposedTimeSlot    String?          @map("proposed_time_slot") @db.VarChar(16)
+  conditions          String?
+  validUntil          DateTime         @map("valid_until") @db.Timestamptz(6)
+  status              QuoteOfferStatus @default(sent)
+  viewedAt            DateTime?        @map("viewed_at") @db.Timestamptz(6)
+  decidedAt           DateTime?        @map("decided_at") @db.Timestamptz(6)
+  declineReason       String?          @map("decline_reason")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  quote       Quote       @relation(fields: [quoteId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_quote_id")
+  chefProfile ChefProfile @relation("QuoteOfferChefProfile", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_chef_profile_id")
+
+  @@index([quoteId, createdAt], map: "ix_quote_offers_quote_created_at")
+  @@index([status, validUntil], map: "ix_quote_offers_status_valid_until")
+  @@map("quote_offers")
+}
+
+/// Platform-wide settings an admin can change without a deploy. One row per key.
+model PlatformSetting {
+  key             String   @id @db.VarChar(64)
+  value           Json
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_settings")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -427,6 +517,10 @@ enum QuoteStatus {
   quoted
   accepted
   declined
+  /// The batch cooker turned it down: an admin must give it to another one.
+  chef_declined
+  /// The client withdrew it.
+  cancelled
 
   @@map("quote_status")
 }
@@ -890,4 +984,414 @@ model ContactMessageReply {
 
   @@index([contactMessageId], map: "ix_contact_message_replies_contact_message_id")
   @@map("contact_message_replies")
+}
+
+// ── Payments (card, prefinanced CESU, commission invoices) ──
+
+/// One row per payment attempt on a booking. Deliberately not unique on `bookingId`:
+/// a failed CB attempt must be retryable with a fresh PaymentIntent, so a booking may
+/// carry several rows — the most recent non-`failed` one is the live attempt.
+model Payment {
+  id                      String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId               String          @map("booking_id") @db.Uuid
+  method                  PaymentMethod   @default(cb)
+  status                  PaymentStatus   @default(pending)
+  amountTtc               Int             @map("amount_ttc")
+  currency                String          @default("EUR") @db.VarChar(3)
+  stripePaymentIntentId   String?         @unique(map: "uq_payments_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar(128)
+  stripeChargeId          String?         @map("stripe_charge_id") @db.VarChar(128)
+  taxCreditEligibleAmount Int?            @map("tax_credit_eligible_amount")
+  paidAt                  DateTime?       @map("paid_at") @db.Timestamptz(6)
+  refundedAmount          Int?            @map("refunded_amount")
+  refundedAt              DateTime?       @map("refunded_at") @db.Timestamptz(6)
+  failureReason           String?         @map("failure_reason")
+  /// Extension slot for the avance immédiate / CESU flows — avoids a throwaway migration.
+  metadata                Json?
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  booking                 Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
+  commission              Commission?
+  cesuSettlement          CesuSettlement?
+
+  /// `uq_payments_live_cesu_booking_id` — a partial unique index on
+  /// (booking_id) WHERE method = 'cesu' AND status <> 'failed' — also guards this table.
+  /// Prisma cannot express a partial index, so it lives only in the migration; do not
+  /// "reconcile" the schema by dropping it.
+  @@index([bookingId], map: "ix_payments_booking_id")
+  @@index([status], map: "ix_payments_status")
+  @@map("payments")
+}
+
+/// Platform commission on a payment. Rate and VAT are frozen at creation time so an
+/// audit can replay the amounts even after the configured rate changes.
+/// `chefProfileId` is denormalised (unlike on `Payment`) because "commission generated
+/// by chef X" is a recurring admin query.
+model Commission {
+  id                  String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId           String                     @unique(map: "uq_commissions_payment_id") @map("payment_id") @db.Uuid
+  chefProfileId       String                     @map("chef_profile_id") @db.Uuid
+  rateBps             Int                        @map("rate_bps")
+  vatRateBps          Int                        @map("vat_rate_bps")
+  /// Amount the rate was applied to. Without it an audit cannot replay
+  /// `rateBps x basisAmountCents = amountHtCents` on a booking paid in several
+  /// instalments, because the booking total is no longer the base of any single line.
+  basisAmountCents    Int                        @map("basis_amount_cents")
+  amountHtCents       Int                        @map("amount_ht_cents")
+  amountVatCents      Int                        @map("amount_vat_cents")
+  amountTtcCents      Int                        @map("amount_ttc_cents")
+  collectionMethod    CommissionCollectionMethod @default(stripe_application_fee) @map("collection_method")
+  status              CommissionStatus           @default(pending)
+  collectedAt         DateTime?                  @map("collected_at") @db.Timestamptz(6)
+  /// Set when the commission is billed on a `CommissionInvoice` (facture B). Null while
+  /// the commission is still `pending` and waiting for the monthly batch.
+  commissionInvoiceId String?                    @map("commission_invoice_id") @db.Uuid
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment             Payment                    @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_commissions_payment_id")
+  chefProfile         ChefProfile                @relation(fields: [chefProfileId], references: [id], map: "fk_commissions_chef_profile_id")
+  commissionInvoice   CommissionInvoice?         @relation(fields: [commissionInvoiceId], references: [id], map: "fk_commissions_commission_invoice_id")
+
+  @@index([chefProfileId], map: "ix_commissions_chef_profile_id")
+  @@index([commissionInvoiceId], map: "ix_commissions_commission_invoice_id")
+  @@map("commissions")
+}
+
+/// "Service à la personne" declaration for a chef. Type A = the chef holds their own
+/// NOVA declaration; Type B = the chef declares through a cooperative (Unipros-style).
+/// Both external statuses stay inert until the URSSAF / CRCESU integrations exist.
+model SapProfile {
+  id                          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId               String             @unique(map: "uq_sap_profiles_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  declarationType             SapDeclarationType @map("declaration_type")
+  novaCode                    String?            @map("nova_code") @db.VarChar(64)
+  urssafTiersPrestationStatus SapExternalStatus  @default(not_started) @map("urssaf_tiers_prestation_status")
+  cooperativeName             String?            @map("cooperative_name") @db.VarChar(255)
+  cooperativeMembershipProof  String?            @map("cooperative_membership_proof") @db.VarChar(512)
+  crcesuNan                   String?            @map("crcesu_nan") @db.VarChar(64)
+  crcesuAffiliationStatus     SapExternalStatus  @default(not_started) @map("crcesu_affiliation_status")
+  /// Chef opt-in to being paid in prefinanced CESU. Eligibility is this flag **and** a
+  /// `crcesuNan`: without the NAN a client cannot add the chef on their issuer's portal,
+  /// so accepting the payment method would be a dead end.
+  acceptsCesu                 Boolean            @default(false) @map("accepts_cesu")
+  createdAt                   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile                 ChefProfile        @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_sap_profiles_chef_profile_id")
+
+  @@map("sap_profiles")
+}
+
+/// SEPA Direct Debit mandate used to collect the platform commission from the chef.
+/// Foundation only: this phase records the mandate, it never debits. CB payments do
+/// not require one — their commission is split by Stripe Connect at charge time.
+model SepaMandate {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId         String            @unique(map: "uq_sepa_mandates_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  stripeCustomerId      String?           @map("stripe_customer_id") @db.VarChar(128)
+  stripeSetupIntentId   String?           @map("stripe_setup_intent_id") @db.VarChar(128)
+  stripePaymentMethodId String?           @map("stripe_payment_method_id") @db.VarChar(128)
+  stripeMandateId       String?           @map("stripe_mandate_id") @db.VarChar(128)
+  status                SepaMandateStatus @default(pending)
+  ibanLast4             String?           @map("iban_last4") @db.VarChar(4)
+  signedAt              DateTime?         @map("signed_at") @db.Timestamptz(6)
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile           ChefProfile       @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_sepa_mandates_chef_profile_id")
+
+  @@map("sepa_mandates")
+}
+
+/// A client's declaration that they paid a booking with prefinanced CESU, and the
+/// chef's answer to it.
+///
+/// **The funds never transit through the platform**: the client pushes the payment from
+/// their issuer's beneficiary area (Pluxee, Edenred, UP, BIMPLI, Domiserve) using the
+/// chef's NAN, and the issuer credits the chef directly. No issuer exposes an API or a
+/// normalised transaction reference, and Domiserve runs outside the CRCESU circuit
+/// entirely, so **nothing here can be verified programmatically** — the chef confirms,
+/// because the chef is who receives both the issuer's notification and the money.
+///
+/// Deliberately thin for paper CESU: no titre count, no millesime, no deposit date, no
+/// reimbursed amount. The platform provides the payment method, the invoice and the
+/// commission debit; depositing, validating and cashing paper titres is the chef's own
+/// responsibility (CGU/CGV). Electronic CESU makes that moot anyway — the issuer's
+/// portal refuses to spend an expired titre.
+model CesuSettlement {
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId         String               @unique(map: "uq_cesu_settlements_payment_id") @map("payment_id") @db.Uuid
+  medium            CesuMedium
+  /// Null for paper: the issuer only matters for the e-CESU support conversation.
+  issuer            CesuIssuer?
+  status            CesuSettlementStatus @default(declared)
+  /// Free-text reference the client copies from their issuer's confirmation. A
+  /// supporting document, **never a proof** — no issuer reference is verifiable.
+  clientProofRef    String?              @map("client_proof_ref") @db.VarChar(255)
+  confirmedAt       DateTime?            @map("confirmed_at") @db.Timestamptz(6)
+  rejectionReason   String?              @map("rejection_reason")
+  /// Who settled it. An admin force-settle writes a tax-credit line in a chef's name,
+  /// so it is traced rather than indistinguishable from the chef's own confirmation.
+  confirmedByUserId String?              @map("confirmed_by_user_id") @db.Uuid
+  adminOverride     Boolean              @default(false) @map("admin_override")
+  adminProofRef     String?              @map("admin_proof_ref") @db.VarChar(255)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment           Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade, map: "fk_cesu_settlements_payment_id")
+  confirmedBy       User?                @relation("CesuSettlementConfirmedBy", fields: [confirmedByUserId], references: [id], map: "fk_cesu_settlements_confirmed_by_user_id")
+
+  @@index([status], map: "ix_cesu_settlements_status")
+  @@map("cesu_settlements")
+}
+
+/// **Facture B** — the commission invoice the platform issues to the chef, and the legal
+/// basis of the SEPA debit. The invoice always precedes the debit: a debit collects
+/// against a receivable, it does not create one.
+///
+/// `paymentMethod` mirrors facture A's field and is what says whether the commission was
+/// already withheld (`cb`, via `application_fee_amount`) or is still to be collected
+/// (`cesu`, via direct debit).
+///
+/// `pdfObjectKey` / `s3ArchivedAt` are laid down empty on purpose: rendering and the
+/// 10-year S3 retention belong to the invoicing workstream, which fills them without a
+/// destructive migration. `LF-COM-<year>-NNNN` is **the** numbering scheme for facture B —
+/// do not invent a second one.
+model CommissionInvoice {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId    String                     @map("chef_profile_id") @db.Uuid
+  invoiceNumber    String                     @unique(map: "uq_commission_invoices_invoice_number") @map("invoice_number") @db.VarChar(32)
+  issuedAt         DateTime                   @default(now()) @map("issued_at") @db.Timestamptz(6)
+  amountHtCents    Int                        @map("amount_ht_cents")
+  amountVatCents   Int                        @map("amount_vat_cents")
+  amountTtcCents   Int                        @map("amount_ttc_cents")
+  /// Copied from the billed commissions and frozen, exactly like on `Commission`.
+  rateBps          Int                        @map("rate_bps")
+  vatRateBps       Int                        @map("vat_rate_bps")
+  paymentMethod    PaymentMethod              @map("payment_method")
+  collectionMethod CommissionCollectionMethod @map("collection_method")
+  status           CommissionInvoiceStatus    @default(issued)
+  /// Set only for a `monthly_batch` invoice; null when one payment produced one invoice.
+  periodStart      DateTime?                  @map("period_start") @db.Timestamptz(6)
+  periodEnd        DateTime?                  @map("period_end") @db.Timestamptz(6)
+  pdfObjectKey     String?                    @map("pdf_object_key") @db.VarChar(512)
+  s3ArchivedAt     DateTime?                  @map("s3_archived_at") @db.Timestamptz(6)
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile      ChefProfile                @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_commission_invoices_chef_profile_id")
+  commissions      Commission[]
+  debits           CommissionDebit[]
+
+  @@index([chefProfileId], map: "ix_commission_invoices_chef_profile_id")
+  @@index([status], map: "ix_commission_invoices_status")
+  @@map("commission_invoices")
+}
+
+/// One **collection attempt** against a facture B. N debits for 1 invoice: a failed
+/// debit does not cancel the receivable, so a retry reuses the invoice number instead of
+/// burning a new one and leaving a hole in the sequence.
+///
+/// `clawbackWindowEndsAt` is `settledAt + 56 days`: under the SEPA **CORE** scheme — the
+/// only one Stripe supports — the debtor can dispute "no questions asked" for 8 weeks and
+/// the bank honours it automatically. A settled commission is therefore never final
+/// before that date.
+model CommissionDebit {
+  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  commissionInvoiceId   String                @map("commission_invoice_id") @db.Uuid
+  /// Null between the row being created and the Stripe call returning. The row is
+  /// written first on purpose: its id seeds the idempotency key, so a crash mid-call is
+  /// repaired by replaying the identical request rather than by charging twice.
+  stripePaymentIntentId String?               @unique(map: "uq_commission_debits_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar(128)
+  amountTtcCents        Int                   @map("amount_ttc_cents")
+  status                CommissionDebitStatus @default(pending)
+  attemptNumber         Int                   @default(1) @map("attempt_number")
+  failureReason         String?               @map("failure_reason")
+  initiatedAt           DateTime?             @map("initiated_at") @db.Timestamptz(6)
+  settledAt             DateTime?             @map("settled_at") @db.Timestamptz(6)
+  clawbackWindowEndsAt  DateTime?             @map("clawback_window_ends_at") @db.Timestamptz(6)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  commissionInvoice     CommissionInvoice     @relation(fields: [commissionInvoiceId], references: [id], onDelete: Restrict, map: "fk_commission_debits_commission_invoice_id")
+
+  @@index([commissionInvoiceId], map: "ix_commission_debits_commission_invoice_id")
+  @@index([status], map: "ix_commission_debits_status")
+  @@map("commission_debits")
+}
+
+/// Webhook de-duplication ledger.
+///
+/// The guard tests **`processedAt`**, not the mere existence of the row: a handler that
+/// throws on the first delivery has already inserted its row, and an existence check
+/// would then read Stripe's retry as a duplicate and drop the event for good.
+model StripeEventLog {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventId     String    @unique(map: "uq_stripe_event_logs_event_id") @map("event_id") @db.VarChar(128)
+  type        String    @db.VarChar(128)
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("stripe_event_logs")
+}
+
+enum PaymentMethod {
+  cb
+  avance_immediate
+  cesu
+
+  @@map("payment_method")
+}
+
+/// Order matches the stored Postgres labels: pending -> succeeded (Stripe settled) ->
+/// paid (invoiceable), with failed / refunded / partially_refunded as exit states.
+enum PaymentStatus {
+  pending
+  succeeded
+  /// Reserved for invoicing — **no code path sets this today**. A CB payment stops at
+  /// `succeeded`, which is what the fiscal attestation totals count. Kept because the
+  /// label predates this branch (`20250522130000_spec_domain`) and Prisma throws on an
+  /// enum value it does not know, so dropping it here would break reads of any legacy
+  /// row. Give it a writer or retire it deliberately — do not treat it as a synonym
+  /// for `succeeded`.
+  paid
+  failed
+  refunded
+  partially_refunded
+
+  @@map("payment_status")
+}
+
+enum CommissionCollectionMethod {
+  stripe_application_fee
+  sepa_direct_debit
+
+  @@map("commission_collection_method")
+}
+
+/// `pending` -> `invoiced` (billed on a facture B) -> `processing` (a SEPA debit is in
+/// flight) -> `collected`. `reversed` is the SEPA CORE clawback: the chef disputed within
+/// the 8-week window, the bank honoured it, and the receivable is open again.
+/// A card commission skips straight to `collected` — Stripe withholds it at charge time.
+enum CommissionStatus {
+  pending
+  invoiced
+  processing
+  collected
+  failed
+  reversed
+
+  @@map("commission_status")
+}
+
+enum SapDeclarationType {
+  type_a_nova
+  type_b_cooperative
+
+  @@map("sap_declaration_type")
+}
+
+/// Shared by the URSSAF "tiers de prestation" habilitation and the CRCESU affiliation.
+/// Inert this phase: no integration writes it, it is admin-maintained metadata.
+enum SapExternalStatus {
+  not_started
+  pending
+  active
+
+  @@map("sap_external_status")
+}
+
+enum SepaMandateStatus {
+  pending
+  active
+  revoked
+  failed
+
+  @@map("sepa_mandate_status")
+}
+
+/// Electronic CESU is the main circuit; paper is secondary and deliberately unmanaged
+/// (see `CesuSettlement`).
+enum CesuMedium {
+  ecesu
+  cesu_paper
+
+  @@map("cesu_medium")
+}
+
+/// The five issuers a French beneficiary can hold a prefinanced CESU account with.
+/// `domiserve` runs its own circuit outside the CRCESU, which changes nothing here —
+/// no issuer is queryable either way.
+enum CesuIssuer {
+  pluxee
+  edenred
+  up
+  bimpli
+  domiserve
+  other
+
+  @@map("cesu_issuer")
+}
+
+enum CesuSettlementStatus {
+  declared
+  confirmed
+  rejected
+
+  @@map("cesu_settlement_status")
+}
+
+/// `issued` is the only status that makes a commission collectable. `settled` means a
+/// debit succeeded; `written_off` is the admin's give-up, never an automatic transition.
+enum CommissionInvoiceStatus {
+  issued
+  settled
+  written_off
+
+  @@map("commission_invoice_status")
+}
+
+/// Mirrors the SEPA PaymentIntent lifecycle. Note the absence of a Stripe `failed`
+/// status: a late SEPA failure moves the PaymentIntent to `requires_payment_method`,
+/// which this enum records as `failed`.
+enum CommissionDebitStatus {
+  pending
+  processing
+  succeeded
+  failed
+  canceled
+  reversed
+
+  @@map("commission_debit_status")
+}
+
+/// The URSSAF "avance immédiate" enrolment of **one client with one batch cooker**.
+/// The immediate advance exists per pair: a client enrolled with one cook cannot use
+/// it for a prestation by another (FLOW-03 §1.2), which is why this is a table and not
+/// a flag on the account.
+///
+/// ponytail: `pending` to `active` or `refused` is decided by URSSAF. Until the API
+/// access exists, an admin plays URSSAF (`POST /admin/urssaf-links/{id}/decision`), and
+/// only while `URSSAF_GATEWAY=simulated`.
+model UrssafLink {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId      String           @map("client_id") @db.Uuid
+  chefProfileId String           @map("chef_profile_id") @db.Uuid
+  status        UrssafLinkStatus @default(pending)
+  refusalReason String?          @map("refusal_reason")
+  requestedAt   DateTime         @default(now()) @map("requested_at") @db.Timestamptz(6)
+  decidedAt     DateTime?        @map("decided_at") @db.Timestamptz(6)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  client        User             @relation("UrssafLinkClient", fields: [clientId], references: [id], onDelete: Cascade, map: "fk_urssaf_links_client_id")
+  chefProfile   ChefProfile      @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, map: "fk_urssaf_links_chef_profile_id")
+
+  @@unique([clientId, chefProfileId], map: "uq_urssaf_links_client_chef")
+  @@index([status], map: "ix_urssaf_links_status")
+  @@map("urssaf_links")
+}
+
+enum UrssafLinkStatus {
+  pending
+  active
+  refused
+
+  @@map("urssaf_link_status")
 }

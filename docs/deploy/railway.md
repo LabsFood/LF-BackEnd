@@ -41,16 +41,21 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | Variable | When needed |
 |----------|-------------|
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
-| `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` | Payments — **live**. Without the key `/payments/*` answers `503`; without the Connect secret `account.updated` is rejected and chefs stay `chargesEnabled=false` |
+| `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). Fallback until an admin saves the rate from the console (`PATCH /admin/settings/commission`) |
+| `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
+| `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
+| `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
+| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar — not used yet |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
-| `GOOGLE_MAPS_API_KEY` | Maps |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents, see `SUPABASE_KYC_BUCKET`) |
+| `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
-| `BREVO_TPL_*` (11 ids) | Chef onboarding emails, plus FLOW-02's `BREVO_TPL_SOURCE_CHANGED` and `BREVO_TPL_CONTENT_SUSPENDED`. An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
+| `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish, menu and profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
+| `BREVO_TPL_*` (19 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `CONTACT_NOTIFICATION_EMAIL`, `ADMIN_SITE_URL` | Team address told about contact messages and custom requests with no batch cooker (Reply-To of the answers), and the admin console link in those emails. Without `BREVO_TPL_CONTACT_REPLY` an admin cannot answer a contact message |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
 
@@ -66,7 +71,7 @@ read is written to `audit_log`.
 
 ### Dish photos bucket (FLOW-02)
 
-Create an R2 bucket for dish and profile photos and give it a public address (a custom domain,
+Create an R2 bucket for dish, menu and profile photos and give it a public address (a custom domain,
 or the bucket's r2.dev URL) in `R2_PUBLIC_BASE_URL`: the public site loads photos
 from there. Browsers upload straight to it with a presigned `PUT`, so its CORS
 policy must allow `PUT` with the `Content-Type` header from the site origins. The
@@ -154,13 +159,19 @@ FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
 WHERE a.action = 'document.read' ORDER BY a.created_at DESC;
 ```
 
-## 4c. Scheduled job
+## 4c. Scheduled jobs
 
-The chef-dossier job (expiry warnings, automatic suspension, retention purge)
-runs in-process daily at 06:00 via `@nestjs/schedule`. There is no queue.
+Three jobs run in-process via `@nestjs/schedule`. There is no queue.
 
-**If you scale the API past one replica, every replica will run it.** Each step
-is idempotent so a double run is harmless, but move it to a queue or a Postgres
+| Job | When | What |
+|-----|------|------|
+| `ChefDossierCron` | daily, 06:00 | Document expiry warnings, automatic suspension, retention purge |
+| `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
+| `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
+
+**If you scale the API past one replica, every replica will run them.** The
+messaging and offer jobs claim their rows, so a double run is harmless. The
+chef-dossier steps are idempotent, but move that job to a queue or a Postgres
 advisory lock before relying on that at scale. See `ChefDossierCron`.
 
 ## 5. Deploy flow
@@ -186,8 +197,10 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] Supabase project with **pooler** + **direct** connection strings
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
-- [ ] Stripe / Cronofy / Brevo / R2 keys when those flows ship
+- [ ] **Stripe live keys + Connect enabled** (Express accounts, FR) — payments are shipped
+- [ ] Brevo key and template ids, R2 keys, Supabase buckets (KYC, messaging)
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
-- [ ] Stripe webhook URL when payments ship
+- [ ] Two Stripe webhook endpoints on `https://<api-domain>/webhooks/stripe`: "Your account" + `STRIPE_WEBHOOK_SECRET`, "Connected accounts" (`account.updated`) + `STRIPE_CONNECT_WEBHOOK_SECRET` — events in [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md) §6
+- [ ] Commission rate saved from the admin console (until then `PAYMENTS_COMMISSION_RATE_BPS`, 15 % HT)
 
 Redis is optional with one API instance. Set `REDIS_URL` (Railway Redis plugin) before running a second instance: without it, a message posted on one instance never reaches a WebSocket held by the other. Messaging also needs the private Supabase bucket `SUPABASE_MESSAGING_BUCKET` for attachments, and `BREVO_TPL_NEW_MESSAGE` for the unread-message email.

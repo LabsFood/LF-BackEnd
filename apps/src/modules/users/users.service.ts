@@ -32,6 +32,7 @@ import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { UpdateMeSapProfileDto, UpdateSapExternalStatusDto } from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
 export interface UpsertFromClerkInput {
@@ -444,6 +445,111 @@ export class UsersService {
       where: { id: profile.id },
       data: profileFields,
     });
+  }
+
+  /**
+   * Reads the chef's own SAP declaration (`GET /me/chef-profile/sap`).
+   * Returns `null` when the chef has not declared yet; a user without a chef profile
+   * is a `ConflictException`, same as on write.
+   */
+  async getSapProfileByClerkUserId(clerkUserId: string) {
+    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
+    return this.prisma.sapProfile.findUnique({
+      where: { chefProfileId: chefProfile.id },
+    });
+  }
+
+  /**
+   * Chef self-declaration of their "service à la personne" route
+   * (`PATCH /me/chef-profile/sap`).
+   *
+   * Only the declarative fields are writable here. `urssafTiersPrestationStatus` and
+   * `crcesuAffiliationStatus` are admin-maintained instead (`setSapExternalStatus`,
+   * `PATCH /admin/chefs/:id/sap-external-status`) — the same split as `isActive`/
+   * `isVerified` on `chef_profiles`. There is no URSSAF/CRCESU API to write them from, so
+   * an admin transcribing the agency's own answer is the only source they can have.
+   *
+   * Fields belonging to the other declaration type are cleared, so switching from
+   * type A to type B cannot leave a stale NOVA code attached to a cooperative chef.
+   */
+  async updateSapProfileByClerkUserId(
+    clerkUserId: string,
+    payload: UpdateMeSapProfileDto,
+  ) {
+    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
+    const isTypeA = payload.declarationType === 'type_a_nova';
+
+    const fields = {
+      declarationType: payload.declarationType,
+      novaCode: isTypeA ? (payload.novaCode ?? null) : null,
+      cooperativeName: isTypeA ? null : (payload.cooperativeName ?? null),
+      cooperativeMembershipProof: isTypeA
+        ? null
+        : (payload.cooperativeMembershipProof ?? null),
+      crcesuNan: payload.crcesuNan ?? null,
+      acceptsCesu: payload.acceptsCesu ?? false,
+    };
+
+    return this.prisma.sapProfile.upsert({
+      where: { chefProfileId: chefProfile.id },
+      update: fields,
+      create: { chefProfileId: chefProfile.id, ...fields },
+    });
+  }
+
+  /**
+   * Admin-maintained external SAP statuses (`PATCH /admin/chefs/:id/sap-external-status`).
+   *
+   * Same split as `isActive` / `isVerified`: a chef declares, an admin habilitates.
+   * `crcesuAffiliationStatus` had **no writer at all** before this — there is no CRCESU
+   * API to read it from, so an admin transcribing the CRCESU's own answer is the only
+   * source it can have.
+   *
+   * `:id` is the chef profile uuid, and the row has to exist: a status about a
+   * declaration that was never made would be meaningless.
+   */
+  async setSapExternalStatus(chefProfileId: string, payload: UpdateSapExternalStatusDto) {
+    const sapProfile = await this.prisma.sapProfile.findUnique({
+      where: { chefProfileId },
+      select: { id: true },
+    });
+    if (!sapProfile) {
+      throw new NotFoundException(
+        `Chef profile ${chefProfileId} has no SAP declaration to habilitate.`,
+      );
+    }
+
+    return this.prisma.sapProfile.update({
+      where: { chefProfileId },
+      data: {
+        ...(payload.crcesuAffiliationStatus !== undefined
+          ? { crcesuAffiliationStatus: payload.crcesuAffiliationStatus }
+          : {}),
+        ...(payload.urssafTiersPrestationStatus !== undefined
+          ? { urssafTiersPrestationStatus: payload.urssafTiersPrestationStatus }
+          : {}),
+      },
+    });
+  }
+
+  /**
+   * The SAP declaration hangs off `chef_profiles`, so onboarding form 2
+   * (`PATCH /me/chef-profile`) has to come first.
+   */
+  async requireOwnChefProfile(
+    clerkUserId: string,
+  ): Promise<{ id: string; userId: string }> {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const chefProfile = await this.prisma.chefProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true, userId: true },
+    });
+    if (!chefProfile) {
+      throw new ConflictException(
+        'No chef profile yet. Complete `PATCH /me/chef-profile` first.',
+      );
+    }
+    return chefProfile;
   }
 
   /**

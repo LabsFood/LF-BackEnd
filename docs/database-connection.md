@@ -10,15 +10,15 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
 | `DATABASE_URL`              | No (deprecated)              | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above.                                                            |
 
-Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, and `SUPABASE_KYC_BUCKET` for chef KYC documents.
+Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_KYC_BUCKET` for chef KYC documents and `SUPABASE_MESSAGING_BUCKET` for message attachments.
 
 ## URI formats (placeholders)
 
 **Local (docker compose):**
 
 ```env
-SUPABASE_DB_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
-SUPABASE_DB_MIGRATION_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
+SUPABASE_DB_URL=postgresql://lf:lf@localhost:5432/lf_backend
+SUPABASE_DB_MIGRATION_URL=postgresql://lf:lf@localhost:5432/lf_backend
 ```
 
 **Supabase cloud — runtime (Transaction pooler, port 6543):**
@@ -93,10 +93,37 @@ npm run db:migrate
 
 For a **fresh** Postgres volume, run `npm run db:migrate`.
 
+## Partially applied migrations
+
+**Prisma does not wrap a migration file in a transaction.** If a statement fails half-way
+through, everything before it is already committed, the migration is recorded as *failed*, and
+the next `migrate deploy` replays the file **from the top** — straight into
+`type "x" already exists` on the objects the first attempt created.
+
+Migrations in this repo that alter pre-existing objects are therefore written to be
+**idempotent**: `CREATE TYPE` inside a `DO $$ … EXCEPTION WHEN duplicate_object $$`, `IF EXISTS` /
+`IF NOT EXISTS` on every `ALTER`, and `ADD VALUE IF NOT EXISTS` on enum values. See
+`20260524173000_provider_role_to_chef` and `20260831120000_payments_sap_sepa_foundations` — the
+latter failed this way twice during development before it was made idempotent.
+
+If a deploy still leaves a migration in the failed state:
+
+```bash
+cd apps
+npx prisma migrate status                                  # which migration is failed
+npm run db:resolve -- --rolled-back <migration_name>       # after undoing its effects by hand
+# or, when the file is idempotent and its effects are already in place:
+npm run db:resolve -- --applied <migration_name>
+npm run db:migrate
+```
+
+Write new migrations that touch existing tables or enums the same way, or a single production
+failure will need manual SQL to unblock.
+
 ## Behavior in this repo
 
 - `PrismaService` connects with `SUPABASE_DB_URL` at API startup.
-- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/Dockerfile`).
+- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/scripts/docker-entrypoint.sh`).
 - Cloud hosts (`*.supabase.co`) use TLS via the connection string / Prisma defaults.
 
 ## Verify
@@ -105,9 +132,9 @@ For a **fresh** Postgres volume, run `npm run db:migrate`.
 docker compose up -d postgres
 
 cd apps
-npm run db:migrate
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-export CLERK_SECRET_KEY="<sk_test_placeholder>"
+export CLERK_SECRET_KEY="sk_test_placeholder"
+npm run db:migrate
 npm run start:dev
 curl -s http://localhost:8000/ready | jq .
 ```

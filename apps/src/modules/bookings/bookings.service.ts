@@ -9,6 +9,7 @@ import {
 } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RECIPE_FIELDS } from '../catalog/catalog.service';
+import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -46,7 +47,9 @@ export class BookingsService {
 
   async getMyBookingDetail(clerkUserId: string, bookingId: string) {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    return this.prisma.booking.findFirst({
+    // `chefCesu`: a client paying in prefinanced CESU must add the batch cooker as an
+    // intervenant on their issuer's portal, with this number, before they can pay.
+    const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
       include: {
         // The client gets the recipe on the fiche, after the prestation (FLOW-02 §8).
@@ -54,8 +57,15 @@ export class BookingsService {
           include: { meal: { omit: RECIPE_FIELDS } },
         },
         shoppingList: { include: { items: true } },
+        chefProfile: { select: CHEF_CESU_INFO_SELECT },
       },
     });
+    if (!booking) {
+      return null;
+    }
+
+    const { chefProfile, ...rest } = booking;
+    return { ...rest, chefCesu: toChefCesuInfo(chefProfile) };
   }
 
   getAdminBookingDetail(bookingId: string) {

@@ -15,6 +15,8 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
@@ -22,6 +24,7 @@ import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.
 import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { RedisModule } from './redis/redis.module';
 
 @Module({
@@ -35,7 +38,8 @@ import { RedisModule } from './redis/redis.module';
       cache: true,
     }),
     // Configured globally but enforced only where `ThrottlerGuard` is attached
-    // (currently the public `POST /auth/register`), so existing routes are unaffected.
+    // (public `POST /auth/register` and the money-moving payment endpoints),
+    // so existing unguarded routes are unaffected.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -44,6 +48,11 @@ import { RedisModule } from './redis/redis.module';
             name: 'register',
             ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
             limit: config.get<number>('registerThrottle.limit', 5),
+          },
+          {
+            name: 'payments',
+            ttl: config.get<number>('paymentsThrottle.ttlMs', 60_000),
+            limit: config.get<number>('paymentsThrottle.limit', 20),
           },
         ],
       }),
@@ -68,6 +77,9 @@ import { RedisModule } from './redis/redis.module';
     DishesModule,
     MessagingModule,
     ContactModule,
+    PlatformSettingsModule,
+    PaymentsModule,
+    StripeWebhooksModule,
   ],
 })
 export class AppModule {}

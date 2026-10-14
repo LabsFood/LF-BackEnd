@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-### Application specifiactions
+### Application specifications
 
 Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](docs/SPEC-ADMIN-DASHBOARD.md) as the main guide for product intent and API direction. Track gaps and decisions in [`docs/evolution/platform-spec-alignment-evolution.md`](docs/evolution/platform-spec-alignment-evolution.md). Stack and backend architecture: [`stack.md`](stack.md), [`docs/architecture.md`](docs/architecture.md).
 
@@ -103,7 +103,7 @@ node -e '
 ```
 
 Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
-`/bookings`.
+`/bookings/me`.
 
 ### Clerk webhooks and DB sync
 
@@ -120,6 +120,43 @@ Architecture: [`docs/auth/clerk-supabase-sync.md`](docs/auth/clerk-supabase-sync
 
 - Admin user provisioning (real key only): `POST /admin/users`, `PATCH /admin/users/:id/role` — see integration contract. Returns `503` with `sk_test_placeholder`.
 - First admin: promote via SQL/Prisma Studio (`UPDATE users SET role = 'admin' WHERE email = '…'`); no self-serve promotion endpoint.
+
+### Payments (Stripe)
+
+Contract and rationale: [`docs/payments/stripe-payments-contract.md`](docs/payments/stripe-payments-contract.md).
+Change register: [`docs/evolution/payments-stripe-cb-evolution.md`](docs/evolution/payments-stripe-cb-evolution.md).
+
+- Modules: `modules/payments/` (`PaymentsModule`) + `modules/stripe-webhooks/` (`StripeWebhooksModule`).
+- A card payment is a **Stripe Connect destination charge**: the platform keeps the commission as
+  `application_fee_amount`, the chef's connected account gets the rest. A payment is settled
+  **only** by the webhook, never on the client's word.
+- Client: `POST /payments/checkout-session` → a Stripe Checkout `url`, or `POST /payments/intent`
+  → `{ clientSecret, … }` for Stripe.js. Both require a payable booking owned by the caller (see
+  _Paying a prestation_ below) **and** a verified chef with `chargesEnabled` + `payoutsEnabled`,
+  otherwise `409`.
+- Chef: `POST/GET /me/chef-profile/stripe-connect/{link,status}` (Express onboarding — links are
+  single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (the mandate the CESU and
+  immediate-advance commissions are debited against), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
+- Fiscal attestation totals: `GET /me/fiscal-attestations/:year`, `GET /admin/fiscal-attestations[/:clientId]`.
+  JSON only — no PDF.
+- Without `STRIPE_SECRET_KEY` every payment route answers `503`; the webhook also needs
+  `STRIPE_WEBHOOK_SECRET`, plus `STRIPE_CONNECT_WEBHOOK_SECRET` on deployed environments
+  (`account.updated` comes from a second, "Connected accounts" Dashboard endpoint).
+  Commission: the admin setting, falling back to `PAYMENTS_COMMISSION_RATE_BPS=1500` (15 % HT)
+  and `PAYMENTS_COMMISSION_VAT_RATE_BPS=2000`.
+
+Local webhook loop:
+
+```bash
+stripe listen --forward-to localhost:8000/webhooks/stripe   # prints the whsec_… secret
+stripe trigger payment_intent.succeeded
+```
+
+Put the printed secret in repo-root `.env` as `STRIPE_WEBHOOK_SECRET` (mind the env-precedence
+warning above — `.env.local` overrides shell exports). Signature verification runs against the
+**raw** request bytes captured by the `preParsing` hook in `apps/src/main.ts`; any new
+signature-verified webhook path must be added to `WEBHOOK_RAW_BODY_PATHS` in
+`apps/src/auth/fastify-raw-body.ts`.
 
 ### Chef onboarding (FLOW-01)
 
@@ -144,7 +181,7 @@ reapply from it.
 | Actor                       | Routes                                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Public                      | `POST /chef-applications`, `GET /referentials/regions`                                                                                                                                                             |
-| Signed-in candidate or chef | `GET /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`                      |
+| Signed-in candidate or chef | `GET\|PATCH /me/chef-application`, `POST /me/chef-application/reapply`, `GET /me/chef-documents`, `POST /me/chef-documents/:type/upload-url`, `.../confirm`, `GET /me/chef-documents/:type/versions`, `.../preview-url` |
 | Admin                       | `GET /admin/chef-applications[/:id]`, `GET .../documents/:type/download-url`, `PATCH .../documents/:type`, `POST .../request-changes`, `.../approve`, `.../reject`, `POST /admin/chef-users/:id/resend-invitation` |
 
 - **Public account creation**: the sign-in link (Clerk sign-in token, 7 days,
@@ -193,7 +230,7 @@ reapply from it.
 
 Batch cookers publish their own dishes and weekly menus; admins moderate after the
 fact. Module: `modules/dishes/`. Spec:
-[`FLOW-02-plats-et-menus.md`](../FLOW-02-plats-et-menus.md), PRD:
+[`FLOW-02-plats-et-menus.md`](../batchcooking-web/docs/api/FLOW-02-plats-et-menus.md) (in `batchcooking-web`), PRD:
 [`.claude/prds/chef-dishes-menus.prd.md`](.claude/prds/chef-dishes-menus.prd.md).
 
 - **`meals` is the dish.** `chef_profile_id` is the owner (null: Lab's Food
@@ -251,8 +288,8 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
   days after a completed one; then `409 CONVERSATION_READ_ONLY`. Support threads
   are always open. Admins can write in a closed thread.
 - **A `chef_client` conversation starts from a booking**: `POST /me/conversations`
-  with a `bookingId`. `MessagingService.ensurePair` is exported for the booking
-  flow to call on confirmation, once `POST /bookings` stops answering 501.
+  with a `bookingId`. Accepting an offer opens it too, through
+  `MessagingService.ensurePair`.
 - **Realtime**: listen-only WebSocket on `/ws`. First frame
   `{"event":"auth","data":{"token":"<Clerk token>"}}`, answered by
   `{"event":"ready"}`. No subscriptions: the server pushes each person their own
@@ -277,6 +314,138 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Client or batch cooker   | `GET\|POST /me/conversations`, `POST /me/conversations/support`, `GET .../unread-count`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../:id/attachments/…` |
 | Admin                    | `GET /admin/conversations[?type=&filter=unread\|flagged]`, `GET .../counts`, `POST .../support`, `GET .../:id`, `GET\|POST .../:id/messages`, `POST .../:id/read`, `.../dismiss-flag` |
+
+### Batch cookers in the back office (LF-0164)
+
+`GET /admin/chefs`, `GET /admin/chefs/counts`, `GET /admin/chefs/:id`
+(`modules/users/admin-chefs.*`). Read-only.
+
+- **Built on `chef_profiles`, not on candidatures.** A profile created before the
+  candidature flow, or by hand, has no candidature and is still listed. Accounts
+  with `users.deleted_at` set are never listed.
+- **`{id}` is `chefProfile.id`**, as for `/admin/chefs/:id/{dishes,menus,verification}`.
+  Not the account id, not the candidature id.
+- **One `state` per profile**, from `is_verified`, `is_active` and
+  `auto_suspended_at`: `online`, `offline`, `suspended`, `pending`. `STATE_WHERE`
+  is the single definition: the filter, the counts and the value on each row read
+  it. `state=verified` is the first three together.
+- **Zones** are read from the profile, and from the candidature while the profile
+  has none (they are copied at approval). `region=` matches either.
+- **The detail is deliberately thin**: the dossier and documents stay at
+  `GET /admin/chef-applications/{application.id}`, the content at
+  `/admin/chefs/:id/dishes` and `/menus`. No rating: there is no reviews module.
+- **Quote assignment**: `PATCH /admin/quotes/:id` takes `assignedChefUserId` (a
+  verified batch cooker's account id, `null` to unassign, else
+  `422 CHEF_NOT_ASSIGNABLE`), and quotes come back with `assignedChef`.
+
+### Custom requests and offers (BLK-10)
+
+A client asks for a prestation that is not in the catalogue, a batch cooker
+prices it, the client accepts: that creates the prestation. Module
+`modules/quotes/` (`quotes.service` for the request, `quote-offers.service` for
+the offers, `quote.views` for what each side reads, `domain/quote.rules` for the
+pure rules).
+
+- **The batch cooker prices, in net.** `POST /me/chef/quotes/:id/offers` takes
+  `netCents`; the client price is derived (`priceOffer`): the commission is taken
+  out of the client price, `client = net / (1 − rate)`. An offer stores its net,
+  its rate and both client amounts, and is never recomputed. An admin can price
+  in the batch cooker's name (`POST /admin/quotes/:id/offers`).
+- **The commission is a setting**, not a constant: `platform_settings.commission_bps`
+  (seeded at 1500), read through `PlatformSettingsService`, changed with
+  `PATCH /admin/settings/commission` (0 to 5000, audited). The fronts read
+  `GET /pricing-rules`. The tax credit (`TAX_CREDIT_BPS`, 50 %) is the law's, not ours.
+- **One offer at a time**, history kept: `uq_quote_offers_one_active` allows a
+  single `sent|viewed` offer per request (`409 OFFER_ALREADY_ACTIVE`). Opening the
+  request as the client turns `sent` into `viewed`. An offer past `validUntil` is
+  `expired` by a cron every 10 minutes, and on the spot if someone tries to accept it.
+- **Statuses** (`QUOTE_STATUS_HELP`): `submitted` → `quoted` → `accepted`, with
+  `declined` (the client refused, the batch cooker may offer again),
+  `chef_declined` (the batch cooker said no: the request loses its batch cooker
+  and the team is emailed to reassign), `cancelled` (withdrawn by the client).
+  `quoted` and `accepted` cannot be set by hand.
+- **Who the request is with** is `quotes.assigned_chef_user_id`: set from the
+  `chefProfileId` the client chose (verified and active, else
+  `422 CHEF_NOT_AVAILABLE`), or by an admin (`PATCH /admin/quotes/:id`).
+  `GET /admin/quotes?filter=needs_chef` lists the ones with nobody.
+- **Acceptance creates the booking**, in one transaction: a `confirmed` booking at
+  the client price, on the offer's date and slot (`slotWindow`, Paris hours), on a
+  hidden "Prestation sur-mesure" line of the batch cooker, reference `LF-SM-…`
+  from the request's `DEM-…`. `quotes.booking_id` is unique: one request, one
+  prestation. Then, best-effort, the two get a conversation and the recap email.
+  **No payment is taken here**: it comes after the prestation (FLOW-03).
+- **What a batch cooker sees**: the town and a short client name until the offer
+  is accepted, the street and contact details after. A client never sees the net
+  nor the rate. Why a batch cooker declined is for admins only.
+- **Emails**, all best-effort: `BREVO_TPL_QUOTE_REQUEST_CHEF`,
+  `BREVO_TPL_QUOTE_NEEDS_CHEF_ADMIN` (to `CONTACT_NOTIFICATION_EMAIL`),
+  `BREVO_TPL_QUOTE_OFFER_CLIENT`, `BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF`,
+  `BREVO_TPL_BOOKING_CONFIRMED` (one template, client and batch cooker).
+
+| Actor        | Routes                                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Signed in    | `GET /pricing-rules`                                                                                                                |
+| Client       | `POST /quotes`, `GET /me/quotes`, `GET\|DELETE /me/quotes/:id`, `POST /me/quotes/:id/offers/:offerId/accept\|decline`               |
+| Batch cooker | `GET /me/chef/quotes`, `GET …/:id`, `POST …/:id/offers`, `POST …/:id/offers/:offerId/withdraw`, `POST …/:id/decline`                |
+| Admin        | `GET /admin/quotes[?status=&filter=needs_chef]`, `GET\|PATCH …/:id`, `POST …/:id/offers`, `GET\|PATCH /admin/settings/commission`   |
+
+### Paying a prestation (FLOW-03)
+
+Module `modules/payments/` (card, CESU, commission invoices, Stripe Connect, SEPA
+mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
+(payment options, URSSAF immediate advance) and `modules/stripe-webhooks/`.
+
+- **A prestation is paid after it took place.** `payment-rules.ts` is the single
+  rule: a `confirmed` booking is payable once `endsAt` has passed
+  (`409 BOOKING_NOT_DUE` before), a `pending` one at once (paying confirms it), a
+  `cancelled` one never. The booking status does not change when a confirmed
+  prestation is paid: "paid" is read from its payments (`bookingCoverage`).
+- **The screen asks one route**: `GET /me/bookings/:id/payment-options` gives the
+  state (`not-due`, `due`, `processing`, `paid`, `failed`), the amounts and the
+  methods this client can use with this batch cooker. A method the batch cooker
+  does not take is left out; `dueNowCents` is computed here, never in the browser.
+- **What a batch cooker takes is derived, not declared twice**: card when their
+  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`
+  and a `crcesu_nan`, immediate advance when
+  `sap_profiles.urssaf_tiers_prestation_status = active`.
+- **Card**: `POST /payments/checkout-session` returns a Stripe Checkout `url`. A
+  destination charge: the batch cooker receives the amount less the commission,
+  withheld by Stripe. The amount is recomputed (`409 AMOUNT_MISMATCH`), return URLs
+  must be on our own sites, a second click gets the same page. The intent of a
+  Checkout page is unknown when the row is written: it carries
+  `metadata.paymentId` and `paymentOfIntent` attaches it on the first webhook.
+  `POST /payments/intent` (Stripe.js) remains for an embedded form.
+- **CESU**: the client declares (`POST /payments/cesu`), the batch cooker confirms
+  receipt, and only then is that part paid. The rest goes by card.
+- **Immediate advance**: `POST /bookings/:id/settle` charges nothing. The request
+  goes to URSSAF through `UrssafGateway`, the one door to URSSAF, and the
+  prestation is `processing` until the answer. Refused: the payment fails and the
+  prestation is due again. It exists per client **and** batch cooker
+  (`urssaf_links`).
+- **URSSAF is simulated** (`URSSAF_GATEWAY`: `disabled` by default, `simulated`
+  refused beside a live Stripe key: the test deployment runs with
+  `ENVIRONMENT=production` too, so the environment name cannot be the guard). While simulated an admin answers in URSSAF's place, and
+  each answer is audited. The live gateway replaces `UrssafGateway` and feeds
+  `BookingPaymentsService.recordUrssafOutcome`; nothing else moves.
+- **The commission of a prestation born from an offer is the offer's**
+  (`commission-policy.ts`): client price less the batch cooker's net, VAT inside,
+  pro rata on a partial payment. It is never recomputed from today's rate, or the
+  batch cooker would not get the net they were shown. Other bookings take the
+  admin's rate. On card Stripe withholds it; on CESU and immediate advance the
+  money never crosses the platform, so it is invoiced and debited by SEPA.
+- **An unpaid commission stops new work, not payments**: a batch cooker with an
+  exhausted commission debit cannot send an offer (`409 COMMISSION_UNPAID`); a
+  client can always pay a prestation already done.
+- **`POST /bookings` stays closed** (`501`): a prestation is created by an accepted
+  offer. The payment branch's direct booking creation was not ported.
+
+| Actor        | Routes                                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public       | `GET /chefs/:chefProfileId/cesu-info`                                                                                                              |
+| Client       | `GET /me/bookings/:id/payment-options`, `GET …/payment-status`, `POST /payments/checkout-session`, `POST /payments/intent`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links`, `GET /me/fiscal-attestations/:year` |
+| Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `GET /me/chef/commission-invoices`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap` |
+| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status` |
+| Stripe       | `POST /webhooks/stripe`                                                                                                                            |
 
 ### Contact forms
 

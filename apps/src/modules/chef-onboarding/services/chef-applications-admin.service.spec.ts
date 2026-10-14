@@ -500,3 +500,36 @@ describe('ChefApplicationsAdminService.decideDocument', () => {
     });
   });
 });
+
+describe('ChefApplicationsAdminService.list counts', () => {
+  it('counts the blocking documents never uploaded apart from those awaiting a decision', async () => {
+    const prisma = makePrisma();
+    prisma.chefApplication.findMany.mockResolvedValue([
+      {
+        ...application(),
+        submittedAt: new Date(),
+        chefProfile: {
+          userId: 'u-1',
+          isActive: false,
+          autoSuspendedAt: null,
+          // identity uploaded and unreviewed; registration never uploaded.
+          documents: [{ type: 'identity', status: 'submitted', version: 1 }],
+        },
+      },
+    ]);
+    const service = makeService({
+      prisma,
+      documents: {
+        answersOf: jest.fn(() => ({
+          workAuthorizationStatus: 'eu_citizen',
+          companyLegalForm: 'micro',
+          sapPath: 'type_b',
+        })),
+      },
+    });
+
+    const { data } = await service.list({} as never);
+
+    expect(data[0]).toMatchObject({ pendingDocuments: 1, missingDocuments: 1 });
+  });
+});

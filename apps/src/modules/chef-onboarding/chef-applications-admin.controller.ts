@@ -82,6 +82,10 @@ export class ChefApplicationsAdminController {
       'online on a replacement nobody has checked. `isActive` says whether clients can book ' +
       'the batch cooker right now. Then the longest wait first: ' +
       '`waitingSinceHours` helps keep the promise of an answer within 48 working hours.\n\n' +
+      'Two different counts: `pendingDocuments` are uploaded documents waiting for your ' +
+      'decision; `missingDocuments` are blocking documents the candidate has not uploaded ' +
+      'yet, i.e. the dossiers to chase. A dossier with only missing documents has ' +
+      '`pendingDocuments: 0`.\n\n' +
       'Example: `?status=submitted&hasPendingDocuments=true` lists what needs a look now.',
   })
   @ApiOkResponse({

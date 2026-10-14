@@ -24,8 +24,8 @@ interface JwtClaims {
 /** Local placeholder from AGENTS.md — skips JWKS verification. */
 const CLERK_LOCAL_STUB_SECRET = 'sk_test_placeholder';
 
-/** Real Clerk secret keys enable strict JWT verification. */
-const CLERK_SECRET_KEY_PATTERN = /^sk_(test|live)_[a-zA-Z0-9]+$/;
+/** Real Clerk secret keys enable strict JWT verification. Also enforced by env.validation.ts in production. */
+export const CLERK_SECRET_KEY_PATTERN = /^sk_(test|live)_[a-zA-Z0-9]+$/;
 
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {

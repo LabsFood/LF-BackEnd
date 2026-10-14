@@ -1,33 +1,33 @@
 # LF BackEnd
 
-Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and integrations fixed in `[stack.md](./stack.md)`.
+Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on **NestJS + Fastify**, Docker, and the integrations listed in [stack.md](./stack.md).
 
 > **Envie de lancer tout le projet LabsFood en local (les 4 repos, backend +
 > les 3 apps front) en une commande ?** Voir **[LOCAL_SETUP.md](./LOCAL_SETUP.md)**.
 
 ## Stack summary
 
-| Layer                           | Choice                                                               |
-| ------------------------------- | -------------------------------------------------------------------- |
-| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                   |
-| REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)             |
-| ORM / migrations                | **Prisma** (`apps/prisma/`)                                          |
-| Database                        | PostgreSQL 16                                                        |
-| Realtime & rate limits          | Redis 7, optional (messaging)                                 |
-| Containers                      | Docker / Docker Compose                                              |
-| Hosting                         | **Railway**                                                          |
+| Layer                           | Choice                                                                        |
+| ------------------------------- | ----------------------------------------------------------------------------- |
+| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                            |
+| REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)                      |
+| ORM / migrations                | **Prisma 7** (`apps/prisma/`)                                                 |
+| Database                        | PostgreSQL 16 (Supabase in production)                                        |
+| Realtime & rate limits          | Redis 7, optional (messaging)                                                 |
+| Containers                      | Docker / Docker Compose                                                       |
+| Hosting                         | **Railway**                                                                   |
 
 ## Third-party services
 
-| Domain                          | Service                                                       |
-| ------------------------------- | ------------------------------------------------------------- |
-| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)                                   |
-| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/)                           |
-| Realtime chat (clients ↔ chefs) | In-house: PostgreSQL + REST + WebSocket (`modules/messaging`) |
-| Transactional email             | [Brevo](https://www.brevo.com/)                               |
-| Payments                        | [Stripe](https://stripe.com/)                                 |
-| Maps & routing                  | Google Maps API                                               |
-| Object storage                  | Cloudflare R2 (dish photos), Supabase Storage (KYC documents) |
+| Domain                          | Service                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| Auth (OAuth2 Google/Apple)      | [Clerk](https://clerk.com/)                                                |
+| Realtime chat (clients ↔ chefs) | In-house: PostgreSQL + REST + WebSocket (`modules/messaging`)              |
+| Transactional email             | [Brevo](https://www.brevo.com/) (templates in [`brevo/`](./brevo/README.md)) |
+| Payments                        | [Stripe](https://stripe.com/) (Connect, Checkout, SEPA)                    |
+| Object storage                  | Cloudflare R2 (public photos), Supabase Storage (KYC documents, message attachments) |
+| Calendar / chef availability    | [Cronofy](https://www.cronofy.com/) — client scaffolded, not wired to any route |
+| Maps & routing                  | Google Maps API — key configured, not used yet                             |
 
 ## Frontends (outside this repo)
 
@@ -37,9 +37,9 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 ## High-level flow
 
 1. **Clients** — Next.js or React Native; sign-in via **Clerk**.
-2. **API** — Bookings and profiles hit the NestJS backend; **PostgreSQL** holds users, client profiles, chefs, bookings, and availability; **Redis** (optional) carries the messaging rate limit and realtime events between instances.
-3. **Integrations** — **Stripe**, **Cronofy**, **Brevo**, **Google Maps**, **Cloudflare R2**, and **Supabase Storage** are used from the backend as needed.
-4. **Deploy** — Backend, PostgreSQL, and Redis run in **Docker** on **Railway**; frontends deploy on their own hosts (for example Vercel, Netlify, or Railway).
+2. **API** — Every product flow hits the NestJS backend; **PostgreSQL** holds users and profiles, candidatures and KYC documents, dishes and menus, quotes and bookings, conversations, payments and the audit log; **Redis** (optional) carries the messaging rate limit and realtime events between instances.
+3. **Integrations** — **Stripe**, **Brevo**, **Cloudflare R2** and **Supabase Storage** are called from the backend. Cronofy and Google Maps are configured but not used yet.
+4. **Deploy** — The backend runs in **Docker** on **Railway**, against Supabase Postgres; frontends deploy on their own hosts.
 
 ```mermaid
 graph TD
@@ -51,18 +51,17 @@ graph TD
 
     subgraph Auth_and_API["Auth & API"]
         D[Clerk Auth]
-        E[NestJS REST API]
+        E[NestJS REST API + /ws]
         F[Docker]
-        G[Redis cache / queue]
+        G[Redis — messaging, optional]
         H[PostgreSQL]
     end
 
     subgraph External_Services["External Services"]
         I[Stripe]
-        J[Cronofy Calendar]
         K[Brevo]
-        M[Google Maps API]
-        N[Cloudflare R2 dish photos]
+        N[Cloudflare R2 photos]
+        P[Supabase Storage documents]
     end
 
     subgraph Infra
@@ -77,44 +76,45 @@ graph TD
     E --> H
     E --> G
     E --> I
-    E --> J
     E --> K
-    E --> L
-    E --> M
     E --> N
-    G --> K
-    G --> L
-    G --> I
-    H --> G
+    E --> P
     F --> O
 ```
 
 ## Repository layout
 
 ```bash
-apps/                  # NestJS + Fastify primary API (src/, package.json)
+apps/                  # NestJS + Fastify primary API (src/, prisma/, package.json)
+brevo/                 # Brevo email templates (HTML sources, tests, upload script)
 docs/
   SPEC-BACKEND.md      # product spec — client API & shared domain
   SPEC-ADMIN-DASHBOARD.md
-  architecture.md      # backend architecture (spec-aligned)
-  evolution/           # change registers
-docker-compose.yml     # postgres, api (local); Railway uses apps/Dockerfile
+  architecture.md      # backend architecture
+  auth/                # Clerk integration contract and Clerk ↔ Postgres sync
+  payments/            # Stripe payment flow & webhook contract
+  deploy/              # Railway production checklist
+  evolution/           # change registers (platform + payments)
+local-dev/             # full-stack Compose file for the 4 repos (see LOCAL_SETUP.md)
+docker-compose.yml     # postgres, redis, api (local); Railway uses apps/Dockerfile
+railway.toml           # Railway config-as-code
 .env.example           # template for required environment variables
 stack.md               # backend stack and decisions
 ```
 
 ## API endpoints
 
-Use the **public Railway domain** for production (browser, Swagger, frontends, `curl` from your machine).  
+Use the **public Railway domain** for production (browser, Swagger, frontends, `curl` from your machine).
 Do **not** use `https://<service>.railway.internal` — that hostname is **private** (service-to-service inside Railway only).
 
-| Endpoint          | Local                                                                    | Production (public)                       |
-| ----------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
-| Base API          | [http://localhost:8000](http://localhost:8000)                           | `https://lf-api.labsfood.fr`              |
-| Swagger UI        | [http://localhost:8000/docs](http://localhost:8000/docs)                 | `https://lf-api.labsfood.fr/docs`         |
-| OpenAPI JSON      | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json) | `https://lf-api.labsfood.fr/openapi.json` |
-| Health (liveness) | [http://localhost:8000/health](http://localhost:8000/health)             | `https://lf-api.labsfood.fr/health`       |
-| Readiness (DB)    | [http://localhost:8000/ready](http://localhost:8000/ready)               | `https://lf-api.labsfood.fr/ready`        |
+| Endpoint          | Local                                                                    | Production (public)                          |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
+| Base API          | [http://localhost:8000](http://localhost:8000)                           | `https://lf-api.labsfood.fr`                 |
+| Swagger UI        | [http://localhost:8000/docs](http://localhost:8000/docs)                 | `https://lf-api.labsfood.fr/docs`            |
+| OpenAPI JSON      | [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json) | `https://lf-api.labsfood.fr/openapi.json`    |
+| Health (liveness) | [http://localhost:8000/health](http://localhost:8000/health)             | `https://lf-api.labsfood.fr/health`          |
+| Readiness (DB)    | [http://localhost:8000/ready](http://localhost:8000/ready)               | `https://lf-api.labsfood.fr/ready`           |
+| Stripe webhook    | `http://localhost:8000/webhooks/stripe`                                  | `https://lf-api.labsfood.fr/webhooks/stripe` |
 
 **Production `<custom-domain>`:** Railway → API service → **Settings** → **Networking** → **Generate domain** (or your custom domain). Example shape: `https://lf-backend-production-xxxx.up.railway.app`.
 
@@ -126,8 +126,14 @@ Do **not** use `https://<service>.railway.internal` — that hostname is **priva
 
 ```bash
 cp .env.example .env
-# fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, … as needed
+# fill in CLERK_SECRET_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, … as needed
 ```
+
+Payments need `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (plus `STRIPE_CONNECT_WEBHOOK_SECRET`
+on deployed environments); without the key the `/payments/*` routes answer `503`. The platform
+commission is **15 % HT + 20 % VAT**: an admin sets it from the console
+(`PATCH /admin/settings/commission`), and `PAYMENTS_COMMISSION_RATE_BPS=1500` is the fallback
+until one is saved. See [docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md).
 
 ### 2. Run with Docker Compose (local)
 
@@ -145,17 +151,20 @@ docker compose up --build api
 docker-compose build api && docker-compose up api
 ```
 
-Put `SUPABASE_DB_URL` (and optional `SUPABASE_DB_MIGRATION_URL`) in repo-root `.env` — for Compose Postgres use `postgresql://lf:lf@postgres:5432/lf_backend` as the host `**postgres**`, not `localhost`.
+The `api` service starts `postgres` and `redis` first and points at them by default
+(`postgresql://lf:lf@postgres:5432/lf_backend`, `redis://redis:6379/0`). To use another
+database, set `DOCKER_SUPABASE_DB_URL` / `DOCKER_SUPABASE_DB_MIGRATION_URL` in repo-root `.env`;
+inside Compose the Postgres host is **`postgres`**, not `localhost`.
 
 Local URLs: see [API endpoints](#api-endpoints) above.
 
-The `api` container runs `**prisma migrate deploy**` on startup, then starts the API.
+The `api` container runs **`prisma migrate deploy`** on startup, then starts the API.
 
 ### 3. Production on Railway
 
-See `**[docs/deploy/railway.md](./docs/deploy/railway.md)**` — link GitHub repo, set Supabase pooler + migration URLs, Clerk, CORS, health check `/health`. Config: `[railway.toml](./railway.toml)`, image `[apps/Dockerfile](./apps/Dockerfile)`.
+See **[docs/deploy/railway.md](./docs/deploy/railway.md)** — link GitHub repo, set Supabase pooler + migration URLs, Clerk, CORS, health check `/health`. Config: [railway.toml](./railway.toml), image [apps/Dockerfile](./apps/Dockerfile).
 
-After deploy, open Swagger at `**https://<public-domain>/docs**`. Smoke test:
+After deploy, open Swagger at **`https://<public-domain>/docs`**. Smoke test:
 
 ```bash
 export API_BASE="https://<custom-domain>"   # from Railway → Networking
@@ -166,7 +175,7 @@ curl -s "$API_BASE/ready"
 ### 4. Run locally (without Docker API image)
 
 ```bash
-# Start backing services only
+# Start backing services only (add redis to test multi-instance messaging)
 docker compose up -d postgres
 
 cd apps
@@ -182,18 +191,24 @@ npm run start:dev         # watch mode on port 8000
 
 ```bash
 cd apps
-npm run build     # production tsc build to dist/
-npm run lint      # eslint + prettier check
+npm run build     # prisma generate + nest build to dist/
+npm run lint      # eslint (with prettier rules)
 npm test          # jest unit tests
 ```
 
 ## Documentation
 
-- `[stack.md](./stack.md)` — backend stack, integrations, resolved decisions.
-- `[docs/SPEC-BACKEND.md](./docs/SPEC-BACKEND.md)` — client API & domain spec.
-- `[docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md)` — admin API spec.
-- `[docs/architecture.md](./docs/architecture.md)` — backend architecture (spec-aligned).
-- `[docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md)` — spec gap backlog & decisions.
-- `[docs/deploy/railway.md](./docs/deploy/railway.md)` — Railway production deploy checklist.
-- `[docs/database-connection.md](./docs/database-connection.md)` — Supabase pooler vs direct URLs, Prisma migrations.
-- `[AGENTS.md](./AGENTS.md)` — Cursor Cloud development instructions.
+- [LOCAL_SETUP.md](./LOCAL_SETUP.md) — run the four LabsFood repos together with Docker.
+- [AGENTS.md](./AGENTS.md) — development guide: local setup, auth testing, and the rules and routes of every feature.
+- [stack.md](./stack.md) — backend stack, integrations, resolved decisions.
+- [docs/architecture.md](./docs/architecture.md) — backend architecture.
+- [docs/SPEC-BACKEND.md](./docs/SPEC-BACKEND.md) — client API & domain spec.
+- [docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md) — admin API spec.
+- [docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md) — spec gap backlog & decisions.
+- [docs/auth/clerk-integration-contract.md](./docs/auth/clerk-integration-contract.md) — Clerk frontend ↔ backend contract.
+- [docs/auth/clerk-supabase-sync.md](./docs/auth/clerk-supabase-sync.md) — Clerk ↔ Postgres sync, webhooks, backfill scripts.
+- [docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md) — payment flow, Stripe Connect, commissions, webhook contract.
+- [docs/evolution/payments-stripe-cb-evolution.md](./docs/evolution/payments-stripe-cb-evolution.md) — payments change register.
+- [docs/deploy/railway.md](./docs/deploy/railway.md) — Railway production deploy checklist.
+- [docs/database-connection.md](./docs/database-connection.md) — Supabase pooler vs direct URLs, Prisma migrations.
+- [brevo/README.md](./brevo/README.md) — email templates: add, edit, upload.
