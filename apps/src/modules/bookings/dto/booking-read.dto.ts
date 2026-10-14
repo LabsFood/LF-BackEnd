@@ -55,10 +55,18 @@ export class BookingReadDto {
   endsAt!: Date;
 
   @ApiProperty({
-    enum: ['pending', 'confirmed', 'completed', 'cancelled'],
+    enum: [
+      'pending',
+      'confirmed',
+      'shopping',
+      'cooking',
+      'delivered',
+      'completed',
+      'cancelled',
+    ],
     description:
-      '`pending`: waiting for confirmation. `confirmed`: going ahead. `completed`: done. ' +
-      '`cancelled`: will not happen.',
+      '`pending`: waiting for its payment. `confirmed`: going ahead. `shopping`, ' +
+      '`cooking`, `delivered`: under way. `completed`: done. `cancelled`: will not happen.',
     example: 'confirmed',
   })
   status!: BookingStatus;

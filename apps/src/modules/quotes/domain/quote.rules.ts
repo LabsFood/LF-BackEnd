@@ -3,6 +3,7 @@
  * client, when a slot starts, and who may act in which status.
  */
 
+import { parisMinute, parisToday } from '../../../common/paris-time';
 import { TAX_CREDIT_BPS } from '../../platform-settings/pricing.constants';
 
 const BPS = 10_000;
@@ -30,9 +31,13 @@ export function priceOffer(netCents: number, commissionBps: number) {
   return {
     clientPriceCents,
     commissionCents: clientPriceCents - netCents,
-    afterTaxCreditCents: Math.round((clientPriceCents * (BPS - TAX_CREDIT_BPS)) / BPS),
+    afterTaxCreditCents: afterTaxCredit(clientPriceCents),
   };
 }
+
+/** What the client really bears after the "services à la personne" tax credit. */
+export const afterTaxCredit = (clientPriceCents: number) =>
+  Math.round((clientPriceCents * (BPS - TAX_CREDIT_BPS)) / BPS);
 
 /** The half-days a prestation can be asked for, in Paris time. */
 export const TIME_SLOTS = {
@@ -44,42 +49,10 @@ export const TIME_SLOTS = {
 export type TimeSlot = keyof typeof TIME_SLOTS;
 export const TIME_SLOT_KEYS = Object.keys(TIME_SLOTS) as TimeSlot[];
 
-const PARIS = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'Europe/Paris',
-  hourCycle: 'h23',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-});
-
-/** How far ahead of UTC Paris is at that instant, in milliseconds. */
-function parisOffsetMs(at: Date): number {
-  const part = Object.fromEntries(PARIS.formatToParts(at).map((p) => [p.type, p.value]));
-  const asUtc = Date.UTC(
-    Number(part.year),
-    Number(part.month) - 1,
-    Number(part.day),
-    Number(part.hour),
-    Number(part.minute),
-    Number(part.second),
-  );
-  return asUtc - at.getTime();
-}
-
 /** The instant at which a Paris wall clock shows `hh:mm` on that day. */
 function parisTime(day: Date, hhmm: string): Date {
   const [hours, minutes] = hhmm.split(':').map(Number);
-  const wall = Date.UTC(
-    day.getUTCFullYear(),
-    day.getUTCMonth(),
-    day.getUTCDate(),
-    hours,
-    minutes,
-  );
-  return new Date(wall - parisOffsetMs(new Date(wall)));
+  return parisMinute(day, hours * 60 + minutes);
 }
 
 /**
@@ -96,13 +69,7 @@ export function slotWindow(day: Date, slot: TimeSlot) {
   };
 }
 
-/** Today's date in Paris, as the UTC-midnight `Date` a `DATE` column compares with. */
-export function parisToday(now: Date = new Date()): Date {
-  const local = new Date(now.getTime() + parisOffsetMs(now));
-  return new Date(
-    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()),
-  );
-}
+export { parisToday };
 
 export const QUOTE_STATUSES = [
   'submitted',

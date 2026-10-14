@@ -33,6 +33,7 @@ import { KycStorageService } from './services/kyc-storage.service';
     ChefOnboardingMailer,
     KycStorageService,
   ],
-  exports: [ChefDocumentsService],
+  // KycStorageService: the private bucket, also where e-CESU proofs are kept.
+  exports: [ChefDocumentsService, KycStorageService],
 })
 export class ChefOnboardingModule {}

@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -12,7 +11,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma, User } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
+import { type ChefIdentity, UsersService } from '../users/users.service';
 import {
   ACTIVE_OFFER,
   AWAITING_CHEF,
@@ -37,11 +36,7 @@ import { QuotesMailer } from './quotes.mailer';
 const notFound = () =>
   new NotFoundException({ code: 'QUOTE_NOT_FOUND', message: 'Request not found.' });
 
-/** The verified batch cooker behind a request made on `/me/chef/…`. */
-export interface ChefIdentity {
-  userId: string;
-  chefProfileId: string;
-}
+export type { ChefIdentity } from '../users/users.service';
 
 /**
  * Custom requests: what a client asks for, who has it, and where it stands.
@@ -373,25 +368,8 @@ export class QuotesService {
   }
 
   /** The caller's batch cooker page, which must be verified to work on requests. */
-  async chefIdentity(clerkUserId: string): Promise<ChefIdentity> {
-    const user = await this.me(clerkUserId);
-    const profile = await this.prisma.chefProfile.findUnique({
-      where: { userId: user.id },
-      select: { id: true, isVerified: true },
-    });
-    if (!profile) {
-      throw new NotFoundException({
-        code: 'NOT_A_CHEF',
-        message: 'This account has no batch cooker page.',
-      });
-    }
-    if (!profile.isVerified) {
-      throw new ForbiddenException({
-        code: 'CHEF_NOT_VERIFIED',
-        message: 'Only an approved batch cooker can answer requests.',
-      });
-    }
-    return { userId: user.id, chefProfileId: profile.id };
+  chefIdentity(clerkUserId: string): Promise<ChefIdentity> {
+    return this.users.chefIdentity(clerkUserId);
   }
 
   async load(id: string): Promise<LoadedQuote> {

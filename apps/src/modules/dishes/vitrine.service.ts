@@ -94,6 +94,9 @@ export class VitrineService {
     const ids = chefs.map((chef) => chef.id);
 
     const [slots, showcase, dishes, extras] = await Promise.all([
+      // ponytail: `slotsLeft` still counts the seeded `availability_slots`, not the
+      // working hours bookings are checked against (`AvailabilityService.freeSlots`).
+      // Switch when the agenda is live: one free-slot query per card, so batch it.
       this.prisma.availabilitySlot.findMany({
         where: { chefProfileId: { in: ids }, startsAt: { gte: slotsFrom, lt: slotsTo } },
         select: { chefProfileId: true, isBooked: true },
