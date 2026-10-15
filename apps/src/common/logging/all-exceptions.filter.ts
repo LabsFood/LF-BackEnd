@@ -63,7 +63,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (reply.sent) return;
-    void reply.status(status).send({ ...body, requestId: request.id });
+    // JSON whatever the route announced: `@Header('Content-Type', …)` is applied
+    // before the handler runs, so a calendar feed's 404 would say `text/calendar`.
+    void reply
+      .status(status)
+      .type('application/json; charset=utf-8')
+      .send({ ...body, requestId: request.id });
   }
 }
 

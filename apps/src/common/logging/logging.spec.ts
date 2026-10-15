@@ -84,6 +84,7 @@ describe('AllExceptionsFilter', () => {
     const reply = {
       sent: false,
       status: jest.fn().mockReturnThis(),
+      type: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
     };
     const host = {
@@ -99,6 +100,7 @@ describe('AllExceptionsFilter', () => {
     filter.catch(exception, host);
     return {
       status: reply.status.mock.calls[0]?.[0],
+      type: reply.type.mock.calls[0]?.[0],
       body: reply.send.mock.calls[0]?.[0],
     };
   }
@@ -112,6 +114,8 @@ describe('AllExceptionsFilter', () => {
     );
     expect(answer).toEqual({
       status: 409,
+      // JSON even where the route announced another type (the calendar feed).
+      type: 'application/json; charset=utf-8',
       body: { code: 'BOOKING_PAID', message: 'Ask support.', requestId: 'req-9' },
     });
     expect(warn).toHaveBeenCalledWith(
@@ -136,6 +140,7 @@ describe('AllExceptionsFilter', () => {
     const answer = run(new TypeError('boom at db row 42'));
     expect(answer).toEqual({
       status: HttpStatus.INTERNAL_SERVER_ERROR,
+      type: 'application/json; charset=utf-8',
       body: {
         statusCode: 500,
         code: 'INTERNAL',
