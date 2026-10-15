@@ -18,16 +18,13 @@ import { VitrineService } from './vitrine.service';
 const CHEF_ID = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33';
 
 const CARD_DISH = {
-  id: PUBLIC_DISH_EXAMPLE.id,
+  ...PUBLIC_DISH_EXAMPLE,
   name: 'Pho Bo',
+  description: 'Bouillon de bœuf parfumé, nouilles de riz et herbes fraîches.',
+  continent: 'asia',
   country: 'VN',
-  category: 'main',
-  imageUrl: null,
   portions: 4,
-  diets: ['lactose-free'],
-  customDiets: [],
   allergens: ['gluten', 'soy'],
-  allergensNone: false,
   customAllergens: [],
 };
 

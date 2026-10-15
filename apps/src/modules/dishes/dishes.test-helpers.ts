@@ -77,6 +77,15 @@ export function menuRow(
   };
 }
 
+/** A row as the admin views read it: with its author and how much it is used. */
+export function adminRow<T extends object>(row: T) {
+  return {
+    ...row,
+    chefProfile: { id: CHEF.id, displayName: 'Marie Dupont' },
+    _count: { menus: 2, bookingMeals: 1 },
+  };
+}
+
 type WriteArgs = { where?: Record<string, unknown>; data: Record<string, unknown> };
 
 /**
@@ -87,7 +96,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
   const meal = {
     findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => dishRow()),
     findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
-    findUniqueOrThrow: jest.fn(async () => dishRow()),
+    findUniqueOrThrow: jest.fn(async () => adminRow(dishRow())),
     findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
     create: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
     update: jest.fn(async ({ data }: WriteArgs) => dishRow(data)),
@@ -97,7 +106,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
   };
   const menu = {
     findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
-    findUniqueOrThrow: jest.fn(async () => menuRow()),
+    findUniqueOrThrow: jest.fn(async () => adminRow(menuRow({}, [adminRow(dishRow())]))),
     updateMany: jest.fn(async (_args?: unknown) => ({ count: 0 })),
     findUnique: jest.fn(async (): Promise<unknown> => menuRow()),
     findMany: jest.fn(async (): Promise<unknown[]> => []),
