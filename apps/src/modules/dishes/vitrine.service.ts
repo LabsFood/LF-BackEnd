@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import {
   BookingStatus,
@@ -10,6 +10,7 @@ import {
 } from '../../generated/prisma/client';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AvailabilityService } from '../calendar/availability.service';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { toPublicDish } from './dishes.views';
 import {
@@ -66,7 +67,12 @@ const publishedDishes = (menu: MenuWithDishes) =>
  */
 @Injectable()
 export class VitrineService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(VitrineService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly availability: AvailabilityService,
+  ) {}
 
   /**
    * §5.1. Chefs who cover the area and are not fully booked, then filtered by
@@ -93,11 +99,10 @@ export class VitrineService {
     );
     const ids = chefs.map((chef) => chef.id);
 
-    const [slots, showcase, dishes, extras] = await Promise.all([
-      this.prisma.availabilitySlot.findMany({
-        where: { chefProfileId: { in: ids }, startsAt: { gte: slotsFrom, lt: slotsTo } },
-        select: { chefProfileId: true, isBooked: true },
-      }),
+    const started = Date.now();
+    const [slotsLeft, showcase, dishes, extras] = await Promise.all([
+      // From the agenda: whole free sessions this week (FLOW-02 §5.1).
+      this.availability.slotsLeftFor(ids, slotsFrom, slotsTo),
       this.prisma.chefShowcaseWeek.findMany({
         where: { chefProfileId: { in: ids }, weekStart: start },
         include: { menu: { include: MENU_DISHES } },
@@ -109,11 +114,16 @@ export class VitrineService {
       this.cardExtras(ids),
     ]);
 
+    this.logger.debug({
+      event: 'vitrine.slots_computed',
+      chefs: ids.length,
+      ms: Date.now() - started,
+    });
+
     const cards = chefs.flatMap((chef) => {
-      const own = slots.filter((slot) => slot.chefProfileId === chef.id);
-      const free = own.filter((slot) => !slot.isBooked).length;
-      // Fully booked drops out; no slots configured stays, "on request" (PRD).
-      if (own.length > 0 && free === 0) return [];
+      const left = slotsLeft.get(chef.id) ?? null;
+      // Fully booked drops out; no hours or no offer stays, "on request" (PRD).
+      if (left === 0) return [];
 
       const menu = showcase.find((row) => row.chefProfileId === chef.id)?.menu;
       const live = menu && menu.status === MealStatus.published ? menu : null;
@@ -131,7 +141,7 @@ export class VitrineService {
           coveredDiets: coveredDiets(shown.map((dish) => ({ diets: dish.dietaryTags }))),
           shoppingIncluded: live?.shoppingIncluded ?? false,
           ...extras.price(chef.id),
-          slotsLeft: own.length ? free : null,
+          slotsLeft: left,
           dishes: shown.map(toCardDish),
         },
       ];
@@ -168,7 +178,8 @@ export class VitrineService {
   /** §5.2: a listed chef's public page, with published content only. */
   async chef(id: string) {
     const chef = await this.listedChef(id);
-    const [extras, dishes, menus] = await Promise.all([
+    const week = weekOf(parisDay(new Date()));
+    const [extras, dishes, menus, slotsLeft] = await Promise.all([
       this.cardExtras([chef.id]),
       this.prisma.meal.findMany({
         where: { chefProfileId: chef.id, status: MealStatus.published },
@@ -179,9 +190,15 @@ export class VitrineService {
         include: MENU_DISHES,
         orderBy: { publishedAt: 'desc' },
       }),
+      this.availability.slotsLeftFor(
+        [chef.id],
+        parisMidnight(week.start),
+        parisMidnight(toDay(new Date(toDate(week.start).getTime() + 7 * DAY_MS))),
+      ),
     ]);
     return {
       ...extras.chefCard(chef),
+      slotsLeft: slotsLeft.get(chef.id) ?? null,
       bio: chef.bio,
       zones: zonesOf(chef).map((zone) => ({
         regionCode: zone.regionCode,

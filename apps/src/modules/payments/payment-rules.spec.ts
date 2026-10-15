@@ -31,6 +31,12 @@ describe('paymentPhase', () => {
       }),
     );
     expect(() => assertPayable({ status: 'completed' }, NOW)).not.toThrow();
+    // FLOW-03 §3: a dispute blocks payment, even once the prestation is over.
+    expect(() => assertPayable({ status: 'disputed', endsAt: before }, NOW)).toThrow(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'BOOKING_DISPUTED' }),
+      }),
+    );
   });
 
   it('a cook’s unpaid commission only blocks payments that open new work', () => {

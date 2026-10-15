@@ -1,0 +1,10 @@
+<!-- subject: Prestation {{ params.reference }} : pas encore réglée -->
+{% comment %}
+params: firstName reference when freedAt amount clientName spaceUrl
+Sent once to the batch cooker, 48 h after a booking was made and while it is still unpaid. At freedAt (72 h) it is cancelled and the slot comes back to their agenda. clientName is first name and initial only.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Une prestation attend son règlement</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{{ params.clientName }} n’a pas encore réglé la prestation ci-dessous. Sans règlement avant le {{ params.freedAt }}, elle sera annulée et le créneau libéré dans votre agenda.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1F2A37;">{% if params.reference %}Référence&nbsp;: {{ params.reference }}<br>{% endif %}{{ params.when }}<br>Montant&nbsp;: <strong>{{ params.amount }}</strong></td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#2C3E50;"><a href="{{ params.spaceUrl }}" style="display:inline-block;padding:14px 24px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Voir mes prestations</a></td></tr></table>

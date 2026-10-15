@@ -67,6 +67,12 @@ export interface RegisterClientInput {
   password: string;
 }
 
+/** The verified batch cooker behind a request made on `/chef/…` or `/me/chef/…`. */
+export interface ChefIdentity {
+  userId: string;
+  chefProfileId: string;
+}
+
 /** Row of `GET /admin/clients`: a client account and its profile, if any. */
 export type AdminClientListItem = { user: User; clientProfile: ClientProfile | null };
 
@@ -114,6 +120,33 @@ export class UsersService {
 
   findByClerkId(clerkUserId: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { clerkUserId } });
+  }
+
+  /**
+   * The caller's batch cooker page, which must be approved: custom requests and
+   * bookings are work, and a candidate awaiting approval is browse-only.
+   */
+  async chefIdentity(clerkUserId: string): Promise<ChefIdentity> {
+    const user =
+      (await this.findByClerkId(clerkUserId)) ??
+      (await this.ensurePersistedFromClerk(clerkUserId));
+    const profile = await this.prisma.chefProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true, isVerified: true },
+    });
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'NOT_A_CHEF',
+        message: 'This account has no batch cooker page.',
+      });
+    }
+    if (!profile.isVerified) {
+      throw new ForbiddenException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Only an approved batch cooker can do this.',
+      });
+    }
+    return { userId: user.id, chefProfileId: profile.id };
   }
 
   /**

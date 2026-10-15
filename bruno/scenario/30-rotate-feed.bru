@@ -1,0 +1,32 @@
+meta {
+  name: A new link replaces the old one
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{baseUrl}}/chef/calendar-feed
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+script:pre-request {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  bru.setVar("oldFeedUrl", v("feedUrl"));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("feedUrl", res.getBody().url);
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("201 with a different link", function () {
+    expect(res.getStatus()).to.equal(201);
+    expect(res.getBody().url).to.not.equal(v("oldFeedUrl"));
+  });
+}

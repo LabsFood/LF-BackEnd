@@ -19,7 +19,7 @@ Frontend apps (`batchcooking-web`, `labsfood-web`, the admin console) consume th
 | Auth              | **Clerk**                                                                                            | Sign-up via `POST /auth/register`; no password login routes; Clerk JWT on protected routes |
 | Booking aggregate | **`bookings`**                                                                                       | Spec “reservation” maps to existing booking module/table naming                            |
 | Chef role         | **`chef`** replaces `provider`                                                                       | E1 migration landed; `provider_id` columns kept for compatibility                          |
-| Calendar / chat   | **Cronofy** (not wired yet); chat is in-house (`modules/messaging`), Stream dropped                  | One thread per client and chef pair, plus support; see AGENTS.md                           |
+| Calendar / chat   | **In-house calendar** (`modules/calendar`), no external provider; chat is in-house (`modules/messaging`), Stream dropped | One thread per client and chef pair, plus support; see AGENTS.md                           |
 | Tracking          | [evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)   | Gap list and delivery status                                                               |
 
 ## Services in this repo
@@ -45,7 +45,7 @@ apps/src/
 ├── supabase/                  # DB module wrapper + shared enums
 ├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser, raw-body helper
 ├── common/                    # audit log, pagination DTO, Swagger helpers
-├── integrations/              # Stripe, Brevo, Clerk, R2, Supabase Storage, Cronofy (scaffold)
+├── integrations/              # Stripe, Brevo, Clerk, R2, Supabase Storage
 ├── redis/                     # optional connection (REDIS_URL), in-process fallback
 └── modules/
     ├── health/                # GET /health, GET /ready
@@ -53,7 +53,8 @@ apps/src/
     ├── chef-onboarding/       # candidatures, KYC documents, referentials, daily dossier job (FLOW-01)
     ├── dishes/                # chef dishes and menus, public vitrine, moderation, recipe sheet and shopping list (FLOW-02)
     ├── catalog/               # /menus/current + admin meals/menu-weeks/formules (Lab's Food content)
-    ├── bookings/              # /bookings list and detail (POST answers 501)
+    ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job
+    ├── calendar/              # working hours, agenda, blocks, free slots, .ics feed (/chef/availability, /chef/agenda, /chef/calendar-feed)
     ├── quotes/                # custom requests and offers; accepting an offer creates the booking (BLK-10)
     ├── messaging/             # conversations, attachments, /ws gateway, unread-message emails
     ├── contact/               # public contact form + admin inbox
@@ -74,7 +75,8 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | `auth`           | Clerk session bridge, role resolution                 | **Done** — Clerk + `UsersService` upsert; `POST /auth/register`                  |
 | `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`; account/GDPR routes to do  |
 | `catalog`        | Meals, weekly menu, formules                          | **Done** — `GET /menus/current`; admin meals/menu-weeks/formules                 |
-| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | Partial — list and detail; created by an accepted offer; cancel to do            |
+| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — `/me/bookings`, `/chef/bookings`, `/admin/bookings`; old `/bookings/*` deprecated |
+| `calendar`       | Working hours, agenda, blocks, free slots, `.ics` feed | **Done** — `/chef/availability`, `/chef/agenda`, `/chef/calendar-feed`, `GET /calendar/feed/:token.ics`, `GET /chefs/:id/availability` |
 | `shopping-lists` | Ingredient aggregation by aisle                       | **Done** — booking detail, `/chef-missions/:id/shopping-list`                    |
 | `quotes`         | Sur-mesure requests & offers                          | **Done** — `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `/admin/quotes`      |
 | `messaging`      | Conversations, attachments, `/ws` realtime            | **Done** — `/me/conversations`, `/admin/conversations`                           |
@@ -88,25 +90,47 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | `admin`          | Guards, badges, settings singleton                    | Partial — `AdminGuard`, `/admin/settings/commission`; badges to do               |
 | `team`           | Chefs/staff & service zones                           | Partial — `GET /admin/chefs` (read-only); zones to do                            |
 
-Spec uses `/me/reservations`; implementation keeps **`bookings`** paths unless a versioned alias is added later.
+Spec uses `/me/reservations`; implementation keeps **`bookings`** paths, split by audience: `/me/bookings`
+(client), `/chef/bookings` (batch cooker), `/admin/bookings`.
 
-## Booking lifecycle (target)
+## Booking lifecycle
 
-Spec state machine (stored on `bookings.status`):
+Stored on `bookings.status`, rules in `bookings/domain/booking-status.ts`:
 
 ```
-pending → confirmed → shopping → cooking → delivered
-                    ↘ cancelled
+pending → confirmed → shopping → cooking → delivered → completed
+       ↘ cancelled  ↘ cancelled
 ```
 
-Enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/rename toward spec on the bookings epic.
+A booking is created two ways. Accepting an offer (`POST /me/quotes/:id/offers/:offerId/accept`)
+makes it `confirmed` at once, paid **after** it took place ("paid" is read from its payments).
+`POST /me/bookings`, `/chef/bookings` (for a client the batch cooker knows) or `/admin/bookings`
+makes it `pending`, priced on the server, checked against the batch cooker's availability (not for
+admins). A `pending` booking becomes `confirmed` once its payments cover it — the Stripe webhook, a
+CESU payment the batch cooker confirms (the e-CESU proof is required to declare it) or the URSSAF
+answer — never by a PATCH except an admin's. Unpaid, it holds the slot 72 h: both sides are reminded
+at 48 h, then it is cancelled.
 
-A booking is created by accepting an offer (`POST /me/quotes/:id/offers/:offerId/accept`), directly
-`confirmed`; `POST /bookings` answers `501`. A confirmed prestation is paid **after** it took place
-and its status does not change when paid: "paid" is read from its payments. A `pending` booking
-becomes `confirmed` once its payments cover it — settled by the Stripe webhook, a confirmed CESU
-payment or the URSSAF answer, never on the client's word. `shopping` / `cooking` / `delivered`
-remain unimplemented.
+The batch cooker moves it to `shopping`, `cooking` (the arrival on site, from 2 h before the start:
+`arrivedAt`) and `delivered`; either side closes it `completed`. Client or batch cooker cancel only
+while nothing is paid and, once confirmed, before the start; a paid booking is cancelled by an
+admin and refunded by hand in Stripe (no refund flow yet).
+
+`disputed` (the web's "En litige") is temporary, until the litiges module. Only an admin sets it,
+from any status but `cancelled`, and closes it to `completed` or `cancelled`. Meanwhile:
+- payment answers 409 `BOOKING_DISPUTED`
+- the slot stays held
+- photos can still be added
+- the client's recipe sheet waits for `completed`
+
+Clients and batch cookers report a dispute through the support thread.
+
+A `confirmed` booking moves when one side proposes a new start (`POST /me|chef/bookings/:id/reschedule`)
+and the other confirms it (`PATCH …/reschedule`):
+- Nothing moves inside the last 48 h: both the current and the new start must be further away.
+- The other side has 48 h to answer, cut short to 48 h before the start; unanswered, the booking keeps its time.
+- One proposal is open at a time. The time is checked when proposed and when confirmed.
+- Only the four time fields change; the price and the payments stay.
 
 ## Data model direction
 
@@ -250,7 +274,6 @@ Every route needs a Clerk bearer token unless listed as public; `/admin/*` addit
 | Cloudflare R2 | `R2_*`                                                                                     | Public dish, menu and profile photos (`R2StorageService`); routes answer 503 without all five vars          |
 | Supabase API  | `SUPABASE_*`, `SUPABASE_KYC_BUCKET`, `SUPABASE_MESSAGING_BUCKET`                           | Private storage for chef KYC documents and message attachments                                              |
 | URSSAF        | `URSSAF_GATEWAY`                                                                           | Simulated only (`disabled` by default): an admin answers in URSSAF's place                                  |
-| Cronofy       | `CRONOFY_*`                                                                                | Scaffold; no route uses it                                                                                  |
 
 ## Health checks
 
@@ -270,18 +293,19 @@ Swagger (`/docs`) is the complete, current list. By area:
 | Chef onboarding         | `/chef-applications`, `/me/chef-application`, `/me/chef-documents`, `/referentials/*`                    | public; Clerk           |
 | Dishes & menus          | `/me/dishes`, `/me/menus`, `/me/showcase`, `/me/suggestions`, `/me/offers`, `/menus/week`, `/chefs/:id`  | Clerk; public           |
 | Missions                | `/chef-missions/:id/*`, `GET /me/culinary-map`                                                           | Clerk                   |
-| Bookings                | `GET /bookings/me`, `GET /bookings/me/bookings/:id`                                                      | Clerk                   |
+| Bookings                | `/me/bookings`, `/chef/bookings` (+ photos); old `/bookings/*` deprecated                                | Clerk                   |
+| Agenda                  | `/chef/availability`, `/chef/agenda` (+ `/summary`, `/blocks`), `/chef/calendar-feed`; `GET /me/bookings/:id/calendar.ics`; `GET /chefs/:id/availability`, `GET /calendar/feed/:token.ics` | Clerk; public (feed: secret link) |
 | Quotes & offers         | `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `GET /pricing-rules`                                    | Clerk                   |
 | Messaging               | `/me/conversations`, `/ws`                                                                               | Clerk                   |
-| Payments                | `/payments/*`, `/me/bookings/:id/payment-*`, `/bookings/:id/settle`, `/me/urssaf-links`, `/me/chef/*`, `/me/chef-profile/{stripe-connect,sepa-mandate,sap}`, `/me/fiscal-attestations/:year` | Clerk |
+| Payments                | `/payments/*`, `/me/bookings/:id/payment-*`, `/me/bookings/:id/cesu-proof/upload-url`, `/me/cesu-payments/:id/proof*`, `/bookings/:id/settle`, `/me/urssaf-links`, `/me/chef/*`, `/me/chef-profile/{stripe-connect,sepa-mandate,sap}`, `/me/fiscal-attestations/:year` | Clerk |
 | Contact                 | `POST /contact-messages`                                                                                 | public                  |
 | Stats                   | `GET /me/dashboard`, `GET /me/stats`                                                                     | Clerk                   |
-| Admin                   | everything under `/admin/*`, plus `GET /bookings` and `/bookings/admin/bookings/:id`                     | Clerk + `admin`         |
+| Admin                   | everything under `/admin/*` (incl. `/admin/bookings`), plus the deprecated `GET /bookings` and `/bookings/admin/bookings/:id` | Clerk + `admin`         |
 | Webhooks                | `POST /webhooks/stripe`, `POST /webhooks/clerk`                                                          | signature (public)      |
 
 ### Client / public backlog (SPEC-BACKEND)
 
-Booking creation outside an offer and cancellation, account/notification settings, GDPR export and deletion routes, in-app notifications.
+Account/notification settings, GDPR export and deletion routes, in-app notifications, an admin refund flow.
 
 ### Admin backlog (SPEC-ADMIN-DASHBOARD)
 

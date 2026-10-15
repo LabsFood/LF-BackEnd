@@ -38,11 +38,6 @@ describe('configLoader', () => {
     expect(configLoader().api.port).toBe(3000);
   });
 
-  it('defaults Cronofy data centre to us', () => {
-    delete process.env.CRONOFY_DATA_CENTER;
-    expect(configLoader().cronofy.dataCenter).toBe('us');
-  });
-
   it('reads both Stripe webhook signing secrets', () => {
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_account';
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_connect';

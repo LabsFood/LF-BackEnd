@@ -27,7 +27,8 @@ import { MessagingService } from './services/messaging.service';
     MessagingNotifierCron,
     MessagingGateway,
   ],
-  // `ensurePair` is the hook for the booking flow, once it confirms bookings.
+  // `ensurePair`: an accepted custom request opens the thread at once; any other
+  // booking opens it on demand (`openForBooking`).
   exports: [MessagingService],
 })
 export class MessagingModule {}

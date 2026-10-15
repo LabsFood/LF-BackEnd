@@ -1,10 +1,11 @@
 import 'reflect-metadata';
 
 import helmet from '@fastify/helmet';
-import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { LogController } from 'fastify';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
@@ -13,6 +14,9 @@ import { SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { registerWebhookRawBodyHook } from './auth/fastify-raw-body';
+import { AllExceptionsFilter } from './common/logging/all-exceptions.filter';
+import { AppLogger, LOG_BASE } from './common/logging/app-logger';
+import { registerRequestContext } from './common/logging/request-context';
 import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
 import { buildOpenApiDocument } from './swagger';
 
@@ -25,6 +29,9 @@ import { buildOpenApiDocument } from './swagger';
  *
  * `LOG_JSON` defaults to true in production and false locally, where readable
  * lines beat parseable ones.
+ *
+ * Both write the same keys (`level`, `message`, `timestamp`, `requestId`, `service`,
+ * `env`, `version`), so an aggregator reads them as one stream.
  */
 const jsonLogging =
   (process.env.LOG_JSON ?? String(process.env.ENVIRONMENT === 'production')) === 'true';
@@ -38,7 +45,26 @@ async function bootstrap(): Promise<void> {
       // Access logs (method, path, status, duration) with a request id that also
       // lands in `audit_log.request_id`, so a Railway line and a database row can
       // be joined when debugging one candidature.
-      logger: jsonLogging ? { level: logLevel } : false,
+      logger: jsonLogging
+        ? {
+            level: logLevel,
+            base: { pid: process.pid, ...LOG_BASE },
+            messageKey: 'message',
+            timestamp: () => `,"timestamp":${Date.now()}`,
+            formatters: { level: (label: string) => ({ level: label }) },
+            serializers: {
+              // The path without its query string (searches can hold a name or an
+              // email), and never a calendar feed's secret.
+              req: (req: { id: string; method: string; url: string }) => ({
+                method: req.method,
+                url: req.url
+                  .split('?')[0]
+                  .replace(/^\/calendar\/feed\/[^/]+/, '/calendar/feed/:token'),
+              }),
+            },
+          }
+        : false,
+      logController: new LogController({ requestIdLogLabel: 'requestId' }),
       // Honour an inbound id from the proxy so a trace survives across services.
       genReqId: (req: IncomingMessage | Http2ServerRequest) =>
         (req.headers['x-request-id'] as string | undefined)?.slice(0, 64) ?? randomUUID(),
@@ -46,7 +72,7 @@ async function bootstrap(): Promise<void> {
     }),
     {
       bufferLogs: true,
-      logger: new ConsoleLogger({ json: jsonLogging, colors: !jsonLogging }),
+      logger: new AppLogger({ json: jsonLogging, colors: !jsonLogging }),
     },
   );
   const logger = new Logger('Bootstrap');
@@ -55,9 +81,7 @@ async function bootstrap(): Promise<void> {
   const fastify = app.getHttpAdapter().getInstance();
   registerWebhookRawBodyHook(fastify);
 
-  fastify.addHook('onRequest', async (request, reply) => {
-    reply.header('x-request-id', request.id);
-  });
+  registerRequestContext(fastify);
 
   await app.register(helmet, {
     contentSecurityPolicy: false,
@@ -71,6 +95,7 @@ async function bootstrap(): Promise<void> {
     ),
   );
 
+  app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

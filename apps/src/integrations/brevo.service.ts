@@ -28,7 +28,12 @@ export type ChefOnboardingEmail =
   | 'quoteNeedsChefAdmin'
   | 'quoteOfferClient'
   | 'quoteOfferDeclinedChef'
-  | 'bookingConfirmed';
+  | 'bookingConfirmed'
+  // Bookings: an unpaid booking's slot is freed in 24 h.
+  | 'bookingHoldReminderClient'
+  | 'bookingHoldReminderChef'
+  | 'bookingRescheduleProposed'
+  | 'bookingRescheduleAnswered';
 
 @Injectable()
 export class BrevoService {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ChefOnboardingModule } from '../chef-onboarding/chef-onboarding.module';
 import { UsersModule } from '../users/users.module';
 import {
   AdminUrssafController,
@@ -31,7 +32,8 @@ import { UrssafGateway } from './urssaf.gateway';
  * profile data, like the chef profile itself, and carries no Stripe secrets.
  */
 @Module({
-  imports: [UsersModule],
+  // ChefOnboardingModule lends its private-bucket storage to the e-CESU proofs.
+  imports: [UsersModule, ChefOnboardingModule],
   controllers: [
     PaymentsController,
     BookingPaymentsController,

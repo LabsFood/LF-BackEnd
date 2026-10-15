@@ -1,0 +1,42 @@
+meta {
+  name: A closed day cannot have extra hours
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/chef/availability
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+body:json {
+  {
+    "weekly": [],
+    "exceptions": [
+      {
+        "date": "{{in20DaysDate}}",
+        "kind": "closed"
+      },
+      {
+        "date": "{{in20DaysDate}}",
+        "kind": "extra",
+        "startMinute": 840,
+        "endMinute": 900
+      }
+    ]
+  }
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("422 SCHEDULE_CONFLICT naming the date", function () {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().code).to.equal("SCHEDULE_CONFLICT");
+    expect(res.getBody().details.date).to.equal(v("in20DaysDate"));
+  });
+}

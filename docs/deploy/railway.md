@@ -46,7 +46,6 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
 | `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar — not used yet |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |
@@ -54,7 +53,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
 | `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish, menu and profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
-| `BREVO_TPL_*` (19 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `BREVO_TPL_*` (21 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests, booking hold reminders (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
 | `CONTACT_NOTIFICATION_EMAIL`, `ADMIN_SITE_URL` | Team address told about contact messages and custom requests with no batch cooker (Reply-To of the answers), and the admin console link in those emails. Without `BREVO_TPL_CONTACT_REPLY` an admin cannot answer a contact message |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
@@ -137,8 +136,27 @@ Both the application logs and the Fastify access logs then emit JSON lines, so
 Railway's log explorer can filter on fields instead of matching substrings.
 `LOG_LEVEL` accepts `fatal | error | warn | info | debug | trace`, default `info`.
 
+Both streams share the same keys, so Datadog or any other aggregator reads them as
+one:
+- `level`, `message`, `timestamp`
+- `requestId`, plus `userId` (the Clerk id) and `route` on application lines
+- `service`, `env`, `version`, `hostname`
+
+`service`, `env` and `version` default to `lf-api`, `ENVIRONMENT` and
+`RAILWAY_GIT_COMMIT_SHA`; set `DD_SERVICE`, `DD_ENV` and `DD_VERSION` to override them.
+
+**Business events and errors:**
+- A business event is one line with an `event` field (`booking.created`,
+  `cesu.confirmed`…) and ids, codes, counts and durations. Names, emails, phone numbers,
+  addresses, notes and tokens are never logged, and access logs drop the query string.
+- Every HTTP error is logged once, as `event: http.error` with its `status` and `code`:
+  - 5xx at `error`, with the stack
+  - 409, 422 and 429 at `warn`
+  - other 4xx at `debug`
+
 Every response carries an `x-request-id` header. An inbound `x-request-id` from
-a proxy is honoured, so a trace survives across services.
+a proxy is honoured, so a trace survives across services. Error bodies carry the
+same id as `requestId`, so a user can quote it to support.
 
 **Joining a log line to the database.** The same id is stored on
 `audit_log.request_id`. Railway's log retention is short and cannot be queried

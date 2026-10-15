@@ -44,7 +44,7 @@ describe('R2StorageService', () => {
       480000,
     );
     const signed = new URL(url);
-    expect(signed.host).toBe('labsfood-photos.acc123.r2.cloudflarestorage.com');
+    expect(signed.host).toBe('labsfood-photos.acc123.eu.r2.cloudflarestorage.com');
     expect(signed.pathname).toBe('/chefs/c1/dishes/d1/ph_x.jpg');
     expect(signed.searchParams.get('X-Amz-SignedHeaders')).toBe(
       'content-length;content-type;host',

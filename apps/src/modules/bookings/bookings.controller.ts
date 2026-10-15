@@ -94,10 +94,10 @@ export class BookingsController {
   @ApiTags(TAGS.adminBookings)
   @ApiOperation({
     summary: 'Admin: list every bookings',
+    deprecated: true,
     description:
-      'Admin only. Returns every booking in the database for internal/admin tooling; ' +
-      'All bookings, earliest first, not paginated. Meant for the back office, but ' +
-      '**today any signed-in account can call it**',
+      '**Deprecated: use `GET /admin/bookings`** (paginated, filterable). Admins only. ' +
+      'Every booking in the database, earliest first, not paginated.',
   })
   @ApiOkResponse({
     type: BookingReadDto,
@@ -114,10 +114,12 @@ export class BookingsController {
   @ApiTags(TAGS.bookings)
   @ApiOperation({
     summary: 'List my bookings',
+    deprecated: true,
     description:
-      'Only the caller’s bookings: those they booked as a client, and those assigned ' +
-      'to them as a batch cooker (**Mes prestations**). Latest first, one page at a ' +
-      'time: `?page=2&limit=50`.',
+      '**Deprecated: use `GET /me/bookings` (as a client) or `GET /chef/bookings` (as a ' +
+      'batch cooker).** Only the caller’s bookings: those they booked as a client, and ' +
+      'those assigned to them as a batch cooker. Latest first, one page at a time: ' +
+      '`?page=2&limit=50`.',
   })
   @ApiOkResponse({ description: 'One page of bookings, with `meta` for the paging.' })
   @ApiClerkAuthResponses()
@@ -126,17 +128,21 @@ export class BookingsController {
     @Query() query: PaginationQueryDto,
   ) {
     const page = await this.bookings.listMine(user.userId, query);
-    return { data: page.data.map((row) => BookingReadDto.fromEntity(row)), meta: page.meta };
+    return {
+      data: page.data.map((row) => BookingReadDto.fromEntity(row)),
+      meta: page.meta,
+    };
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiTags(TAGS.bookings)
   @ApiOperation({
-    summary: 'Book a batch cooker (not available yet)',
+    summary: 'Book a batch cooker (use POST /me/bookings)',
+    deprecated: true,
     description:
-      '**Not built yet: always answers `501`.** It only checks the body first, so a ' +
-      'bad body still gets its `400` or `422`. Nothing is saved.',
+      '**Deprecated: use `POST /me/bookings`.** Always answers `501`. It only checks the ' +
+      'body first, so a bad body still gets its `400` or `422`. Nothing is saved.',
   })
   @ApiNotImplementedResponse({ description: 'Booking is not available yet.' })
   @ApiUnprocessableEntityResponse({
@@ -161,10 +167,11 @@ export class BookingsController {
   @ApiTags(TAGS.bookings)
   @ApiOperation({
     summary: 'Open one of my bookings',
+    deprecated: true,
     description:
-      'The booking with its meals and its shopping list (`shoppingList: null` until one ' +
-      'is made). Only the client who booked can open it; anyone else gets `404`.\n\n' +
-      'Note the path: `/bookings/me/bookings/{id}`.',
+      '**Deprecated: use `GET /me/bookings/{id}`.** The booking with its meals and its ' +
+      'shopping list (`shoppingList: null` until one is made). Only the client who ' +
+      'booked can open it; anyone else gets `404`.',
   })
   @ApiBookingIdParam()
   @ApiOkResponse({
@@ -189,9 +196,10 @@ export class BookingsController {
   @UseGuards(AdminGuard)
   @ApiOperation({
     summary: 'Open any booking',
+    deprecated: true,
     description:
-      'Any booking, with its client, its meals and its shopping list.\n\n' +
-      'Note the path: `/bookings/admin/bookings/{id}`.',
+      '**Deprecated: use `GET /admin/bookings/{id}`.** Any booking, with its client, ' +
+      'its meals and its shopping list.',
   })
   @ApiBookingIdParam()
   @ApiOkResponse({
@@ -221,7 +229,9 @@ export class BookingsController {
   @UseGuards(AdminGuard)
   @ApiOperation({
     summary: "Rebuild a booking's shopping list",
+    deprecated: true,
     description:
+      '**Deprecated: use `POST /admin/bookings/{id}/shopping-list/regenerate`.** ' +
       "Recomputes the booking's shopping list from the recipe versions it cooks from: " +
       'each ingredient scaled to the portions booked, the same ingredient in the same ' +
       "unit added up. The batch cooker's corrections are kept. Use it after the meals " +

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { currentRequest } from '../logging/request-context';
 
 export type AuditActorType = 'admin' | 'candidate' | 'chef' | 'client' | 'system';
 
@@ -13,7 +14,7 @@ export interface AuditEntry {
   subjectId?: string | null;
   outcome?: 'ok' | 'failed';
   metadata?: Record<string, unknown>;
-  /** Joins this row to its line in the Railway log stream. */
+  /** Joins this row to its line in the Railway log stream. Defaults to the current request's. */
   requestId?: string | null;
 }
 
@@ -40,7 +41,7 @@ export class AuditService {
           subjectId: entry.subjectId ?? null,
           outcome: entry.outcome ?? 'ok',
           metadata: (entry.metadata ?? {}) as object,
-          requestId: entry.requestId ?? null,
+          requestId: entry.requestId ?? currentRequest()?.requestId ?? null,
         },
       });
     } catch (error) {

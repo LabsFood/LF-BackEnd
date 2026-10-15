@@ -1,0 +1,25 @@
+meta {
+  name: Client sees the proposal
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/me/bookings/{{bookingId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{clientToken}}
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("reschedule: proposed by the batch cooker, to the new time", function () {
+    expect(res.getStatus()).to.equal(200);
+    const proposal = res.getBody().reschedule;
+    expect(proposal.proposedBy).to.equal("chef");
+    expect(new Date(proposal.to).getTime()).to.equal(new Date(v("slotB")).getTime());
+  });
+}

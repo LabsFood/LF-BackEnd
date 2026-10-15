@@ -138,6 +138,15 @@ describe('PaymentsService.createCheckoutSession', () => {
     expect(sessions.create).not.toHaveBeenCalled();
   });
 
+  it('refuses a prestation in dispute', async () => {
+    const { service, sessions } = setup({ ...DONE_BOOKING, status: 'disputed' });
+
+    await expect(service.createCheckoutSession('clerk_1', body())).rejects.toMatchObject({
+      response: { code: 'BOOKING_DISPUTED' },
+    });
+    expect(sessions.create).not.toHaveBeenCalled();
+  });
+
   it('only returns the client to one of our own sites', async () => {
     const { service, prisma } = setup();
 

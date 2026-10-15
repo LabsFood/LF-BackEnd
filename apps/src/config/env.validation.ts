@@ -97,10 +97,6 @@ export const envValidationSchema = Joi.object({
       then: Joi.string().invalid('simulated'),
     }),
 
-  CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
-  CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
-  CRONOFY_DATA_CENTER: Joi.string().default('us'),
-
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
   BREVO_SENDER_NAME: Joi.string().default('Labs Food'),
@@ -128,6 +124,10 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_QUOTE_OFFER_CLIENT: Joi.number().optional(),
   BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF: Joi.number().optional(),
   BREVO_TPL_BOOKING_CONFIRMED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_HOLD_REMINDER_CLIENT: Joi.number().optional(),
+  BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),
+  BREVO_TPL_BOOKING_RESCHEDULE_PROPOSED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),

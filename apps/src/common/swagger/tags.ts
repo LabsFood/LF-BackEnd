@@ -11,6 +11,7 @@ export const TAGS = {
   candidature: 'Batch cooker — candidature',
   documents: 'Batch cooker — documents',
   chefContent: 'Batch cooker — dishes and menus',
+  chefBookings: 'Batch cooker — prestations and agenda',
   catalog: 'Catalog',
   bookings: 'Bookings',
   payments: 'Payments',
@@ -45,10 +46,15 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
   chefContent:
     'A batch cooker writes dishes with their recipe, composes menus and publishes ' +
     'them. Public at once; admins check afterwards.',
+  chefBookings:
+    'The batch cooker’s prestations (bookings) and agenda: working hours and the ' +
+    'free slots they leave.',
   catalog:
     'What clients can order: the week’s cooks and their menus, each cook’s page. ' +
     'Public.',
-  bookings: "The signed-in client's bookings.",
+  bookings:
+    "The signed-in client's bookings: book, follow, change or cancel. Paying is under " +
+    'Payments.',
   missions:
     'The documents a prestation leaves: the recipe sheet of each dish and the ' +
     'shopping list, from the recipe versions it cooks from.',
@@ -68,7 +74,9 @@ export const TAG_DESCRIPTIONS: Record<keyof typeof TAGS, string> = {
     'Batch cookers publish directly; admins look afterwards: the review queue, one-click ' +
     'review, taking content down with a reason. Admins only.',
   adminCatalog: 'Meals, weekly menus and pricing formules. Admins only.',
-  adminBookings: 'Any booking and its shopping list. Admins only.',
+  adminBookings:
+    'Every booking on the platform: list, open, create for a client, change any field ' +
+    'or status. Admins only.',
   adminQuotes: 'Price and follow up quote requests. Admins only.',
   contact:
     'The contact forms of the public sites. No account needed: the message lands in ' +

@@ -1,6 +1,6 @@
 # Brevo email templates
 
-The transactional emails the API sends through Brevo (candidature, KYC documents, dishes, messaging, contact forms, custom requests).
+The transactional emails the API sends through Brevo (candidature, KYC documents, dishes, messaging, contact forms, custom requests, booking reminders).
 The repo is the source of truth for their text; Brevo holds a copy that `upload.mjs` keeps in sync.
 
 | File | What it is |

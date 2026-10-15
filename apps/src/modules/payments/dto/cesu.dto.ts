@@ -7,6 +7,10 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
 } from 'class-validator';
 
 import type {
@@ -16,7 +20,14 @@ import type {
   PaymentStatus,
   SapExternalStatus,
 } from '../../../generated/prisma/client';
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_FILE_BYTES,
+} from '../../chef-onboarding/services/kyc-storage.service';
 import { CESU_SUPPORTED_ISSUERS } from '../chef-cesu-info';
+
+/** The `uploadId` a proof upload link comes with. */
+const PROOF_UPLOAD_ID = /^up_[a-f0-9]{24}$/;
 
 export const CESU_MEDIUMS = [
   'ecesu',
@@ -73,20 +84,53 @@ export class DeclareCesuPaymentDto {
   @IsIn(CESU_SUPPORTED_ISSUERS)
   issuer?: CesuIssuer;
 
-  // ponytail: no file attachment for the proof — free text only. Wire up S3 when the
-  // reference field alone stops being enough evidence for a chef/admin dispute.
   @ApiPropertyOptional({
     maxLength: 255,
     description:
-      'Free-text reference from the issuer confirmation email. A supporting document, ' +
-      'not a proof — nothing about it can be checked. Attaching the document itself ' +
-      'waits on S3.',
+      'Free-text reference from the issuer confirmation email. Optional, and nothing ' +
+      'about it can be checked: the evidence is the document below.',
     example: 'PLX-2026-0918-44711',
   })
   @IsOptional()
   @IsString()
   @Length(1, 255)
   clientProofRef?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '**Required for `ecesu`**: the `uploadId` of the issuer’s confirmation, uploaded ' +
+      'first through `POST /me/bookings/{id}/cesu-proof/upload-url`. Kept privately as ' +
+      'Lab’s Food’s evidence; the chef still confirms receipt. Optional on paper.',
+    example: 'up_9f2a1c4e7b30d85a61c2e4f7',
+  })
+  @ValidateIf(
+    (o: DeclareCesuPaymentDto) => o.medium === 'ecesu' || o.proofUploadId !== undefined,
+  )
+  @Matches(PROOF_UPLOAD_ID)
+  proofUploadId?: string;
+}
+
+/** `POST /me/bookings/:id/cesu-proof/upload-url`: the issuer's confirmation, first. */
+export class CesuProofUploadDto {
+  @ApiProperty({ enum: ALLOWED_MIME_TYPES, example: 'application/pdf' })
+  @IsIn(ALLOWED_MIME_TYPES)
+  contentType!: string;
+
+  @ApiProperty({ minimum: 1, maximum: MAX_FILE_BYTES, example: 182_311 })
+  @IsInt()
+  @Min(1)
+  @Max(MAX_FILE_BYTES)
+  sizeBytes!: number;
+}
+
+/** `PUT /me/cesu-payments/:id/proof`: another file, while the chef has not answered. */
+export class CesuProofDto {
+  @ApiProperty({
+    description: 'The `uploadId` of the new upload link.',
+    example: 'up_9f2a1c4e7b30d85a61c2e4f7',
+  })
+  @Matches(PROOF_UPLOAD_ID)
+  uploadId!: string;
 }
 
 /** `POST /me/chef/cesu-payments/:id/reject`. */
@@ -185,6 +229,16 @@ export class CesuPaymentDto {
     description: 'Client-supplied issuer reference.',
   })
   clientProofRef?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description:
+      'When the client uploaded the issuer’s confirmation; `null` for paper or an ' +
+      'older declaration. The file itself is for Lab’s Food (`…/proof-url`).',
+  })
+  proofUploadedAt?: Date | null;
 
   @ApiPropertyOptional({
     nullable: true,

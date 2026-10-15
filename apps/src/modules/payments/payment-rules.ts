@@ -10,7 +10,7 @@ import type { BookingStatus } from '../../generated/prisma/client';
  * happened. A `pending` booking is the other model, where paying is what confirms
  * it; it stays payable at once.
  */
-export type PaymentPhase = 'not_due' | 'due' | 'cancelled';
+export type PaymentPhase = 'not_due' | 'due' | 'cancelled' | 'disputed';
 
 export interface PayableBooking {
   status: BookingStatus;
@@ -24,6 +24,8 @@ export function paymentPhase(
   switch (booking.status) {
     case 'cancelled':
       return 'cancelled';
+    case 'disputed':
+      return 'disputed';
     case 'pending':
     case 'completed':
       return 'due';
@@ -40,6 +42,13 @@ export function assertPayable(booking: PayableBooking, now: Date = new Date()): 
     throw new ConflictException({
       code: 'BOOKING_CANCELLED',
       message: 'A cancelled booking cannot be paid.',
+    });
+  }
+  // FLOW-03 §3: an open dispute blocks payment until an admin settles it.
+  if (phase === 'disputed') {
+    throw new ConflictException({
+      code: 'BOOKING_DISPUTED',
+      message: 'This prestation is in dispute: Lab’s Food will tell you what is due.',
     });
   }
   if (phase === 'not_due') {

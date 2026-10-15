@@ -84,11 +84,6 @@ export interface AppConfig {
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
   };
-  cronofy: {
-    clientId?: string;
-    clientSecret?: string;
-    dataCenter: string;
-  };
   brevo: {
     apiKey?: string;
     senderEmail: string;
@@ -114,6 +109,10 @@ export interface AppConfig {
       quoteOfferClient?: number;
       quoteOfferDeclinedChef?: number;
       bookingConfirmed?: number;
+      bookingHoldReminderClient?: number;
+      bookingHoldReminderChef?: number;
+      bookingRescheduleProposed?: number;
+      bookingRescheduleAnswered?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -221,11 +220,6 @@ export const configLoader = (): AppConfig => ({
       process.env.STRIPE_CONNECT_RETURN_URL ??
       'http://localhost:3005/chef/onboarding/stripe/return',
   },
-  cronofy: {
-    clientId: process.env.CRONOFY_CLIENT_ID,
-    clientSecret: process.env.CRONOFY_CLIENT_SECRET,
-    dataCenter: process.env.CRONOFY_DATA_CENTER ?? 'us',
-  },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,
     senderEmail: process.env.BREVO_SENDER_EMAIL ?? 'noreply@labsfood.com',
@@ -254,6 +248,18 @@ export const configLoader = (): AppConfig => ({
         process.env.BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF,
       ),
       bookingConfirmed: optionalNumber(process.env.BREVO_TPL_BOOKING_CONFIRMED),
+      bookingHoldReminderClient: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_HOLD_REMINDER_CLIENT,
+      ),
+      bookingHoldReminderChef: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF,
+      ),
+      bookingRescheduleProposed: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_RESCHEDULE_PROPOSED,
+      ),
+      bookingRescheduleAnswered: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED,
+      ),
     },
   },
   logging: {

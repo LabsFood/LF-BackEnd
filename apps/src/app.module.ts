@@ -12,6 +12,7 @@ import { DatabaseModule } from './supabase/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
@@ -73,6 +74,7 @@ import { RedisModule } from './redis/redis.module';
     QuotesModule,
     StatsModule,
     BookingsModule,
+    CalendarModule,
     ChefOnboardingModule,
     DishesModule,
     MessagingModule,

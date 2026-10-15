@@ -223,6 +223,8 @@ export class QuoteOffersService {
             amountTtc: offer.clientPriceCents,
             amountAfterTax: offer.afterTaxCreditCents,
             addressLine: address.slice(0, 255) || null,
+            addressCity: quote.addressCity,
+            addressPostalCode: quote.addressPostalCode,
             notes: quote.brief,
           },
           select: { id: true },
