@@ -1,0 +1,25 @@
+meta {
+  name: Client downloads it for their calendar
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/me/bookings/{{bookingId}}/calendar.ics
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{clientToken}}
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("200 text/calendar with the booking as one event", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("content-type")).to.contain("text/calendar");
+    expect(res.getBody()).to.contain("BEGIN:VCALENDAR");
+    expect(res.getBody()).to.contain("UID:" + v("bookingId") + "@labsfood.fr");
+  });
+}

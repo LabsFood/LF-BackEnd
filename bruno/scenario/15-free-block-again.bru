@@ -1,0 +1,22 @@
+meta {
+  name: Freeing it again is a 404
+  type: http
+  seq: 15
+}
+
+delete {
+  url: {{baseUrl}}/chef/agenda/blocks/{{blockId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  test("404", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getBody().code).to.equal("BLOCK_NOT_FOUND");
+  });
+}

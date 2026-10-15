@@ -1,0 +1,28 @@
+meta {
+  name: Admin cancels the test booking
+  type: http
+  seq: 26
+}
+
+patch {
+  url: {{baseUrl}}/admin/bookings/{{bookingId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "status": "cancelled"
+  }
+}
+
+tests {
+  test("200, cancelled", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().status).to.equal("cancelled");
+  });
+}

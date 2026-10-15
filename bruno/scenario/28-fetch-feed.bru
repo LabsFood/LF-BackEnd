@@ -1,0 +1,19 @@
+meta {
+  name: A calendar app fetches the feed
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{feedUrl}}
+  body: none
+  auth: none
+}
+
+tests {
+  test("200 text/calendar", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("content-type")).to.contain("text/calendar");
+    expect(res.getBody()).to.contain("BEGIN:VCALENDAR");
+  });
+}

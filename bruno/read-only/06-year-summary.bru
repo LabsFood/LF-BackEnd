@@ -1,0 +1,29 @@
+meta {
+  name: Year view: prestations per month
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/chef/agenda/summary?year={{year}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  year: {{year}}
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  test("twelve months, January first", function () {
+    expect(res.getStatus()).to.equal(200);
+    const months = res.getBody().months;
+    expect(months).to.have.length(12);
+    expect(months[0]).to.deep.include({ month: 1 });
+    expect(months[0].prestations).to.be.a("number");
+  });
+}

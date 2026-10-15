@@ -1,0 +1,28 @@
+meta {
+  name: Admin opens a dispute
+  type: http
+  seq: 24
+}
+
+patch {
+  url: {{baseUrl}}/admin/bookings/{{bookingId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "status": "disputed"
+  }
+}
+
+tests {
+  test("200, disputed", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().status).to.equal("disputed");
+  });
+}

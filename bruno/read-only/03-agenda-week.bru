@@ -1,0 +1,46 @@
+meta {
+  name: Agenda, this week
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/chef/agenda?from={{weekFrom}}&to={{weekTo}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  from: {{weekFrom}}
+  to: {{weekTo}}
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+vars:pre-request {
+  weekFrom: 12
+  weekTo: 16
+}
+
+tests {
+  test("200 with the schedule, prestations, requests and blocks", function () {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body).to.include.all.keys("scheduled", "schedule", "prestations", "requests", "blocks");
+    expect(body.schedule.version).to.be.a("string");
+    expect(body.schedule.weekly).to.be.an("array");
+  });
+  test("prestations show a city and the client's short name", function () {
+    for (const p of res.getBody().prestations) {
+      expect(p).to.include.all.keys("id", "status", "startsAt", "endsAt", "city", "client", "rescheduleTo");
+      expect(p.client).to.have.key("name");
+    }
+  });
+  test("requests carry their stage", function () {
+    for (const q of res.getBody().requests) {
+      expect(["to_answer", "offer_sent"]).to.include(q.stage);
+    }
+  });
+}

@@ -1,0 +1,28 @@
+meta {
+  name: Refused without a token, with the request id
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/chef/agenda?from={{weekFrom}}&to={{weekTo}}
+  body: none
+  auth: none
+}
+
+params:query {
+  from: {{weekFrom}}
+  to: {{weekTo}}
+}
+
+headers {
+  x-request-id: bruno-no-token
+}
+
+tests {
+  test("401, the request id echoed in the body and the header", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().requestId).to.equal("bruno-no-token");
+    expect(res.getHeader("x-request-id")).to.equal("bruno-no-token");
+  });
+}
