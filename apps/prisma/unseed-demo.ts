@@ -6,7 +6,6 @@ import { createPrismaClient } from '../src/prisma/create-prisma-client';
 import {
   DEMO_MENU_YEAR,
   DEMO_SEED_TAG,
-  demoCmsSlug,
   demoFormuleId,
   demoMealName,
 } from '../src/common/demo-seed-constants';
@@ -92,11 +91,6 @@ async function main(): Promise<void> {
     where: { name: { startsWith: '[demo]' } },
   });
 
-  const cmsSlugs = Array.from({ length: 10 }, (_, i) => demoCmsSlug(i + 1));
-  const { count: cmsPages } = await prisma.cmsPage.deleteMany({
-    where: { slug: { in: cmsSlugs } },
-  });
-
   const formuleIds = Array.from({ length: 10 }, (_, i) => demoFormuleId(i + 1));
   const { count: formules } = await prisma.formule.deleteMany({
     where: { id: { in: formuleIds } },
@@ -126,7 +120,6 @@ async function main(): Promise<void> {
     menuWeekMeals: weekMeals,
     menuWeeks: weeks,
     meals,
-    cmsPages,
     formules,
     chefProfiles: chefs,
     clientProfiles: clients,

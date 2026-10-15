@@ -1,0 +1,52 @@
+name: SemRelease
+
+# Cut a semantic-release from main once "LF API Server image" (build + migrate +
+# health-check smoke test) has passed for that exact commit. The version comes
+# from Conventional Commit messages since the last v*.*.* tag; CHANGELOG.md and
+# apps/package.json are committed back to main as "chore(release): x.y.z [skip ci]".
+
+on:
+  workflow_run:
+    workflows: [LF API Server image]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # tag, GitHub Release, release commit
+  issues: write # "released in vX" comments, failure issue
+  pull-requests: write
+
+jobs:
+  release:
+    # Pushes only: skips tag pushes and manual runs of the LF API Server workflow.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      # The commit that passed the smoke test. If main has moved since,
+      # semantic-release skips and the newer commit's run releases instead.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          npx --yes
+          -p semantic-release@24
+          -p @semantic-release/changelog@6
+          -p @semantic-release/git@10
+          -p conventional-changelog-conventionalcommits@8
+          semantic-release

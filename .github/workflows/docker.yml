@@ -1,4 +1,4 @@
-name: Docker image
+name: LF API Server image
 
 # Build the production image (repo-root context + apps/Dockerfile, same as
 # Railway/Compose), run it on a standard GitHub runner against a throwaway
@@ -7,7 +7,8 @@ name: Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    tags: ['v*.*.*']
   pull_request:
     branches: [develop]
   workflow_dispatch:

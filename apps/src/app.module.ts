@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+import { AuditModule } from './common/audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
 import { resolveEnvFilePaths } from './config/env-files';
@@ -10,15 +12,21 @@ import { DatabaseModule } from './supabase/database.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.module';
 import { StatsModule } from './modules/stats/stats.module';
-import { ContentCmsModule } from './modules/content-cms/content-cms.module';
+import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
+import { DishesModule } from './modules/dishes/dishes.module';
 import { UsersModule } from './modules/users/users.module';
-// Redis not implemented yet — re-enable when cache/queues are wired.
-// import { RedisModule } from './redis/redis.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -31,7 +39,8 @@ import { UsersModule } from './modules/users/users.module';
       cache: true,
     }),
     // Configured globally but enforced only where `ThrottlerGuard` is attached
-    // (currently the public `POST /auth/register`), so existing routes are unaffected.
+    // (public `POST /auth/register` and the money-moving payment endpoints),
+    // so existing unguarded routes are unaffected.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -41,14 +50,22 @@ import { UsersModule } from './modules/users/users.module';
             ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
             limit: config.get<number>('registerThrottle.limit', 5),
           },
+          {
+            name: 'payments',
+            ttl: config.get<number>('paymentsThrottle.ttlMs', 60_000),
+            limit: config.get<number>('paymentsThrottle.limit', 20),
+          },
         ],
       }),
     }),
+    // In-process scheduler for the daily chef-dossier job. No queue: see
+    // ChefDossierCron for the multi-replica caveat.
+    ScheduleModule.forRoot(),
     DatabaseModule,
-    // RedisModule,
+    RedisModule,
+    AuditModule,
     AuthModule,
     ClerkWebhooksModule,
-    ContentCmsModule,
     IntegrationsModule,
     HealthModule,
     UsersModule,
@@ -57,6 +74,14 @@ import { UsersModule } from './modules/users/users.module';
     QuotesModule,
     StatsModule,
     BookingsModule,
+    CalendarModule,
+    ChefOnboardingModule,
+    DishesModule,
+    MessagingModule,
+    ContactModule,
+    PlatformSettingsModule,
+    PaymentsModule,
+    StripeWebhooksModule,
   ],
 })
 export class AppModule {}

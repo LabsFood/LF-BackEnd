@@ -5,32 +5,36 @@ import { Booking, BookingStatus } from '../../../supabase/entities';
 export class BookingReadDto {
   @ApiProperty({
     format: 'uuid',
-    description: 'Booking primary key.',
-    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    description: 'The booking id.',
+    example: '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88',
   })
   id!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Postgres user id of the client who placed the booking.',
+    description: 'The account of the client who booked.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   clientId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Chef profile id assigned to the booking (legacy field name: provider).',
+    description: 'The batch cooker page id. Old name of `chefId`, same value.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   providerId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Alias of `providerId` — preferred name in Phase 1+ responses.',
+    description: 'The batch cooker page id. Prefer this name to `providerId`.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   chefId!: string;
 
   @ApiProperty({
     format: 'uuid',
-    description: 'Service offer (menu package) booked by the client.',
+    description: 'The service offer booked.',
+    example: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
   })
   serviceOfferId!: string;
 
@@ -51,8 +55,20 @@ export class BookingReadDto {
   endsAt!: Date;
 
   @ApiProperty({
-    enum: BookingStatus,
-    description: 'Booking lifecycle status.',
+    enum: [
+      'pending',
+      'confirmed',
+      'shopping',
+      'cooking',
+      'delivered',
+      'completed',
+      'cancelled',
+      'disputed',
+    ],
+    description:
+      '`pending`: waiting for its payment. `confirmed`: going ahead. `shopping`, ' +
+      '`cooking`, `delivered`: under way. `completed`: done. `cancelled`: will not happen. ' +
+      '`disputed`: in dispute, set by Lab’s Food; payment waits for its outcome.',
     example: 'confirmed',
   })
   status!: BookingStatus;
@@ -69,6 +85,28 @@ export class BookingReadDto {
   })
   currency!: string;
 
+  @ApiProperty({
+    nullable: true,
+    description: 'Human-readable booking reference, `LF-<year>-NNNN`.',
+    example: 'LF-2026-0001',
+  })
+  reference!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Amount charged to the client, VAT included, in minor units.',
+    example: 12500,
+  })
+  amountTtc!: number | null;
+
+  @ApiProperty({
+    nullable: true,
+    description:
+      'Net cost to the client after the 50 % "service à la personne" tax credit.',
+    example: 6250,
+  })
+  amountAfterTax!: number | null;
+
   static fromEntity(b: Booking): BookingReadDto {
     return {
       id: b.id,
@@ -81,6 +119,9 @@ export class BookingReadDto {
       status: b.status,
       priceCents: b.priceCents,
       currency: b.currency,
+      reference: b.reference,
+      amountTtc: b.amountTtc,
+      amountAfterTax: b.amountAfterTax,
     };
   }
 }

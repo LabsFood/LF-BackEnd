@@ -1,116 +1,140 @@
 # Backend architecture
 
-This document describes the **LF-BackEnd** API only. Product intent and route contracts come from `[SPEC-BACKEND.md](./SPEC-BACKEND.md)` and `[SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md)` (API sections). Stack choices are in `[../stack.md](../stack.md)`.
+This document describes the **LF-BackEnd** API only. Product intent and route contracts come from [SPEC-BACKEND.md](./SPEC-BACKEND.md) and [SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md) (API sections). Stack choices are in [../stack.md](../stack.md). The rules and routes of each delivered feature are in [../AGENTS.md](../AGENTS.md).
 
 ## Guiding specs
 
+| Document                                             | Backend scope                                                                                                 |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [SPEC-BACKEND.md](./SPEC-BACKEND.md)                 | Client/batch-cooking API, shared domain model, payments, notifications, stats                                 |
+| [SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md) | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
 
-| Document                                               | Backend scope                                                                                                 |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `[SPEC-BACKEND.md](./SPEC-BACKEND.md)`                 | Client/batch-cooking API, shared domain model, payments, notifications, stats                                 |
-| `[SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md)` | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
-
-
-Frontend apps (`labs-food`, `admin-labsfood`, `labs-food-main`) consume this API but are **not** documented here.
+Frontend apps (`batchcooking-web`, `labsfood-web`, the admin console) consume this API but are **not** documented here.
 
 ## Resolved implementation choices
 
-
-| Topic             | Decision                                                                                             | Notes                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| ORM               | **Prisma**                                                                                           | `PrismaService` + `apps/prisma/schema.prisma`                                          |
-| Auth              | **Clerk**                                                                                            | No first-party `/auth/register` or password routes; JWT from Clerk on protected routes |
-| Booking aggregate | `**bookings`**                                                                                       | Spec “reservation” maps to existing booking module/table naming                        |
-| Chef role         | `**chef**` replaces `provider`                                                                       | E1 migration landed; `provider_id` columns kept temporarily for compatibility          |
-| Calendar / chat   | **Cronofy** + **Stream**                                                                             | Kept per stack; wire to booking lifecycle and messaging modules                        |
-| Tracking          | `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Gap list and delivery status                                                           |
-
+| Topic             | Decision                                                                                             | Notes                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| ORM               | **Prisma**                                                                                           | `PrismaService` + `apps/prisma/schema.prisma`                                              |
+| Auth              | **Clerk**                                                                                            | Sign-up via `POST /auth/register`; no password login routes; Clerk JWT on protected routes |
+| Booking aggregate | **`bookings`**                                                                                       | Spec “reservation” maps to existing booking module/table naming                            |
+| Chef role         | **`chef`** replaces `provider`                                                                       | E1 migration landed; `provider_id` columns kept for compatibility                          |
+| Calendar / chat   | **In-house calendar** (`modules/calendar`), no external provider; chat is in-house (`modules/messaging`), Stream dropped | One thread per client and chef pair, plus support; see AGENTS.md                           |
+| Tracking          | [evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)   | Gap list and delivery status                                                               |
 
 ## Services in this repo
 
+| Service    | Path                            | Role                                               | Default port |
+| ---------- | ------------------------------- | -------------------------------------------------- | ------------ |
+| NestJS API | [apps/](../apps/) (`apps/src/`) | Primary REST API (OpenAPI/Swagger) + `/ws`         | 8000         |
+| PostgreSQL | Docker / Supabase               | Primary data store                                 | 5432         |
+| Redis      | Docker                          | Messaging rate limit + realtime fan-out (optional) | 6379         |
 
-| Service    | Path                              | Role                                          | Default port |
-| ---------- | --------------------------------- | --------------------------------------------- | ------------ |
-| NestJS API | `[apps/](../apps/)` (`apps/src/`) | Primary REST API (OpenAPI/Swagger)            | 8000         |
-| PostgreSQL | Docker / Supabase                 | Primary data store                            | 5432         |
-| Redis      | Docker                            | Cache + async queues (module not enabled yet) | 6379         |
-
-
-Database: **Prisma** (`apps/prisma/schema.prisma`). Local/Docker: `npm run db:migrate` or `prisma migrate deploy` in the API container entrypoint.
+Database: **Prisma** (`apps/prisma/schema.prisma`, migrations in `apps/prisma/migrations/`). Local/Docker: `npm run db:migrate` or `prisma migrate deploy` in the API container entrypoint.
 
 ## Current module layout (implemented)
 
 ```
 apps/src/
-├── main.ts
+├── main.ts                    # Fastify, helmet, CORS, raw-body hook, /ws adapter
+├── swagger.ts                 # OpenAPI document (/docs, /openapi.json)
 ├── app.module.ts
-├── config/                    # env validation (Joi), config loader
-├── prisma/
-│   ├── schema.prisma
-│   ├── migrations/
-│   └── seed.ts
-├── supabase/                  # DB module wrapper + shared types
-│   ├── database.module.ts     # imports PrismaModule
-│   ├── types/                 # CMS JSON shapes
-│   └── enums.ts
-├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser
-├── integrations/              # Stripe, Cronofy, Stream, Brevo, Supabase (CMS assets)
-├── redis/                     # scaffold (commented out of AppModule)
+├── config/                    # env validation (Joi), config loader, CORS allowlist
+├── prisma/                    # PrismaService
+├── generated/prisma/          # Prisma client (generated)
+├── supabase/                  # DB module wrapper + shared enums
+├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser, raw-body helper
+├── common/                    # audit log, pagination DTO, Swagger helpers
+├── integrations/              # Stripe, Brevo, Clerk, R2, Supabase Storage
+├── redis/                     # optional connection (REDIS_URL), in-process fallback
 └── modules/
     ├── health/                # GET /health, GET /ready
-    ├── users/                 # GET /thisUser, /me, /me/profile, /admin/clients/*
-    ├── bookings/              # GET /bookings + detail routes with shopping list
-    ├── catalog/               # /menus/current + admin meals/menu-weeks/formules
-    ├── quotes/                # client/admin quote lifecycle
+    ├── users/                 # /auth/register, /me, /me/profile, /me/chef-profile, /me/avatar, /admin/users, /admin/clients, /admin/chefs
+    ├── chef-onboarding/       # candidatures, KYC documents, referentials, daily dossier job (FLOW-01)
+    ├── dishes/                # chef dishes and menus, public vitrine, moderation, recipe sheet and shopping list (FLOW-02)
+    ├── catalog/               # /menus/current + admin meals/menu-weeks/formules (Lab's Food content)
+    ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job
+    ├── calendar/              # working hours, agenda, blocks, free slots, .ics feed (/chef/availability, /chef/agenda, /chef/calendar-feed)
+    ├── quotes/                # custom requests and offers; accepting an offer creates the booking (BLK-10)
+    ├── messaging/             # conversations, attachments, /ws gateway, unread-message emails
+    ├── contact/               # public contact form + admin inbox
     ├── shopping-lists/        # ingredient aggregation service
     ├── stats/                 # /me/dashboard, /me/stats, /admin/dashboard
-    └── content-cms/           # GET /content/concept, PUT /content/concept (F19)
+    ├── platform-settings/     # commission setting, GET /pricing-rules
+    ├── payments/              # card (Checkout, PaymentIntent), CESU, immediate advance, commission invoices, Stripe Connect, SEPA, fiscal attestations (FLOW-03)
+    ├── stripe-webhooks/       # POST /webhooks/stripe (raw-body signature check)
+    └── clerk-webhooks/        # POST /webhooks/clerk (Svix)
 ```
-
-Reserved: `modules/content/` for non-CMS app content.
 
 ## Target backend modules (from specs)
 
-Modules below are the **planned** NestJS boundaries. None except those in “Current” are fully implemented.
+Modules below are the NestJS boundaries the specs call for, with where each one stands.
 
+| Module           | Responsibility                                        | Status / primary routes                                                          |
+| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `auth`           | Clerk session bridge, role resolution                 | **Done** — Clerk + `UsersService` upsert; `POST /auth/register`                  |
+| `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`; account/GDPR routes to do  |
+| `catalog`        | Meals, weekly menu, formules                          | **Done** — `GET /menus/current`; admin meals/menu-weeks/formules                 |
+| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — `/me/bookings`, `/chef/bookings`, `/admin/bookings`; old `/bookings/*` deprecated |
+| `calendar`       | Working hours, agenda, blocks, free slots, `.ics` feed | **Done** — `/chef/availability`, `/chef/agenda`, `/chef/calendar-feed`, `GET /calendar/feed/:token.ics`, `GET /chefs/:id/availability` |
+| `shopping-lists` | Ingredient aggregation by aisle                       | **Done** — booking detail, `/chef-missions/:id/shopping-list`                    |
+| `quotes`         | Sur-mesure requests & offers                          | **Done** — `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `/admin/quotes`      |
+| `messaging`      | Conversations, attachments, `/ws` realtime            | **Done** — `/me/conversations`, `/admin/conversations`                           |
+| `payments`       | Card, CESU, immediate advance, commissions, SAP/SEPA, tax credit | **Done** — see [payments/stripe-payments-contract.md](./payments/stripe-payments-contract.md) |
+| `kossam`         | Kossam product orders                                 | To do — admin `/admin/kossam-orders`; public submit from main site               |
+| `recruitment`    | Chef applications + documents                         | **Done** as `chef-onboarding` — `/chef-applications`, `/admin/chef-applications` |
+| `contact`        | Site contact inbox                                    | **Done** — `POST /contact-messages`, `/admin/contact-messages`                   |
+| `reviews`        | Moderation & publish                                  | To do — `/admin/reviews`                                                         |
+| `notifications`  | Email/SMS/in-app + preferences                        | Partial — Brevo emails per flow; no in-app, SMS or preferences                   |
+| `stats`          | Dashboard aggregations                                | **Done** — `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard`          |
+| `admin`          | Guards, badges, settings singleton                    | Partial — `AdminGuard`, `/admin/settings/commission`; badges to do               |
+| `team`           | Chefs/staff & service zones                           | Partial — `GET /admin/chefs` (read-only); zones to do                            |
 
-| Module           | Responsibility                                        | Primary routes (spec)                                           |
-| ---------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
-| `auth`           | Clerk session bridge, role resolution                 | *(no password routes)* — use Clerk + `UsersService` upsert      |
-| `users`          | User row + **client profile** (CRM fields)            | `GET/PATCH /me/profile`, account/settings/GDPR                  |
-| `catalog`        | Meals, weekly menu, formules                          | `GET /menus/current`; admin meals/menu-weeks/formules           |
-| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | `GET /me/bookings`*, `POST /bookings`, cancel; admin list/patch |
-| `shopping-lists` | Ingredient aggregation by aisle                       | Embedded in booking detail + admin                              |
-| `quotes`         | Sur-mesure requests & quotes                          | `POST /quotes`, `/me/quotes`, admin `/admin/quotes`             |
-| `messaging`      | Threads + Stream realtime                             | `/me/thread`, `/admin/threads`                                  |
-| `payments`       | Stripe intents & webhooks, tax credit fields          | `/payments/intent`, `/webhooks/stripe`                          |
-| `kossam`         | Kossam product orders                                 | Admin `/admin/kossam-orders`; public submit from main site      |
-| `recruitment`    | Chef applications + documents                         | `/admin/applications`                                           |
-| `contact`        | Site contact inbox                                    | `/admin/contact-messages`                                       |
-| `reviews`        | Moderation & publish                                  | `/admin/reviews`                                                |
-| `notifications`  | Email/SMS/in-app + preferences                        | Driven by booking/quote transitions                             |
-| `stats`          | Dashboard aggregations                                | `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard`    |
-| `admin`          | Guards, badges, settings singleton                    | `/admin/*`, `/admin/dashboard/badges`                           |
-| `content-cms`    | Marketing “Notre Concept” page                        | **Done** — `/content/concept`                                   |
-| `team`           | Chefs/staff & service zones                           | `/admin/team`, `/admin/zones`                                   |
+Spec uses `/me/reservations`; implementation keeps **`bookings`** paths, split by audience: `/me/bookings`
+(client), `/chef/bookings` (batch cooker), `/admin/bookings`.
 
+## Booking lifecycle
 
-Spec uses `/me/reservations`; implementation keeps `**bookings`** paths unless a versioned alias is added later.
-
-## Booking lifecycle (target)
-
-Spec state machine (stored on `bookings.status`):
+Stored on `bookings.status`, rules in `bookings/domain/booking-status.ts`:
 
 ```
-pending → confirmed → shopping → cooking → delivered
-                    ↘ cancelled
+pending → confirmed → shopping → cooking → delivered → completed
+       ↘ cancelled  ↘ cancelled
 ```
 
-Phase 1 enum today: `pending`, `confirmed`, `cancelled`, `completed` — extend/rename toward spec on the bookings epic.
+A booking is created two ways. Accepting an offer (`POST /me/quotes/:id/offers/:offerId/accept`)
+makes it `confirmed` at once, paid **after** it took place ("paid" is read from its payments).
+`POST /me/bookings`, `/chef/bookings` (for a client the batch cooker knows) or `/admin/bookings`
+makes it `pending`, priced on the server, checked against the batch cooker's availability (not for
+admins). A `pending` booking becomes `confirmed` once its payments cover it — the Stripe webhook, a
+CESU payment the batch cooker confirms (the e-CESU proof is required to declare it) or the URSSAF
+answer — never by a PATCH except an admin's. Unpaid, it holds the slot 72 h: both sides are reminded
+at 48 h, then it is cancelled.
+
+The batch cooker moves it to `shopping`, `cooking` (the arrival on site, from 2 h before the start:
+`arrivedAt`) and `delivered`; either side closes it `completed`. Client or batch cooker cancel only
+while nothing is paid and, once confirmed, before the start; a paid booking is cancelled by an
+admin and refunded by hand in Stripe (no refund flow yet).
+
+`disputed` (the web's "En litige") is temporary, until the litiges module. Only an admin sets it,
+from any status but `cancelled`, and closes it to `completed` or `cancelled`. Meanwhile:
+- payment answers 409 `BOOKING_DISPUTED`
+- the slot stays held
+- photos can still be added
+- the client's recipe sheet waits for `completed`
+
+Clients and batch cookers report a dispute through the support thread.
+
+A `confirmed` booking moves when one side proposes a new start (`POST /me|chef/bookings/:id/reschedule`)
+and the other confirms it (`PATCH …/reschedule`):
+- Nothing moves inside the last 48 h: both the current and the new start must be further away.
+- The other side has 48 h to answer, cut short to 48 h before the start; unanswered, the booking keeps its time.
+- One proposal is open at a time. The time is checked when proposed and when confirmed.
+- Only the four time fields change; the price and the payments stay.
 
 ## Data model direction
 
-### Implemented (Phase 1 + F19)
+### Implemented (Phase 1)
 
 ```mermaid
 erDiagram
@@ -120,7 +144,6 @@ erDiagram
     chef_profiles ||--o{ availability_slots : "exposes"
     chef_profiles ||--o{ bookings : "fulfills"
     service_offers ||--o{ bookings : "priced_as"
-    users ||--o{ cms_pages : "updated_by"
 
     users {
       uuid id
@@ -134,45 +157,75 @@ erDiagram
       enum status
       int price_cents
     }
-    cms_pages {
-      string slug
-      jsonb content
-    }
 ```
 
+### Spec entities
 
+Implemented: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote` (+ `QuoteOffer`), `Conversation`, `ConversationParticipant`, `Message`, `MessageAttachment`, `Payment`, `ChefApplication` (+ `ChefDocument`), `ContactMessage`.
 
-### Target additions (Prisma schema — spec-aligned)
+Not modelled yet: `Notification`, `KossamOrder`, `KossamOrderItem`, `Review`, `TeamMember`, `ServiceZone`, `AdminSettings` (the commission lives in `platform_settings`).
 
-Core shared entities: `ClientProfile`, `Meal`, `MenuWeek`, `Formule`, `BookingMeal` (junction), `ShoppingList`, `ShoppingItem`, `Quote`, `ChatThread`, `ChatMessage`, `Payment`, `Notification`.
-
-Admin / main-site entities: `KossamOrder`, `KossamOrderItem`, `ChefApplication`, `ApplicationDocument`, `ContactMessage`, `Review`, `TeamMember`, `ServiceZone`, `AdminSettings`.
-
-Logical ER (target — names follow spec; table `bookings` retained):
+Logical ER (names follow spec; table `bookings` retained):
 
 ```mermaid
 erDiagram
     users ||--o| client_profiles : "client"
     users ||--o{ bookings : "books"
     users ||--o{ quotes : "requests"
+    quotes ||--o{ quote_offers : "priced_by"
+    quotes ||--o| bookings : "becomes"
     bookings ||--o{ booking_meals : "includes"
     meals ||--o{ booking_meals : "selected"
     bookings ||--o| shopping_lists : "generates"
-    bookings ||--o| payments : "paid_by"
-    users ||--o{ chat_threads : "owns"
-    chat_threads ||--o{ chat_messages : "contains"
+    bookings ||--o{ payments : "paid_by"
+    users ||--o{ conversation_participants : "takes part"
+    conversations ||--o{ conversation_participants : "has"
+    conversations ||--o{ messages : "contains"
 ```
-
-
 
 `chef_profiles` can later converge with team modeling (`TeamMember`, chef assignment on `bookings`) in a later design pass.
 
+### Payments (implemented — `20260831120000_payments_sap_sepa_foundations`, `20260905120000_payments_cesu_commission_debits`, `20261013120000_urssaf_links`)
+
+```mermaid
+erDiagram
+    bookings ||--o{ payments : "attempts"
+    payments ||--o| commissions : "platform_fee"
+    payments ||--o| cesu_settlements : "declared_as"
+    commissions }o--o| commission_invoices : "invoiced_on"
+    commission_invoices ||--o{ commission_debits : "collected_by"
+    chef_profiles ||--o{ commissions : "earns_on"
+    chef_profiles ||--o| sap_profiles : "declares"
+    chef_profiles ||--o| sepa_mandates : "mandates"
+
+    payments {
+      uuid booking_id
+      enum method
+      enum status
+      int amount_ttc
+      int tax_credit_eligible_amount
+      string stripe_payment_intent_id
+    }
+    commissions {
+      uuid payment_id
+      int rate_bps
+      int amount_ttc_cents
+      enum collection_method
+    }
+```
+
+`payments` is **1:N** on `bookings` (a failed attempt is retried, and a booking can be split between
+CESU and card), and `commissions` freezes the rate and VAT in force so a later rate change cannot
+rewrite history. `chef_profiles` carries three Stripe flags mirrored from `account.updated`.
+`urssaf_links` holds the immediate-advance enrolment per client and batch cooker. Full rationale:
+[`payments/stripe-payments-contract.md`](./payments/stripe-payments-contract.md).
+
 ## Authentication
 
-- `ClerkAuthGuard` — Bearer JWT, payload decode (JWKS verification planned).
+- `ClerkAuthGuard` — Bearer JWT verified with `@clerk/backend` `verifyToken`; decode-only when `CLERK_SECRET_KEY=sk_test_placeholder` (local).
 - `@CurrentClerkUser()` — exposes Clerk `sub` and email in controllers.
 - `AdminGuard` — requires persisted `UserRole.ADMIN` after Clerk auth.
-- Future: `ChefGuard` or scoped queries for `UserRole.CHEF`.
+- Chef and client resources are protected by ownership (the caller's profile), not by role; there is no `ChefGuard`.
 
 ```mermaid
 flowchart TB
@@ -192,7 +245,7 @@ flowchart TB
     Guard[ClerkAuthGuard — verifyToken]
     WH["POST /webhooks/clerk"]
     Me["GET /me — upsert + role"]
-    Biz[Bookings, CMS, admin routes…]
+    Biz[Bookings, chef onboarding, admin routes…]
   end
 
   subgraph db [Postgres]
@@ -208,59 +261,64 @@ flowchart TB
 
 ```
 
+Every route needs a Clerk bearer token unless listed as public; `/admin/*` additionally requires the persisted `admin` role. Public: `/health`, `/ready`, `POST /auth/register`, `POST /chef-applications`, `POST /contact-messages`, `GET /referentials/*`, `GET /menus/current`, `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /chefs/:chefProfileId/cesu-info`, and the two webhooks.
 
-Protected today: `/thisUser`, `/me`, `/bookings`, `PUT /content/concept`. Public: `/health`, `/ready`, `GET /content/concept`, `GET /menus/current` (when implemented).
+`POST /webhooks/clerk` and `POST /webhooks/stripe` are public but **signature-verified** against the raw request bytes (Svix and Stripe respectively). The Fastify `preParsing` hook in `apps/src/main.ts` captures the raw body for the paths listed in `apps/src/auth/fastify-raw-body.ts` — a re-serialised JSON body would fail verification.
 
 ## Integrations
 
-
-| Service      | Config                                       | Status                                          |
-| ------------ | -------------------------------------------- | ----------------------------------------------- |
-| Stripe       | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Client wrapper; webhooks & booking flow pending |
-| Cronofy      | `CRONOFY_*`                                  | Scaffold; link to chef availability             |
-| Stream       | `STREAM_*`                                   | Scaffold; link to messaging module              |
-| Brevo        | `BREVO_*`                                    | Scaffold; notification templates pending        |
-| AWS S3       | `AWS_*`                                      | Config only; uploads pending                    |
-| Supabase API | `SUPABASE_*`, CMS bucket                     | Optional CMS asset storage                      |
-
+| Service       | Config                                                                                     | Status                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Stripe        | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET`, `PAYMENTS_*`, `STRIPE_CONNECT_*_URL` | **Live** — Connect destination charges (Checkout + PaymentIntent), SEPA mandates and commission debits, `POST /webhooks/stripe` |
+| Brevo         | `BREVO_API_KEY`, `BREVO_SENDER_*`, `BREVO_TPL_*`                                           | **Live** — transactional templates in [`brevo/`](../brevo/README.md); an unset template id skips that email |
+| Cloudflare R2 | `R2_*`                                                                                     | Public dish, menu and profile photos (`R2StorageService`); routes answer 503 without all five vars          |
+| Supabase API  | `SUPABASE_*`, `SUPABASE_KYC_BUCKET`, `SUPABASE_MESSAGING_BUCKET`                           | Private storage for chef KYC documents and message attachments                                              |
+| URSSAF        | `URSSAF_GATEWAY`                                                                           | Simulated only (`disabled` by default): an admin answers in URSSAF's place                                  |
 
 ## Health checks
 
 - `GET /health` — liveness, no backing services.
-- `GET /ready` — Postgres ping (+ Redis when enabled).
+- `GET /ready` — Postgres ping (Redis is not checked).
 
 ## API surface summary
 
 ### Implemented
 
+Swagger (`/docs`) is the complete, current list. By area:
 
-| Method | Route               | Auth                     |
-| ------ | ------------------- | ------------------------ |
-| GET    | `/health`, `/ready` | public                   |
-| GET    | `/content/concept`  | public                   |
-| PUT    | `/content/concept`  | admin                    |
-| GET    | `/thisUser`, `/me`  | Clerk                    |
-| GET    | `/bookings`         | Clerk                    |
-| POST   | `/bookings`         | Clerk (stub — not wired) |
-
+| Area                    | Routes                                                                                                   | Auth                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Health                  | `GET /health`, `GET /ready`                                                                              | public                  |
+| Account                 | `POST /auth/register`; `GET /thisUser`, `GET /me`, `/me/profile`, `/me/chef-profile`, `/me/avatar`       | public; Clerk           |
+| Chef onboarding         | `/chef-applications`, `/me/chef-application`, `/me/chef-documents`, `/referentials/*`                    | public; Clerk           |
+| Dishes & menus          | `/me/dishes`, `/me/menus`, `/me/showcase`, `/me/suggestions`, `/me/offers`, `/menus/week`, `/chefs/:id`  | Clerk; public           |
+| Missions                | `/chef-missions/:id/*`, `GET /me/culinary-map`                                                           | Clerk                   |
+| Bookings                | `/me/bookings`, `/chef/bookings` (+ photos); old `/bookings/*` deprecated                                | Clerk                   |
+| Agenda                  | `/chef/availability`, `/chef/agenda` (+ `/summary`, `/blocks`), `/chef/calendar-feed`; `GET /me/bookings/:id/calendar.ics`; `GET /chefs/:id/availability`, `GET /calendar/feed/:token.ics` | Clerk; public (feed: secret link) |
+| Quotes & offers         | `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `GET /pricing-rules`                                    | Clerk                   |
+| Messaging               | `/me/conversations`, `/ws`                                                                               | Clerk                   |
+| Payments                | `/payments/*`, `/me/bookings/:id/payment-*`, `/me/bookings/:id/cesu-proof/upload-url`, `/me/cesu-payments/:id/proof*`, `/bookings/:id/settle`, `/me/urssaf-links`, `/me/chef/*`, `/me/chef-profile/{stripe-connect,sepa-mandate,sap}`, `/me/fiscal-attestations/:year` | Clerk |
+| Contact                 | `POST /contact-messages`                                                                                 | public                  |
+| Stats                   | `GET /me/dashboard`, `GET /me/stats`                                                                     | Clerk                   |
+| Admin                   | everything under `/admin/*` (incl. `/admin/bookings`), plus the deprecated `GET /bookings` and `/bookings/admin/bookings/:id` | Clerk + `admin`         |
+| Webhooks                | `POST /webhooks/stripe`, `POST /webhooks/clerk`                                                          | signature (public)      |
 
 ### Client / public backlog (SPEC-BACKEND)
 
-`GET /me/dashboard`, `/me/bookings` (or alias), booking detail/cancel, `/menus/current`, quotes, `/me/thread`, `/me/profile`, `/me/stats`, `/payments/intent`, `/webhooks/stripe`, account/GDPR routes.
+Account/notification settings, GDPR export and deletion routes, in-app notifications, an admin refund flow.
 
 ### Admin backlog (SPEC-ADMIN-DASHBOARD)
 
-`/admin/dashboard`, `/admin/dashboard/badges`, reservations (bookings), quotes, threads, clients, meals, menu-weeks, formules, kossam-orders, applications, contact-messages, reviews, team, zones, settings.
+`/admin/dashboard/badges`, booking status changes and cancellation, kossam-orders, reviews, team & zones, settings beyond the commission.
 
 ## Documentation map
 
-
-| File                                                                                                 | Role                        |
-| ---------------------------------------------------------------------------------------------------- | --------------------------- |
-| `[features/f19-concept-cms.md](./features/f19-concept-cms.md)`                                       | F19 scope (shipped)         |
-| `[evolution/f19-concept-cms-evolution.md](./evolution/f19-concept-cms-evolution.md)`                 | F19 change register         |
-| `[evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)` | Platform spec gap & backlog |
-| `[database-connection.md](./database-connection.md)`                                                 | Supabase URLs               |
-| `[Revisions_followup.md](./Revisions_followup.md)`                                                   | Release register            |
-
-
+| File                                                                                             | Role                               |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| [evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md) | Platform spec gap & backlog        |
+| [auth/clerk-integration-contract.md](./auth/clerk-integration-contract.md)                       | Clerk frontend ↔ backend contract  |
+| [payments/stripe-payments-contract.md](./payments/stripe-payments-contract.md)                   | Payment flow, webhooks, commission |
+| [evolution/payments-stripe-cb-evolution.md](./evolution/payments-stripe-cb-evolution.md)         | Payments change register           |
+| [deploy/railway.md](./deploy/railway.md)                                                         | Production deploy checklist        |
+| [database-connection.md](./database-connection.md)                                               | Supabase URLs                      |
+| [Revisions_followup.md](./Revisions_followup.md)                                                 | Release register                   |

@@ -1,7 +1,7 @@
 /**
  * Inserts ~10 rows per application table for local/staging exploration.
  * All rows are tagged (clerk ids, references, slugs, meal names) so
- * `npm run db:unseed:demo` can remove them without touching production CMS or migration formules.
+ * `npm run db:unseed:demo` can remove them without touching migration formules.
  */
 import {
   BookingStatus,
@@ -14,7 +14,6 @@ import {
 } from '../src/generated/prisma/client';
 import { loadRepoEnv } from '../src/config/env-files';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
-import { DEFAULT_CONCEPT_CONTENT } from '../src/modules/content-cms/concept-defaults';
 import {
   DEMO_COUNT,
   DEMO_MENU_YEAR,
@@ -24,7 +23,6 @@ import {
   demoChefEmail,
   demoClientClerkId,
   demoClientEmail,
-  demoCmsSlug,
   demoFormuleId,
   demoMealName,
   demoQuoteReference,
@@ -183,10 +181,15 @@ async function main(): Promise<void> {
             portions: 4,
             prepTime: 30 + i * 5,
             continent: MealContinent.europe,
-            country: 'France',
-            dietaryTags: ['demo'],
+            // Values the API itself would accept: ISO country, listed diet, and
+            // ingredients in the shape shopping lists read.
+            country: 'FR',
+            dietaryTags: ['vegetarian'],
+            allergensNone: true,
             difficulty: MealDifficulty.easy,
-            ingredients: toInputJson([{ name: 'Tomate', qty: '2' }]),
+            ingredients: toInputJson([
+              { name: 'Tomate', qty: 2, unit: 'pièce', aisle: 'fruits-legumes' },
+            ]),
             steps: ['Prep', 'Cook', 'Serve'],
             status: MealStatus.published,
             isFeatured: i <= 3,
@@ -284,6 +287,51 @@ async function main(): Promise<void> {
       }),
     );
 
+    // One conversation per booked pair, so the messaging screens have something to
+    // show while bookings cannot be created through the API. Removed with the demo
+    // users: conversations cascade from them.
+    await Promise.all(
+      bookings
+        .filter((booking) => booking.status !== 'cancelled')
+        .map((booking, idx) => {
+          const sentAt = new Date(Date.now() - (idx + 1) * 60 * 60 * 1000);
+          const answeredAt = new Date(sentAt.getTime() + 20 * 60 * 1000);
+          const chefUserId = chefProfiles.find(
+            (chef) => chef.id === booking.chefProfileId,
+          )!.userId;
+          return tx.conversation.create({
+            data: {
+              type: 'chef_client',
+              clientId: booking.clientId,
+              chefProfileId: booking.chefProfileId,
+              lastMessageAt: answeredAt,
+              participants: {
+                create: [
+                  { userId: booking.clientId, role: 'client', unreadCount: 1 },
+                  { userId: chefUserId, role: 'chef', lastReadAt: answeredAt },
+                ],
+              },
+              messages: {
+                create: [
+                  {
+                    senderUserId: booking.clientId,
+                    senderRole: 'client',
+                    body: 'Bonjour ! Est-ce que vous pouvez prévoir un plat sans gluten ?',
+                    createdAt: sentAt,
+                  },
+                  {
+                    senderUserId: chefUserId,
+                    senderRole: 'chef',
+                    body: 'Bonjour, bien sûr, je le note pour la session.',
+                    createdAt: answeredAt,
+                  },
+                ],
+              },
+            },
+          });
+        }),
+    );
+
     await Promise.all(
       bookings.map((booking, idx) =>
         tx.bookingMeal.create({
@@ -332,28 +380,6 @@ async function main(): Promise<void> {
         });
       }),
     );
-
-    const cmsBlock = toInputJson(DEFAULT_CONCEPT_CONTENT.introBlocks);
-    await Promise.all(
-      Array.from({ length: DEMO_COUNT }, (_, idx) => {
-        const i = idx + 1;
-        return tx.cmsPage.create({
-          data: {
-            slug: demoCmsSlug(i),
-            title: `Demo CMS page ${i}`,
-            hero: toInputJson(DEFAULT_CONCEPT_CONTENT.hero),
-            introBlocks: cmsBlock,
-            howItWorks: toInputJson(DEFAULT_CONCEPT_CONTENT.howItWorks),
-            reassuranceItems: toInputJson(
-              DEFAULT_CONCEPT_CONTENT.reassuranceItems,
-            ),
-            status: 'draft',
-            updatedByUserId: chefUsers[0].id,
-          },
-        });
-      }),
-    );
-
   });
 
   console.log(
