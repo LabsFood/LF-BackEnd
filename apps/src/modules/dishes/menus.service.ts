@@ -13,8 +13,7 @@ import {
   MenuWithDishes,
 } from './chef-content.service';
 import { changedMeanwhile, goneMeanwhile } from './dishes.service';
-import { toModeration } from './dishes.views';
-import { isRecipeComplete } from './domain/dishes.rules';
+import { toDishView, toModeration } from './dishes.views';
 import {
   CLEARED_MODERATION,
   nextReviewReason,
@@ -365,17 +364,7 @@ export function toMenuView(menu: MenuWithDishes) {
     moderation: toModeration(menu),
     createdAt: menu.createdAt,
     updatedAt: menu.updatedAt,
-    dishes: menu.dishes.map(({ meal }) => ({
-      id: meal.id,
-      name: meal.name,
-      status: meal.status,
-      country: meal.country,
-      imageUrl: meal.imageUrl,
-      portions: meal.portions,
-      diets: meal.dietaryTags,
-      allergens: meal.allergens,
-      allergensNone: meal.allergensNone,
-      recipeComplete: isRecipeComplete(meal.ingredients, meal.steps),
-    })),
+    // The same dish view as `GET /me/dishes`, in menu order.
+    dishes: menu.dishes.map(({ meal }) => toDishView(meal)),
   };
 }

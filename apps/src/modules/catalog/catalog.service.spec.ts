@@ -32,7 +32,12 @@ describe('CatalogService', () => {
     update: jest.Mock;
     delete: jest.Mock;
   };
-  let menuWeek: { findFirst: jest.Mock; create: jest.Mock };
+  let menuWeek: {
+    findFirst: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  };
   let suggestions: { flagCopies: jest.Mock };
 
   beforeEach(async () => {
@@ -48,6 +53,8 @@ describe('CatalogService', () => {
     menuWeek = {
       findFirst: jest.fn(async () => null),
       create: jest.fn(async (args: unknown) => args),
+      update: jest.fn(async () => ({ id: 'week-1', meals: [] })),
+      delete: jest.fn(async () => undefined),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -372,6 +379,83 @@ describe('CatalogService', () => {
       await expect(
         service.createMenuWeek({ year: 2026, weekNumber: 40, mealIds: ['missing'] }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('answers 409 MENU_WEEK_EXISTS when the week already has a menu', async () => {
+      menuWeek.create.mockRejectedValueOnce(knownRequestError('P2002'));
+
+      await expect(
+        service.createMenuWeek({ year: 2026, weekNumber: 40 }),
+      ).rejects.toMatchObject({ response: { code: 'MENU_WEEK_EXISTS' } });
+    });
+  });
+
+  describe('updateMenuWeek', () => {
+    it('replaces the meals in the same write, each once', async () => {
+      meal.findMany.mockResolvedValueOnce([{ id: 'meal-2', chefProfileId: null }]);
+
+      await service.updateMenuWeek('week-1', { mealIds: ['meal-2', 'meal-2'] });
+
+      const { where, data } = menuWeek.update.mock.calls[0][0];
+      expect(where).toEqual({ id: 'week-1' });
+      expect(data.meals).toEqual({
+        deleteMany: {},
+        create: [{ meal: { connect: { id: 'meal-2' } } }],
+      });
+    });
+
+    it('leaves the meals alone when mealIds is omitted or null', async () => {
+      await service.updateMenuWeek('week-1', { weekNumber: 41 });
+      await service.updateMenuWeek('week-1', { mealIds: null as never });
+
+      expect(menuWeek.update.mock.calls[0][0].data).toEqual({
+        year: undefined,
+        weekNumber: 41,
+        meals: undefined,
+      });
+      expect(menuWeek.update.mock.calls[1][0].data.meals).toBeUndefined();
+      expect(meal.findMany).not.toHaveBeenCalled();
+    });
+
+    it("refuses a chef's dish before writing", async () => {
+      meal.findMany.mockResolvedValueOnce([{ id: 'meal-1', chefProfileId: 'chef-1' }]);
+
+      await expect(
+        service.updateMenuWeek('week-1', { mealIds: ['meal-1'] }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(menuWeek.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 MENU_WEEK_NOT_FOUND for an unknown id', async () => {
+      menuWeek.update.mockRejectedValueOnce(knownRequestError('P2025'));
+
+      await expect(
+        service.updateMenuWeek('missing', { weekNumber: 41 }),
+      ).rejects.toMatchObject({ response: { code: 'MENU_WEEK_NOT_FOUND' } });
+    });
+
+    it('answers 409 MENU_WEEK_EXISTS when moved onto a taken week', async () => {
+      menuWeek.update.mockRejectedValueOnce(knownRequestError('P2002'));
+
+      await expect(
+        service.updateMenuWeek('week-1', { weekNumber: 41 }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('deleteMenuWeek', () => {
+    it('deletes the menu', async () => {
+      await service.deleteMenuWeek('week-1');
+
+      expect(menuWeek.delete).toHaveBeenCalledWith({ where: { id: 'week-1' } });
+    });
+
+    it('answers 404 MENU_WEEK_NOT_FOUND for an unknown id', async () => {
+      menuWeek.delete.mockRejectedValueOnce(knownRequestError('P2025'));
+
+      await expect(service.deleteMenuWeek('missing')).rejects.toMatchObject({
+        response: { code: 'MENU_WEEK_NOT_FOUND' },
+      });
     });
   });
 

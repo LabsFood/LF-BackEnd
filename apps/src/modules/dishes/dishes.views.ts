@@ -13,6 +13,7 @@ export function toPublicDish(meal: Meal) {
     id: meal.id,
     name: meal.name,
     description: meal.description,
+    continent: meal.continent,
     country: meal.country,
     category: meal.category,
     imageUrl: meal.imageUrl,
@@ -20,6 +21,7 @@ export function toPublicDish(meal: Meal) {
     prepMinutes: meal.prepTime,
     cookMinutes: meal.cookTime,
     difficulty: meal.difficulty,
+    calories: meal.calories,
     diets: meal.dietaryTags,
     customDiets: meal.customDiets,
     allergens: meal.allergens,
@@ -40,6 +42,9 @@ export function toDishView(meal: Meal) {
       storage: meal.storage,
     },
     recipeComplete: isRecipeComplete(ingredients, meal.steps),
+    /** +1 on every recipe change; a booking pins the one it was cooked from (§9.2). */
+    recipeVersion: meal.recipeVersion,
+    isFeatured: meal.isFeatured,
     status: meal.status,
     publishedAt: meal.publishedAt,
     /** `labs-food` for a copy of a Lab's Food suggestion (§6). */

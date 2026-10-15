@@ -5,11 +5,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 
-import { Meal, MealStatus, Menu } from '../../generated/prisma/client';
+import { Meal, MealStatus, Menu, Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { DishesMailer } from './dishes.mailer';
 import { toDishView } from './dishes.views';
 import {
@@ -33,6 +32,20 @@ type Kind = 'dish' | 'menu';
 const CHEF_CONTENT = { chefProfileId: { not: null } };
 
 const WITH_CHEF = { chefProfile: { select: { id: true, displayName: true } } };
+
+/** Around a dish, for admins (§4.4): who wrote it, and how much it is used. */
+const ADMIN_DISH = {
+  chefProfile: { select: { id: true, displayName: true } },
+  _count: { select: { menus: true, bookingMeals: true } },
+} satisfies Prisma.MealInclude;
+
+const ADMIN_MENU = {
+  chefProfile: ADMIN_DISH.chefProfile,
+  dishes: { orderBy: { position: 'asc' }, include: { meal: { include: ADMIN_DISH } } },
+} satisfies Prisma.MenuInclude;
+
+type AdminMeal = Prisma.MealGetPayload<{ include: typeof ADMIN_DISH }>;
+type AdminMenu = Prisma.MenuGetPayload<{ include: typeof ADMIN_MENU }>;
 
 /** Nobody needs to look any more. */
 const REVIEWED = (now: Date) => ({
@@ -188,6 +201,7 @@ export class ModerationService {
     await this.assertChef(chefProfileId);
     const dishes = await this.prisma.meal.findMany({
       where: { chefProfileId },
+      include: ADMIN_DISH,
       orderBy: { updatedAt: 'desc' },
     });
     return dishes.map(toAdminDishView);
@@ -197,7 +211,7 @@ export class ModerationService {
     await this.assertChef(chefProfileId);
     const menus = await this.prisma.menu.findMany({
       where: { chefProfileId },
-      include: MENU_DISHES,
+      include: ADMIN_MENU,
       orderBy: { updatedAt: 'desc' },
     });
     return menus.map(toAdminMenuReviewView);
@@ -302,12 +316,14 @@ export class ModerationService {
   }
 
   private async adminDish(id: string) {
-    return toAdminDishView(await this.prisma.meal.findUniqueOrThrow({ where: { id } }));
+    return toAdminDishView(
+      await this.prisma.meal.findUniqueOrThrow({ where: { id }, include: ADMIN_DISH }),
+    );
   }
 
   private async adminMenu(id: string) {
     return toAdminMenuReviewView(
-      await this.prisma.menu.findUniqueOrThrow({ where: { id }, include: MENU_DISHES }),
+      await this.prisma.menu.findUniqueOrThrow({ where: { id }, include: ADMIN_MENU }),
     );
   }
 }
@@ -319,15 +335,22 @@ const reviewOf = (row: Meal | Menu) => ({
   reason: row.reviewReason,
 });
 
-export const toAdminDishView = (meal: Meal) => ({
+const toAdminDishView = ({ chefProfile, _count, ...meal }: AdminMeal) => ({
   ...toDishView(meal),
   chefProfileId: meal.chefProfileId,
+  chef: chefProfile,
+  /** Menus it is on, and bookings that served it: what removing it would touch. */
+  usage: { menus: _count.menus, bookings: _count.bookingMeals },
   review: reviewOf(meal),
 });
 
-const toAdminMenuReviewView = (menu: MenuWithDishes) => ({
+const toAdminMenuReviewView = ({ chefProfile, ...menu }: AdminMenu) => ({
   ...toMenuView(menu),
   chefProfileId: menu.chefProfileId,
+  chef: chefProfile,
+  dishCount: menu.dishes.length,
+  // Each dish as `GET /admin/chefs/{id}/dishes` shows it.
+  dishes: menu.dishes.map(({ meal }) => toAdminDishView(meal)),
   review: reviewOf(menu),
 });
 

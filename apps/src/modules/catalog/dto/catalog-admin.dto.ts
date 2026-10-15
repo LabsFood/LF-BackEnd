@@ -465,6 +465,9 @@ export class CreateMenuWeekDto {
   mealIds?: string[];
 }
 
+/** Send only what changes; `mealIds` replaces the whole list, `[]` empties it. */
+export class UpdateMenuWeekDto extends PartialType(CreateMenuWeekDto) {}
+
 export class UpdateFormuleDto {
   @ApiPropertyOptional({
     description: 'Display name of the pricing package.',

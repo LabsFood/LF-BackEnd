@@ -1,7 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { MealStatus } from '../../generated/prisma/client';
-import { codeOf, dishRow, harness } from './dishes.test-helpers';
+import { adminRow, codeOf, dishRow, harness, menuRow } from './dishes.test-helpers';
 import { ModerationService } from './moderation.service';
 import { R2StorageService } from '../../integrations/r2-storage.service';
 
@@ -236,6 +236,42 @@ describe('ModerationService (§4)', () => {
       expect(h.audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'content.reinstated' }),
       );
+    });
+  });
+
+  describe('a batch cooker’s content (§4.4)', () => {
+    it('shows each dish with its author, its use and its recipe', async () => {
+      const h = harness();
+      h.meal.findMany.mockResolvedValue([adminRow(dishRow({ calories: 640 }))]);
+
+      const [dish] = await service(h).chefDishes('chef-1');
+
+      expect(dish).toMatchObject({
+        chef: { id: 'chef-1', displayName: 'Marie Dupont' },
+        usage: { menus: 2, bookings: 1 },
+        calories: 640,
+        recipe: { ingredients: [], steps: [] },
+      });
+      expect(dish).not.toHaveProperty('_count');
+      expect(dish).not.toHaveProperty('chefProfile');
+    });
+
+    it('shows each menu with its dish count and every dish in full', async () => {
+      const h = harness();
+      h.menu.findMany.mockResolvedValue([
+        adminRow(menuRow({}, [adminRow(dishRow()), adminRow(dishRow({ id: 'dish-2' }))])),
+      ]);
+
+      const [menu] = await service(h).chefMenus('chef-1');
+
+      expect(menu.dishCount).toBe(2);
+      expect(menu.chef).toEqual({ id: 'chef-1', displayName: 'Marie Dupont' });
+      expect(menu.dishes[1]).toMatchObject({
+        id: 'dish-2',
+        usage: { menus: 2, bookings: 1 },
+        review: { reviewedAt: null },
+        recipe: { steps: [] },
+      });
     });
   });
 

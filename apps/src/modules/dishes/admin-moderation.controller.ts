@@ -64,6 +64,8 @@ const QUEUE_EXAMPLE = {
 const ADMIN_DISH = {
   ...DISH_EXAMPLE,
   chefProfileId: CHEF.id,
+  chef: CHEF,
+  usage: { menus: 2, bookings: 5 },
   review: {
     reviewedAt: null,
     pendingSince: '2026-09-20T14:02:11.000Z',
@@ -259,7 +261,9 @@ export class AdminModerationController {
     summary: 'See a batch cooker’s dishes',
     description:
       'Every dish, drafts and suspended ones included, with the full recipe, which ' +
-      'admins may read (§8), and where each stands in review.',
+      'admins may read (§8), and where each stands in review.\n\n' +
+      '`chef` names its author. `usage` counts the menus it is on and the bookings ' +
+      'that served it: what suspending or deleting it would touch.',
   })
   @ApiParam({ name: 'id', description: 'The batch cooker id (chef profile).' })
   @ApiOkResponse({ description: 'The dishes.', example: [ADMIN_DISH] })
@@ -273,12 +277,24 @@ export class AdminModerationController {
   @ApiTags(TAGS.adminContent)
   @ApiOperation({
     summary: 'See a batch cooker’s menus',
-    description: 'Every menu, with its dishes and where it stands in review.',
+    description:
+      'Every menu and where it stands in review, with `chef` and `dishCount`. Each ' +
+      'dish comes in full, as `GET /admin/chefs/{id}/dishes` shows it: recipe, ' +
+      'review and `usage` included.',
   })
   @ApiParam({ name: 'id', description: 'The batch cooker id (chef profile).' })
   @ApiOkResponse({
     description: 'The menus.',
-    example: [{ ...MENU_EXAMPLE, chefProfileId: CHEF.id }],
+    example: [
+      {
+        ...MENU_EXAMPLE,
+        chefProfileId: CHEF.id,
+        chef: CHEF,
+        dishCount: 1,
+        dishes: [ADMIN_DISH],
+        review: ADMIN_DISH.review,
+      },
+    ],
   })
   @ApiNotFoundResponse({ description: 'No batch cooker with this id.' })
   @ApiAdminAuthResponses()

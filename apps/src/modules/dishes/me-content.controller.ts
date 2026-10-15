@@ -276,7 +276,7 @@ export class MeContentController {
     summary: 'List my menus',
     description:
       'Every menu of the signed-in batch cooker, drafts included, with its dishes in ' +
-      'order and the status of each. Not paginated.',
+      'order, each in full as `GET /me/dishes` shows it. Not paginated.',
   })
   @ApiOkResponse({ description: 'The menus.', example: [MENU_EXAMPLE] })
   @ApiNotFoundResponse({ description: 'This account has no batch cooker profile.' })

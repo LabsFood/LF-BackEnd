@@ -5,7 +5,6 @@ import {
   ChefDocumentStatus,
   ChefDocumentType,
   ChefProfile,
-  Meal,
   MealStatus,
 } from '../../generated/prisma/client';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
@@ -142,7 +141,7 @@ export class VitrineService {
           shoppingIncluded: live?.shoppingIncluded ?? false,
           ...extras.price(chef.id),
           slotsLeft: left,
-          dishes: shown.map(toCardDish),
+          dishes: shown.map(toPublicDish),
         },
       ];
     });
@@ -210,7 +209,7 @@ export class VitrineService {
         })),
       })),
       ...extras.price(chef.id),
-      dishes: dishes.map(toCardDish),
+      dishes: dishes.map(toPublicDish),
       menus: menus.map(toPublicMenu),
     };
   }
@@ -333,24 +332,6 @@ export class VitrineService {
   }
 }
 
-/** A dish on a public card: what §5.1 lists, never the recipe. */
-function toCardDish(meal: Meal) {
-  const dish = toPublicDish(meal);
-  return {
-    id: dish.id,
-    name: dish.name,
-    country: dish.country,
-    category: dish.category,
-    imageUrl: dish.imageUrl,
-    portions: dish.portions,
-    diets: dish.diets,
-    customDiets: dish.customDiets,
-    allergens: dish.allergens,
-    allergensNone: dish.allergensNone,
-    customAllergens: dish.customAllergens,
-  };
-}
-
 function toPublicMenu(menu: MenuWithDishes) {
   const dishes = publishedDishes(menu);
   return {
@@ -361,7 +342,7 @@ function toPublicMenu(menu: MenuWithDishes) {
     period: menu.period,
     shoppingIncluded: menu.shoppingIncluded,
     coveredDiets: coveredDiets(dishes.map((dish) => ({ diets: dish.dietaryTags }))),
-    dishes: dishes.map(toCardDish),
+    dishes: dishes.map(toPublicDish),
   };
 }
 
