@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -16,6 +16,7 @@ import {
   CreateMenuWeekDto,
   UpdateFormuleDto,
   UpdateMealDto,
+  UpdateMenuWeekDto,
 } from './dto/catalog-admin.dto';
 
 /**
@@ -32,11 +33,15 @@ export const RECIPE_FIELDS = {
   storage: true,
 } as const;
 
+const WITH_MEALS = { meals: { include: { meal: true } } } as const;
+
 export const NOT_LABS_FOOD =
   "This dish belongs to a batch cooker. Only Lab's Food meals can be changed here.";
 
 @Injectable()
 export class CatalogService {
+  private readonly logger = new Logger(CatalogService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly suggestions: SuggestionsService,
@@ -221,49 +226,96 @@ export class CatalogService {
   listMenuWeeks() {
     return this.prisma.menuWeek.findMany({
       orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
-      include: { meals: { include: { meal: true } } },
+      include: WITH_MEALS,
     });
+  }
+
+  async createMenuWeek(payload: CreateMenuWeekDto) {
+    const mealIds = await this.menuMealIds(payload.mealIds);
+    try {
+      const week = await this.prisma.menuWeek.create({
+        data: {
+          year: payload.year,
+          weekNumber: payload.weekNumber,
+          publishedAt: null,
+          meals: mealIds.length ? { create: mealIds.map(onMenu) } : undefined,
+        },
+        include: WITH_MEALS,
+      });
+      this.logger.log({
+        event: 'menu_week.created',
+        menuWeekId: week.id,
+        mealCount: mealIds.length,
+      });
+      return week;
+    } catch (error) {
+      if (isUniqueViolation(error)) throw weekTaken();
+      throw error;
+    }
+  }
+
+  /** `mealIds`, when sent, replaces the whole list in the same write. */
+  async updateMenuWeek(id: string, payload: UpdateMenuWeekDto) {
+    // null is ignored like an omitted field: `@IsOptional()` lets it through.
+    const mealIds =
+      payload.mealIds != null ? await this.menuMealIds(payload.mealIds) : undefined;
+    try {
+      const week = await this.prisma.menuWeek.update({
+        where: { id },
+        data: {
+          year: payload.year ?? undefined,
+          weekNumber: payload.weekNumber ?? undefined,
+          meals: mealIds && { deleteMany: {}, create: mealIds.map(onMenu) },
+        },
+        include: WITH_MEALS,
+      });
+      this.logger.log({
+        event: 'menu_week.updated',
+        menuWeekId: id,
+        mealCount: week.meals.length,
+      });
+      return week;
+    } catch (error) {
+      if (isNotFound(error)) throw menuWeekNotFound();
+      if (isUniqueViolation(error)) throw weekTaken();
+      throw error;
+    }
+  }
+
+  /** Its meals stay in the catalog; only their place on this menu goes (FK cascade). */
+  async deleteMenuWeek(id: string): Promise<void> {
+    try {
+      await this.prisma.menuWeek.delete({ where: { id } });
+    } catch (error) {
+      if (isNotFound(error)) throw menuWeekNotFound();
+      throw error;
+    }
+    this.logger.log({ event: 'menu_week.deleted', menuWeekId: id });
   }
 
   /**
    * Only Lab's Food meals can go on the global weekly menu: putting a chef's dish
-   * there would publish it without the chef's consent.
+   * there would publish it without the chef's consent. Returns each id once.
    */
-  async createMenuWeek(payload: CreateMenuWeekDto) {
-    const mealIds = [...new Set(payload.mealIds ?? [])];
-    if (mealIds.length) {
-      const found = await this.prisma.meal.findMany({
-        where: { id: { in: mealIds } },
-        select: { id: true, chefProfileId: true, offeredToChefProfileId: true },
-      });
-      const known = new Set(found.map((row) => row.id));
-      const unknown = mealIds.filter((id) => !known.has(id));
-      if (unknown.length) {
-        throw new NotFoundException(`Unknown meal ids: ${unknown.join(', ')}.`);
-      }
-      // An offered meal is prepared for one chef and may become theirs at any time.
-      if (found.some((row) => row.chefProfileId || row.offeredToChefProfileId)) {
-        throw contentNotOwned(
-          "Only Lab's Food meals not offered to a batch cooker can go on a weekly menu.",
-        );
-      }
-    }
-
-    return this.prisma.menuWeek.create({
-      data: {
-        year: payload.year,
-        weekNumber: payload.weekNumber,
-        publishedAt: null,
-        meals: mealIds.length
-          ? {
-              create: mealIds.map((mealId) => ({
-                meal: { connect: { id: mealId } },
-              })),
-            }
-          : undefined,
-      },
-      include: { meals: { include: { meal: true } } },
+  private async menuMealIds(ids: string[] = []): Promise<string[]> {
+    const mealIds = [...new Set(ids)];
+    if (!mealIds.length) return mealIds;
+    const found = await this.prisma.meal.findMany({
+      where: { id: { in: mealIds } },
+      select: { id: true, chefProfileId: true, offeredToChefProfileId: true },
     });
+    const known = new Set(found.map((row) => row.id));
+    const unknown = mealIds.filter((id) => !known.has(id));
+    if (unknown.length) {
+      throw new NotFoundException(`Unknown meal ids: ${unknown.join(', ')}.`);
+    }
+    // An offered meal is prepared for one chef and may become theirs at any time.
+    if (found.some((row) => row.chefProfileId || row.offeredToChefProfileId)) {
+      throw contentNotOwned(
+        "Only Lab's Food meals not offered to a batch cooker can go on a weekly menu.",
+      );
+    }
+    return mealIds;
   }
 
   listFormules() {
@@ -307,6 +359,23 @@ const touchesDeclaration = (payload: UpdateMealDto) =>
     payload.dietaryTags,
     payload.customDiets,
   ].some((value) => value != null);
+
+const onMenu = (mealId: string) => ({ meal: { connect: { id: mealId } } });
+
+const menuWeekNotFound = () =>
+  new NotFoundException({ code: 'MENU_WEEK_NOT_FOUND', message: 'Menu week not found.' });
+
+/** `uq_menu_weeks_year_week`: one menu per ISO week. */
+const weekTaken = () =>
+  new ConflictException({
+    code: 'MENU_WEEK_EXISTS',
+    message: 'This week already has a menu.',
+  });
+
+/** Prisma's unique-constraint violation (P2002). */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
 
 /** Prisma's "no row matched the `where`" (P2025). */
 function isNotFound(error: unknown): boolean {

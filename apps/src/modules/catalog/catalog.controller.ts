@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Logger,
   Post,
@@ -43,6 +44,7 @@ import {
   MealResponseDto,
   UpdateFormuleDto,
   UpdateMealDto,
+  UpdateMenuWeekDto,
 } from './dto/catalog-admin.dto';
 
 const MEAL = {
@@ -129,6 +131,31 @@ const ApiMealIdParam = () =>
     description: 'The meal id, from `GET /admin/meals`.',
     example: MEAL.id,
   });
+
+const ApiMenuWeekIdParam = () =>
+  ApiParam({
+    name: 'id',
+    description: 'The weekly menu id, from `GET /admin/menu-weeks`.',
+    example: MENU_WEEK.id,
+  });
+
+const WEEK_TAKEN = {
+  description: '`MENU_WEEK_EXISTS`: this ISO week already has a menu.',
+  example: { code: 'MENU_WEEK_EXISTS', message: 'This week already has a menu.' },
+};
+
+const MENU_WEEK_NOT_FOUND = {
+  description: '`MENU_WEEK_NOT_FOUND`: no weekly menu with this id.',
+  example: { code: 'MENU_WEEK_NOT_FOUND', message: 'Menu week not found.' },
+};
+
+const MEAL_NOT_LABS_FOOD = {
+  description: "`CONTENT_NOT_OWNED`: one of `mealIds` is a batch cooker's dish.",
+  example: {
+    code: 'CONTENT_NOT_OWNED',
+    message: "Only Lab's Food meals can go on a weekly menu.",
+  },
+};
 
 @Controller()
 export class CatalogController {
@@ -307,16 +334,61 @@ export class CatalogController {
     example: { ...MENU_WEEK, weekNumber: 40, publishedAt: null },
   })
   @ApiNotFoundResponse({ description: 'One of `mealIds` is not a meal.' })
-  @ApiForbiddenResponse({
-    description: "`CONTENT_NOT_OWNED`: one of `mealIds` is a batch cooker's dish.",
-    example: {
-      code: 'CONTENT_NOT_OWNED',
-      message: "Only Lab's Food meals can go on a weekly menu.",
-    },
-  })
+  @ApiForbiddenResponse(MEAL_NOT_LABS_FOOD)
+  @ApiConflictResponse(WEEK_TAKEN)
   @ApiAdminAuthResponses()
   createMenuWeek(@Body() payload: CreateMenuWeekDto) {
     return this.catalog.createMenuWeek(payload);
+  }
+
+  @Patch('admin/menu-weeks/:id')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change a weekly menu',
+    description:
+      'Corrects a menu already composed. Send only the fields to change. ' +
+      '`mealIds` replaces the whole list of meals, it does not add to it: ' +
+      '`{ "mealIds": [] }` empties the menu. `year` and `weekNumber` move it to ' +
+      'another ISO week, if that week has no menu yet.\n\n' +
+      "Same rule as on creation: only Lab's Food meals can go on it.",
+  })
+  @ApiMenuWeekIdParam()
+  @ApiOkResponse({ description: 'The updated weekly menu.', example: MENU_WEEK })
+  @ApiNotFoundResponse({
+    description:
+      '`MENU_WEEK_NOT_FOUND`: no weekly menu with this id. Also when one of ' +
+      '`mealIds` is not a meal.',
+    example: MENU_WEEK_NOT_FOUND.example,
+  })
+  @ApiForbiddenResponse(MEAL_NOT_LABS_FOOD)
+  @ApiConflictResponse(WEEK_TAKEN)
+  @ApiAdminAuthResponses()
+  updateMenuWeek(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UpdateMenuWeekDto,
+  ) {
+    return this.catalog.updateMenuWeek(id, payload);
+  }
+
+  @Delete('admin/menu-weeks/:id')
+  @ApiTags(TAGS.adminCatalog)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Delete a weekly menu',
+    description:
+      'Deletes the menu for good. Its meals stay in the catalog: only their place ' +
+      'on this menu goes.',
+  })
+  @ApiMenuWeekIdParam()
+  @ApiNoContentResponse({ description: 'Deleted. No body.' })
+  @ApiNotFoundResponse(MENU_WEEK_NOT_FOUND)
+  @ApiAdminAuthResponses()
+  deleteMenuWeek(@Param('id', ParseUUIDPipe) id: string) {
+    return this.catalog.deleteMenuWeek(id);
   }
 
   @Get('admin/formules')
