@@ -46,7 +46,6 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
 | `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar — not used yet |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |
@@ -137,8 +136,27 @@ Both the application logs and the Fastify access logs then emit JSON lines, so
 Railway's log explorer can filter on fields instead of matching substrings.
 `LOG_LEVEL` accepts `fatal | error | warn | info | debug | trace`, default `info`.
 
+Both streams share the same keys, so Datadog or any other aggregator reads them as
+one:
+- `level`, `message`, `timestamp`
+- `requestId`, plus `userId` (the Clerk id) and `route` on application lines
+- `service`, `env`, `version`, `hostname`
+
+`service`, `env` and `version` default to `lf-api`, `ENVIRONMENT` and
+`RAILWAY_GIT_COMMIT_SHA`; set `DD_SERVICE`, `DD_ENV` and `DD_VERSION` to override them.
+
+**Business events and errors:**
+- A business event is one line with an `event` field (`booking.created`,
+  `cesu.confirmed`…) and ids, codes, counts and durations. Names, emails, phone numbers,
+  addresses, notes and tokens are never logged, and access logs drop the query string.
+- Every HTTP error is logged once, as `event: http.error` with its `status` and `code`:
+  - 5xx at `error`, with the stack
+  - 409, 422 and 429 at `warn`
+  - other 4xx at `debug`
+
 Every response carries an `x-request-id` header. An inbound `x-request-id` from
-a proxy is honoured, so a trace survives across services.
+a proxy is honoured, so a trace survives across services. Error bodies carry the
+same id as `requestId`, so a user can quote it to support.
 
 **Joining a log line to the database.** The same id is stored on
 `audit_log.request_id`. Railway's log retention is short and cannot be queried

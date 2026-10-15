@@ -15,12 +15,6 @@ import { SupabaseService } from './supabase.service';
     StripeService,
     SupabaseService,
   ],
-  exports: [
-    BrevoService,
-    ClerkService,
-    R2StorageService,
-    StripeService,
-    SupabaseService,
-  ],
+  exports: [BrevoService, ClerkService, R2StorageService, StripeService, SupabaseService],
 })
 export class IntegrationsModule {}

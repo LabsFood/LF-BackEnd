@@ -84,11 +84,6 @@ export interface AppConfig {
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
   };
-  cronofy: {
-    clientId?: string;
-    clientSecret?: string;
-    dataCenter: string;
-  };
   brevo: {
     apiKey?: string;
     senderEmail: string;
@@ -222,11 +217,6 @@ export const configLoader = (): AppConfig => ({
     stripeConnectReturnUrl:
       process.env.STRIPE_CONNECT_RETURN_URL ??
       'http://localhost:3005/chef/onboarding/stripe/return',
-  },
-  cronofy: {
-    clientId: process.env.CRONOFY_CLIENT_ID,
-    clientSecret: process.env.CRONOFY_CLIENT_SECRET,
-    dataCenter: process.env.CRONOFY_DATA_CENTER ?? 'us',
   },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,

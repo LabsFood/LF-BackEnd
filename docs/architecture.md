@@ -45,7 +45,7 @@ apps/src/
 ├── supabase/                  # DB module wrapper + shared enums
 ├── auth/                      # ClerkAuthGuard, AdminGuard, CurrentClerkUser, raw-body helper
 ├── common/                    # audit log, pagination DTO, Swagger helpers
-├── integrations/              # Stripe, Brevo, Clerk, R2, Supabase Storage, Cronofy (scaffold, to remove)
+├── integrations/              # Stripe, Brevo, Clerk, R2, Supabase Storage
 ├── redis/                     # optional connection (REDIS_URL), in-process fallback
 └── modules/
     ├── health/                # GET /health, GET /ready
@@ -54,7 +54,7 @@ apps/src/
     ├── dishes/                # chef dishes and menus, public vitrine, moderation, recipe sheet and shopping list (FLOW-02)
     ├── catalog/               # /menus/current + admin meals/menu-weeks/formules (Lab's Food content)
     ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job
-    ├── calendar/              # working hours and free slots (/chef/availability, GET /chefs/:id/availability)
+    ├── calendar/              # working hours, agenda, blocks, free slots, .ics feed (/chef/availability, /chef/agenda, /chef/calendar-feed)
     ├── quotes/                # custom requests and offers; accepting an offer creates the booking (BLK-10)
     ├── messaging/             # conversations, attachments, /ws gateway, unread-message emails
     ├── contact/               # public contact form + admin inbox
@@ -76,7 +76,7 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`; account/GDPR routes to do  |
 | `catalog`        | Meals, weekly menu, formules                          | **Done** — `GET /menus/current`; admin meals/menu-weeks/formules                 |
 | `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — `/me/bookings`, `/chef/bookings`, `/admin/bookings`; old `/bookings/*` deprecated |
-| `calendar`       | Working hours and free slots                          | **Done** — `/chef/availability`, `GET /chefs/:id/availability`                   |
+| `calendar`       | Working hours, agenda, blocks, free slots, `.ics` feed | **Done** — `/chef/availability`, `/chef/agenda`, `/chef/calendar-feed`, `GET /calendar/feed/:token.ics`, `GET /chefs/:id/availability` |
 | `shopping-lists` | Ingredient aggregation by aisle                       | **Done** — booking detail, `/chef-missions/:id/shopping-list`                    |
 | `quotes`         | Sur-mesure requests & offers                          | **Done** — `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `/admin/quotes`      |
 | `messaging`      | Conversations, attachments, `/ws` realtime            | **Done** — `/me/conversations`, `/admin/conversations`                           |
@@ -115,6 +115,22 @@ The batch cooker moves it to `shopping`, `cooking` (the arrival on site, from 2 
 `arrivedAt`) and `delivered`; either side closes it `completed`. Client or batch cooker cancel only
 while nothing is paid and, once confirmed, before the start; a paid booking is cancelled by an
 admin and refunded by hand in Stripe (no refund flow yet).
+
+`disputed` (the web's "En litige") is temporary, until the litiges module. Only an admin sets it,
+from any status but `cancelled`, and closes it to `completed` or `cancelled`. Meanwhile:
+- payment answers 409 `BOOKING_DISPUTED`
+- the slot stays held
+- photos can still be added
+- the client's recipe sheet waits for `completed`
+
+Clients and batch cookers report a dispute through the support thread.
+
+A `confirmed` booking moves when one side proposes a new start (`POST /me|chef/bookings/:id/reschedule`)
+and the other confirms it (`PATCH …/reschedule`):
+- Nothing moves inside the last 48 h: both the current and the new start must be further away.
+- The other side has 48 h to answer, cut short to 48 h before the start; unanswered, the booking keeps its time.
+- One proposal is open at a time. The time is checked when proposed and when confirmed.
+- Only the four time fields change; the price and the payments stay.
 
 ## Data model direction
 
@@ -258,7 +274,6 @@ Every route needs a Clerk bearer token unless listed as public; `/admin/*` addit
 | Cloudflare R2 | `R2_*`                                                                                     | Public dish, menu and profile photos (`R2StorageService`); routes answer 503 without all five vars          |
 | Supabase API  | `SUPABASE_*`, `SUPABASE_KYC_BUCKET`, `SUPABASE_MESSAGING_BUCKET`                           | Private storage for chef KYC documents and message attachments                                              |
 | URSSAF        | `URSSAF_GATEWAY`                                                                           | Simulated only (`disabled` by default): an admin answers in URSSAF's place                                  |
-| Cronofy       | `CRONOFY_*`                                                                                | Scaffold; no route uses it. Dropped: the calendar is built in-house                                         |
 
 ## Health checks
 
@@ -279,7 +294,7 @@ Swagger (`/docs`) is the complete, current list. By area:
 | Dishes & menus          | `/me/dishes`, `/me/menus`, `/me/showcase`, `/me/suggestions`, `/me/offers`, `/menus/week`, `/chefs/:id`  | Clerk; public           |
 | Missions                | `/chef-missions/:id/*`, `GET /me/culinary-map`                                                           | Clerk                   |
 | Bookings                | `/me/bookings`, `/chef/bookings` (+ photos); old `/bookings/*` deprecated                                | Clerk                   |
-| Agenda                  | `/chef/availability`; `GET /chefs/:id/availability`                                                      | Clerk; public           |
+| Agenda                  | `/chef/availability`, `/chef/agenda` (+ `/summary`, `/blocks`), `/chef/calendar-feed`; `GET /me/bookings/:id/calendar.ics`; `GET /chefs/:id/availability`, `GET /calendar/feed/:token.ics` | Clerk; public (feed: secret link) |
 | Quotes & offers         | `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `GET /pricing-rules`                                    | Clerk                   |
 | Messaging               | `/me/conversations`, `/ws`                                                                               | Clerk                   |
 | Payments                | `/payments/*`, `/me/bookings/:id/payment-*`, `/me/bookings/:id/cesu-proof/upload-url`, `/me/cesu-payments/:id/proof*`, `/bookings/:id/settle`, `/me/urssaf-links`, `/me/chef/*`, `/me/chef-profile/{stripe-connect,sepa-mandate,sap}`, `/me/fiscal-attestations/:year` | Clerk |

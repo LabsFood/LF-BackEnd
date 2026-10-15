@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { currentRequest } from '../common/logging/request-context';
+
 export interface ClerkUser {
   userId: string;
   sessionId?: string;
@@ -45,6 +47,8 @@ export class ClerkAuthGuard implements CanActivate {
     }
 
     req.clerkUser = await resolveClerkUser(header.slice(7).trim(), this.config);
+    const request = currentRequest();
+    if (request) request.userId = req.clerkUser.userId;
     return true;
   }
 }

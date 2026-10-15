@@ -97,10 +97,6 @@ export const envValidationSchema = Joi.object({
       then: Joi.string().invalid('simulated'),
     }),
 
-  CRONOFY_CLIENT_ID: Joi.string().allow('').optional(),
-  CRONOFY_CLIENT_SECRET: Joi.string().allow('').optional(),
-  CRONOFY_DATA_CENTER: Joi.string().default('us'),
-
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
   BREVO_SENDER_NAME: Joi.string().default('Labs Food'),
