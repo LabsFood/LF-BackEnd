@@ -35,17 +35,24 @@ import {
   photoStepsHelp,
 } from '../dishes/dto/photo.dto';
 import { BookingPhotosService } from './booking-photos.service';
+import { BookingReschedulesService } from './booking-reschedules.service';
 import { BookingsService } from './bookings.service';
 import {
   BookingPhotoConfirmDto,
   ChefBookingsQueryDto,
   ChefUpdateBookingDto,
   NewBookingForClientDto,
+  RescheduleAnswerDto,
+  RescheduleDto,
 } from './dto/bookings.dto';
 import {
   ApiBookingId,
   BOOKING_DETAIL_EXAMPLE,
   BOOKING_ITEM_EXAMPLE,
+  RESCHEDULE_DECIDE_CONFLICTS,
+  RESCHEDULE_EXAMPLE,
+  RESCHEDULE_HELP,
+  RESCHEDULE_PROPOSE_CONFLICTS,
   STATUS_HELP,
 } from './swagger-examples';
 
@@ -73,6 +80,7 @@ export class ChefBookingsController {
   constructor(
     private readonly bookings: BookingsService,
     private readonly photos: BookingPhotosService,
+    private readonly reschedules: BookingReschedulesService,
   ) {}
 
   @Get()
@@ -157,6 +165,48 @@ export class ChefBookingsController {
     @Body() body: ChefUpdateBookingDto,
   ) {
     return this.bookings.update('chef', user.userId, id, body);
+  }
+
+  @Post(':id/reschedule')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Propose a new time', description: RESCHEDULE_HELP })
+  @ApiBookingId()
+  @ApiCreatedResponse({ description: 'The proposal.', example: RESCHEDULE_EXAMPLE })
+  @ApiNotFoundResponse({ description: NO_CHEF })
+  @ApiConflictResponse({ description: RESCHEDULE_PROPOSE_CONFLICTS })
+  @ApiClerkAuthResponses()
+  propose(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RescheduleDto,
+  ) {
+    return this.reschedules.propose('chef', user.userId, id, body.startsAt);
+  }
+
+  @Patch(':id/reschedule')
+  @ApiOperation({
+    summary: 'Answer a new time',
+    description:
+      '`accepted` moves the prestation; `declined` keeps it; `withdrawn` takes back ' +
+      'my own proposal.\n\n' +
+      RESCHEDULE_HELP,
+  })
+  @ApiBookingId()
+  @ApiOkResponse({
+    description: 'The proposal, answered.',
+    example: { ...RESCHEDULE_EXAMPLE, status: 'accepted' },
+  })
+  @ApiNotFoundResponse({
+    description: '`RESCHEDULE_NOT_FOUND`: no new time waits. Or ' + NO_CHEF,
+  })
+  @ApiConflictResponse({ description: RESCHEDULE_DECIDE_CONFLICTS })
+  @ApiClerkAuthResponses()
+  decide(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RescheduleAnswerDto,
+  ) {
+    return this.reschedules.decide('chef', user.userId, id, body.decision);
   }
 
   @Post(':id/photos/upload-url')

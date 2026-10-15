@@ -20,7 +20,7 @@ describe('BookingPhotosService', () => {
       },
       bookingPhoto: {
         count: jest.fn().mockResolvedValue(0),
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: 'p1' }),
         findFirst: jest.fn(),
         delete: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
@@ -64,6 +64,14 @@ describe('BookingPhotosService', () => {
     });
   });
 
+  it('still takes photos during a dispute: they are evidence', async () => {
+    prisma.booking.findFirst.mockResolvedValue({ id: 'b1', status: 'disputed' });
+
+    await service.uploadUrl('clerk_1', 'b1', upload);
+
+    expect(storage.presignPhoto).toHaveBeenCalled();
+  });
+
   it(`keeps ${MAX_BOOKING_PHOTOS} photos at most`, async () => {
     prisma.bookingPhoto.count.mockResolvedValue(MAX_BOOKING_PHOTOS);
 
@@ -89,6 +97,7 @@ describe('BookingPhotosService', () => {
 
     expect(prisma.bookingPhoto.create).toHaveBeenCalledWith({
       data: { bookingId: 'b1', url: 'https://p/bookings/b1/ph_x.jpg', caption: 'Bocaux' },
+      select: { id: true },
     });
   });
 

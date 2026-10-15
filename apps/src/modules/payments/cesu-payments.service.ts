@@ -188,9 +188,13 @@ export class CesuPaymentsService {
         include: CESU_PAYMENT_INCLUDE,
       });
 
-      this.logger.log(
-        `CESU payment ${payment.id} declared on booking ${booking.id} (${payload.medium}).`,
-      );
+      this.logger.log({
+        event: 'cesu.declared',
+        paymentId: payment.id,
+        bookingId: booking.id,
+        medium: payload.medium,
+        withProof: proofPath !== null,
+      });
       return toCesuPaymentDto(payment);
     } catch (error) {
       // `uq_payments_live_cesu_booking_id` — two simultaneous declarations on one
@@ -219,7 +223,10 @@ export class CesuPaymentsService {
       select: { id: true, status: true, endsAt: true },
     });
     if (!booking) {
-      throw new NotFoundException('Booking not found.');
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found.',
+      });
     }
     assertPayable(booking);
     const upload = await this.proofs.createUploadUrl(
@@ -258,6 +265,11 @@ export class CesuPaymentsService {
         message: 'The chef has answered this payment: its proof is kept as it is.',
       });
     }
+    this.logger.log({
+      event: 'cesu.proof_replaced',
+      paymentId,
+      bookingId: payment.bookingId,
+    });
     const previous = payment.cesuSettlement.clientProofPath;
     if (previous && previous !== path) await this.proofs.removeObjects([previous]);
     return toCesuPaymentDto(
@@ -383,9 +395,8 @@ export class CesuPaymentsService {
   ): Promise<CesuPaymentDto> {
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
     await this.requireDeclaredCesuPayment(paymentId);
-    this.logger.warn(
-      `Admin ${admin.id} force-settled CESU payment ${paymentId} (proof: ${proofRef}).`,
-    );
+    // The proof reference is the admin's free text: it stays in the database.
+    this.logger.warn({ event: 'cesu.force_settled', paymentId, adminUserId: admin.id });
     return this.settleDeclaration(paymentId, {
       confirmedByUserId: admin.id,
       adminOverride: true,
@@ -434,7 +445,7 @@ export class CesuPaymentsService {
       });
     });
 
-    this.logger.log(`CESU payment ${paymentId} rejected by the chef.`);
+    this.logger.log({ event: 'cesu.rejected', paymentId });
     return toCesuPaymentDto(rejected);
   }
 
@@ -497,7 +508,7 @@ export class CesuPaymentsService {
       await this.commissionDebits.onCommissionDue(commissionId);
     }
 
-    this.logger.log(`CESU payment ${paymentId} confirmed.`);
+    this.logger.log({ event: 'cesu.confirmed', paymentId, commissionId });
     return toCesuPaymentDto(updated);
   }
 

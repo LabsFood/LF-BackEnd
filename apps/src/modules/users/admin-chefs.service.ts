@@ -7,6 +7,7 @@ import {
 } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { feedInUse } from '../calendar/calendar-feed.service';
 import {
   METROPOLITAN_REGIONS,
   toWire,
@@ -43,7 +44,7 @@ const CHEF_SELECT = {
   sapPath: true,
   sapDeclarationNumber: true,
   stripeAccountId: true,
-  cronofyProfileId: true,
+  calendarFeed: { select: { lastFetchedAt: true } },
   createdAt: true,
   user: {
     select: { fullName: true, email: true, phone: true, avatarUrl: true },
@@ -167,7 +168,8 @@ export class AdminChefsService {
       zones: zonesOf(row),
       // Whether the integrations are connected, never their identifiers.
       payoutsConnected: row.stripeAccountId !== null,
-      calendarConnected: row.cronofyProfileId !== null,
+      // Their calendar app syncs our feed: fetched in the last 7 days.
+      calendarConnected: feedInUse(row.calendarFeed?.lastFetchedAt),
       application: row.application
         ? {
             id: row.application.id,

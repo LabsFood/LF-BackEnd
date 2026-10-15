@@ -5,6 +5,7 @@ import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 import { UsersModule } from '../users/users.module';
 import { AdminBookingsController } from './admin-bookings.controller';
 import { BookingPhotosService } from './booking-photos.service';
+import { BookingReschedulesService } from './booking-reschedules.service';
 import { BookingsController } from './bookings.controller';
 import { BookingsMailer } from './bookings.mailer';
 import { BookingsService } from './bookings.service';
@@ -23,6 +24,11 @@ import { MeBookingsController } from './me-bookings.controller';
     AdminBookingsController,
     BookingsController,
   ],
-  providers: [BookingsService, BookingPhotosService, BookingsMailer],
+  providers: [
+    BookingsService,
+    BookingPhotosService,
+    BookingReschedulesService,
+    BookingsMailer,
+  ],
 })
 export class BookingsModule {}

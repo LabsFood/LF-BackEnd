@@ -15,6 +15,11 @@ describe('canTransition', () => {
     ['chef', 'delivered', 'completed'],
     ['admin', 'pending', 'confirmed'],
     ['admin', 'cancelled', 'confirmed'],
+    // A dispute is opened and closed by an admin.
+    ['admin', 'completed', 'disputed'],
+    ['admin', 'confirmed', 'disputed'],
+    ['admin', 'disputed', 'completed'],
+    ['admin', 'disputed', 'cancelled'],
   ])('lets the %s move %s → %s', (actor, from, to) => {
     expect(canTransition(actor, from, to)).toBe(true);
   });
@@ -35,6 +40,13 @@ describe('canTransition', () => {
     ['client', 'completed', 'cancelled'],
     ['chef', 'cancelled', 'pending'],
     ['admin', 'confirmed', 'confirmed'],
+    // Clients and batch cookers report a dispute to support; they never set it.
+    ['client', 'delivered', 'disputed'],
+    ['chef', 'completed', 'disputed'],
+    ['client', 'disputed', 'completed'],
+    ['chef', 'disputed', 'cancelled'],
+    // Nothing to dispute in a prestation that never happened.
+    ['admin', 'cancelled', 'disputed'],
   ])('refuses the %s %s → %s', (actor, from, to) => {
     expect(canTransition(actor, from, to)).toBe(false);
   });

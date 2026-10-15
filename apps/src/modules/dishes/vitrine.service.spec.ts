@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 
 import { MealStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AvailabilityService } from '../calendar/availability.service';
 import { dishRow, menuRow } from './dishes.test-helpers';
 import { VitrineService } from './vitrine.service';
 
@@ -25,7 +26,7 @@ const WITH_RECIPE = {
 
 function vitrine(data: {
   chefs?: unknown[];
-  slots?: unknown[];
+  slotsLeft?: Record<string, number | null>;
   showcase?: unknown[];
   dishes?: unknown[];
   documents?: unknown[];
@@ -35,7 +36,6 @@ function vitrine(data: {
       findMany: jest.fn(async () => data.chefs ?? []),
       findFirst: jest.fn(async () => (data.chefs ?? [])[0] ?? null),
     },
-    availabilitySlot: { findMany: jest.fn(async () => data.slots ?? []) },
     chefShowcaseWeek: { findMany: jest.fn(async () => data.showcase ?? []) },
     meal: { findMany: jest.fn(async () => data.dishes ?? []) },
     menu: { findMany: jest.fn(async () => []) },
@@ -45,7 +45,17 @@ function vitrine(data: {
       groupBy: jest.fn(async () => [{ chefProfileId: 'a', _min: { priceCents: 15000 } }]),
     },
   };
-  return { prisma, service: new VitrineService(prisma as unknown as PrismaService) };
+  const availability = {
+    slotsLeftFor: jest.fn(async () => new Map(Object.entries(data.slotsLeft ?? {}))),
+  };
+  return {
+    prisma,
+    availability,
+    service: new VitrineService(
+      prisma as unknown as PrismaService,
+      availability as unknown as AvailabilityService,
+    ),
+  };
 }
 
 describe('VitrineService', () => {
@@ -119,17 +129,25 @@ describe('VitrineService', () => {
       expect(data[1].dishes.map((d) => d.id)).toEqual(['a-dish']);
     });
 
-    it('drops a fully booked chef but keeps one with no slots, as available on request', async () => {
-      const { service } = vitrine({
-        chefs: [chef('full'), chef('open')],
-        slots: [{ chefProfileId: 'full', isBooked: true }],
+    it('drops a fully booked chef but keeps one with no hours, as available on request', async () => {
+      const { service, availability } = vitrine({
+        chefs: [chef('full'), chef('open'), chef('free')],
+        slotsLeft: { full: 0, open: null, free: 3 },
       });
 
       const { data } = await service.week({});
 
-      expect(data.map((card) => [card.chef.id, card.slotsLeft])).toEqual([
+      expect(data.map((card) => [card.chef.id, card.slotsLeft]).sort()).toEqual([
+        ['free', 3],
         ['open', null],
       ]);
+      // One batched count for every chef on the page, over the week.
+      expect(availability.slotsLeftFor).toHaveBeenCalledTimes(1);
+      expect(availability.slotsLeftFor).toHaveBeenCalledWith(
+        ['full', 'open', 'free'],
+        expect.any(Date),
+        expect.any(Date),
+      );
     });
 
     it('filters on area, on diets covered by the whole menu, and on free text', async () => {

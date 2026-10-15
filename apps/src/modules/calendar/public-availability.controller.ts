@@ -28,7 +28,10 @@ export class PublicAvailabilityController {
     description:
       'Free start times for one of their service offers, between `from` and `to` (31 ' +
       'days at most), on a 30-minute grid: working hours minus their prestations and ' +
-      'their calendar busy time. Never says what makes a time busy.\n\n' +
+      'blocks. Never says what makes a time busy.\n\n' +
+      'Without `offerId`, their most expensive active offer is used. `offer` names ' +
+      'the one used: book it with `POST /me/bookings` `{serviceOfferId: offer.id}` and ' +
+      'show its price.\n\n' +
       '`scheduled: false`: no working hours set; any time not taken can be asked for ' +
       '(`POST /me/bookings` still checks it). Public: no token needed.',
   })
@@ -36,13 +39,21 @@ export class PublicAvailabilityController {
   @ApiOkResponse({
     description: 'The free start times.',
     example: {
+      offer: {
+        id: '7b1d…',
+        name: 'Séance batch cooking',
+        durationMinutes: 180,
+        priceCents: 18000,
+      },
       durationMinutes: 180,
       scheduled: true,
       slots: ['2026-10-19T07:00:00.000Z', '2026-10-19T07:30:00.000Z'],
     },
   })
   @ApiNotFoundResponse({
-    description: 'No such offer from an approved batch cooker online.',
+    description:
+      '`OFFER_NOT_FOUND`: no such offer, or no active offer at all, from an approved ' +
+      'batch cooker online. The page shows "sur demande".',
   })
   @ApiUnprocessableEntityResponse({ description: 'Window empty, past or over 31 days.' })
   slots(@Param('id', ParseUUIDPipe) chefId: string, @Query() query: PublicSlotsQueryDto) {

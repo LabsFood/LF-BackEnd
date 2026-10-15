@@ -63,10 +63,12 @@ export class BookingReadDto {
       'delivered',
       'completed',
       'cancelled',
+      'disputed',
     ],
     description:
       '`pending`: waiting for its payment. `confirmed`: going ahead. `shopping`, ' +
-      '`cooking`, `delivered`: under way. `completed`: done. `cancelled`: will not happen.',
+      '`cooking`, `delivered`: under way. `completed`: done. `cancelled`: will not happen. ' +
+      '`disputed`: in dispute, set by Lab’s Food; payment waits for its outcome.',
     example: 'confirmed',
   })
   status!: BookingStatus;

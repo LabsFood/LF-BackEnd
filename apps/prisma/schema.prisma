@@ -23,6 +23,7 @@ model User {
   /// data is blanked (`UsersService.deleteByClerkId`).
   deletedAt                DateTime?                 @map("deleted_at") @db.Timestamptz(6)
   bookingsAsClient         Booking[]                 @relation("BookingClient")
+  reschedulesProposed      BookingReschedule[]       @relation("BookingRescheduleProposer")
   chefProfile              ChefProfile?
   clientProfile            ClientProfile?
   quotes                   Quote[]                   @relation("QuoteClient")
@@ -90,6 +91,8 @@ model ChefProfile {
   urssafLinks            UrssafLink[]
   workingHours           ChefWorkingHour[]
   availabilityExceptions ChefAvailabilityException[]
+  timeBlocks             ChefTimeBlock[]
+  calendarFeed           ChefCalendarFeed?
 
   @@map("chef_profiles")
 }
@@ -145,6 +148,9 @@ model Booking {
   currency              String         @default("EUR") @db.VarChar(3)
   shoppingByClient      Boolean        @default(false) @map("shopping_by_client")
   addressLine           String?        @map("address_line") @db.VarChar(255)
+  /// The city, apart, so the agenda can show it without the street.
+  addressCity           String?        @map("address_city") @db.VarChar(120)
+  addressPostalCode     String?        @map("address_postal_code") @db.VarChar(16)
   notes                 String?
   stripePaymentIntentId String?        @map("stripe_payment_intent_id") @db.VarChar(128)
   cronofyEventId        String?        @map("cronofy_event_id") @db.VarChar(128)
@@ -163,6 +169,7 @@ model Booking {
   serviceOffer          ServiceOffer   @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
   payments              Payment[]
   photos                BookingPhoto[]
+  reschedules           BookingReschedule[]
 
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
@@ -481,6 +488,9 @@ enum BookingStatus {
   shopping
   cooking
   delivered
+  /// In dispute (a litige): set and cleared by an admin until the litiges module
+  /// drives it. Blocks payment.
+  disputed
 
   @@map("booking_status")
 }
@@ -1459,4 +1469,63 @@ model ChefAvailabilityException {
 
   @@index([chefProfileId, date], map: "ix_chef_availability_exceptions_chef_date")
   @@map("chef_availability_exceptions")
+}
+
+/// Time the batch cooker blocks in their agenda (a dentist, a holiday afternoon):
+/// busy for bookings, never covering one.
+model ChefTimeBlock {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId String      @map("chef_profile_id") @db.Uuid
+  startsAt      DateTime    @map("starts_at") @db.Timestamptz(6)
+  endsAt        DateTime    @map("ends_at") @db.Timestamptz(6)
+  /// The batch cooker's own words. Never logged.
+  reason        String?     @db.VarChar(255)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_time_blocks_chef_profile_id")
+
+  /// The same block twice is a double click: the second create finds the first.
+  @@unique([chefProfileId, startsAt, endsAt], map: "uq_chef_time_blocks_chef_range")
+  @@map("chef_time_blocks")
+}
+
+/// A new time one side of a confirmed booking proposes and the other confirms
+/// (in-house calendar, phase D3). One open proposal per booking: a partial unique
+/// index in the migration.
+model BookingReschedule {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId        String    @map("booking_id") @db.Uuid
+  /// `client` | `chef`.
+  proposedByRole   String    @map("proposed_by_role") @db.VarChar(8)
+  proposedByUserId String?   @map("proposed_by_user_id") @db.Uuid
+  fromStartsAt     DateTime  @map("from_starts_at") @db.Timestamptz(6)
+  toStartsAt       DateTime  @map("to_starts_at") @db.Timestamptz(6)
+  /// `pending` | `accepted` | `declined` | `withdrawn` | `expired`.
+  status           String    @default("pending") @db.VarChar(10)
+  /// 48 h after it is made, or 48 h before the booking's start, whichever is first.
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  decidedAt        DateTime? @map("decided_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  booking          Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_booking_reschedules_booking_id")
+  proposedBy       User?     @relation("BookingRescheduleProposer", fields: [proposedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_booking_reschedules_proposed_by_user_id")
+
+  @@index([bookingId, createdAt], map: "ix_booking_reschedules_booking_created_at")
+  @@index([status, expiresAt], map: "ix_booking_reschedules_status_expires_at")
+  @@map("booking_reschedules")
+}
+
+/// The private link a batch cooker subscribes their calendar app to (Google,
+/// Outlook, Apple). Only the token's SHA-256 is kept: the link is shown once.
+/// No row: the feed is off.
+model ChefCalendarFeed {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId String      @unique(map: "uq_chef_calendar_feeds_chef_profile_id") @map("chef_profile_id") @db.Uuid
+  tokenHash     String      @unique(map: "uq_chef_calendar_feeds_token_hash") @map("token_hash") @db.VarChar(64)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  rotatedAt     DateTime?   @map("rotated_at") @db.Timestamptz(6)
+  /// When a calendar app last fetched it, written at most once an hour. Recent
+  /// enough, the batch cooker's calendar is synced (`calendarConnected`).
+  lastFetchedAt DateTime?   @map("last_fetched_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_calendar_feeds_chef_profile_id")
+
+  @@map("chef_calendar_feeds")
 }

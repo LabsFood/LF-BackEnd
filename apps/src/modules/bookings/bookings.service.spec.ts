@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -49,6 +50,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   _count: { bookingMeals: 0 },
   bookingMeals: [],
   photos: [],
+  reschedules: [],
   ...overrides,
 });
 
@@ -457,6 +459,67 @@ describe('BookingsService', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'booking.expired', subjectId: 'booking-1' }),
       );
+    });
+  });
+
+  describe('logs', () => {
+    const PERSONAL = [
+      'sophie@example.com',
+      'marie@example.com',
+      'Marie D.',
+      '12 rue des Lilas',
+      'Digicode 4521',
+    ];
+
+    it('carry ids and counts, never a name, email, address or note', async () => {
+      const calls: unknown[][] = [];
+      for (const level of ['log', 'warn', 'error', 'debug'] as const) {
+        jest
+          .spyOn(Logger.prototype, level)
+          .mockImplementation((...args: unknown[]) => void calls.push(args));
+      }
+      lists.pinRecipes.mockRejectedValue(new Error('pin failed'));
+      prisma.meal.count.mockResolvedValue(1);
+
+      await service.create('client', 'clerk_1', {
+        serviceOfferId: 'offer-1',
+        startsAt: START,
+        addressLine: '12 rue des Lilas',
+        notes: 'Digicode 4521',
+        meals: [{ mealId: 'meal-1' }],
+      } as never);
+      await service.update('client', 'clerk_1', 'booking-1', {
+        addressLine: '12 rue des Lilas',
+        notes: 'Digicode 4521',
+      });
+      prisma.booking.findMany
+        .mockResolvedValueOnce([
+          {
+            ...row(),
+            client: { email: 'sophie@example.com', fullName: 'Sophie M.' },
+            chefProfile: {
+              displayName: 'Chef Marie',
+              user: { email: 'marie@example.com', fullName: 'Marie D.' },
+            },
+          },
+        ])
+        .mockResolvedValueOnce([{ id: 'booking-2' }]);
+      await service.expireUnpaid(new Date('2030-03-10T12:00:00.000Z'));
+
+      const events = calls.map(([first]) => (first as { event?: string }).event);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          'booking.created',
+          'booking.recipes_not_pinned',
+          'booking.updated',
+          'booking.hold_reminded',
+          'booking.expired',
+          'job.unpaid_holds',
+        ]),
+      );
+      const written = JSON.stringify(calls);
+      for (const value of PERSONAL) expect(written).not.toContain(value);
+      jest.restoreAllMocks();
     });
   });
 });

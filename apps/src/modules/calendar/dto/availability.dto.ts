@@ -18,6 +18,14 @@ import {
 } from 'class-validator';
 
 export class WeeklySlotDto {
+  @ApiPropertyOptional({
+    description: 'As read. Ignored on save: every save issues new ids, read them back.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  id?: string;
+
   @ApiProperty({
     minimum: 0,
     maximum: 6,
@@ -53,6 +61,14 @@ export class WeeklySlotDto {
 }
 
 export class AvailabilityExceptionDto {
+  @ApiPropertyOptional({
+    description: 'As read. Ignored on save: every save issues new ids, read them back.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  id?: string;
+
   @ApiProperty({ description: 'The day, `YYYY-MM-DD`.', example: '2026-12-24' })
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   date!: string;
@@ -104,6 +120,17 @@ export class ScheduleDto {
   @ValidateNested({ each: true })
   @Type(() => AvailabilityExceptionDto)
   exceptions!: AvailabilityExceptionDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'The `version` read with the schedule. When sent, a save from a stale tab is ' +
+      'refused with 409 `SCHEDULE_CHANGED` instead of erasing the other tab’s edits.',
+    example: 'k3Vq0Zb1xT2mN8aR',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  version?: string;
 }
 
 export class WindowQueryDto {
@@ -133,10 +160,66 @@ export class ChefSlotsQueryDto extends WindowQueryDto {
 }
 
 export class PublicSlotsQueryDto extends WindowQueryDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     format: 'uuid',
-    description: 'The service offer to book: its duration sets the slots.',
+    description:
+      'The service offer to book: its duration sets the slots. Without it, the batch ' +
+      'cooker’s most expensive active offer, named in the answer.',
   })
+  @IsOptional()
   @IsUUID()
-  offerId!: string;
+  offerId?: string;
+}
+
+export class AgendaQueryDto {
+  @ApiProperty({ type: String, format: 'date-time', example: '2026-09-28T00:00:00.000Z' })
+  @Type(() => Date)
+  @IsDate()
+  from!: Date;
+
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description: 'Excluded. At most 42 days after `from`: the month grid, six weeks.',
+    example: '2026-11-09T00:00:00.000Z',
+  })
+  @Type(() => Date)
+  @IsDate()
+  to!: Date;
+}
+
+export class AgendaSummaryQueryDto {
+  @ApiProperty({ minimum: 2020, maximum: 2100, example: 2026 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(2020)
+  @Max(2100)
+  year!: number;
+}
+
+export class TimeBlockDto {
+  @ApiProperty({ type: String, format: 'date-time', example: '2026-10-22T12:00:00.000Z' })
+  @Type(() => Date)
+  @IsDate()
+  startsAt!: Date;
+
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description: 'Excluded. After `startsAt`, in the future, 42 days at most.',
+    example: '2026-10-22T14:00:00.000Z',
+  })
+  @Type(() => Date)
+  @IsDate()
+  endsAt!: Date;
+
+  @ApiPropertyOptional({
+    maxLength: 255,
+    description: 'For the batch cooker only.',
+    example: 'Dentiste',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  reason?: string;
 }

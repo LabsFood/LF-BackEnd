@@ -1,5 +1,8 @@
+import { ConflictException } from '@nestjs/common';
+
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AvailabilityService } from '../calendar/availability.service';
 import { UsersService } from '../users/users.service';
 import { CreateQuoteDto } from './dto/quote.dto';
 import { QuotesMailer } from './quotes.mailer';
@@ -37,17 +40,26 @@ function setup() {
           booking: null,
         }),
       ),
+      findUnique: jest.fn(),
+    },
+    chefProfile: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'chef-1', userId: 'u-chef' }),
     },
   };
   const users = { findByClerkId: jest.fn().mockResolvedValue({ id: 'u1' }) };
-  const mailer = { needsChef: jest.fn().mockResolvedValue({ sent: true }) };
+  const mailer = {
+    needsChef: jest.fn().mockResolvedValue({ sent: true }),
+    requestForChef: jest.fn().mockResolvedValue({ sent: true }),
+  };
+  const availability = { assertOpenOn: jest.fn().mockResolvedValue(undefined) };
   const service = new QuotesService(
     prisma as unknown as PrismaService,
     users as unknown as UsersService,
     mailer as unknown as QuotesMailer,
     { record: jest.fn() } as unknown as AuditService,
+    availability as unknown as AvailabilityService,
   );
-  return { service, prisma, mailer };
+  return { service, prisma, mailer, availability };
 }
 
 describe('QuotesService.createQuote', () => {
@@ -121,5 +133,53 @@ describe('QuotesService.createQuote', () => {
       response: { code: 'TOO_MANY_OPEN_REQUESTS' },
     });
     expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuotesService and closed days', () => {
+  const closed = new ConflictException({
+    code: 'CHEF_CLOSED_ON_DATE',
+    message: 'The batch cooker does not work that day.',
+  });
+
+  it('refuses a request for a day the batch cooker closed', async () => {
+    const { service, prisma, availability } = setup();
+    availability.assertOpenOn.mockRejectedValue(closed);
+
+    await expect(
+      service.createQuote('clerk_1', form({ chefProfileId: 'chef-1' })),
+    ).rejects.toMatchObject({ response: { code: 'CHEF_CLOSED_ON_DATE' } });
+    expect(availability.assertOpenOn).toHaveBeenCalledWith(
+      'chef-1',
+      new Date(`${inDays(10)}T00:00:00.000Z`),
+    );
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('checks nothing when the client chose no batch cooker', async () => {
+    const { service, availability } = setup();
+
+    await service.createQuote('clerk_1', form());
+
+    expect(availability.assertOpenOn).not.toHaveBeenCalled();
+  });
+
+  it('refuses to give a request to a batch cooker closed that day', async () => {
+    const { service, prisma, availability } = setup();
+    prisma.quote.findUnique.mockResolvedValue({
+      id: 'q1',
+      status: 'submitted',
+      assignedChefUserId: null,
+      desiredDate: new Date('2030-03-12T00:00:00.000Z'),
+    });
+    availability.assertOpenOn.mockRejectedValue(closed);
+
+    await expect(
+      service.updateAdmin('clerk_admin', 'q1', { assignedChefUserId: 'u-chef' }),
+    ).rejects.toMatchObject({ response: { code: 'CHEF_CLOSED_ON_DATE' } });
+    expect(availability.assertOpenOn).toHaveBeenCalledWith(
+      'chef-1',
+      new Date('2030-03-12T00:00:00.000Z'),
+    );
   });
 });

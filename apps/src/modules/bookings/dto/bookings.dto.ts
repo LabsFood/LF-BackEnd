@@ -120,6 +120,22 @@ export class NewBookingDto {
   @Length(1, 255)
   addressLine?: string;
 
+  @ApiPropertyOptional({
+    maxLength: 120,
+    description: 'The city, apart: the agenda shows it without the street.',
+    example: 'Paris',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  addressCity?: string;
+
+  @ApiPropertyOptional({ maxLength: 16, example: '75011' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 16)
+  addressPostalCode?: string;
+
   @ApiPropertyOptional({ maxLength: 2000, example: 'Digicode 4521B, 3e étage.' })
   @IsOptional()
   @IsString()
@@ -174,7 +190,12 @@ export class ChefUpdateBookingDto {
 export class AdminUpdateBookingDto extends PartialType(
   OmitType(NewBookingDto, ['serviceOfferId', 'formuleId'] as const),
 ) {
-  @ApiPropertyOptional({ enum: BOOKING_STATUSES, description: 'Any status. Audited.' })
+  @ApiPropertyOptional({
+    enum: BOOKING_STATUSES,
+    description:
+      'Any status, audited. `disputed` (never from `cancelled`) opens a dispute; ' +
+      '`completed` or `cancelled` closes it.',
+  })
   @IsOptional()
   @IsIn(BOOKING_STATUSES)
   status?: BookingStatus;
@@ -205,4 +226,29 @@ export class BookingPhotoConfirmDto extends PhotoConfirmDto {
   @IsString()
   @MaxLength(160)
   caption?: string;
+}
+
+export class RescheduleDto {
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description:
+      'The new start; the duration stays. More than 48 h away, as the current start ' +
+      'must be, and free in the batch cooker’s agenda.',
+    example: '2026-10-28T08:00:00.000Z',
+  })
+  @Type(() => Date)
+  @IsDate()
+  startsAt!: Date;
+}
+
+export class RescheduleAnswerDto {
+  @ApiProperty({
+    enum: ['accepted', 'declined', 'withdrawn'],
+    description:
+      'The other side confirms (`accepted`) or declines; whoever proposed it withdraws.',
+    example: 'accepted',
+  })
+  @IsIn(['accepted', 'declined', 'withdrawn'])
+  decision!: 'accepted' | 'declined' | 'withdrawn';
 }

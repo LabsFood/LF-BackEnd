@@ -110,7 +110,9 @@ export class PublicVitrineController {
       'The `/menu` page: one card per batch cooker for the week, rather than an ' +
       'anonymous list of dishes. Public: no token needed.\n\n' +
       '- Only approved batch cookers who are online, cover the area and are not fully ' +
-      'booked. `slotsLeft: null` means no slots configured: available on request.\n' +
+      'booked. `slotsLeft` is the whole sessions still free that week, from their ' +
+      'agenda, at the length of their shortest active offer; `null` means no working ' +
+      'hours or no active offer: available on request.\n' +
       '- `hasMenu: false` marks a cook with no menu this week: shown last, with their ' +
       'published dishes.\n' +
       '- `coveredDiets` is what **every** dish satisfies, and `diets` filters on it.\n' +
@@ -134,7 +136,7 @@ export class PublicVitrineController {
     description:
       'Profile, badges from the documents Lab’s Food validated, the areas covered, ' +
       'and published dishes and menus. Never a draft, a suspended dish or a recipe. ' +
-      'Public.',
+      '`slotsLeft` counts this week as on the week’s cards. Public.',
   })
   @ApiChefIdParam()
   @ApiOkResponse({
@@ -150,6 +152,7 @@ export class PublicVitrineController {
           cities: [{ name: 'Nice', insee: '06088' }],
         },
       ],
+      slotsLeft: 2,
       sessionFromCents: 15000,
       afterTaxCreditCents: 7500,
       dishes: [CARD_DISH],

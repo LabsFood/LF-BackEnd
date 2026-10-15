@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,20 +19,34 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
+import { CalendarFeedService } from '../calendar/calendar-feed.service';
+import { BookingReschedulesService } from './booking-reschedules.service';
 import { BookingsService } from './bookings.service';
-import { BookingsQueryDto, NewBookingDto, UpdateBookingDto } from './dto/bookings.dto';
+import {
+  BookingsQueryDto,
+  NewBookingDto,
+  RescheduleAnswerDto,
+  RescheduleDto,
+  UpdateBookingDto,
+} from './dto/bookings.dto';
 import {
   ApiBookingId,
   CLIENT_DETAIL_EXAMPLE as CLIENT_DETAIL,
   CLIENT_ITEM_EXAMPLE as CLIENT_ITEM,
+  RESCHEDULE_DECIDE_CONFLICTS,
+  RESCHEDULE_EXAMPLE,
+  RESCHEDULE_HELP,
+  RESCHEDULE_PROPOSE_CONFLICTS,
   STATUS_HELP,
 } from './swagger-examples';
 
@@ -41,7 +56,11 @@ import {
 @Controller('me/bookings')
 @UseGuards(ClerkAuthGuard)
 export class MeBookingsController {
-  constructor(private readonly bookings: BookingsService) {}
+  constructor(
+    private readonly bookings: BookingsService,
+    private readonly feeds: CalendarFeedService,
+    private readonly reschedules: BookingReschedulesService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -73,6 +92,33 @@ export class MeBookingsController {
   @ApiClerkAuthResponses()
   detail(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.bookings.detailFor('client', user.userId, id);
+  }
+
+  @Get(':id/calendar.ics')
+  @ApiOperation({
+    summary: 'Add one of my bookings to my calendar',
+    description:
+      'The prestation as an `.ics` file, to open in Google, Apple or Outlook. A later ' +
+      'download of the same booking updates the same event.',
+  })
+  @ApiBookingId()
+  @ApiProduces('text/calendar')
+  @ApiOkResponse({ description: 'iCalendar (RFC 5545), as an attachment.' })
+  @ApiNotFoundResponse({
+    description: '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
+  })
+  @ApiClerkAuthResponses()
+  async calendarFile(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { filename, body } = await this.feeds.bookingFile(user.userId, id);
+    reply
+      .header('Content-Type', 'text/calendar; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store');
+    return body;
   }
 
   @Post()
@@ -124,5 +170,51 @@ export class MeBookingsController {
     @Body() body: UpdateBookingDto,
   ) {
     return this.bookings.update('client', user.userId, id, body);
+  }
+
+  @Post(':id/reschedule')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Propose a new time', description: RESCHEDULE_HELP })
+  @ApiBookingId()
+  @ApiCreatedResponse({ description: 'The proposal.', example: RESCHEDULE_EXAMPLE })
+  @ApiNotFoundResponse({
+    description: '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
+  })
+  @ApiConflictResponse({ description: RESCHEDULE_PROPOSE_CONFLICTS })
+  @ApiClerkAuthResponses()
+  propose(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RescheduleDto,
+  ) {
+    return this.reschedules.propose('client', user.userId, id, body.startsAt);
+  }
+
+  @Patch(':id/reschedule')
+  @ApiOperation({
+    summary: 'Answer a new time',
+    description:
+      '`accepted` moves the prestation; `declined` keeps it; `withdrawn` takes back ' +
+      'my own proposal.\n\n' +
+      RESCHEDULE_HELP,
+  })
+  @ApiBookingId()
+  @ApiOkResponse({
+    description: 'The proposal, answered.',
+    example: { ...RESCHEDULE_EXAMPLE, status: 'accepted' },
+  })
+  @ApiNotFoundResponse({
+    description:
+      '`RESCHEDULE_NOT_FOUND`: no new time waits. Or ' +
+      '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
+  })
+  @ApiConflictResponse({ description: RESCHEDULE_DECIDE_CONFLICTS })
+  @ApiClerkAuthResponses()
+  decide(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RescheduleAnswerDto,
+  ) {
+    return this.reschedules.decide('client', user.userId, id, body.decision);
   }
 }

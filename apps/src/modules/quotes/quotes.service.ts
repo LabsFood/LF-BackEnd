@@ -11,6 +11,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma, User } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AvailabilityService } from '../calendar/availability.service';
 import { type ChefIdentity, UsersService } from '../users/users.service';
 import {
   ACTIVE_OFFER,
@@ -57,6 +58,7 @@ export class QuotesService {
     private readonly users: UsersService,
     private readonly mailer: QuotesMailer,
     private readonly audit: AuditService,
+    private readonly availability: AvailabilityService,
   ) {}
 
   // ── Client ────────────────────────────────────────────────────────────────
@@ -108,6 +110,8 @@ export class QuotesService {
     const chef = dto.chefProfileId
       ? await this.requestableChef(dto.chefProfileId, user.id)
       : null;
+    // A day the batch cooker closed is never offered: no request for it either.
+    if (chef) await this.availability.assertOpenOn(chef.id, desiredDate);
 
     const quote = await this.prisma.quote.create({
       data: {
@@ -312,8 +316,13 @@ export class QuotesService {
         message: 'An offer is waiting for the client: the status follows their answer.',
       });
     }
-    if (reassigning && assignedChefUserId)
-      await this.assertAssignable(assignedChefUserId);
+    if (reassigning && assignedChefUserId) {
+      const chefProfileId = await this.assertAssignable(assignedChefUserId);
+      // The new batch cooker's closed days hold too: their page promises no request.
+      if (quote.desiredDate) {
+        await this.availability.assertOpenOn(chefProfileId, quote.desiredDate);
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (reassigning) {
@@ -488,7 +497,7 @@ export class QuotesService {
   private async requestableChef(chefProfileId: string, clientUserId: string) {
     const chef = await this.prisma.chefProfile.findFirst({
       where: { id: chefProfileId, isVerified: true, user: { deletedAt: null } },
-      select: { userId: true },
+      select: { id: true, userId: true },
     });
     if (!chef) {
       throw new UnprocessableEntityException({
@@ -509,7 +518,7 @@ export class QuotesService {
    * Only a batch cooker the platform vouches for can be given a client's request.
    * Offline is fine: taking a custom request does not need an open storefront.
    */
-  private async assertAssignable(userId: string): Promise<void> {
+  private async assertAssignable(userId: string): Promise<string> {
     const chef = await this.prisma.chefProfile.findFirst({
       where: { userId, isVerified: true, user: { deletedAt: null } },
       select: { id: true },
@@ -520,6 +529,7 @@ export class QuotesService {
         message: 'assignedChefUserId is not the account of a verified batch cooker.',
       });
     }
+    return chef.id;
   }
 
   private async notifyChef(quote: LoadedQuote, chefUserId: string): Promise<void> {

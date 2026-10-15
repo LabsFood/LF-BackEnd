@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   DAY_MS,
   parisMinute,
@@ -39,9 +41,13 @@ export const SLOT_STEP_MS = 30 * 60 * 1000;
 /** The furthest a free-slot query may look at once. */
 export const MAX_WINDOW_DAYS = 31;
 
+/** The furthest the agenda reads at once: six full weeks, the month grid. */
+export const MAX_AGENDA_DAYS = 42;
+
 /**
- * The working time between `from` and `to`. A `closed` exception takes out that
- * day's template; an `extra` one adds its range, closed day or not.
+ * The working time between `from` and `to`. A `closed` exception takes the whole
+ * day off, extras included, as the agenda page draws it; an `extra` one adds its
+ * range to an open day.
  */
 export function workingSpans(
   template: WeeklySlot[],
@@ -54,10 +60,12 @@ export function workingSpans(
     const key = ymd(day);
     const today = exceptions.filter((e) => ymd(e.date) === key);
     const closed = today.some((e) => e.kind === 'closed');
-    const ranges = [
-      ...(closed ? [] : template.filter((slot) => slot.weekday === weekdayOf(day))),
-      ...today.filter((e) => e.kind === 'extra'),
-    ];
+    const ranges = closed
+      ? []
+      : [
+          ...template.filter((slot) => slot.weekday === weekdayOf(day)),
+          ...today.filter((e) => e.kind === 'extra'),
+        ];
     for (const range of ranges) {
       spans.push({
         start: parisMinute(day, range.startMinute!).getTime(),
@@ -128,15 +136,39 @@ export function isBookable(working: Span[], busy: Span[], wanted: Span): boolean
   );
 }
 
-/** Whether two ranges with the same `key` (a weekday, a date) overlap. */
-export function hasOverlap(
+/** The `key` (a weekday, a date) of the first two ranges that overlap, or null. */
+export function firstOverlap(
   ranges: { key: string; start: number; end: number }[],
-): boolean {
+): string | null {
   const sorted = [...ranges].sort((a, b) =>
     a.key === b.key ? a.start - b.start : a.key.localeCompare(b.key),
   );
-  return sorted.some(
+  const clash = sorted.find(
     (range, i) =>
       i > 0 && sorted[i - 1].key === range.key && range.start < sorted[i - 1].end,
   );
+  return clash?.key ?? null;
+}
+
+/**
+ * A fingerprint of a schedule's content, ids aside: two tabs that read the same
+ * schedule hold the same version, and a save from a stale one is refused.
+ */
+export function scheduleVersion(
+  weekly: WeeklySlot[],
+  exceptions: {
+    date: string;
+    kind: string;
+    startMinute: number | null;
+    endMinute: number | null;
+    reason: string | null;
+  }[],
+): string {
+  const rows = [
+    ...weekly.map((w) => `w|${w.weekday}|${w.startMinute}|${w.endMinute}`),
+    ...exceptions.map(
+      (e) => `e|${e.date}|${e.kind}|${e.startMinute}|${e.endMinute}|${e.reason ?? ''}`,
+    ),
+  ].sort();
+  return createHash('sha256').update(rows.join('\n')).digest('base64url').slice(0, 16);
 }

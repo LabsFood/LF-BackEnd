@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { stackOf } from '../../common/logging/app-logger';
 import {
   buildPaginationMeta,
   resolvePageBounds,
@@ -83,11 +84,17 @@ const notFound = () =>
 const invalid = (message: string, code = 'VALIDATION_FAILED') =>
   new UnprocessableEntityException({ code, message });
 
+/** The names of the fields a PATCH sent, for the log and the audit; never their values. */
+const changedKeys = (dto: object) =>
+  Object.entries(dto)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+
 const isUniqueViolation = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
 /** What `bookings` stores of a prestation's time, as the agenda reads it. */
-const schedule = (startsAt: Date, endsAt: Date) => ({
+export const schedule = (startsAt: Date, endsAt: Date) => ({
   startsAt,
   endsAt,
   bookingDate: parisToday(startsAt),
@@ -246,6 +253,8 @@ export class BookingsService {
           ...schedule(dto.startsAt, endsAt),
           persons: dto.persons ?? null,
           addressLine: dto.addressLine ?? null,
+          addressCity: dto.addressCity ?? null,
+          addressPostalCode: dto.addressPostalCode ?? null,
           notes: dto.notes ?? null,
           shoppingByClient: dto.shoppingByClient ?? false,
           status: 'pending',
@@ -266,12 +275,23 @@ export class BookingsService {
       }),
     );
 
+    this.logger.log({
+      event: 'booking.created',
+      bookingId: id,
+      chefProfileId: offer.chefProfileId,
+      by: caller.role,
+      meals: dto.meals?.length ?? 0,
+      ms: Date.now() - now.getTime(),
+    });
     if (dto.meals?.length) {
       // The recipe versions it cooks from, pinned now (§9.2). Best-effort.
       await this.lists
         .pinRecipes(id)
         .catch((error: unknown) =>
-          this.logger.error(`Recipes not pinned for booking ${id}`, String(error)),
+          this.logger.error(
+            { event: 'booking.recipes_not_pinned', bookingId: id },
+            stackOf(error),
+          ),
         );
     }
     if (caller.role === 'admin') {
@@ -374,11 +394,24 @@ export class BookingsService {
       })
       .catch(changedMeanwhile);
 
+    this.logger.log({
+      event: moving && status === 'cancelled' ? 'booking.cancelled' : 'booking.updated',
+      bookingId: id,
+      chefProfileId: booking.chefProfileId,
+      by: caller.role,
+      from: booking.status,
+      to: moving ? status : booking.status,
+      fields: changedKeys(dto),
+      ms: Date.now() - now.getTime(),
+    });
     if (meals) {
       await this.lists
         .regenerateForBooking(id)
         .catch((error: unknown) =>
-          this.logger.error(`Shopping list not rebuilt for booking ${id}`, String(error)),
+          this.logger.error(
+            { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
+            stackOf(error),
+          ),
         );
     }
     if (admin) {
@@ -391,9 +424,7 @@ export class BookingsService {
         metadata: {
           from: booking.status,
           to: moving ? status : booking.status,
-          fields: Object.entries(dto)
-            .filter(([, value]) => value !== undefined)
-            .map(([key]) => key),
+          fields: changedKeys(dto),
         },
       });
     }
@@ -412,6 +443,7 @@ export class BookingsService {
   async expireUnpaid(
     now: Date = new Date(),
   ): Promise<{ reminded: number; expired: number }> {
+    const started = Date.now();
     try {
       const expireBefore = new Date(now.getTime() - HOLD_MS);
       const due = await this.prisma.booking.findMany({
@@ -444,6 +476,7 @@ export class BookingsService {
         });
         if (claimed.count !== 1) continue;
         reminded += 1;
+        this.logger.log({ event: 'booking.hold_reminded', bookingId: booking.id });
         await this.mailer.holdReminder({
           reference: booking.reference,
           startsAt: booking.startsAt,
@@ -469,6 +502,7 @@ export class BookingsService {
         });
         if (done.count !== 1) continue;
         expired += 1;
+        this.logger.log({ event: 'booking.expired', bookingId: id });
         await this.audit.record({
           actorType: 'system',
           action: 'booking.expired',
@@ -478,15 +512,15 @@ export class BookingsService {
         });
       }
 
-      if (reminded || expired) {
-        this.logger.log(`Unpaid holds: ${reminded} reminded, ${expired} expired.`);
-      }
+      this.logger.log({
+        event: 'job.unpaid_holds',
+        reminded,
+        expired,
+        ms: Date.now() - started,
+      });
       return { reminded, expired };
     } catch (error) {
-      this.logger.error(
-        'Unpaid hold job failed',
-        error instanceof Error ? error.stack : String(error),
-      );
+      this.logger.error({ event: 'job.unpaid_holds_failed' }, stackOf(error));
       return { reminded: 0, expired: 0 };
     }
   }

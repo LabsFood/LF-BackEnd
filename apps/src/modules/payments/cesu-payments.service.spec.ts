@@ -365,6 +365,17 @@ describe('CesuPaymentsService', () => {
       );
     });
 
+    it('refuses a booking in dispute', async () => {
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        status: 'disputed',
+      });
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toMatchObject({
+        response: { code: 'BOOKING_DISPUTED' },
+      });
+    });
+
     it('404s on a booking owned by someone else', async () => {
       prisma.booking.findFirst.mockResolvedValue(null);
 

@@ -20,7 +20,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   sapPath: 'type_b',
   sapDeclarationNumber: null,
   stripeAccountId: 'acct_secret',
-  cronofyProfileId: null,
+  calendarFeed: null,
   createdAt: new Date('2026-09-21T08:30:00.000Z'),
   user: {
     fullName: 'Marie Dupont',
@@ -149,6 +149,19 @@ describe('AdminChefsService', () => {
       expect(chef.payoutsConnected).toBe(true);
       expect(chef.calendarConnected).toBe(false);
       expect(JSON.stringify(chef)).not.toContain('acct_secret');
+    });
+
+    it('calls the calendar connected while its app fetched our feed this week', async () => {
+      const fetched = (days: number) =>
+        row({
+          calendarFeed: { lastFetchedAt: new Date(Date.now() - days * 86_400_000) },
+        });
+
+      prisma.chefProfile.findFirst.mockResolvedValue(fetched(1));
+      expect((await service.get('chef-1')).calendarConnected).toBe(true);
+
+      prisma.chefProfile.findFirst.mockResolvedValue(fetched(8));
+      expect((await service.get('chef-1')).calendarConnected).toBe(false);
     });
 
     it('lists the cities of each zone', async () => {

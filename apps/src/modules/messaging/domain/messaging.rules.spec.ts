@@ -73,6 +73,10 @@ describe('messaging rules', () => {
       expect(isWritable([booking('delivered', -15 * 24)], NOW)).toBe(false);
     });
 
+    it('stays open for as long as a dispute is', () => {
+      expect(isWritable([booking('disputed', -60 * 24)], NOW)).toBe(true);
+    });
+
     it('is closed with no booking left', () => {
       expect(isWritable([], NOW)).toBe(false);
     });

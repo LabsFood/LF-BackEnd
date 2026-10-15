@@ -36,6 +36,31 @@ export const BOOKING_LIST_INCLUDE = {
   _count: { select: { bookingMeals: true } },
 } satisfies Prisma.BookingInclude;
 
+export const RESCHEDULE_VIEW = {
+  id: true,
+  proposedByRole: true,
+  fromStartsAt: true,
+  toStartsAt: true,
+  status: true,
+  expiresAt: true,
+  decidedAt: true,
+} as const satisfies Prisma.BookingRescheduleSelect;
+
+export type RescheduleRow = Prisma.BookingRescheduleGetPayload<{
+  select: typeof RESCHEDULE_VIEW;
+}>;
+
+/** A proposal to move a prestation, as both sides and admins see it. */
+export const toRescheduleView = (row: RescheduleRow) => ({
+  id: row.id,
+  proposedBy: row.proposedByRole as 'client' | 'chef',
+  from: row.fromStartsAt,
+  to: row.toStartsAt,
+  status: row.status,
+  expiresAt: row.expiresAt,
+  decidedAt: row.decidedAt,
+});
+
 export const BOOKING_DETAIL_INCLUDE = {
   ...BOOKING_LIST_INCLUDE,
   client: {
@@ -47,6 +72,8 @@ export const BOOKING_DETAIL_INCLUDE = {
   // The recipe stays off the booking (FLOW-02 §8): it is on the recipe sheet.
   bookingMeals: { include: { meal: { select: { id: true, name: true } } } },
   photos: { orderBy: { takenAt: 'asc' } },
+  // A new time waiting for an answer: one at most.
+  reschedules: { where: { status: 'pending' }, take: 1, select: RESCHEDULE_VIEW },
 } satisfies Prisma.BookingInclude;
 
 type ListRow = Prisma.BookingGetPayload<{ include: typeof BOOKING_LIST_INCLUDE }>;
@@ -71,6 +98,7 @@ export function toBookingListItem(
     timeSlot: booking.timeSlot,
     persons: booking.persons,
     addressLine: booking.addressLine,
+    city: booking.addressCity,
     notes: booking.notes,
     shoppingByClient: booking.shoppingByClient,
     priceCents: booking.priceCents,
@@ -127,6 +155,7 @@ export function toBookingDetail(
       caption: photo.caption,
       takenAt: photo.takenAt,
     })),
+    reschedule: booking.reschedules[0] ? toRescheduleView(booking.reschedules[0]) : null,
     // Read live: an allergy added after booking must still reach the cook.
     ...(audience !== 'client' && {
       allergies: unique([

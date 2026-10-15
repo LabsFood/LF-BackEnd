@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import type { BookingStatus } from '../../generated/prisma/client';
 import { R2StorageService } from '../../integrations/r2-storage.service';
@@ -9,12 +9,14 @@ import { BookingPhotoConfirmDto } from './dto/bookings.dto';
 
 export const MAX_BOOKING_PHOTOS = 20;
 
-/** From the shopping on: what a prestation leaves can be photographed. */
+/** From the shopping on: what a prestation leaves can be photographed. In a dispute
+ * too: photos are evidence. */
 const STARTED: readonly BookingStatus[] = [
   'shopping',
   'cooking',
   'delivered',
   'completed',
+  'disputed',
 ];
 
 /** Under the booking, so the upload link cannot place a file anywhere else. */
@@ -31,6 +33,8 @@ const folder = (bookingId: string) => `bookings/${bookingId}/`;
  */
 @Injectable()
 export class BookingPhotosService {
+  private readonly logger = new Logger(BookingPhotosService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
@@ -56,8 +60,14 @@ export class BookingPhotosService {
       payload.uploadId,
       payload.contentType,
     );
-    await this.prisma.bookingPhoto.create({
+    const photo = await this.prisma.bookingPhoto.create({
       data: { bookingId: booking.id, url, caption: payload.caption ?? null },
+      select: { id: true },
+    });
+    this.logger.log({
+      event: 'booking.photo_added',
+      bookingId: booking.id,
+      photoId: photo.id,
     });
     return this.list(booking.id);
   }
@@ -77,6 +87,7 @@ export class BookingPhotosService {
       });
     }
     await this.prisma.bookingPhoto.delete({ where: { id: photo.id } });
+    this.logger.log({ event: 'booking.photo_removed', bookingId, photoId: photo.id });
     const key = this.storage.ownedKey(photo.url, folder(bookingId));
     if (key) await this.storage.delete(key);
     return this.list(bookingId);

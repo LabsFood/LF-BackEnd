@@ -3,7 +3,9 @@ import {
   DayException,
   Span,
   WeeklySlot,
+  firstOverlap,
   isBookable,
+  scheduleVersion,
   startTimes,
   subtract,
   workingSpans,
@@ -75,6 +77,21 @@ describe('workingSpans', () => {
     ]);
   });
 
+  it('lets a closed day win over an extra range on the same date', () => {
+    const exceptions: DayException[] = [
+      { date: at('2026-03-24'), kind: 'closed', startMinute: null, endMinute: null },
+      { date: at('2026-03-24'), kind: 'extra', startMinute: 840, endMinute: 900 },
+    ];
+    expect(
+      workingSpans(
+        [],
+        exceptions,
+        at('2026-03-24T00:00:00Z'),
+        at('2026-03-25T00:00:00Z'),
+      ),
+    ).toEqual([]);
+  });
+
   it('clips to the window asked', () => {
     const spans = workingSpans(
       SUNDAY_MORNINGS,
@@ -135,5 +152,53 @@ describe('isBookable', () => {
     expect(
       isBookable(working, busy, span('2026-03-22T09:00:00Z', '2026-03-22T10:00:00Z')),
     ).toBe(false);
+  });
+});
+
+describe('firstOverlap', () => {
+  it('names the day where two ranges overlap', () => {
+    expect(
+      firstOverlap([
+        { key: '0', start: 540, end: 720 },
+        { key: '2', start: 540, end: 720 },
+        { key: '2', start: 700, end: 800 },
+      ]),
+    ).toBe('2');
+  });
+
+  it('lets touching ranges be', () => {
+    expect(
+      firstOverlap([
+        { key: '0', start: 540, end: 720 },
+        { key: '0', start: 720, end: 800 },
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe('scheduleVersion', () => {
+  const weekly = [
+    { weekday: 0, startMinute: 540, endMinute: 720 },
+    { weekday: 2, startMinute: 840, endMinute: 1080 },
+  ];
+  const closed = {
+    date: '2026-12-24',
+    kind: 'closed',
+    startMinute: null,
+    endMinute: null,
+    reason: null,
+  };
+
+  it('does not depend on the order rows are read in', () => {
+    expect(scheduleVersion(weekly, [closed])).toBe(
+      scheduleVersion([...weekly].reverse(), [closed]),
+    );
+  });
+
+  it('changes with any edit', () => {
+    const version = scheduleVersion(weekly, [closed]);
+    expect(scheduleVersion(weekly, [])).not.toBe(version);
+    expect(scheduleVersion(weekly, [{ ...closed, reason: 'Noël' }])).not.toBe(version);
+    expect(scheduleVersion(weekly.slice(1), [closed])).not.toBe(version);
   });
 });

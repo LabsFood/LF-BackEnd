@@ -73,4 +73,62 @@ export class BookingsMailer {
       }),
     ]);
   }
+
+  /** To the other side: a new time is proposed for a confirmed prestation. */
+  async rescheduleProposed(input: {
+    bookingId: string;
+    reference: string | null;
+    from: Date;
+    to: Date;
+    expiresAt: Date;
+    proposerName: string;
+    recipient: { email: string; fullName: string | null; side: 'client' | 'chef' };
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingRescheduleProposed,
+      to: { email: input.recipient.email, name: input.recipient.fullName ?? undefined },
+      label: `booking-reschedule-proposed-${input.recipient.side}`,
+      params: {
+        firstName: firstName(input.recipient.fullName),
+        reference: input.reference ?? '',
+        fromWhen: WHEN.format(input.from),
+        toWhen: WHEN.format(input.to),
+        expiresAt: WHEN.format(input.expiresAt),
+        proposerName: input.proposerName,
+        answerUrl: this.spaceUrl(input.recipient.side, input.bookingId),
+      },
+    });
+  }
+
+  /** To the proposer: the other side confirmed or declined the new time. */
+  async rescheduleAnswered(input: {
+    bookingId: string;
+    reference: string | null;
+    from: Date;
+    to: Date;
+    accepted: boolean;
+    answererName: string;
+    recipient: { email: string; fullName: string | null; side: 'client' | 'chef' };
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingRescheduleAnswered,
+      to: { email: input.recipient.email, name: input.recipient.fullName ?? undefined },
+      label: `booking-reschedule-answered-${input.recipient.side}`,
+      params: {
+        firstName: firstName(input.recipient.fullName),
+        reference: input.reference ?? '',
+        fromWhen: WHEN.format(input.from),
+        toWhen: WHEN.format(input.to),
+        accepted: input.accepted,
+        answererName: input.answererName,
+        spaceUrl: this.spaceUrl(input.recipient.side, input.bookingId),
+      },
+    });
+  }
+
+  private spaceUrl(side: 'client' | 'chef', bookingId: string) {
+    return side === 'client'
+      ? `${this.site}/espace-client/commandes/${bookingId}`
+      : `${this.site}/espace-chef/prestations`;
+  }
 }
