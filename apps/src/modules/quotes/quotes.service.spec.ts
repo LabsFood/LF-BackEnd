@@ -50,6 +50,7 @@ function setup() {
   const mailer = {
     needsChef: jest.fn().mockResolvedValue({ sent: true }),
     requestForChef: jest.fn().mockResolvedValue({ sent: true }),
+    closed: jest.fn().mockResolvedValue({ sent: true }),
   };
   const availability = { assertOpenOn: jest.fn().mockResolvedValue(undefined) };
   const service = new QuotesService(
@@ -187,9 +188,12 @@ describe('QuotesService and closed days', () => {
 describe('QuotesService: Lab’s Food closes a request', () => {
   const open = (status: string) => ({
     id: 'q1',
+    reference: 'DEM-2026-0007',
+    title: 'Sunday prep',
     status,
     assignedChefUserId: 'u-chef',
     desiredDate: null,
+    client: { email: 's@exemple.fr', fullName: 'Sophie Marchand' },
   });
 
   function closing(status: string) {
@@ -200,6 +204,11 @@ describe('QuotesService: Lab’s Food closes a request', () => {
     };
     Object.assign(ctx.prisma, {
       $transaction: jest.fn((work: (t: typeof tx) => unknown) => work(tx)),
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ email: 'c@exemple.fr', fullName: 'Marie' }),
+      },
     });
     ctx.prisma.quote.findUnique.mockResolvedValue(open(status));
     jest.spyOn(ctx.service, 'view').mockResolvedValue({} as never);
@@ -221,6 +230,27 @@ describe('QuotesService: Lab’s Food closes a request', () => {
       where: { id: 'q1' },
       data: { status: 'closed' },
     });
+  });
+
+  it('tells the client and the batch cooker it was with', async () => {
+    const { service, mailer } = closing('submitted');
+
+    await service.updateAdmin('clerk_admin', 'q1', { status: 'closed' });
+    await new Promise(setImmediate);
+
+    expect(mailer.closed).toHaveBeenCalledTimes(2);
+    expect(mailer.closed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forChef: false,
+        to: expect.objectContaining({ email: 's@exemple.fr' }),
+      }),
+    );
+    expect(mailer.closed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forChef: true,
+        to: expect.objectContaining({ email: 'c@exemple.fr' }),
+      }),
+    );
   });
 
   it('cannot be reopened', async () => {

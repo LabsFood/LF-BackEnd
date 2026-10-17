@@ -52,7 +52,7 @@ apps/src/
     ├── users/                 # /auth/register, /me, /me/profile, /me/chef-profile, /me/avatar, /admin/users, /admin/clients, /admin/chefs
     ├── chef-onboarding/       # candidatures, KYC documents, referentials, daily dossier job (FLOW-01)
     ├── dishes/                # chef dishes and menus, public vitrine, moderation, recipe sheet and shopping list (FLOW-02)
-    ├── catalog/               # /menus/current + admin meals/menu-weeks/formules (Lab's Food content)
+    ├── catalog/               # admin meals/menu-weeks/formules (Lab's Food content)
     ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job
     ├── calendar/              # working hours, agenda, blocks, free slots, .ics feed (/chef/availability, /chef/agenda, /chef/calendar-feed)
     ├── quotes/                # custom requests and offers; accepting an offer creates the booking (BLK-10)
@@ -74,7 +74,7 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `auth`           | Clerk session bridge, role resolution                 | **Done** — Clerk + `UsersService` upsert; `POST /auth/register`                  |
 | `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`; account/GDPR routes to do  |
-| `catalog`        | Meals, weekly menu, formules                          | **Done** — `GET /menus/current`; admin meals/menu-weeks/formules                 |
+| `catalog`        | Meals, weekly menu, formules                          | **Done** — admin meals/menu-weeks/formules                                       |
 | `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — `/me/bookings`, `/chef/bookings`, `/admin/bookings`; old `/bookings/*` deprecated |
 | `calendar`       | Working hours, agenda, blocks, free slots, `.ics` feed | **Done** — `/chef/availability`, `/chef/agenda`, `/chef/calendar-feed`, `GET /calendar/feed/:token.ics`, `GET /chefs/:id/availability` |
 | `shopping-lists` | Ingredient aggregation by aisle                       | **Done** — booking detail, `/chef-missions/:id/shopping-list`                    |

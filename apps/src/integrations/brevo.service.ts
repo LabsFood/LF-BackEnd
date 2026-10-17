@@ -28,6 +28,7 @@ export type ChefOnboardingEmail =
   | 'quoteNeedsChefAdmin'
   | 'quoteOfferClient'
   | 'quoteOfferDeclinedChef'
+  | 'quoteClosed'
   | 'bookingConfirmed'
   // Bookings: an unpaid booking's slot is freed in 24 h.
   | 'bookingHoldReminderClient'

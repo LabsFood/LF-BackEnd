@@ -10,24 +10,12 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
-import {
-  buildPaginationMeta,
-  resolvePageBounds,
-  type Paginated,
-  type PaginationQueryDto,
-} from '../../common/dto/pagination.dto';
+import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { parisHhmm, parisToday } from '../../common/paris-time';
-import {
-  Booking,
-  BookingStatus,
-  MealStatus,
-  Prisma,
-} from '../../generated/prisma/client';
+import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
-import { RECIPE_FIELDS } from '../catalog/catalog.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
-import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { rateInForce } from '../payments/commission-policy';
 import { findCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
@@ -579,68 +567,6 @@ export class BookingsService {
       this.logger.error({ event: 'job.unpaid_holds_failed' }, stackOf(error));
       return { reminded: 0, expired: 0 };
     }
-  }
-
-  // ── Deprecated routes (`/bookings/…`), kept one release ──────────────────
-
-  list(): Promise<Booking[]> {
-    return this.prisma.booking.findMany({ orderBy: { startsAt: 'asc' } });
-  }
-
-  /** The caller's own bookings, as client or as batch cooker, one page at a time. */
-  async listMine(
-    clerkUserId: string,
-    query: PaginationQueryDto = {},
-  ): Promise<Paginated<Booking>> {
-    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    const bounds = resolvePageBounds(query);
-    const where = {
-      OR: [{ clientId: user.id }, { chefProfile: { userId: user.id } }],
-    };
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.booking.findMany({
-        where,
-        orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
-        skip: bounds.skip,
-        take: bounds.take,
-      }),
-      this.prisma.booking.count({ where }),
-    ]);
-    return { data, meta: buildPaginationMeta(bounds, total) };
-  }
-
-  async getMyBookingDetail(clerkUserId: string, bookingId: string) {
-    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    // `chefCesu`: a client paying in prefinanced CESU must add the batch cooker as an
-    // intervenant on their issuer's portal, with this number, before they can pay.
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, clientId: user.id },
-      include: {
-        // The client gets the recipe on the fiche, after the prestation (FLOW-02 §8).
-        bookingMeals: {
-          include: { meal: { omit: RECIPE_FIELDS } },
-        },
-        shoppingList: { include: { items: true } },
-        chefProfile: { select: CHEF_CESU_INFO_SELECT },
-      },
-    });
-    if (!booking) {
-      return null;
-    }
-
-    const { chefProfile, ...rest } = booking;
-    return { ...rest, chefCesu: toChefCesuInfo(chefProfile) };
-  }
-
-  getAdminBookingDetail(bookingId: string) {
-    return this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: {
-        client: true,
-        bookingMeals: { include: { meal: true } },
-        shoppingList: { include: { items: true } },
-      },
-    });
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

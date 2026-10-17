@@ -8,16 +8,13 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
-  Logger,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiExcludeEndpoint,
   ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -26,8 +23,6 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-
-import type { FastifyRequest } from 'fastify';
 
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
@@ -79,15 +74,6 @@ const MEAL = {
   createdAt: '2026-09-01T08:00:00.000Z',
   updatedAt: '2026-09-03T14:12:00.000Z',
 };
-
-/** What public routes show of a meal: everything but the recipe. */
-const {
-  ingredients: _ingredients,
-  steps: _steps,
-  reheating: _reheating,
-  storage: _storage,
-  ...PUBLIC_MEAL
-} = MEAL;
 
 const MENU_WEEK = {
   id: 'e4eebc99-9c0b-4ef8-bb6d-6bb9bd380a55',
@@ -160,8 +146,6 @@ const MEAL_NOT_LABS_FOOD = {
 
 @Controller()
 export class CatalogController {
-  private readonly logger = new Logger(CatalogController.name);
-
   constructor(
     private readonly catalog: CatalogService,
     private readonly users: UsersService,
@@ -171,42 +155,6 @@ export class CatalogController {
   private async adminId(user: ClerkUser): Promise<string> {
     const row = await this.users.findByClerkId(user.userId);
     return row!.id;
-  }
-
-  @Get('menus/current')
-  // Out of the spec, still served: calls are logged until none are left.
-  @ApiExcludeEndpoint()
-  @ApiTags(TAGS.catalog)
-  @ApiOperation({
-    deprecated: true,
-    summary: 'Get the menu of the week (deprecated)',
-    description:
-      '**Deprecated**: use `GET /menus/week`, which lists the week’s cooks and their ' +
-      'menus. Every call is logged, so any remaining caller shows up before this ' +
-      'route is removed.\n\n' +
-      'The most recent weekly menu that has been published, with its meals. `meals` ' +
-      'is the list to show; `menuWeek` says which week it is. Public: no token needed.\n\n' +
-      "Lab's Food meals only, and never their recipe: `ingredients`, `steps`, " +
-      '`reheating` and `storage` are left out.\n\n' +
-      'Answers `200` with an empty body when no menu has been published yet.',
-  })
-  @ApiOkResponse({
-    description: 'The week and its meals.',
-    example: {
-      menuWeek: {
-        ...MENU_WEEK,
-        meals: [{ ...MENU_WEEK.meals[0], meal: PUBLIC_MEAL }],
-      },
-      meals: [PUBLIC_MEAL],
-    },
-  })
-  getCurrentMenu(@Req() request: FastifyRequest) {
-    // FLOW-02: logged so a consumer outside the two frontends surfaces in Railway.
-    this.logger.warn(
-      `Deprecated GET /menus/current called by ${loggable(request.headers['user-agent'])}` +
-        ` from ${loggable(request.headers.origin ?? request.headers.referer)}`,
-    );
-    return this.catalog.getCurrentPublishedMenu();
   }
 
   @Get('admin/meals')
@@ -328,8 +276,7 @@ export class CatalogController {
       'Creates the menu for one ISO week and puts the given meals on it, for example ' +
       '`{ "year": 2026, "weekNumber": 40, "mealIds": ["d3eebc99-…"] }`. One menu per ' +
       'week.\n\n' +
-      'The menu is created unpublished (`publishedAt: null`), and no route publishes ' +
-      'it yet, so it will not appear in `GET /menus/current`.\n\n' +
+      'The menu is created unpublished (`publishedAt: null`).\n\n' +
       "Only Lab's Food meals can go on it: a batch cooker's dish is refused.",
   })
   @ApiCreatedResponse({
@@ -428,10 +375,4 @@ export class CatalogController {
   updateFormule(@Param('id') id: string, @Body() payload: UpdateFormuleDto) {
     return this.catalog.updateFormule(id, payload);
   }
-}
-
-/** A header as it may go into a log line: one line, bounded, never forged. */
-function loggable(value: string | string[] | undefined): string {
-  const text = Array.isArray(value) ? value.join(', ') : value;
-  return text ? text.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200) : 'unknown';
 }

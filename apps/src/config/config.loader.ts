@@ -108,6 +108,7 @@ export interface AppConfig {
       quoteNeedsChefAdmin?: number;
       quoteOfferClient?: number;
       quoteOfferDeclinedChef?: number;
+      quoteClosed?: number;
       bookingConfirmed?: number;
       bookingHoldReminderClient?: number;
       bookingHoldReminderChef?: number;
@@ -247,6 +248,7 @@ export const configLoader = (): AppConfig => ({
       quoteOfferDeclinedChef: optionalNumber(
         process.env.BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF,
       ),
+      quoteClosed: optionalNumber(process.env.BREVO_TPL_QUOTE_CLOSED),
       bookingConfirmed: optionalNumber(process.env.BREVO_TPL_BOOKING_CONFIRMED),
       bookingHoldReminderClient: optionalNumber(
         process.env.BREVO_TPL_BOOKING_HOLD_REMINDER_CLIENT,

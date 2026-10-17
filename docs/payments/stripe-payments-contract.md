@@ -248,8 +248,9 @@ template; the per-provider shape above is the unit that template must render.
 
 ### Booking creation
 
-`POST /bookings` answers `501`. A prestation is created by accepting an offer: a
-`confirmed` booking at the client price, reference `LF-SM-…`. See _Custom requests and
+`POST /me/bookings` (also `/chef/bookings`, `/admin/bookings`) creates a `pending`
+booking, confirmed once paid. Accepting an offer creates a `confirmed` booking at the
+client price, reference `LF-SM-…`. See _Custom requests and
 offers_ in [`AGENTS.md`](../../AGENTS.md).
 
 ## 4. Webhook — `POST /webhooks/stripe`

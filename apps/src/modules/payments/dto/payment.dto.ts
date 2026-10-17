@@ -215,7 +215,7 @@ export class FiscalAttestationDto {
 export class CreateCheckoutSessionDto {
   @ApiProperty({
     format: 'uuid',
-    description: 'The booking to pay (`id` of `GET /bookings/me`).',
+    description: 'The booking to pay (`id` from `GET /me/bookings`).',
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @IsUUID()

@@ -123,6 +123,7 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_QUOTE_NEEDS_CHEF_ADMIN: Joi.number().optional(),
   BREVO_TPL_QUOTE_OFFER_CLIENT: Joi.number().optional(),
   BREVO_TPL_QUOTE_OFFER_DECLINED_CHEF: Joi.number().optional(),
+  BREVO_TPL_QUOTE_CLOSED: Joi.number().optional(),
   BREVO_TPL_BOOKING_CONFIRMED: Joi.number().optional(),
   BREVO_TPL_BOOKING_HOLD_REMINDER_CLIENT: Joi.number().optional(),
   BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),

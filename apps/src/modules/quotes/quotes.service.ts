@@ -374,6 +374,7 @@ export class QuotesService {
         requestId,
       });
       this.logger.log({ event: 'quote.closed', quoteId: id, from: quote.status });
+      void this.notifyClosed(quote);
     }
     if (reassigning) {
       const admin = await this.me(clerkUserId);
@@ -575,6 +576,28 @@ export class QuotesService {
     } catch (error) {
       this.logger.error(
         `Request email failed for ${quote.reference}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /** Best-effort: a failed email never reopens the request. */
+  private async notifyClosed(quote: LoadedQuote): Promise<void> {
+    try {
+      const chef = quote.assignedChefUserId
+        ? await this.prisma.user.findUnique({
+            where: { id: quote.assignedChefUserId },
+            select: { email: true, fullName: true },
+          })
+        : null;
+      const mail = { reference: quote.reference, title: quote.title };
+      await Promise.all([
+        this.mailer.closed({ ...mail, to: quote.client, forChef: false }),
+        chef && this.mailer.closed({ ...mail, to: chef, forChef: true }),
+      ]);
+    } catch (error) {
+      this.logger.error(
+        { event: 'quote.closed_email_failed', quoteId: quote.id },
         error instanceof Error ? error.stack : String(error),
       );
     }
