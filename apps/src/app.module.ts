@@ -23,6 +23,7 @@ import { ShoppingListsModule } from './modules/shopping-lists/shopping-lists.mod
 import { StatsModule } from './modules/stats/stats.module';
 import { ChefOnboardingModule } from './modules/chef-onboarding/chef-onboarding.module';
 import { DishesModule } from './modules/dishes/dishes.module';
+import { ServiceOffersModule } from './modules/service-offers/service-offers.module';
 import { UsersModule } from './modules/users/users.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
@@ -77,6 +78,7 @@ import { RedisModule } from './redis/redis.module';
     CalendarModule,
     ChefOnboardingModule,
     DishesModule,
+    ServiceOffersModule,
     MessagingModule,
     ContactModule,
     PlatformSettingsModule,

@@ -132,7 +132,8 @@ export class PublicVitrineController {
     summary: 'Get a batch cooker’s public page',
     description:
       'Profile, badges from the documents Lab’s Food validated, the areas covered, ' +
-      'and published dishes and menus. Never a draft, a suspended dish or a recipe. ' +
+      'the active service offers (book one with `serviceOfferId`), and published ' +
+      'dishes and menus. Never a draft, a suspended dish or a recipe. ' +
       '`slotsLeft` counts this week as on the week’s cards. Public.',
   })
   @ApiChefIdParam()
@@ -152,6 +153,16 @@ export class PublicVitrineController {
       slotsLeft: 2,
       sessionFromCents: 15000,
       afterTaxCreditCents: 7500,
+      serviceOffers: [
+        {
+          id: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
+          name: 'Session 4 heures',
+          durationMinutes: 240,
+          priceCents: 18000,
+          shoppingIncluded: true,
+          shoppingFeeCents: 1500,
+        },
+      ],
       dishes: [CARD_DISH],
       menus: [PUBLIC_MENU],
     },

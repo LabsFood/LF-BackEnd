@@ -178,7 +178,7 @@ export class VitrineService {
   async chef(id: string) {
     const chef = await this.listedChef(id);
     const week = weekOf(parisDay(new Date()));
-    const [extras, dishes, menus, slotsLeft] = await Promise.all([
+    const [extras, dishes, menus, slotsLeft, serviceOffers] = await Promise.all([
       this.cardExtras([chef.id]),
       this.prisma.meal.findMany({
         where: { chefProfileId: chef.id, status: MealStatus.published },
@@ -194,6 +194,18 @@ export class VitrineService {
         parisMidnight(week.start),
         parisMidnight(toDay(new Date(toDate(week.start).getTime() + 7 * DAY_MS))),
       ),
+      this.prisma.serviceOffer.findMany({
+        where: { chefProfileId: chef.id, isActive: true },
+        orderBy: [{ priceCents: 'asc' }, { durationMinutes: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          priceCents: true,
+          shoppingIncluded: true,
+          shoppingFeeCents: true,
+        },
+      }),
     ]);
     return {
       ...extras.chefCard(chef),
@@ -209,6 +221,7 @@ export class VitrineService {
         })),
       })),
       ...extras.price(chef.id),
+      serviceOffers,
       dishes: dishes.map(toPublicDish),
       menus: menus.map(toPublicMenu),
     };
