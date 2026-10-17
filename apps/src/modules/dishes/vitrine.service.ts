@@ -10,6 +10,7 @@ import {
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
+import { cesuAccepted } from '../payments/chef-cesu-info';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { toPublicDish } from './dishes.views';
 import {
@@ -46,6 +47,7 @@ const PUBLIC_CHEF_FIELDS = {
   interventionZones: true,
   // The profile photo is the account's; nothing else of the account is read.
   user: { select: { avatarUrl: true } },
+  sapProfile: { select: { acceptsCesu: true, crcesuNan: true } },
 } as const;
 
 type PublicChef = Pick<
@@ -53,6 +55,7 @@ type PublicChef = Pick<
   'id' | 'displayName' | 'city' | 'bio' | 'interventionZones'
 > & {
   user: { avatarUrl: string | null };
+  sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
 };
 
 /** A menu's published dishes: a draft or suspended one never shows (§3.4). */
@@ -321,6 +324,8 @@ export class VitrineService {
           sessionsDone,
           newcomer: sessionsDone === 0,
           avatarUrl: chef.user.avatarUrl,
+          // The NAN itself is on `GET /chefs/{id}/cesu-info`, read before paying.
+          acceptsCesu: cesuAccepted(chef.sapProfile),
           // No source for these yet: shown empty rather than invented.
           rating: null,
           reviewCount: null,

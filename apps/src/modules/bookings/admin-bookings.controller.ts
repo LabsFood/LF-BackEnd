@@ -128,7 +128,27 @@ export class AdminBookingsController {
       "unit added up. The batch cooker's corrections are kept.",
   })
   @ApiBookingId()
-  @ApiCreatedResponse({ description: 'The new shopping list.' })
+  @ApiCreatedResponse({
+    description: 'The new shopping list, as stored: one line per ingredient and unit.',
+    example: {
+      id: '4b1d0c2e-7a51-4f0e-9a3b-2c8d1e6f7a90',
+      bookingId: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
+      generatedAt: '2026-10-17T09:12:03.412Z',
+      items: [
+        {
+          id: '0e7f6c51-3d2a-4b8e-9f10-5a6b7c8d9e01',
+          shoppingListId: '4b1d0c2e-7a51-4f0e-9a3b-2c8d1e6f7a90',
+          aisle: 'Fruits et légumes',
+          name: 'Carottes',
+          quantity: '800 g',
+          qty: 800,
+          unit: 'g',
+          edited: false,
+          removed: false,
+        },
+      ],
+    },
+  })
   @ApiNotFoundResponse({ description: 'No booking with this id.' })
   @ApiAdminAuthResponses()
   regenerateShoppingList(@Param('id', ParseUUIDPipe) id: string) {

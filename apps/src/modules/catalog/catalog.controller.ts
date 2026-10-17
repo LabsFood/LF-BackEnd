@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiExcludeEndpoint,
   ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -173,6 +174,8 @@ export class CatalogController {
   }
 
   @Get('menus/current')
+  // Out of the spec, still served: calls are logged until none are left.
+  @ApiExcludeEndpoint()
   @ApiTags(TAGS.catalog)
   @ApiOperation({
     deprecated: true,

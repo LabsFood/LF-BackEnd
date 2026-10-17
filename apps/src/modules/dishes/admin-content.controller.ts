@@ -30,6 +30,7 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
+import { MealResponseDto } from '../catalog/dto/catalog-admin.dto';
 import { UsersService } from '../users/users.service';
 import { ContentPhotosService } from './content-photos.service';
 import {
@@ -296,7 +297,10 @@ export class AdminContentController {
       'deleted unless an adopted copy still shows it.',
   })
   @ApiParam({ name: 'id', description: "The Lab's Food dish id." })
-  @ApiOkResponse({ description: 'The meal, as `/admin/meals` returns it.' })
+  @ApiOkResponse({
+    description: 'The meal, as `/admin/meals` returns it.',
+    type: MealResponseDto,
+  })
   @ApiConflictResponse({
     description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
   })
@@ -323,7 +327,10 @@ export class AdminContentController {
       'still shows it.',
   })
   @ApiParam({ name: 'id', description: "The Lab's Food dish id." })
-  @ApiOkResponse({ description: 'The meal, as `/admin/meals` returns it.' })
+  @ApiOkResponse({
+    description: 'The meal, as `/admin/meals` returns it.',
+    type: MealResponseDto,
+  })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiNotFoundResponse({ description: 'No such dish.' })
   @ApiAdminAuthResponses()
@@ -369,7 +376,10 @@ export class AdminContentController {
       'deleted unless an adopted copy still shows it.',
   })
   @ApiParam({ name: 'id', description: "The Lab's Food menu id." })
-  @ApiOkResponse({ description: 'The menu, as `/admin/menus` returns it.' })
+  @ApiOkResponse({
+    description: 'The menu, as `/admin/menus` returns it.',
+    example: LABS_FOOD_MENU_EXAMPLE,
+  })
   @ApiConflictResponse({
     description: '`UPLOAD_NOT_CONFIRMED`: no file arrived for this `uploadId`.',
   })
@@ -396,7 +406,10 @@ export class AdminContentController {
       'still shows it.',
   })
   @ApiParam({ name: 'id', description: "The Lab's Food menu id." })
-  @ApiOkResponse({ description: 'The menu, as `/admin/menus` returns it.' })
+  @ApiOkResponse({
+    description: 'The menu, as `/admin/menus` returns it.',
+    example: LABS_FOOD_MENU_EXAMPLE,
+  })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiNotFoundResponse({ description: 'No such menu.' })
   @ApiAdminAuthResponses()

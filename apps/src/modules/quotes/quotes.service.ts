@@ -182,7 +182,10 @@ export class QuotesService {
   async cancelMine(clerkUserId: string, id: string): Promise<QuoteView> {
     const user = await this.me(clerkUserId);
     const quote = await this.loadForClient(user.id, id);
-    if (quote.status === 'cancelled') return this.view(quote, 'client');
+    // Already over, whoever ended it: a client's cancel never rewrites Lab's Food's close.
+    if (quote.status === 'cancelled' || quote.status === 'closed') {
+      return this.view(quote, 'client');
+    }
     if (quote.status === 'accepted') {
       throw new ConflictException({
         code: 'QUOTE_ALREADY_ACCEPTED',
@@ -310,7 +313,14 @@ export class QuotesService {
         message: `A request that is ${quote.status} cannot be reassigned or reopened.`,
       });
     }
-    if (status && !reassigning && quote.status === 'quoted') {
+    const closing = status === 'closed';
+    if (closing && reassigning) {
+      throw new UnprocessableEntityException({
+        code: 'CLOSE_OR_ASSIGN',
+        message: 'Close the request, or give it to a batch cooker: not both at once.',
+      });
+    }
+    if (status && !closing && !reassigning && quote.status === 'quoted') {
       throw new ConflictException({
         code: 'OFFER_PENDING',
         message: 'An offer is waiting for the client: the status follows their answer.',
@@ -325,8 +335,9 @@ export class QuotesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      if (reassigning) {
-        // The previous batch cooker's open offer leaves with them.
+      if (reassigning || closing) {
+        // The previous batch cooker's open offer leaves with them; a closed request
+        // keeps none open either.
         await tx.quoteOffer.updateMany({
           where: { quoteId: id, status: { in: [...ACTIVE_OFFER] } },
           data: { status: 'withdrawn', decidedAt: new Date() },
@@ -351,6 +362,19 @@ export class QuotesService {
       });
     });
 
+    if (closing) {
+      const admin = await this.me(clerkUserId);
+      await this.audit.record({
+        actorType: 'admin',
+        actorUserId: admin.id,
+        action: 'quote.closed',
+        subjectType: 'quote',
+        subjectId: id,
+        metadata: { from: quote.status },
+        requestId,
+      });
+      this.logger.log({ event: 'quote.closed', quoteId: id, from: quote.status });
+    }
     if (reassigning) {
       const admin = await this.me(clerkUserId);
       await this.audit.record({

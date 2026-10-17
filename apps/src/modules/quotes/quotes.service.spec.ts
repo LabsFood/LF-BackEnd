@@ -183,3 +183,75 @@ describe('QuotesService and closed days', () => {
     );
   });
 });
+
+describe('QuotesService: Lab’s Food closes a request', () => {
+  const open = (status: string) => ({
+    id: 'q1',
+    status,
+    assignedChefUserId: 'u-chef',
+    desiredDate: null,
+  });
+
+  function closing(status: string) {
+    const ctx = setup();
+    const tx = {
+      quoteOffer: { updateMany: jest.fn() },
+      quote: { update: jest.fn() },
+    };
+    Object.assign(ctx.prisma, {
+      $transaction: jest.fn((work: (t: typeof tx) => unknown) => work(tx)),
+    });
+    ctx.prisma.quote.findUnique.mockResolvedValue(open(status));
+    jest.spyOn(ctx.service, 'view').mockResolvedValue({} as never);
+    return { ...ctx, tx };
+  }
+
+  it('closes even with an offer waiting, and withdraws that offer', async () => {
+    const { service, tx } = closing('quoted');
+
+    await service.updateAdmin('clerk_admin', 'q1', { status: 'closed' });
+
+    expect(tx.quoteOffer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { quoteId: 'q1', status: { in: ['sent', 'viewed'] } },
+        data: expect.objectContaining({ status: 'withdrawn' }),
+      }),
+    );
+    expect(tx.quote.update).toHaveBeenCalledWith({
+      where: { id: 'q1' },
+      data: { status: 'closed' },
+    });
+  });
+
+  it('cannot be reopened', async () => {
+    const { service } = closing('closed');
+
+    await expect(
+      service.updateAdmin('clerk_admin', 'q1', { status: 'submitted' }),
+    ).rejects.toMatchObject({ response: { code: 'QUOTE_CLOSED' } });
+  });
+
+  it('refuses closing and assigning in one go', async () => {
+    const { service } = closing('submitted');
+
+    await expect(
+      service.updateAdmin('clerk_admin', 'q1', {
+        status: 'closed',
+        assignedChefUserId: 'u-other',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'CLOSE_OR_ASSIGN' } });
+  });
+
+  it('is not rewritten as cancelled when the client cancels afterwards', async () => {
+    const { service, prisma } = closing('closed');
+    const update = jest.fn();
+    Object.assign(prisma.quote, {
+      findFirst: jest.fn().mockResolvedValue(open('closed')),
+      update,
+    });
+
+    await service.cancelMine('clerk_1', 'q1');
+
+    expect(update).not.toHaveBeenCalled();
+  });
+});

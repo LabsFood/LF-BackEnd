@@ -192,6 +192,7 @@ export class MyChefApplicationController {
   })
   @ApiOkResponse({
     description: 'The candidature with its answers and its recomputed dossier.',
+    examples: MY_APPLICATION_EXAMPLES,
   })
   @ApiConflictResponse({
     description:

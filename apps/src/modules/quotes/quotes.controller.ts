@@ -324,6 +324,10 @@ export class QuotesController {
 @ApiTags(TAGS.quotes)
 @ApiBearerAuth()
 @UseGuards(ClerkAuthGuard)
+// Every route here is work: a candidate awaiting approval gets this 403.
+@ApiForbiddenResponse({
+  description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+})
 @Controller('me/chef/quotes')
 export class ChefQuotesController {
   constructor(
@@ -524,8 +528,10 @@ export class AdminQuotesController {
       '- `assignedChefUserId`: gives the request to a verified batch cooker, who is ' +
       'emailed. The request is back to `submitted` and an offer the previous one ' +
       'left open is withdrawn. `null` takes it back.\n' +
-      '- `status`: `in_review` or `submitted` only. The rest follows what the batch ' +
-      'cooker and the client do.\n' +
+      '- `status`: `in_review` or `submitted`, or `closed` to close it without ' +
+      'follow-up: Lab’s Food’s decision, distinct from the client’s `declined` and ' +
+      '`cancelled`. An offer still waiting is withdrawn; a closed request stays closed. ' +
+      'The rest follows what the batch cooker and the client do.\n' +
       '- `title`, `persons`, `mealsCount`, `cuisine`, `diet`, `brief`: corrections.\n\n' +
       'To price a request, use `POST /admin/quotes/{id}/offers`.',
   })
@@ -533,11 +539,13 @@ export class AdminQuotesController {
   @ApiNotFoundResponse({ description: 'No such request.' })
   @ApiConflictResponse({
     description:
-      '`QUOTE_CLOSED`: accepted or cancelled. `OFFER_PENDING`: the status cannot be ' +
-      'set while an offer waits for the client.',
+      '`QUOTE_CLOSED`: accepted, cancelled or closed. `OFFER_PENDING`: the status ' +
+      'cannot be set while an offer waits for the client (closing can).',
   })
   @ApiUnprocessableEntityResponse({
-    description: '`CHEF_NOT_ASSIGNABLE`: not a verified batch cooker.',
+    description:
+      '`CHEF_NOT_ASSIGNABLE`: not a verified batch cooker. `CLOSE_OR_ASSIGN`: ' +
+      '`closed` and a new `assignedChefUserId` sent together.',
   })
   @ApiAdminAuthResponses()
   update(

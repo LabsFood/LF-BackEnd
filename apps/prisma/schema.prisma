@@ -550,6 +550,8 @@ enum QuoteStatus {
   chef_declined
   /// The client withdrew it.
   cancelled
+  /// Lab's Food closed it without follow-up: not the client's refusal, not theirs to undo.
+  closed
 
   @@map("quote_status")
 }

@@ -31,7 +31,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VALIDITY_DAYS = 7;
 
 /** The line a custom prestation hangs on in a batch cooker's catalogue. */
-export const CUSTOM_OFFER_NAME ='Prestation sur-mesure';
+export const CUSTOM_OFFER_NAME = 'Prestation sur-mesure';
 
 const offerNotFound = () =>
   new NotFoundException({ code: 'OFFER_NOT_FOUND', message: 'Offer not found.' });

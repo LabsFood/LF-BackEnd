@@ -79,6 +79,7 @@ export const QUOTE_STATUSES = [
   'declined',
   'chef_declined',
   'cancelled',
+  'closed',
 ] as const;
 export type QuoteStatusKey = (typeof QUOTE_STATUSES)[number];
 
@@ -86,7 +87,7 @@ export type QuoteStatusKey = (typeof QUOTE_STATUSES)[number];
 export const AWAITING_CHEF: QuoteStatusKey[] = ['submitted', 'in_review', 'declined'];
 
 /** Nothing more can happen to the request. */
-export const CLOSED: QuoteStatusKey[] = ['accepted', 'cancelled'];
+export const CLOSED: QuoteStatusKey[] = ['accepted', 'cancelled', 'closed'];
 
 /** An offer the client can still answer. */
 export const ACTIVE_OFFER = ['sent', 'viewed'] as const;
@@ -97,4 +98,5 @@ export const QUOTE_STATUS_HELP =
   'the client refused the last offer; the batch cooker may send another. ' +
   '`chef_declined`: the batch cooker turned the request down; an admin must reassign ' +
   'it. `accepted`: the offer was accepted and `booking` is the prestation. ' +
-  '`cancelled`: withdrawn by the client. `in_review`: an admin is working on it.';
+  '`cancelled`: withdrawn by the client. `closed`: closed by Lab’s Food without ' +
+  'follow-up. `in_review`: an admin is working on it.';

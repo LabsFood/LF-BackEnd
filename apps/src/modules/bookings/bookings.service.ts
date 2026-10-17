@@ -110,6 +110,36 @@ export const schedule = (startsAt: Date, endsAt: Date) => ({
  * (`settlePayment`), never by a PATCH except an admin's. Unpaid, it holds the
  * batch cooker's slot 72 h (`expireUnpaid`).
  */
+/**
+ * The shopping fee a booking carries: the offer's, when its chef does the shopping
+ * and the client has not taken it on. Shown apart, counted in `amountTtc`.
+ */
+export const shoppingFee = (
+  offer: { shoppingIncluded: boolean; shoppingFeeCents: number },
+  shoppingByClient: boolean,
+) => (offer.shoppingIncluded && !shoppingByClient ? offer.shoppingFeeCents : 0);
+
+/** Swaps a booking's shopping fee for another, keeping any amount an admin set. */
+export function reprice(
+  booking: {
+    priceCents: number;
+    amountTtc: number | null;
+    amountAfterTax: number | null;
+    shoppingFeeCents: number;
+  },
+  shoppingFeeCents: number,
+) {
+  const before = booking.amountTtc ?? booking.priceCents;
+  return {
+    shoppingFeeCents,
+    amountTtc: before - booking.shoppingFeeCents + shoppingFeeCents,
+    amountAfterTax:
+      (booking.amountAfterTax ?? afterTaxCredit(before)) -
+      afterTaxCredit(booking.shoppingFeeCents) +
+      afterTaxCredit(shoppingFeeCents),
+  };
+}
+
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
@@ -193,6 +223,8 @@ export class BookingsService {
         durationMinutes: true,
         priceCents: true,
         currency: true,
+        shoppingIncluded: true,
+        shoppingFeeCents: true,
         chefProfile: { select: { userId: true } },
       },
     });
@@ -242,6 +274,7 @@ export class BookingsService {
     }
 
     const price = formule?.priceTtc ?? offer.priceCents;
+    const shoppingFeeCents = shoppingFee(offer, dto.shoppingByClient ?? false);
     const { id } = await this.withReference(now, (reference) =>
       this.prisma.booking.create({
         data: {
@@ -259,8 +292,11 @@ export class BookingsService {
           shoppingByClient: dto.shoppingByClient ?? false,
           status: 'pending',
           priceCents: price,
-          amountTtc: price,
-          amountAfterTax: formule?.priceAfterTax ?? afterTaxCredit(price),
+          shoppingFeeCents,
+          amountTtc: price + shoppingFeeCents,
+          amountAfterTax: formule
+            ? formule.priceAfterTax + afterTaxCredit(shoppingFeeCents)
+            : afterTaxCredit(price + shoppingFeeCents),
           currency: offer.currency,
           ...(dto.meals?.length && {
             bookingMeals: {
@@ -281,6 +317,7 @@ export class BookingsService {
       chefProfileId: offer.chefProfileId,
       by: caller.role,
       meals: dto.meals?.length ?? 0,
+      shoppingFeeCents,
       ms: Date.now() - now.getTime(),
     });
     if (dto.meals?.length) {
@@ -325,7 +362,15 @@ export class BookingsService {
     const caller = await this.caller(role, clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id, ...this.scope(caller) },
-      include: { serviceOffer: { select: { durationMinutes: true } } },
+      include: {
+        serviceOffer: {
+          select: {
+            durationMinutes: true,
+            shoppingIncluded: true,
+            shoppingFeeCents: true,
+          },
+        },
+      },
     });
     if (!booking) throw notFound();
 
@@ -365,6 +410,11 @@ export class BookingsService {
       when = schedule(startsAt, endsAt);
     }
     if (meals?.length) await this.assertMeals(booking.chefProfileId, meals);
+    const repriced =
+      fields.shoppingByClient !== undefined &&
+      fields.shoppingByClient !== booking.shoppingByClient
+        ? reprice(booking, shoppingFee(booking.serviceOffer, fields.shoppingByClient))
+        : undefined;
 
     await this.prisma
       .$transaction(async (tx) => {
@@ -384,6 +434,12 @@ export class BookingsService {
           where: { id, status: booking.status },
           data: {
             ...fields,
+            // An admin's explicit amounts win over the recomputed ones.
+            ...(repriced && {
+              shoppingFeeCents: repriced.shoppingFeeCents,
+              amountTtc: fields.amountTtc ?? repriced.amountTtc,
+              amountAfterTax: fields.amountAfterTax ?? repriced.amountAfterTax,
+            }),
             ...when,
             ...(moving && { status }),
             ...(moving &&

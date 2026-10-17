@@ -37,6 +37,7 @@ const CHEF_CARD = {
   sessionsDone: 30,
   newcomer: false,
   avatarUrl: `https://photos.labsfood.fr/users/a0eebc99…/avatar/ph_9f2a1c4e7b30d85a61c2e4f7.jpg`,
+  acceptsCesu: true,
   rating: null,
   reviewCount: null,
   languages: [],
@@ -118,6 +119,8 @@ export class PublicVitrineController {
       '- Never a recipe: no ingredients, no steps.\n\n' +
       '`avatarUrl` is the profile photo, `null` until the batch cooker adds one. ' +
       '`rating`, `reviewCount` and `languages` are empty until those exist. ' +
+      '`acceptsCesu`: the cook takes prefinanced CESU (details on ' +
+      '`GET /chefs/{id}/cesu-info`). ' +
       '`sessionFromCents` is the cheapest service offer, before commission.\n\n' +
       'Example: `?week=2026-09-21&region=93&diets=vegetarian&shoppingIncluded=true`.',
   })

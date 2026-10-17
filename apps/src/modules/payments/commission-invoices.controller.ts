@@ -143,7 +143,23 @@ export class CommissionInvoicesController {
       'is replayed with its original idempotency key rather than counted again.',
   })
   @ApiParam({ name: 'id', description: 'Commission invoice uuid.' })
-  @ApiOkResponse({ description: 'The debit attempt that was started.' })
+  @ApiOkResponse({
+    description: 'The debit attempt that was started.',
+    example: {
+      id: '6a2f9e14-0b7c-4d3a-8e51-9c0d2b4f6a11',
+      commissionInvoiceId: '1f0e2d3c-4b5a-4987-8a6b-5c4d3e2f1a00',
+      stripePaymentIntentId: 'pi_3Q8xYzAbCdEf',
+      amountTtcCents: 4200,
+      status: 'processing',
+      attemptNumber: 2,
+      failureReason: null,
+      initiatedAt: '2026-10-17T09:12:03.412Z',
+      settledAt: null,
+      clawbackWindowEndsAt: null,
+      createdAt: '2026-10-17T09:12:02.980Z',
+      updatedAt: '2026-10-17T09:12:03.412Z',
+    },
+  })
   @ApiNotFoundResponse({ description: 'No such commission invoice.' })
   @ApiConflictResponse({
     description:

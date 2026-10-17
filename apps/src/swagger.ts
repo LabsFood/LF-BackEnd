@@ -1,5 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
+import type {
+  MediaTypeObject,
+  SchemaObject,
+} from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 
 import { TAG_DESCRIPTIONS, TAGS } from './common/swagger/tags';
 
@@ -42,7 +46,10 @@ The role is stored by this API (\`users.role\`), not in the token. \`GET /me\` r
   older routes use the database spelling (\`in_review\`).
 - Lists that grow are paginated with \`?page=1&limit=20\` (100 at most), and answer
   \`{ data, meta }\`.
-- A malformed request answers \`400\` with the list of problems in \`message\`. A broken business
+- Routes marked \`x-requires-approved-chef\` answer \`403 CHEF_NOT_VERIFIED\` until the batch
+  cooker's candidature is approved; reads that are not marked stay open.
+- A malformed request answers \`400\` with the list of problems in \`message\`, and the same
+  problems field by field in \`errors\` (\`{ field, code, message }\`). A broken business
   rule answers with a stable \`code\` to branch on, for example
   \`409 { "code": "EMAIL_ALREADY_USED", "message": "…" }\`.
 `.trim();
@@ -70,7 +77,67 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
 
   // Every route names its section; without this, a controller with no class-level
   // tag also lands in a section named after the class ("Users", "Catalog"…).
-  return SwaggerModule.createDocument(app, builder.build(), {
+  const document = SwaggerModule.createDocument(app, builder.build(), {
     autoTagControllers: false,
   });
+  return withSchemasFromExamples(document);
+}
+
+/**
+ * The JSON schema an example shows: every key it has is required, a `null` is a
+ * nullable value of unknown type, an array is typed by its first item.
+ */
+export function schemaOf(value: unknown): SchemaObject {
+  if (value === null || value === undefined) return { nullable: true };
+  if (Array.isArray(value)) {
+    return { type: 'array', items: value.length ? schemaOf(value[0]) : {} };
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value);
+    return {
+      type: 'object',
+      properties: Object.fromEntries(entries.map(([key, item]) => [key, schemaOf(item)])),
+      required: entries.map(([key]) => key),
+    };
+  }
+  if (typeof value === 'string') return { type: 'string' };
+  if (typeof value === 'number') return { type: 'number' };
+  if (typeof value === 'boolean') return { type: 'boolean' };
+  return {};
+}
+
+/**
+ * Most 2xx answers are documented by an example only, which leaves a generated
+ * client with `unknown`. Each such answer gets the schema its example shows, marked
+ * `x-schema-from-example`. A route documented with a DTO keeps its own schema.
+ */
+// ponytail: schemas read off examples are as right as the examples; move a route to a
+// response DTO when its example cannot show the shape (unions, audience-specific keys).
+export function withSchemasFromExamples(document: OpenAPIObject): OpenAPIObject {
+  for (const item of Object.values(document.paths)) {
+    for (const operation of Object.values(item)) {
+      const responses = (operation as { responses?: Record<string, unknown> })?.responses;
+      for (const [status, response] of Object.entries(responses ?? {})) {
+        if (!status.startsWith('2')) continue;
+        const content = (response as { content?: Record<string, MediaTypeObject> })
+          .content;
+        for (const media of Object.values(content ?? {})) {
+          if (media.schema) continue;
+          const named = Object.values(media.examples ?? {})[0] as { value?: unknown };
+          const example: unknown = media.example ?? named?.value;
+          if (example === undefined) continue;
+          media.schema = {
+            ...schemaOf(example),
+            'x-schema-from-example': true,
+          } as SchemaObject;
+        }
+      }
+      // DEM-06: a candidate awaiting approval is refused here; the screen can say so first.
+      const forbidden = responses?.['403'] as { description?: string } | undefined;
+      if (forbidden?.description?.includes('CHEF_NOT_VERIFIED')) {
+        (operation as Record<string, unknown>)['x-requires-approved-chef'] = true;
+      }
+    }
+  }
+  return document;
 }

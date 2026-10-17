@@ -9,7 +9,7 @@ import type {
 
 /** One collection attempt against a facture B. N attempts may exist for one invoice. */
 export class CommissionDebitDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({ example: '6a2f9e14-0b7c-4d3a-8e51-9c0d2b4f6a11', format: 'uuid' })
   id!: string;
 
   @ApiProperty({
@@ -23,19 +23,37 @@ export class CommissionDebitDto {
   @ApiProperty({ description: 'Attempt number against this invoice.', example: 1 })
   attemptNumber!: number;
 
-  @ApiProperty({ description: 'Amount debited, VAT included, in minor units.' })
+  @ApiProperty({
+    example: 4200,
+    description: 'Amount debited, VAT included, in minor units.',
+  })
   amountTtcCents!: number;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Why this attempt failed.' })
+  @ApiPropertyOptional({
+    example: null,
+    nullable: true,
+    description: 'Why this attempt failed.',
+  })
   failureReason?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  @ApiPropertyOptional({
+    example: '2026-10-01T06:00:05.000Z',
+    nullable: true,
+    type: String,
+    format: 'date-time',
+  })
   initiatedAt?: Date | null;
 
-  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  @ApiPropertyOptional({
+    example: null,
+    nullable: true,
+    type: String,
+    format: 'date-time',
+  })
   settledAt?: Date | null;
 
   @ApiPropertyOptional({
+    example: null,
     nullable: true,
     type: String,
     format: 'date-time',
@@ -57,19 +75,27 @@ export class CommissionDebitDto {
  * Same deferral as the fiscal attestation PDF. Build the invoicing workstream when needed.
  */
 export class CommissionInvoiceDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({ example: '1f0e2d3c-4b5a-4987-8a6b-5c4d3e2f1a00', format: 'uuid' })
   id!: string;
 
   @ApiProperty({ description: 'Invoice number.', example: 'LF-COM-2026-0007' })
   invoiceNumber!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Chef billed.' })
+  @ApiProperty({
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    format: 'uuid',
+    description: 'Chef billed.',
+  })
   chefProfileId!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Chef display name.' })
+  @ApiPropertyOptional({
+    example: 'Chef Marie',
+    nullable: true,
+    description: 'Chef display name.',
+  })
   chefDisplayName?: string | null;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({ example: '2026-10-01T06:00:00.000Z', type: String, format: 'date-time' })
   issuedAt!: Date;
 
   @ApiProperty({ description: 'Commission before VAT, in minor units.', example: 900 })
@@ -110,6 +136,7 @@ export class CommissionInvoiceDto {
   status!: CommissionInvoiceStatus;
 
   @ApiPropertyOptional({
+    example: '2026-09-01T00:00:00.000Z',
     nullable: true,
     type: String,
     format: 'date-time',
@@ -117,7 +144,12 @@ export class CommissionInvoiceDto {
   })
   periodStart?: Date | null;
 
-  @ApiPropertyOptional({ nullable: true, type: String, format: 'date-time' })
+  @ApiPropertyOptional({
+    example: '2026-09-30T23:59:59.999Z',
+    nullable: true,
+    type: String,
+    format: 'date-time',
+  })
   periodEnd?: Date | null;
 
   @ApiProperty({ description: 'Commission lines billed on this invoice.', example: 1 })
@@ -139,7 +171,12 @@ export class RunDueInvoicesResultDto {
   @ApiProperty({ description: 'Debits actually sent to Stripe.', example: 4 })
   debitsStarted!: number;
 
-  @ApiProperty({ isArray: true, type: String, description: 'Numbers issued.' })
+  @ApiProperty({
+    example: ['LF-COM-2026-0042'],
+    isArray: true,
+    type: String,
+    description: 'Numbers issued.',
+  })
   invoiceNumbers!: string[];
 
   @ApiProperty({

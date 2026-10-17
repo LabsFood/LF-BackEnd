@@ -66,6 +66,7 @@ export class SepaMandateStatusDto {
   ibanLast4?: string | null;
 
   @ApiPropertyOptional({
+    example: '2026-09-15T10:22:41.000Z',
     nullable: true,
     type: String,
     format: 'date-time',

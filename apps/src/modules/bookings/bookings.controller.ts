@@ -14,6 +14,7 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiExcludeController,
   ApiNotFoundResponse,
   ApiNotImplementedResponse,
   ApiOkResponse,
@@ -80,6 +81,9 @@ const ApiBookingIdParam = () =>
     example: '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88',
   });
 
+// Out of the spec: every route here has a replacement. The admin console still
+// calls `GET /bookings`, so the routes stay up until it moves to `/admin/bookings`.
+@ApiExcludeController()
 @ApiBearerAuth()
 @Controller('bookings')
 @UseGuards(ClerkAuthGuard)

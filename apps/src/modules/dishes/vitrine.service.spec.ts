@@ -77,10 +77,15 @@ describe('VitrineService', () => {
         'displayName',
         'id',
         'interventionZones',
+        'sapProfile',
         'user',
       ]);
       // Of the account, the photo only: never the email or the phone.
       expect(select.user).toEqual({ select: { avatarUrl: true } });
+      // Of the SAP file, what `acceptsCesu` needs: never the NOVA or the cooperative.
+      expect(select.sapProfile).toEqual({
+        select: { acceptsCesu: true, crcesuNan: true },
+      });
     });
 
     it('shows the week’s menu with its published dishes only, and never a recipe', async () => {

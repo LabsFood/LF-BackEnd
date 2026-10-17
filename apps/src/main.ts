@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 
 import helmet from '@fastify/helmet';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -17,6 +17,7 @@ import { registerWebhookRawBodyHook } from './auth/fastify-raw-body';
 import { AllExceptionsFilter } from './common/logging/all-exceptions.filter';
 import { AppLogger, LOG_BASE } from './common/logging/app-logger';
 import { registerRequestContext } from './common/logging/request-context';
+import { ApiValidationPipe } from './common/validation.pipe';
 import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
 import { buildOpenApiDocument } from './swagger';
 
@@ -97,7 +98,7 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
-    new ValidationPipe({
+    new ApiValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,

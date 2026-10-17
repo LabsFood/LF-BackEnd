@@ -230,7 +230,17 @@ export class ChefDocumentsController {
       'document, and every link handed out is written to the audit journal, as for ' +
       'an admin. `404` when nothing has been deposited for this type.',
   })
-  @ApiOkResponse({ description: 'Short-lived signed URL, with the file name and type.' })
+  @ApiOkResponse({
+    description: 'Short-lived signed URL, with the file name and type.',
+    example: {
+      url: 'https://<project>.supabase.co/storage/v1/object/sign/labsfood-kyc/chefs/c2eebc99…/identity/up_9f2a…?token=eyJhbGciOi…',
+      expiresAt: '2026-09-21T08:35:12.000Z',
+      type: 'identity',
+      version: 1,
+      mimeType: 'application/pdf',
+      fileName: 'carte-identite.pdf',
+    },
+  })
   @ApiClerkAuthResponses()
   async previewUrl(
     @CurrentClerkUser() user: ClerkUser,

@@ -23,7 +23,11 @@ export class CreatePaymentIntentDto {
 }
 
 export class PaymentIntentDto {
-  @ApiProperty({ format: 'uuid', description: 'Local `payments.id` for this attempt.' })
+  @ApiProperty({
+    example: '3d1f7a20-5b6c-4e8d-9f0a-1b2c3d4e5f60',
+    format: 'uuid',
+    description: 'Local `payments.id` for this attempt.',
+  })
   paymentId!: string;
 
   @ApiProperty({
@@ -61,7 +65,11 @@ export class PaymentIntentDto {
  * `type_b_cooperative`. A chef with no `SapProfile` cannot issue one at all.
  */
 export class FiscalAttestationProviderDto {
-  @ApiProperty({ format: 'uuid', description: 'Issuing chef (`chef_profiles.id`).' })
+  @ApiProperty({
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    format: 'uuid',
+    description: 'Issuing chef (`chef_profiles.id`).',
+  })
   chefProfileId!: string;
 
   @ApiProperty({ description: 'Chef display name.', example: 'Chef Marie D.' })
@@ -150,10 +158,18 @@ export class FiscalAttestationProviderDto {
  * independent declared provider.
  */
 export class FiscalAttestationDto {
-  @ApiProperty({ format: 'uuid', description: 'Postgres `users.id` of the client.' })
+  @ApiProperty({
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    format: 'uuid',
+    description: 'Postgres `users.id` of the client.',
+  })
   clientId!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Client full name, when known.' })
+  @ApiPropertyOptional({
+    example: 'Sophie Martin',
+    nullable: true,
+    description: 'Client full name, when known.',
+  })
   clientName?: string | null;
 
   @ApiProperty({ description: 'Client email.', example: 'client@example.com' })

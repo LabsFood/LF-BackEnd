@@ -586,6 +586,7 @@ export class MeContentController {
   @ApiParam({ name: 'id', description: 'The dish or menu id, from `GET /me/offers`.' })
   @ApiNoContentResponse({ description: 'Declined. No body.' })
   @ApiNotFoundResponse({ description: 'No such offer for you.' })
+  @ApiForbiddenResponse(NOT_VERIFIED)
   @ApiClerkAuthResponses()
   declineOffer(
     @CurrentClerkUser() user: ClerkUser,

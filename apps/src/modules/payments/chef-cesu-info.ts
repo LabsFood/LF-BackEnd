@@ -58,8 +58,13 @@ export interface ChefCesuInfo {
  * The number is only published for a chef who has opted in: without the opt-in it is not
  * actionable, and publishing it would invite a payment the chef will refuse.
  */
+/** CESU is only offered with the NAN a client needs to add the chef on their portal. */
+export const cesuAccepted = (
+  sap: { acceptsCesu: boolean; crcesuNan: string | null } | null | undefined,
+) => Boolean(sap?.acceptsCesu && sap.crcesuNan);
+
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
-  const acceptsCesu = Boolean(chef.sapProfile?.acceptsCesu && chef.sapProfile.crcesuNan);
+  const acceptsCesu = cesuAccepted(chef.sapProfile);
   return {
     chefProfileId: chef.id,
     chefDisplayName: chef.displayName,

@@ -74,6 +74,10 @@ const NO_CHEF =
  */
 @ApiTags(TAGS.chefBookings)
 @ApiBearerAuth()
+// Every route here is work: a candidate awaiting approval gets this 403.
+@ApiForbiddenResponse({
+  description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+})
 @Controller('chef/bookings')
 @UseGuards(ClerkAuthGuard)
 export class ChefBookingsController {

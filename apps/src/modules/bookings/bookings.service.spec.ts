@@ -30,6 +30,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   notes: null,
   shoppingByClient: false,
   priceCents: 20_000,
+  shoppingFeeCents: 0,
   amountTtc: 20_000,
   amountAfterTax: 10_000,
   currency: 'EUR',
@@ -43,7 +44,13 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     clientProfile: { allergies: ['arachides'], dietaryPreferences: ['halal'] },
   },
   chefProfile: { id: 'chef-1', displayName: 'Chef Marie', sapProfile: null },
-  serviceOffer: { id: 'offer-1', name: 'Session 3 h', durationMinutes: 180 },
+  serviceOffer: {
+    id: 'offer-1',
+    name: 'Session 3 h',
+    durationMinutes: 180,
+    shoppingIncluded: false,
+    shoppingFeeCents: 0,
+  },
   formule: null,
   payments: [],
   quote: null,
@@ -60,6 +67,8 @@ const OFFER = {
   durationMinutes: 180,
   priceCents: 20_000,
   currency: 'EUR',
+  shoppingIncluded: false,
+  shoppingFeeCents: 0,
   chefProfile: { userId: 'chef-user' },
 };
 
@@ -266,6 +275,38 @@ describe('BookingsService', () => {
       });
     });
 
+    it('adds the shopping fee apart when the batch cooker does the shopping', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({
+        ...OFFER,
+        shoppingIncluded: true,
+        shoppingFeeCents: 1_500,
+      });
+
+      await service.create('client', 'clerk_1', dto);
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        priceCents: 20_000,
+        shoppingFeeCents: 1_500,
+        amountTtc: 21_500,
+        amountAfterTax: 10_750,
+      });
+    });
+
+    it('charges no shopping fee when the client does the shopping', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({
+        ...OFFER,
+        shoppingIncluded: true,
+        shoppingFeeCents: 1_500,
+      });
+
+      await service.create('client', 'clerk_1', { ...dto, shoppingByClient: true });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        shoppingFeeCents: 0,
+        amountTtc: 20_000,
+      });
+    });
+
     it('pins the recipes of the dishes booked', async () => {
       prisma.meal.count.mockResolvedValue(1);
 
@@ -348,6 +389,30 @@ describe('BookingsService', () => {
       await expect(
         service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' }),
       ).rejects.toMatchObject({ response: { code: 'BOOKING_PAID' } });
+    });
+
+    it('drops the shopping fee when the client takes the shopping on', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({
+          shoppingFeeCents: 1_500,
+          amountTtc: 21_500,
+          amountAfterTax: 10_750,
+          serviceOffer: {
+            ...row().serviceOffer,
+            shoppingIncluded: true,
+            shoppingFeeCents: 1_500,
+          },
+        }),
+      );
+
+      await service.update('client', 'clerk_1', 'booking-1', { shoppingByClient: true });
+
+      expect(prisma.booking.update.mock.calls[0][0].data).toMatchObject({
+        shoppingByClient: true,
+        shoppingFeeCents: 0,
+        amountTtc: 20_000,
+        amountAfterTax: 10_000,
+      });
     });
 
     it('cancels an unpaid booking', async () => {
