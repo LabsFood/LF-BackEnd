@@ -153,6 +153,12 @@ model Booking {
   /// The offer's shopping fee, shown apart; already counted in `amountTtc`. 0 when the
   /// offer has no shopping or the client does it.
   shoppingFeeCents      Int                 @default(0) @map("shopping_fee_cents")
+  /// Extra dishes the client asked for, beyond what the offer covers ("Plats supp.").
+  extraMeals            Int                 @default(0) @map("extra_meals")
+  /// Adults beyond what the offer covers, and the extra dishes: each shown apart,
+  /// already counted in `amountTtc`. Always 0 on a formule, which is a package.
+  extraPersonsCents     Int                 @default(0) @map("extra_persons_cents")
+  extraMealsCents       Int                 @default(0) @map("extra_meals_cents")
   addressLine           String?             @map("address_line") @db.VarChar(255)
   /// The city, apart, so the agenda can show it without the street.
   addressCity           String?             @map("address_city") @db.VarChar(120)

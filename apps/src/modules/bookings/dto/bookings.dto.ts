@@ -147,6 +147,21 @@ export class NewBookingDto {
   @IsBoolean()
   shoppingByClient?: boolean;
 
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 20,
+    default: 0,
+    description:
+      'Extra dishes beyond what the offer covers (the "Plats supp." counter), each ' +
+      'charged `extraMealCents` from `GET /service-offers/{id}/price`.',
+    example: 2,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  extraMeals?: number;
+
   @ApiPropertyOptional({ type: [BookingMealDto], description: 'The dishes, 20 at most.' })
   @IsOptional()
   @IsArray()

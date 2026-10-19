@@ -30,6 +30,9 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   notes: null,
   shoppingByClient: false,
   priceCents: 20_000,
+  extraMeals: 0,
+  extraPersonsCents: 0,
+  extraMealsCents: 0,
   shoppingFeeCents: 0,
   amountTtc: 20_000,
   amountAfterTax: 10_000,
@@ -269,6 +272,19 @@ describe('BookingsService', () => {
       });
     });
 
+    it('adds adults beyond what the offer covers and the extra dishes, each apart', async () => {
+      await service.create('client', 'clerk_1', { ...dto, persons: 4, extraMeals: 2 });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        priceCents: 20_000,
+        extraMeals: 2,
+        extraPersonsCents: 1_500,
+        extraMealsCents: 1_600,
+        amountTtc: 23_100,
+        amountAfterTax: 11_550,
+      });
+    });
+
     it('charges no shopping fee when the client does the shopping', async () => {
       prisma.serviceOffer.findFirst.mockResolvedValue({
         ...OFFER,
@@ -366,6 +382,32 @@ describe('BookingsService', () => {
       await expect(
         service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' }),
       ).rejects.toMatchObject({ response: { code: 'BOOKING_PAID' } });
+    });
+
+    it('reprices when the client adds adults, keeping the base price', async () => {
+      prisma.booking.findFirst.mockResolvedValue(row());
+
+      await service.update('client', 'clerk_1', 'booking-1', { persons: 5 });
+
+      expect(prisma.booking.update.mock.calls[0][0].data).toMatchObject({
+        persons: 5,
+        extraPersonsCents: 3_000,
+        extraMealsCents: 0,
+        amountTtc: 23_000,
+        amountAfterTax: 11_500,
+      });
+    });
+
+    it('reprices when the client changes the extra dishes', async () => {
+      await service.update('client', 'clerk_1', 'booking-1', { extraMeals: 1 });
+
+      expect(prisma.booking.update.mock.calls[0][0].data).toMatchObject({
+        extraMeals: 1,
+        extraMealsCents: 800,
+        extraPersonsCents: 0,
+        amountTtc: 20_800,
+        amountAfterTax: 10_400,
+      });
     });
 
     it('drops the shopping fee when the client takes the shopping on', async () => {

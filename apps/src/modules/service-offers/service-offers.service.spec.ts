@@ -28,6 +28,7 @@ describe('ServiceOffersService', () => {
         delete: jest.fn(),
       },
       booking: { count: jest.fn().mockResolvedValue(0) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     const users = {
       chefIdentity: jest
@@ -121,5 +122,32 @@ describe('ServiceOffersService', () => {
       response: { code: 'OFFER_IN_USE' },
     });
     expect(prisma.serviceOffer.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('prices a booking as POST /me/bookings will, line by line', async () => {
+    await expect(
+      service.price('offer-1', { persons: 4, extraMeals: 2, shoppingByClient: false }),
+    ).resolves.toMatchObject({
+      priceCents: 18000,
+      extraPersonsCents: 1500,
+      extraMealsCents: 1600,
+      shoppingFeeCents: 1500,
+      amountTtc: 22600,
+      amountAfterTax: 11300,
+      rules: { includedPersons: 3, extraMealCents: 800 },
+    });
+    // Only an active offer of a listed batch cooker is priced.
+    expect(prisma.serviceOffer.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 'offer-1',
+      isActive: true,
+      chefProfile: { isActive: true, isVerified: true },
+    });
+  });
+
+  it('404s an offer nobody can book', async () => {
+    prisma.serviceOffer.findFirst.mockResolvedValue(null);
+    await expect(service.price('offer-9', {})).rejects.toMatchObject({
+      response: { code: 'OFFER_NOT_FOUND' },
+    });
   });
 });

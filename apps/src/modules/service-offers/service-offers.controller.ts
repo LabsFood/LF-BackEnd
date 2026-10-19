@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -29,7 +30,11 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
-import { CreateServiceOfferDto, UpdateServiceOfferDto } from './dto/service-offer.dto';
+import {
+  CreateServiceOfferDto,
+  OfferPriceQueryDto,
+  UpdateServiceOfferDto,
+} from './dto/service-offer.dto';
 import { ServiceOffersService } from './service-offers.service';
 
 const OFFER_EXAMPLE = {
@@ -126,5 +131,48 @@ export class ServiceOffersController {
   @ApiClerkAuthResponses()
   remove(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.offers.remove(user.userId, id);
+  }
+}
+
+const PRICE_EXAMPLE = {
+  serviceOfferId: OFFER_EXAMPLE.id,
+  currency: 'EUR',
+  priceCents: 18000,
+  extraPersonsCents: 1500,
+  extraMealsCents: 1600,
+  shoppingFeeCents: 1500,
+  amountTtc: 22600,
+  amountAfterTax: 11300,
+  rules: {
+    includedPersons: 3,
+    extraPersonCents: 1500,
+    extraMealCents: 800,
+  },
+};
+
+/** What a client sees before booking: public, no token. */
+@ApiTags(TAGS.catalog)
+@Controller('service-offers')
+export class PublicServiceOffersController {
+  constructor(private readonly offers: ServiceOffersService) {}
+
+  @Get(':id/price')
+  @ApiOperation({
+    summary: 'Price a booking of a service offer',
+    description:
+      'The amounts `POST /me/bookings` will set, line by line: the offer’s price, ' +
+      'adults beyond `rules.includedPersons`, the `extraMeals` asked for, and ' +
+      'the shopping fee unless `shoppingByClient`. `amountTtc` is what the client pays, ' +
+      '`amountAfterTax` what they bear after the 50 % tax credit. Show these: never ' +
+      'add supplements on the page. Public.\n\n' +
+      'Example: `?persons=4&extraMeals=2&shoppingByClient=false`.',
+  })
+  @ApiParam(OFFER_ID)
+  @ApiOkResponse({ description: 'The price, line by line.', example: PRICE_EXAMPLE })
+  @ApiNotFoundResponse({
+    description: '`OFFER_NOT_FOUND`: no active offer of a listed batch cooker.',
+  })
+  price(@Param('id', ParseUUIDPipe) id: string, @Query() query: OfferPriceQueryDto) {
+    return this.offers.price(id, query);
   }
 }

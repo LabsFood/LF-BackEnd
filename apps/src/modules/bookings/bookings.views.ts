@@ -101,8 +101,12 @@ export function toBookingListItem(
     city: booking.addressCity,
     notes: booking.notes,
     shoppingByClient: booking.shoppingByClient,
-    /** The prestation alone; `shoppingFeeCents` apart; `amountTtc` is both. */
+    /** The offer's price alone; each supplement apart; `amountTtc` is all of it. */
     priceCents: booking.priceCents,
+    /** Extra dishes asked for, beyond what the offer covers: the batch cooker cooks them. */
+    extraMeals: booking.extraMeals,
+    extraPersonsCents: booking.extraPersonsCents,
+    extraMealsCents: booking.extraMealsCents,
     shoppingFeeCents: booking.shoppingFeeCents,
     amountTtc: booking.amountTtc,
     amountAfterTax: booking.amountAfterTax,

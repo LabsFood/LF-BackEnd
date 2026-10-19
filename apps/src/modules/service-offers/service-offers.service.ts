@@ -8,9 +8,19 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  bookingAmounts,
+  shoppingFee,
+  supplementRulesInForce,
+  supplementsFor,
+} from '../bookings/domain/pricing';
 import { CUSTOM_OFFER_NAME } from '../quotes/quote-offers.service';
 import { UsersService } from '../users/users.service';
-import { CreateServiceOfferDto, UpdateServiceOfferDto } from './dto/service-offer.dto';
+import {
+  CreateServiceOfferDto,
+  OfferPriceQueryDto,
+  UpdateServiceOfferDto,
+} from './dto/service-offer.dto';
 
 const SELECT = {
   id: true,
@@ -140,6 +150,47 @@ export class ServiceOffersService {
       chefProfileId: chef.chefProfileId,
       offerId: id,
     });
+  }
+
+  /**
+   * Public: what a booking of this offer would cost, line by line, computed as
+   * `POST /me/bookings` will. The front shows these amounts and never adds its own.
+   */
+  async price(id: string, query: OfferPriceQueryDto) {
+    const offer = await this.prisma.serviceOffer.findFirst({
+      where: { id, isActive: true, chefProfile: { isActive: true, isVerified: true } },
+      select: {
+        id: true,
+        priceCents: true,
+        currency: true,
+        shoppingIncluded: true,
+        shoppingFeeCents: true,
+      },
+    });
+    if (!offer) {
+      throw new NotFoundException({
+        code: 'OFFER_NOT_FOUND',
+        message: 'Offer not found.',
+      });
+    }
+    const rules = await supplementRulesInForce(this.prisma);
+    return {
+      serviceOfferId: offer.id,
+      currency: offer.currency,
+      ...bookingAmounts(
+        offer.priceCents,
+        supplementsFor(
+          {
+            persons: query.persons,
+            extraMeals: query.extraMeals ?? 0,
+            shoppingFeeCents: shoppingFee(offer, query.shoppingByClient ?? false),
+            formule: false,
+          },
+          rules,
+        ),
+      ),
+      rules,
+    };
   }
 
   /** The caller's own offer; someone else's, or the hidden custom one, is a 404. */

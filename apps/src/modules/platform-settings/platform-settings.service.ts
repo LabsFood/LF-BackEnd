@@ -2,12 +2,18 @@ import { Injectable } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  SUPPLEMENTS_KEY,
+  SupplementRules,
+  supplementRulesInForce,
+} from '../bookings/domain/pricing';
 import { DEFAULT_COMMISSION_BPS, TAX_CREDIT_BPS } from './pricing.constants';
 
 const COMMISSION_KEY = 'commission_bps';
 
 /**
- * What an admin can change without a deploy. One thing today: the commission.
+ * What an admin can change without a deploy: the commission, and the booking
+ * supplements (adults beyond what an offer covers, extra dishes).
  *
  * Read from the database on every use, not cached: it is read when an offer is
  * priced, a handful of times a day, and a cached rate would let two API
@@ -62,5 +68,43 @@ export class PlatformSettingsService {
       requestId,
     });
     return { commissionBps, updatedAt: row.updatedAt };
+  }
+
+  async bookingSupplements() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: SUPPLEMENTS_KEY },
+    });
+    return {
+      ...(await supplementRulesInForce(this.prisma)),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** For bookings made, or changed, from now on: a booking keeps the lines it has. */
+  async setBookingSupplements(
+    rules: SupplementRules,
+    adminUserId: string,
+    requestId?: string,
+  ) {
+    const previous = await supplementRulesInForce(this.prisma);
+    const value = {
+      includedPersons: rules.includedPersons,
+      extraPersonCents: rules.extraPersonCents,
+      extraMealCents: rules.extraMealCents,
+    };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: SUPPLEMENTS_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: SUPPLEMENTS_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.booking_supplements_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: { ...previous }, to: value },
+      requestId,
+    });
+    return { ...value, updatedAt: row.updatedAt };
   }
 }

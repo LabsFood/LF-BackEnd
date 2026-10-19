@@ -19,7 +19,6 @@ import { changedMeanwhile } from '../dishes/dishes.service';
 import { rateInForce } from '../payments/commission-policy';
 import { findCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
-import { afterTaxCredit } from '../quotes/domain/quote.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -31,6 +30,13 @@ import {
   toBookingListItem,
 } from './bookings.views';
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
+import {
+  bookingAmounts,
+  reprice,
+  shoppingFee,
+  supplementRulesInForce,
+  supplementsFor,
+} from './domain/pricing';
 import {
   AdminBookingsQueryDto,
   AdminUpdateBookingDto,
@@ -98,36 +104,6 @@ export const schedule = (startsAt: Date, endsAt: Date) => ({
  * (`settlePayment`), never by a PATCH except an admin's. Unpaid, it holds the
  * batch cooker's slot 72 h (`expireUnpaid`).
  */
-/**
- * The shopping fee a booking carries: the offer's, when its chef does the shopping
- * and the client has not taken it on. Shown apart, counted in `amountTtc`.
- */
-export const shoppingFee = (
-  offer: { shoppingIncluded: boolean; shoppingFeeCents: number },
-  shoppingByClient: boolean,
-) => (offer.shoppingIncluded && !shoppingByClient ? offer.shoppingFeeCents : 0);
-
-/** Swaps a booking's shopping fee for another, keeping any amount an admin set. */
-export function reprice(
-  booking: {
-    priceCents: number;
-    amountTtc: number | null;
-    amountAfterTax: number | null;
-    shoppingFeeCents: number;
-  },
-  shoppingFeeCents: number,
-) {
-  const before = booking.amountTtc ?? booking.priceCents;
-  return {
-    shoppingFeeCents,
-    amountTtc: before - booking.shoppingFeeCents + shoppingFeeCents,
-    amountAfterTax:
-      (booking.amountAfterTax ?? afterTaxCredit(before)) -
-      afterTaxCredit(booking.shoppingFeeCents) +
-      afterTaxCredit(shoppingFeeCents),
-  };
-}
-
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
@@ -261,8 +237,20 @@ export class BookingsService {
       await this.availability.assertBookable(offer.chefProfileId, dto.startsAt, endsAt);
     }
 
-    const price = formule?.priceTtc ?? offer.priceCents;
-    const shoppingFeeCents = shoppingFee(offer, dto.shoppingByClient ?? false);
+    // The offer's price (or the formule's), then each supplement on its own line.
+    const amounts = bookingAmounts(
+      formule?.priceTtc ?? offer.priceCents,
+      supplementsFor(
+        {
+          persons: dto.persons,
+          extraMeals: dto.extraMeals ?? 0,
+          shoppingFeeCents: shoppingFee(offer, dto.shoppingByClient ?? false),
+          formule: Boolean(formule),
+        },
+        await supplementRulesInForce(this.prisma),
+      ),
+      formule?.priceAfterTax,
+    );
     const { id } = await this.withReference(now, (reference) =>
       this.prisma.booking.create({
         data: {
@@ -279,12 +267,8 @@ export class BookingsService {
           notes: dto.notes ?? null,
           shoppingByClient: dto.shoppingByClient ?? false,
           status: 'pending',
-          priceCents: price,
-          shoppingFeeCents,
-          amountTtc: price + shoppingFeeCents,
-          amountAfterTax: formule
-            ? formule.priceAfterTax + afterTaxCredit(shoppingFeeCents)
-            : afterTaxCredit(price + shoppingFeeCents),
+          extraMeals: dto.extraMeals ?? 0,
+          ...amounts,
           currency: offer.currency,
           ...(dto.meals?.length && {
             bookingMeals: {
@@ -305,7 +289,10 @@ export class BookingsService {
       chefProfileId: offer.chefProfileId,
       by: caller.role,
       meals: dto.meals?.length ?? 0,
-      shoppingFeeCents,
+      amountTtc: amounts.amountTtc,
+      extraPersonsCents: amounts.extraPersonsCents,
+      extraMealsCents: amounts.extraMealsCents,
+      shoppingFeeCents: amounts.shoppingFeeCents,
       ms: Date.now() - now.getTime(),
     });
     if (dto.meals?.length) {
@@ -398,11 +385,41 @@ export class BookingsService {
       when = schedule(startsAt, endsAt);
     }
     if (meals?.length) await this.assertMeals(booking.chefProfileId, meals);
-    const repriced =
+    // Each supplement follows only what changed: the base price, and any line the
+    // client did not touch, stay as booked.
+    const shoppingSwitched =
       fields.shoppingByClient !== undefined &&
-      fields.shoppingByClient !== booking.shoppingByClient
-        ? reprice(booking, shoppingFee(booking.serviceOffer, fields.shoppingByClient))
-        : undefined;
+      fields.shoppingByClient !== booking.shoppingByClient;
+    const persons = fields.persons !== undefined ? fields.persons : booking.persons;
+    const personsChanged = persons !== booking.persons;
+    let repriced: ReturnType<typeof reprice> | undefined;
+    const extraMeals = fields.extraMeals ?? booking.extraMeals;
+    const extraMealsChanged = extraMeals !== booking.extraMeals;
+    if (shoppingSwitched || personsChanged || extraMealsChanged) {
+      const next = supplementsFor(
+        {
+          persons,
+          extraMeals,
+          shoppingFeeCents: shoppingFee(
+            booking.serviceOffer,
+            fields.shoppingByClient ?? false,
+          ),
+          formule: Boolean(booking.formuleId),
+        },
+        await supplementRulesInForce(this.prisma),
+      );
+      repriced = reprice(booking, {
+        extraPersonsCents: personsChanged
+          ? next.extraPersonsCents
+          : booking.extraPersonsCents,
+        extraMealsCents: extraMealsChanged
+          ? next.extraMealsCents
+          : booking.extraMealsCents,
+        shoppingFeeCents: shoppingSwitched
+          ? next.shoppingFeeCents
+          : booking.shoppingFeeCents,
+      });
+    }
 
     await this.prisma
       .$transaction(async (tx) => {
@@ -424,6 +441,8 @@ export class BookingsService {
             ...fields,
             // An admin's explicit amounts win over the recomputed ones.
             ...(repriced && {
+              extraPersonsCents: repriced.extraPersonsCents,
+              extraMealsCents: repriced.extraMealsCents,
               shoppingFeeCents: repriced.shoppingFeeCents,
               amountTtc: fields.amountTtc ?? repriced.amountTtc,
               amountAfterTax: fields.amountAfterTax ?? repriced.amountAfterTax,
@@ -446,6 +465,7 @@ export class BookingsService {
       from: booking.status,
       to: moving ? status : booking.status,
       fields: changedKeys(dto),
+      ...(repriced && { repricedAmountTtc: fields.amountTtc ?? repriced.amountTtc }),
       ms: Date.now() - now.getTime(),
     });
     if (meals) {

@@ -10,6 +10,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { QueryBoolean } from '../../../common/dto/query-boolean';
+
 export class CreateServiceOfferDto {
   @ApiProperty({ minLength: 1, maxLength: 160, example: 'Session 4 heures' })
   @IsString()
@@ -75,3 +77,35 @@ export class CreateServiceOfferDto {
 }
 
 export class UpdateServiceOfferDto extends PartialType(CreateServiceOfferDto) {}
+
+/** `GET /service-offers/{id}/price`: what the client would book. */
+export class OfferPriceQueryDto {
+  @ApiPropertyOptional({ minimum: 1, maximum: 50, description: 'Adults.', example: 4 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  persons?: number;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 20,
+    default: 0,
+    description: 'Extra dishes beyond what the offer covers (the "Plats supp." counter).',
+    example: 2,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  extraMeals?: number;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'The client does the shopping: no shopping fee.',
+  })
+  @IsOptional()
+  @QueryBoolean()
+  @IsBoolean()
+  shoppingByClient?: boolean;
+}
