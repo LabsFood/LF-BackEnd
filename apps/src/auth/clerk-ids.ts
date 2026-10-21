@@ -3,6 +3,7 @@ import { DEMO_SEED_TAG } from '../common/demo-seed-constants';
 /** Clerk user ids issued by Clerk (e.g. `user_2abc…`). */
 const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;
 
+// nosemgrep: ajinabraham.njsscan.generic.hardcoded_secrets.node_secret -- public placeholder, not a key
 const CLERK_LOCAL_STUB_SECRET = 'sk_test_placeholder';
 
 const CLERK_SECRET_KEY_PATTERN = /^sk_(test|live)_[a-zA-Z0-9]+$/;

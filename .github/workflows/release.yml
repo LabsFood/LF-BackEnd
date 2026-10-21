@@ -19,6 +19,7 @@ permissions:
   contents: write # tag, GitHub Release, release commit
   issues: write # "released in vX" comments, failure issue
   pull-requests: write
+  actions: write # start "Deploy production"
 
 jobs:
   release:
@@ -50,3 +51,14 @@ jobs:
           -p @semantic-release/git@10
           -p conventional-changelog-conventionalcommits@8
           semantic-release
+
+      # A published version is queued for production straight away; the deploy
+      # still waits for a reviewer on the `production` environment.
+      - name: Request production deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(git tag -l 'v*' --points-at HEAD | head -1)"
+          if [ -z "$tag" ]; then echo "No new version: nothing to deploy."; exit 0; fi
+          gh workflow run deploy-production.yml --ref main -f ref="$tag"
+          echo "Deploy of $tag requested: approve it under Actions → Deploy production." >> "$GITHUB_STEP_SUMMARY"

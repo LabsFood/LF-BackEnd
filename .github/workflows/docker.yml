@@ -3,14 +3,15 @@ name: LF API Server image
 # Build the production image (repo-root context + apps/Dockerfile, same as
 # Railway/Compose), run it on a standard GitHub runner against a throwaway
 # Postgres to prove it migrates and answers health checks, then publish it to
-# GitHub Container Registry (GHCR) on main and version tags.
+# GitHub Container Registry (GHCR) on main and version tags. Lint, tests, SAST
+# and the dependency audit (ci.yml) gate the build.
 
 on:
   push:
     branches: [main, develop]
     tags: ['v*.*.*']
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +28,11 @@ env:
   TEST_IMAGE: lf-api:ci
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   build-run-push:
+    needs: checks
     runs-on: ubuntu-latest
 
     steps:

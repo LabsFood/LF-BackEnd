@@ -1,0 +1,87 @@
+name: CI
+
+# Quality and security gates. "LF API Server image" (docker.yml) calls this
+# before it builds, so nothing reaches GHCR, staging or production without
+# passing it. Also runs weekly on main: new advisories land without code changes.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint + unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps
+    env:
+      # prisma.config.ts throws without a URL; `prisma generate` never connects.
+      SUPABASE_DB_URL: postgresql://ci:ci@localhost:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # ts-jest type-checks the specs; `nest build` in the image covers src.
+      - run: npx jest --ci
+
+  sast:
+    name: SAST (Semgrep, OWASP Top 10)
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep:1.181.0
+    steps:
+      - uses: actions/checkout@v4
+      # Registry rulesets: OWASP Top 10, Node/Express-style sinks (njsscan),
+      # TypeScript, hardcoded secrets, workflow injection, Dockerfile.
+      - name: Scan
+        run: >
+          semgrep scan --metrics=off
+          --config p/owasp-top-ten
+          --config p/nodejsscan
+          --config p/typescript
+          --config p/secrets
+          --config p/github-actions
+          --config p/dockerfile
+          --exclude '*.spec.ts'
+          --json-output=semgrep.json
+          apps/src apps/prisma apps/scripts apps/Dockerfile .github
+      # ERROR blocks; WARNING shows as an annotation only. Silence a reviewed
+      # false positive with `// nosemgrep: <rule-id>` on that line.
+      - name: Gate on ERROR findings
+        shell: python3 {0}
+        run: |
+          import json, sys
+          results = json.load(open("semgrep.json"))["results"]
+          blocking = [r for r in results if r["extra"]["severity"] == "ERROR"]
+          for r in results:
+              level = "error" if r in blocking else "warning"
+              print(f"::{level} file={r['path']},line={r['start']['line']}::{r['check_id']}")
+          print(f"{len(results)} findings, {len(blocking)} blocking")
+          sys.exit(1 if blocking else 0)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep.json
+
+  dependencies:
+    name: Dependency audit (OWASP A06)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps
+    steps:
+      - uses: actions/checkout@v4
+      # Reads the lockfile only, no install. Lists every advisory, blocks on critical.
+      # ponytail: raise to --audit-level=high once `npm audit fix` clears the current highs.
+      - run: npm audit --omit=dev --audit-level=critical
