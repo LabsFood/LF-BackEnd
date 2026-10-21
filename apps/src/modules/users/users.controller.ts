@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -353,7 +354,9 @@ export class UsersController {
       'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
       "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
       'only source this field can have. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`); the chef must already have declared a SAP route.',
+      '(`chef_profiles.id`); the chef must already have declared a SAP route. ' +
+      'Audited, with both statuses before and after. ' +
+      '`GET /admin/chefs/{id}` reads them back.',
   })
   @ApiParam({
     name: 'id',
@@ -361,12 +364,18 @@ export class UsersController {
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @ApiOkResponse({ type: SapProfileDto, description: 'SAP profile after the update.' })
+  @ApiNotFoundResponse({
+    description:
+      '`SAP_PROFILE_NOT_FOUND`: no batch cooker with this id, or no SAP route ' +
+      'declared yet.',
+  })
   @ApiAdminAuthResponses()
   updateSapExternalStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: UpdateSapExternalStatusDto,
+    @CurrentClerkUser() user: ClerkUser,
   ) {
-    return this.users.setSapExternalStatus(id, payload);
+    return this.users.setSapExternalStatus(id, payload, user.userId);
   }
 
   @Get('admin/clients')

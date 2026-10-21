@@ -10,6 +10,7 @@ import {
   Prisma,
   UserRole,
 } from '../../generated/prisma/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
@@ -40,6 +41,7 @@ describe('UsersService', () => {
     sapProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
     $transaction: jest.Mock;
   };
+  let audit: { record: jest.Mock };
   let clerk: {
     configured: boolean;
     getClient: jest.Mock;
@@ -78,10 +80,12 @@ describe('UsersService', () => {
       getClient: jest.fn(),
     };
     config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
       config as unknown as ConfigService,
+      audit as unknown as AuditService,
     );
   });
 
@@ -1066,13 +1070,20 @@ describe('UsersService', () => {
     });
 
     describe('setSapExternalStatus', () => {
+      const BEFORE = {
+        crcesuAffiliationStatus: 'not_started',
+        urssafTiersPrestationStatus: 'pending',
+      };
+
       it('is the writer the CRCESU affiliation never had', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          crcesuAffiliationStatus: 'active',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
 
         expect(prisma.sapProfile.update).toHaveBeenCalledWith({
           where: { chefProfileId: 'chef-1' },
@@ -1080,13 +1091,46 @@ describe('UsersService', () => {
         });
       });
 
+      it('journals who changed what, before and after', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
+        prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+        prisma.sapProfile.update.mockResolvedValue({
+          id: 'sap-1',
+          ...BEFORE,
+          crcesuAffiliationStatus: 'active',
+        });
+
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
+
+        expect(audit.record).toHaveBeenCalledWith({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'chef.sap_status_changed',
+          subjectType: 'chef_profile',
+          subjectId: 'chef-1',
+          metadata: {
+            before: BEFORE,
+            after: {
+              crcesuAffiliationStatus: 'active',
+              urssafTiersPrestationStatus: 'pending',
+            },
+          },
+        });
+      });
+
       it('leaves an omitted status untouched', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          urssafTiersPrestationStatus: 'pending',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { urssafTiersPrestationStatus: 'pending' },
+          'clerk_admin',
+        );
 
         const [{ data }] = prisma.sapProfile.update.mock.calls[0] as [
           { data: Record<string, unknown> },
@@ -1098,9 +1142,16 @@ describe('UsersService', () => {
         prisma.sapProfile.findUnique.mockResolvedValue(null);
 
         await expect(
-          service.setSapExternalStatus('chef-1', { crcesuAffiliationStatus: 'active' }),
-        ).rejects.toBeInstanceOf(NotFoundException);
+          service.setSapExternalStatus(
+            'chef-1',
+            { crcesuAffiliationStatus: 'active' },
+            'clerk_admin',
+          ),
+        ).rejects.toMatchObject({
+          response: { code: 'SAP_PROFILE_NOT_FOUND' },
+        });
         expect(prisma.sapProfile.update).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
       });
     });
 

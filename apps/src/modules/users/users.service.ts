@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -26,6 +27,7 @@ import {
   resolvePageBounds,
   type Paginated,
 } from '../../common/dto/pagination.dto';
+import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
@@ -91,10 +93,13 @@ export interface OwnUserFields {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
   ) {}
 
   private createPersistedUser(
@@ -540,19 +545,31 @@ export class UsersService {
    *
    * `:id` is the chef profile uuid, and the row has to exist: a status about a
    * declaration that was never made would be meaningless.
+   *
+   * Audited with both statuses before and after: it is what puts a batch cooker
+   * on the CESU circuit, so who said so, and when, has to be answerable.
    */
-  async setSapExternalStatus(chefProfileId: string, payload: UpdateSapExternalStatusDto) {
-    const sapProfile = await this.prisma.sapProfile.findUnique({
-      where: { chefProfileId },
-      select: { id: true },
-    });
-    if (!sapProfile) {
-      throw new NotFoundException(
-        `Chef profile ${chefProfileId} has no SAP declaration to habilitate.`,
-      );
+  async setSapExternalStatus(
+    chefProfileId: string,
+    payload: UpdateSapExternalStatusDto,
+    adminClerkUserId: string,
+  ) {
+    const statuses = { crcesuAffiliationStatus: true, urssafTiersPrestationStatus: true };
+    const [before, admin] = await Promise.all([
+      this.prisma.sapProfile.findUnique({ where: { chefProfileId }, select: statuses }),
+      this.prisma.user.findUnique({
+        where: { clerkUserId: adminClerkUserId },
+        select: { id: true },
+      }),
+    ]);
+    if (!before) {
+      throw new NotFoundException({
+        code: 'SAP_PROFILE_NOT_FOUND',
+        message: 'No SAP declaration for this batch cooker: nothing to habilitate yet.',
+      });
     }
 
-    return this.prisma.sapProfile.update({
+    const updated = await this.prisma.sapProfile.update({
       where: { chefProfileId },
       data: {
         ...(payload.crcesuAffiliationStatus !== undefined
@@ -563,6 +580,23 @@ export class UsersService {
           : {}),
       },
     });
+    const after = {
+      crcesuAffiliationStatus: updated.crcesuAffiliationStatus,
+      urssafTiersPrestationStatus: updated.urssafTiersPrestationStatus,
+    };
+
+    this.logger.log({ event: 'chef.sap_status_changed', chefProfileId, ...after });
+    await this.audit.record({
+      actorType: 'admin',
+      // AdminGuard has just read the admin's row.
+      actorUserId: admin?.id ?? null,
+      action: 'chef.sap_status_changed',
+      subjectType: 'chef_profile',
+      subjectId: chefProfileId,
+      metadata: { before, after },
+    });
+
+    return updated;
   }
 
   /**
