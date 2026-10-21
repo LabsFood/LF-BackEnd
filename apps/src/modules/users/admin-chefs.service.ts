@@ -1,5 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
+import { AuditService } from '../../common/audit/audit.service';
 import {
   Paginated,
   buildPaginationMeta,
@@ -10,8 +17,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { feedInUse } from '../calendar/calendar-feed.service';
 import {
   METROPOLITAN_REGIONS,
+  interventionZonesProblem,
   toWire,
 } from '../chef-onboarding/domain/chef-onboarding.rules';
+import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-application.dto';
 import {
   ChefState,
   ChefStateFilter,
@@ -43,6 +52,9 @@ const CHEF_SELECT = {
   interventionZones: true,
   sapPath: true,
   sapDeclarationNumber: true,
+  sapProfile: {
+    select: { crcesuAffiliationStatus: true, urssafTiersPrestationStatus: true },
+  },
   stripeAccountId: true,
   calendarFeed: { select: { lastFetchedAt: true } },
   createdAt: true,
@@ -102,7 +114,12 @@ const LIVE_ACCOUNT: Prisma.ChefProfileWhereInput = { user: { deletedAt: null } }
  */
 @Injectable()
 export class AdminChefsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AdminChefsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(
     query: ListAdminChefsQueryDto,
@@ -165,6 +182,10 @@ export class AdminChefsService {
       serviceRadiusKm: row.serviceRadiusKm,
       sapPath: row.sapPath ? toWire(row.sapPath) : null,
       sapDeclarationNumber: row.sapDeclarationNumber,
+      // Set by `PATCH /admin/chefs/{id}/sap-external-status`; null until the batch
+      // cooker has declared a SAP route.
+      crcesuAffiliationStatus: row.sapProfile?.crcesuAffiliationStatus ?? null,
+      urssafTiersPrestationStatus: row.sapProfile?.urssafTiersPrestationStatus ?? null,
       zones: zonesOf(row),
       // Whether the integrations are connected, never their identifiers.
       payoutsConnected: row.stripeAccountId !== null,
@@ -180,6 +201,67 @@ export class AdminChefsService {
           }
         : null,
     };
+  }
+
+  /**
+   * `PATCH /admin/chefs/{id}/zones`: replaces the zones of an approved batch cooker.
+   *
+   * Admin only, never the batch cooker: the zones were checked against documents
+   * at the candidature, and this keeps a person in that loop. Before approval the
+   * zones are the candidature's, changed there.
+   */
+  async setZones(id: string, zones: InterventionZoneDto[], adminClerkUserId: string) {
+    const problem = interventionZonesProblem(zones);
+    if (problem) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: problem,
+      });
+    }
+
+    const [chef, admin] = await Promise.all([
+      this.prisma.chefProfile.findFirst({
+        where: { AND: [LIVE_ACCOUNT, { id }] },
+        select: { isVerified: true, interventionZones: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { clerkUserId: adminClerkUserId },
+        select: { id: true },
+      }),
+    ]);
+    if (!chef) {
+      throw new NotFoundException({
+        code: 'CHEF_NOT_FOUND',
+        message: 'No batch cooker with this id.',
+      });
+    }
+    if (!chef.isVerified) {
+      throw new ConflictException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Not approved yet: the zones are the candidature’s until then.',
+      });
+    }
+
+    await this.prisma.chefProfile.update({
+      where: { id },
+      data: { interventionZones: zones as unknown as Prisma.InputJsonValue },
+    });
+    this.logger.log({
+      event: 'chef.zones_changed',
+      chefProfileId: id,
+      regionCodes: zones.map((zone) => zone.regionCode),
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      // AdminGuard has just read the admin's row.
+      actorUserId: admin?.id ?? null,
+      action: 'chef.zones_changed',
+      subjectType: 'chef_profile',
+      subjectId: id,
+      metadata: { before: chef.interventionZones, after: zones },
+    });
+
+    return this.get(id);
   }
 
   private where(query: ListAdminChefsQueryDto): Prisma.ChefProfileWhereInput {

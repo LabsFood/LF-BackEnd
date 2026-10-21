@@ -178,7 +178,8 @@ export class UsersController {
     summary: 'Update my batch cooker page',
     description:
       'Changes what clients see on the batch cooker page: `displayName`, `bio`, `city`, ' +
-      '`serviceRadiusKm`, plus `firstName`, `lastName` and `phone` on the account. Send ' +
+      '`serviceRadiusKm`, `languages`, plus `firstName`, `lastName` and `phone` on the ' +
+      'account. Send ' +
       'only the fields to change.\n\n' +
       'Only for an approved batch cooker: while the candidature is reviewed the account ' +
       'is browse-only. The visibility flags, the SAP route and the zones are set at ' +

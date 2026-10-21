@@ -1,5 +1,10 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminChefsService } from './admin-chefs.service';
 
@@ -19,6 +24,10 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   interventionZones: PACA,
   sapPath: 'type_b',
   sapDeclarationNumber: null,
+  sapProfile: {
+    crcesuAffiliationStatus: 'active',
+    urssafTiersPrestationStatus: 'pending',
+  },
   stripeAccountId: 'acct_secret',
   calendarFeed: null,
   createdAt: new Date('2026-09-21T08:30:00.000Z'),
@@ -43,9 +52,16 @@ const row = (overrides: Record<string, unknown> = {}) => ({
 describe('AdminChefsService', () => {
   let service: AdminChefsService;
   let prisma: {
-    chefProfile: { findMany: jest.Mock; findFirst: jest.Mock; count: jest.Mock };
+    chefProfile: {
+      findMany: jest.Mock;
+      findFirst: jest.Mock;
+      count: jest.Mock;
+      update: jest.Mock;
+    };
+    user: { findUnique: jest.Mock };
     booking: { groupBy: jest.Mock };
   };
+  let audit: { record: jest.Mock };
 
   /** The conditions the list query was run with. */
   const conditions = () => prisma.chefProfile.findMany.mock.calls[0][0].where.AND;
@@ -56,10 +72,16 @@ describe('AdminChefsService', () => {
         findMany: jest.fn().mockResolvedValue([row()]),
         findFirst: jest.fn().mockResolvedValue(row()),
         count: jest.fn().mockResolvedValue(1),
+        update: jest.fn().mockResolvedValue({}),
       },
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'admin-1' }) },
       booking: { groupBy: jest.fn().mockResolvedValue([]) },
     };
-    service = new AdminChefsService(prisma as unknown as PrismaService);
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
+    service = new AdminChefsService(
+      prisma as unknown as PrismaService,
+      audit as unknown as AuditService,
+    );
   });
 
   describe('state', () => {
@@ -176,9 +198,74 @@ describe('AdminChefsService', () => {
       ]);
     });
 
+    it('reads back the SAP statuses an admin wrote, null before any declaration', async () => {
+      const chef = await service.get('chef-1');
+      expect(chef.crcesuAffiliationStatus).toBe('active');
+      expect(chef.urssafTiersPrestationStatus).toBe('pending');
+
+      prisma.chefProfile.findFirst.mockResolvedValue(row({ sapProfile: null }));
+      const undeclared = await service.get('chef-1');
+      expect(undeclared.crcesuAffiliationStatus).toBeNull();
+      expect(undeclared.urssafTiersPrestationStatus).toBeNull();
+    });
+
     it('answers 404 for an unknown or deleted batch cooker', async () => {
       prisma.chefProfile.findFirst.mockResolvedValue(null);
       await expect(service.get('nope')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('setZones', () => {
+    const LYON = [
+      {
+        regionCode: '84',
+        regionLabel: 'Auvergne-Rhône-Alpes',
+        scope: 'cities' as const,
+        cities: [{ name: 'Lyon', dept: '69', insee: '69123' }],
+      },
+    ];
+
+    it('replaces the zones and journals before and after', async () => {
+      await service.setZones('chef-1', LYON, 'clerk-admin');
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { interventionZones: LYON },
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'chef.zones_changed',
+          subjectId: 'chef-1',
+          metadata: { before: PACA, after: LYON },
+        }),
+      );
+    });
+
+    it('leaves a batch cooker not approved yet to the candidature', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(row({ isVerified: false }));
+      await expect(service.setZones('chef-1', LYON, 'clerk-admin')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it.each([[[{ ...LYON[0], regionCode: '01' }]], [[{ ...LYON[0], cities: [] }]]])(
+      'refuses zones the candidature would refuse: %j',
+      async (zones) => {
+        await expect(service.setZones('chef-1', zones, 'clerk-admin')).rejects.toThrow(
+          UnprocessableEntityException,
+        );
+        expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('answers 404 for an unknown or deleted batch cooker', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(null);
+      await expect(service.setZones('nope', LYON, 'clerk-admin')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

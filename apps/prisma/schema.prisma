@@ -51,6 +51,8 @@ model ChefProfile {
   bio                    String?
   city                   String?                     @db.VarChar(120)
   serviceRadiusKm        Int                         @default(10) @map("service_radius_km")
+  /// Languages spoken with clients: codes from `GET /referentials/languages`.
+  languages              String[]                    @default([])
   isActive               Boolean                     @default(false) @map("is_active")
   isVerified             Boolean                     @default(false) @map("is_verified")
   cronofyProfileId       String?                     @map("cronofy_profile_id") @db.VarChar(128)

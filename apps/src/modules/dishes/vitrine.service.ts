@@ -45,6 +45,7 @@ const PUBLIC_CHEF_FIELDS = {
   city: true,
   bio: true,
   interventionZones: true,
+  languages: true,
   // The profile photo is the account's; nothing else of the account is read.
   user: { select: { avatarUrl: true } },
   sapProfile: { select: { acceptsCesu: true, crcesuNan: true } },
@@ -52,7 +53,7 @@ const PUBLIC_CHEF_FIELDS = {
 
 type PublicChef = Pick<
   ChefProfile,
-  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones'
+  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones' | 'languages'
 > & {
   user: { avatarUrl: string | null };
   sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
@@ -329,7 +330,7 @@ export class VitrineService {
           // No source for these yet: shown empty rather than invented.
           rating: null,
           reviewCount: null,
-          languages: [] as string[],
+          languages: chef.languages,
         };
       },
       /**

@@ -361,6 +361,24 @@ export function isMetropolitanRegion(code: string): boolean {
   return REGION_CODES.has(code);
 }
 
+/**
+ * What is wrong with a set of intervention zones, or `undefined`. Shared by the
+ * candidature and the admin change after approval, so both refuse the same zones.
+ */
+export function interventionZonesProblem(
+  zones: readonly { regionCode: string; scope: string; cities: readonly unknown[] }[],
+): string | undefined {
+  for (const zone of zones) {
+    if (!isMetropolitanRegion(zone.regionCode)) {
+      return `interventionZones: "${zone.regionCode}" is not a metropolitan region code.`;
+    }
+    if (zone.scope === 'cities' && zone.cities.length === 0) {
+      return `interventionZones[${zone.regionCode}] with scope "cities" needs at least one city.`;
+    }
+  }
+  return undefined;
+}
+
 /** `APP-2026-0042` (FLOW-01 §2). Sequence is per calendar year. */
 export function buildApplicationReference(year: number, sequence: number): string {
   return `APP-${year}-${String(sequence).padStart(4, '0')}`;

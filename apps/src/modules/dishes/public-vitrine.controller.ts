@@ -40,7 +40,7 @@ const CHEF_CARD = {
   acceptsCesu: true,
   rating: null,
   reviewCount: null,
-  languages: [],
+  languages: ['fr', 'en'],
 };
 
 const WEEK_EXAMPLE = {
@@ -118,7 +118,8 @@ export class PublicVitrineController {
       'not always first.\n' +
       '- Never a recipe: no ingredients, no steps.\n\n' +
       '`avatarUrl` is the profile photo, `null` until the batch cooker adds one. ' +
-      '`rating`, `reviewCount` and `languages` are empty until those exist. ' +
+      '`rating` and `reviewCount` are empty until reviews exist. `languages` are codes ' +
+      'from `GET /referentials/languages`, `[]` until the batch cooker sets them. ' +
       '`acceptsCesu`: the cook takes prefinanced CESU (details on ' +
       '`GET /chefs/{id}/cesu-info`). ' +
       '`sessionFromCents` is the cheapest service offer, before commission.\n\n' +

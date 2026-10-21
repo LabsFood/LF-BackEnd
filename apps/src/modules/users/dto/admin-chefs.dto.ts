@@ -1,9 +1,15 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, PickType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import { METROPOLITAN_REGIONS } from '../../chef-onboarding/domain/chef-onboarding.rules';
+import { CreateChefApplicationDto } from '../../chef-onboarding/dto/create-chef-application.dto';
+
+/** Body of `PATCH /admin/chefs/{id}/zones`: the candidature's own field, same rules. */
+export class UpdateChefZonesDto extends PickType(CreateChefApplicationDto, [
+  'interventionZones',
+] as const) {}
 
 /**
  * Where a batch cooker stands, from the three columns that decide it. Each

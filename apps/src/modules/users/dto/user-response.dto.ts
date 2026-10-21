@@ -221,6 +221,14 @@ export class ChefProfileDto {
   serviceRadiusKm!: number;
 
   @ApiProperty({
+    type: [String],
+    description:
+      'Languages spoken with clients, codes from `GET /referentials/languages`.',
+    example: ['fr', 'en'],
+  })
+  languages!: string[];
+
+  @ApiProperty({
     description:
       'Whether the chef is live and bookable. `false` from candidature submission; ' +
       'set by an admin at approval or later, and only once the chef is verified.',

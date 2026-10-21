@@ -77,6 +77,7 @@ describe('VitrineService', () => {
         'displayName',
         'id',
         'interventionZones',
+        'languages',
         'sapProfile',
         'user',
       ]);
@@ -203,6 +204,14 @@ describe('VitrineService', () => {
       const { data } = await service.week({});
 
       expect(data[0].chef.avatarUrl).toBe(photo);
+    });
+
+    it('shows the languages the chef speaks on their card', async () => {
+      const { service } = vitrine({ chefs: [chef('a', { languages: ['fr', 'wo'] })] });
+
+      const { data } = await service.week({});
+
+      expect(data[0].chef.languages).toEqual(['fr', 'wo']);
     });
   });
 
