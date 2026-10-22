@@ -61,7 +61,7 @@ export class KycStorageService {
   private bucketApi() {
     if (!this.supabase.configured) {
       throw new ServiceUnavailableException(
-        'Document storage is not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY missing).',
+        'Document storage is not configured (SUPABASE_URL and SUPABASE_SECRET_KEY missing).',
       );
     }
     return this.supabase.getClient().storage.from(this.bucket);

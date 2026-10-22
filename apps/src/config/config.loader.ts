@@ -148,8 +148,8 @@ export interface AppConfig {
     /** Prisma migrate — direct session (5432) on Supabase; falls back to dbUrl locally. */
     migrationDbUrl: string;
     url?: string;
-    serviceRoleKey?: string;
-    anonKey?: string;
+    /** Secret API key (`sb_secret_…`), for Storage. */
+    secretKey?: string;
     /** Private bucket holding KYC documents. Never publicly readable. */
     kycBucket: string;
     /** Private bucket holding the files sent in conversations. Never publicly readable. */
@@ -291,8 +291,7 @@ export const configLoader = (): AppConfig => ({
       process.env.DATABASE_URL ??
       '',
     url: process.env.SUPABASE_URL,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    anonKey: process.env.SUPABASE_ANON_KEY,
+    secretKey: process.env.SUPABASE_SECRET_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
     messagingBucket: process.env.SUPABASE_MESSAGING_BUCKET ?? 'labsfood-messages',
   },

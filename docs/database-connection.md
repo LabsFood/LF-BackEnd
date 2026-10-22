@@ -10,7 +10,7 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
 | `DATABASE_URL`              | No (deprecated)              | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above.                                                            |
 
-Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_KYC_BUCKET` for chef KYC documents and `SUPABASE_MESSAGING_BUCKET` for message attachments.
+Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (an `sb_secret_…` key; the legacy `service_role` and `anon` JWTs are not used), `SUPABASE_KYC_BUCKET` for chef KYC documents and `SUPABASE_MESSAGING_BUCKET` for message attachments.
 
 ## URI formats (placeholders)
 
