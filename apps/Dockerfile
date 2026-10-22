@@ -38,6 +38,9 @@ COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 COPY apps/prisma.config.ts ./
 COPY apps/src/config/env-files.ts ./src/config/env-files.ts
+# prisma.config.ts imports it to verify the Supabase certificate during migrate deploy.
+COPY apps/src/supabase/db-connection.ts ./src/supabase/db-connection.ts
+COPY apps/certs ./certs
 COPY apps/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 
 RUN chmod +x ./scripts/docker-entrypoint.sh

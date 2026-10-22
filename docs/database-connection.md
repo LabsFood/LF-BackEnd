@@ -124,7 +124,11 @@ failure will need manual SQL to unblock.
 
 - `PrismaService` connects with `SUPABASE_DB_URL` at API startup.
 - Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/scripts/docker-entrypoint.sh`).
-- Cloud hosts (`*.supabase.co`) use TLS via the connection string / Prisma defaults.
+- Cloud hosts (`*.supabase.co`) use TLS, and the server certificate is **verified**, hostname included,
+  against the Supabase Root 2021 CA in `apps/certs/` (`apps/src/supabase/db-connection.ts`): the API and
+  scripts through `postgresPoolConfig`, the Prisma CLI through `prismaCliUrl` (`sslaccept=strict`).
+  Leave `sslmode` and other TLS parameters out of both URLs: the code sets them. The CA expires on
+  2031-04-26; replace the file from **Dashboard → Database → SSL Configuration** before then.
 
 ## Verify
 
