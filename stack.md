@@ -6,7 +6,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 
 | Layer            | Choice                                                                 |
 | ---------------- | ---------------------------------------------------------------------- |
-| Runtime          | Node.js 20                                                             |
+| Runtime          | Node.js 22                                                             |
 | Framework        | NestJS 11 + **Fastify** adapter                                        |
 | API style        | REST controllers, `@nestjs/swagger`                                    |
 | Persistence      | PostgreSQL 16 (Supabase-hosted or local Docker)                        |
