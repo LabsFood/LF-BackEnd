@@ -64,9 +64,9 @@ export class ShoppingListsService {
    * version's content (§9.2). Unpinned dishes take their current version; with
    * `repin`, every dish moves to its current version. Returns what is pinned now.
    *
-   * The PRD pins at booking; bookings are not created through this API yet
-   * (`POST /bookings` answers 501), so this runs the first time a document is
-   * needed. Booking creation should call it.
+   * Booking creation calls it for a booking with dishes (best-effort). The recipe
+   * sheet and the shopping list call it on first use too, which pins whatever is
+   * still unpinned: a dish added later, or a pin that failed at creation.
    */
   async pinRecipes(
     bookingId: string,
