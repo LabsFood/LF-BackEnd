@@ -147,8 +147,18 @@ export const envValidationSchema = Joi.object({
   GOOGLE_MAPS_API_KEY: Joi.string().allow('').optional(),
 
   SUPABASE_URL: Joi.string().uri().allow('').optional(),
-  SUPABASE_SERVICE_ROLE_KEY: Joi.string().allow('').optional(),
-  SUPABASE_ANON_KEY: Joi.string().allow('').optional(),
+  /**
+   * Secret API key for Storage (`sb_secret_…`). The legacy `service_role` JWT is refused,
+   * so the legacy keys can stay deactivated in Supabase.
+   */
+  SUPABASE_SECRET_KEY: Joi.string()
+    .pattern(/^sb_secret_/)
+    .allow('')
+    .optional()
+    .messages({
+      'string.pattern.base':
+        'SUPABASE_SECRET_KEY must be a Supabase secret key (sb_secret_…), not the legacy service_role JWT',
+    }),
   /** Private bucket for KYC documents. Must not allow public reads. */
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
   /** Private bucket for conversation attachments. Must not allow public reads. */

@@ -4,7 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
 import { PrismaClient } from '../generated/prisma/client';
-import { postgresSsl } from '../supabase/db-connection';
+import { postgresPoolConfig } from '../supabase/db-connection';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -12,12 +12,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly pool: Pool;
 
   constructor(config: ConfigService) {
-    const dbUrl = config.getOrThrow<string>('supabase.dbUrl');
-    const ssl = postgresSsl(dbUrl);
-    const pool = new Pool({
-      connectionString: dbUrl,
-      ...(ssl ? { ssl } : {}),
-    });
+    const pool = new Pool(
+      postgresPoolConfig(config.getOrThrow<string>('supabase.dbUrl')),
+    );
     const adapter = new PrismaPg(pool);
     const log = config.get<boolean>('debug')
       ? (['warn', 'error'] as const)

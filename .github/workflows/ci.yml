@@ -24,8 +24,19 @@ jobs:
       # prisma.config.ts throws without a URL; `prisma generate` never connects.
       SUPABASE_DB_URL: postgresql://ci:ci@localhost:5432/ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      # Tests must run on the Node the image ships. A Dependabot bump of the
+      # Dockerfile fails here until both .nvmrc files carry the same version.
+      - name: Node version matches the image
+        working-directory: .
+        run: |
+          set -eu
+          v="$(cat .nvmrc)"
+          [ "$v" = "$(cat apps/.nvmrc)" ] || { echo "::error::.nvmrc ($v) and apps/.nvmrc disagree"; exit 1; }
+          if grep '^FROM ' apps/Dockerfile | grep -v "^FROM node:$v-alpine"; then
+            echo "::error::every FROM in apps/Dockerfile must be node:$v-alpine… (.nvmrc)"; exit 1
+          fi
+      - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -40,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     container: semgrep/semgrep:1.181.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Registry rulesets: OWASP Top 10, Node/Express-style sinks (njsscan),
       # TypeScript, hardcoded secrets, workflow injection, Dockerfile.
       - name: Scan
@@ -81,7 +92,7 @@ jobs:
       run:
         working-directory: apps
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Reads the lockfile only, no install. Lists every advisory, blocks on critical.
       # ponytail: raise to --audit-level=high once `npm audit fix` clears the current highs.
       - run: npm audit --omit=dev --audit-level=critical

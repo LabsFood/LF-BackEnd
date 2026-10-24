@@ -6,7 +6,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 
 | Layer            | Choice                                                                 |
 | ---------------- | ---------------------------------------------------------------------- |
-| Runtime          | Node.js 22                                                             |
+| Runtime          | Node.js 24                                                             |
 | Framework        | NestJS 11 + **Fastify** adapter                                        |
 | API style        | REST controllers, `@nestjs/swagger`                                    |
 | Persistence      | PostgreSQL 16 (Supabase-hosted or local Docker)                        |
@@ -14,10 +14,9 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Realtime / limits | Redis 7, optional: messaging rate limit and WebSocket fan-out between instances |
 | Repo path        | [`apps/`](./apps/) — NestJS source (`apps/src/`)                       |
 
-> **Node version.** The image builds on `node:22-alpine` ([`apps/Dockerfile`](./apps/Dockerfile)), but
-> `.nvmrc` and `apps/.nvmrc` still say `20`, so nvm and the CI lint and test job (`setup-node` reads
-> `.nvmrc`) run Node 20. The unmerged branch `fix/node-pin-db-tls` pins Node 22.23.4 in all three
-> and makes CI check they agree.
+> **Node version.** Every stage of [`apps/Dockerfile`](./apps/Dockerfile), `.nvmrc` and `apps/.nvmrc`
+> pin the same Node (24.22.1), so nvm, the CI lint and test job and the image all run it. CI fails
+> if they disagree, and Dependabot opens the PR for each new `node:24` image.
 
 ## Authentication & roles
 

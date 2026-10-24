@@ -52,7 +52,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Supabase Storage client (KYC documents and message attachments). A secret key (`sb_secret_…`) per environment; the legacy `service_role` JWT is refused at startup |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
 | `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |

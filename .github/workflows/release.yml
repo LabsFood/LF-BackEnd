@@ -29,14 +29,14 @@ jobs:
       # The commit that passed the smoke test. If main has moved since,
       # semantic-release skips and the newer commit's run releases instead.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: semantic-release
         env:

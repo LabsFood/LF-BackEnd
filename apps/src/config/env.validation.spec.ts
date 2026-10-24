@@ -59,3 +59,27 @@ describe('envValidationSchema — URSSAF_GATEWAY', () => {
     expect(error?.message).toMatch(/URSSAF_GATEWAY/);
   });
 });
+
+describe('envValidationSchema — SUPABASE_SECRET_KEY', () => {
+  const validate = (env: Record<string, string>) =>
+    envValidationSchema.validate(
+      { ...REQUIRED, ...env },
+      { allowUnknown: true, abortEarly: false },
+    );
+
+  it('accepts a secret API key', () => {
+    expect(validate({ SUPABASE_SECRET_KEY: 'sb_secret_x' }).error).toBeUndefined();
+  });
+
+  it('refuses the legacy service_role JWT, so the legacy keys can stay off', () => {
+    const { error } = validate({
+      SUPABASE_SECRET_KEY: 'legacy-service-role-jwt',
+    });
+    expect(error?.message).toMatch(/SUPABASE_SECRET_KEY must be a Supabase secret key/);
+  });
+
+  it('stays optional', () => {
+    expect(validate({ SUPABASE_SECRET_KEY: '' }).error).toBeUndefined();
+    expect(validate({}).error).toBeUndefined();
+  });
+});

@@ -9,7 +9,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 | Layer                           | Choice                                                                        |
 | ------------------------------- | ----------------------------------------------------------------------------- |
-| Runtime / application framework | Node.js 22, **NestJS 11** with **Fastify** adapter                            |
+| Runtime / application framework | Node.js 24, **NestJS 11** with **Fastify** adapter                            |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)                      |
 | ORM / migrations                | **Prisma 7** (`apps/prisma/`)                                                 |
 | Database                        | PostgreSQL 16 (Supabase in production)                                        |
@@ -17,10 +17,9 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Containers                      | Docker / Docker Compose                                                       |
 | Hosting                         | **Railway**                                                                   |
 
-> **Node version.** The image builds on `node:22-alpine` ([`apps/Dockerfile`](./apps/Dockerfile)), but
-> `.nvmrc` and `apps/.nvmrc` still say `20`, so nvm and the CI lint and test job (`setup-node` reads
-> `.nvmrc`) run Node 20. The unmerged branch `fix/node-pin-db-tls` pins Node 22.23.4 in all three
-> and makes CI check they agree.
+> **Node version.** Every stage of [`apps/Dockerfile`](./apps/Dockerfile), `.nvmrc` and `apps/.nvmrc`
+> pin the same Node (24.22.1), so nvm, the CI lint and test job and the image all run it. CI fails
+> if they disagree, and Dependabot opens the PR for each new `node:24` image.
 
 ## Third-party services
 

@@ -1,6 +1,7 @@
 import { defineConfig } from 'prisma/config';
 
 import { loadRepoEnv } from './src/config/env-files';
+import { prismaCliUrl } from './src/supabase/db-connection';
 
 loadRepoEnv();
 
@@ -27,6 +28,7 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url,
+    // Verifies the Supabase certificate: the CLI's driver accepts any certificate otherwise.
+    url: prismaCliUrl(url),
   },
 });

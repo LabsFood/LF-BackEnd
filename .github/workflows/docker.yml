@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -135,6 +135,9 @@ jobs:
 
           echo "GET /health:"; curl -fsS http://localhost:8000/health; echo
           echo "GET /ready:";  curl -fsS http://localhost:8000/ready;  echo
+          echo "Supabase TLS settings load inside the image (CA file shipped):"
+          docker run --rm --entrypoint node "${TEST_IMAGE}" -e \
+            "const { postgresPoolConfig, prismaCliUrl } = require('./dist/supabase/db-connection'); const url = 'postgresql://u:p@db.example.supabase.co:5432/postgres'; if (!postgresPoolConfig(url).ssl?.rejectUnauthorized) process.exit(1); require('fs').accessSync(new URL(prismaCliUrl(url)).searchParams.get('sslcert')); console.log('ok')"
           echo "Smoke test passed."
 
       - name: Teardown smoke test
