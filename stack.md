@@ -10,7 +10,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Framework        | NestJS 11 + **Fastify** adapter                                        |
 | API style        | REST controllers, `@nestjs/swagger`                                    |
 | Persistence      | PostgreSQL 16 (Supabase-hosted or local Docker)                        |
-| ORM / migrations | **Prisma 7.6** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
+| ORM / migrations | **Prisma 7.10** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
 | Realtime / limits | Redis 7, optional: messaging rate limit and WebSocket fan-out between instances |
 | Repo path        | [`apps/`](./apps/) — NestJS source (`apps/src/`)                       |
 
