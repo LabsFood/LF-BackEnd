@@ -9,7 +9,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 | Layer                           | Choice                                                                        |
 | ------------------------------- | ----------------------------------------------------------------------------- |
-| Runtime / application framework | Node.js 22, **NestJS 11** with **Fastify** adapter                            |
+| Runtime / application framework | Node.js 24, **NestJS 11** with **Fastify** adapter                            |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)                      |
 | ORM / migrations                | **Prisma 7** (`apps/prisma/`)                                                 |
 | Database                        | PostgreSQL 16 (Supabase in production)                                        |
