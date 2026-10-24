@@ -4,7 +4,7 @@
 
 ### Application specifications
 
-Consider [`docs/SPEC-BACKEND.md`](docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](docs/SPEC-ADMIN-DASHBOARD.md) as the main guide for product intent and API direction. Track gaps and decisions in [`docs/evolution/platform-spec-alignment-evolution.md`](docs/evolution/platform-spec-alignment-evolution.md). Stack and backend architecture: [`stack.md`](stack.md), [`docs/architecture.md`](docs/architecture.md).
+The product specs `docs/SPEC-BACKEND.md` and `docs/SPEC-ADMIN-DASHBOARD.md` and the gap register `docs/evolution/platform-spec-alignment-evolution.md` are **not in this repo**: commit `559c4d6` (2026-10-13) removed them. Read the last committed copy with `git show 559c4d6^:docs/SPEC-BACKEND.md` (same for the others). They give product intent; what is built is in Swagger (`/docs`) and this file. Stack and backend architecture: [`stack.md`](stack.md), [`docs/architecture.md`](docs/architecture.md).
 
 ### Services overview
 
@@ -103,7 +103,7 @@ node -e '
 ```
 
 Use the token as `Authorization: Bearer <token>` against `/thisUser`, `/me`, or
-`/bookings/me`.
+`/me/bookings`.
 
 ### Clerk webhooks and DB sync
 
@@ -162,16 +162,18 @@ signature-verified webhook path must be added to `WEBHOOK_RAW_BODY_PATHS` in
 
 Candidature (creates the account) → KYC documents → admin validation. Module:
 `modules/chef-onboarding/`. Spec: [`FLOW-01-candidature-batch-cooker.md`](../batchcooking-web/docs/api/FLOW-01-candidature-batch-cooker.md) (in `batchcooking-web`),
-PRD: [`.claude/prds/batchcooker-chef-onboarding.prd.md`](.claude/prds/batchcooker-chef-onboarding.prd.md).
+PRD: `.claude/prds/batchcooker-chef-onboarding.prd.md` (not in the repo since `559c4d6`: `git show 559c4d6^:.claude/prds/batchcooker-chef-onboarding.prd.md`).
 
 **Submitting a candidature creates the account**: a Clerk user with no password,
 the `users` row (`role: chef`) and a chef profile with `isVerified` and
 `isActive` false. The candidate is **browse-only** until approval — the
 candidature and its documents are the only things they can act on, enforced in
 the API (`PATCH /me/chef-profile` → `403 CHEF_NOT_VERIFIED`). **Not yet enforced
-on the client-side routes** — `POST /bookings`, `POST /quotes` and
-`POST /me/quotes/:id/accept` accept any chef account, verified or not; that waits
-on the self-dealing guard (see the `ponytail:` note on
+on the client-side routes** — `POST /me/bookings`, `POST /quotes` and
+`POST /me/quotes/:id/offers/:offerId/accept` (and the deprecated
+`POST /me/quotes/:id/accept`) accept any chef account, verified or not, refusing
+only a booking or request addressed to the caller's own profile (`SAME_PERSON`);
+the rest waits on the self-dealing guard (see the `ponytail:` note on
 `assertNoConflictingProfile`). Approval sets
 `isVerified` (and `isActive` if asked) and is refused with
 `409 DOCUMENT_REQUIRED` unless every blocking document is `valid`. A refused
@@ -231,7 +233,7 @@ reapply from it.
 Batch cookers publish their own dishes and weekly menus; admins moderate after the
 fact. Module: `modules/dishes/`. Spec:
 [`FLOW-02-plats-et-menus.md`](../batchcooking-web/docs/api/FLOW-02-plats-et-menus.md) (in `batchcooking-web`), PRD:
-[`.claude/prds/chef-dishes-menus.prd.md`](.claude/prds/chef-dishes-menus.prd.md).
+`.claude/prds/chef-dishes-menus.prd.md` (not in the repo since `559c4d6`: `git show 559c4d6^:.claude/prds/chef-dishes-menus.prd.md`).
 
 - **`meals` is the dish.** `chef_profile_id` is the owner (null: Lab's Food
   content), `created_by_user_id` the author, for attribution only. The legacy
@@ -251,7 +253,9 @@ fact. Module: `modules/dishes/`. Spec:
 - **Recipe versions**: `meals.recipe_version` goes up on every recipe change; a
   booking pins the version it cooks from (`booking_meals.recipe_version`) and the
   content is kept in `meal_recipe_versions`, so the fiche and the shopping list
-  always agree. Pinned on first use while `POST /bookings` answers 501.
+  always agree. Pinned when `POST /me|chef|admin/bookings` creates the booking
+  (best-effort); a dish added later, or a failed pin, is pinned on first use of
+  the fiche or the shopping list.
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 
@@ -434,10 +438,14 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   admin's rate. On card Stripe withholds it; on CESU and immediate advance the
   money never crosses the platform, so it is invoiced and debited by SEPA.
 - **An unpaid commission stops new work, not payments**: a batch cooker with an
-  exhausted commission debit cannot send an offer (`409 COMMISSION_UNPAID`); a
-  client can always pay a prestation already done.
-- **`POST /bookings` stays closed** (`501`): a prestation is created by an accepted
-  offer. The payment branch's direct booking creation was not ported.
+  exhausted commission debit cannot send an offer or be booked
+  (`409 COMMISSION_UNPAID`); a client can always pay a prestation already done.
+- **A prestation is created two ways.** An accepted offer makes it `confirmed`,
+  paid after it took place. `POST /me/bookings` (client), `POST /chef/bookings`
+  (for a client the batch cooker already knows) and `POST /admin/bookings`
+  (availability not checked, audited) make it `pending`, priced on the server:
+  paying it confirms it, and unpaid it holds the slot 72 h before it is
+  cancelled. See _Booking lifecycle_ in [`docs/architecture.md`](docs/architecture.md).
 
 | Actor        | Routes                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
