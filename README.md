@@ -17,6 +17,11 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Containers                      | Docker / Docker Compose                                                       |
 | Hosting                         | **Railway**                                                                   |
 
+> **Node version.** The image builds on `node:22-alpine` ([`apps/Dockerfile`](./apps/Dockerfile)), but
+> `.nvmrc` and `apps/.nvmrc` still say `20`, so nvm and the CI lint and test job (`setup-node` reads
+> `.nvmrc`) run Node 20. The unmerged branch `fix/node-pin-db-tls` pins Node 22.23.4 in all three
+> and makes CI check they agree.
+
 ## Third-party services
 
 | Domain                          | Service                                                                    |
@@ -88,13 +93,11 @@ graph TD
 apps/                  # NestJS + Fastify primary API (src/, prisma/, package.json)
 brevo/                 # Brevo email templates (HTML sources, tests, upload script)
 docs/
-  SPEC-BACKEND.md      # product spec — client API & shared domain
-  SPEC-ADMIN-DASHBOARD.md
   architecture.md      # backend architecture
   auth/                # Clerk integration contract and Clerk ↔ Postgres sync
   payments/            # Stripe payment flow & webhook contract
   deploy/              # Railway production checklist
-  evolution/           # change registers (platform + payments)
+  evolution/           # payments change register
 local-dev/             # full-stack Compose file for the 4 repos (see LOCAL_SETUP.md)
 docker-compose.yml     # postgres, redis, api (local); Railway uses apps/Dockerfile
 railway.toml           # Railway config-as-code
@@ -202,9 +205,7 @@ npm test          # jest unit tests
 - [AGENTS.md](./AGENTS.md) — development guide: local setup, auth testing, and the rules and routes of every feature.
 - [stack.md](./stack.md) — backend stack, integrations, resolved decisions.
 - [docs/architecture.md](./docs/architecture.md) — backend architecture.
-- [docs/SPEC-BACKEND.md](./docs/SPEC-BACKEND.md) — client API & domain spec.
-- [docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md) — admin API spec.
-- [docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md) — spec gap backlog & decisions.
+- `docs/SPEC-BACKEND.md` (client API & domain spec), `docs/SPEC-ADMIN-DASHBOARD.md` (admin API spec) and `docs/evolution/platform-spec-alignment-evolution.md` (spec gap backlog) — **not in this repo**: removed in `559c4d6`; last copy with `git show 559c4d6^:docs/SPEC-BACKEND.md` (same for the others).
 - [docs/auth/clerk-integration-contract.md](./docs/auth/clerk-integration-contract.md) — Clerk frontend ↔ backend contract.
 - [docs/auth/clerk-supabase-sync.md](./docs/auth/clerk-supabase-sync.md) — Clerk ↔ Postgres sync, webhooks, backfill scripts.
 - [docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md) — payment flow, Stripe Connect, commissions, webhook contract.

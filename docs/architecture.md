@@ -1,13 +1,18 @@
 # Backend architecture
 
-This document describes the **LF-BackEnd** API only. Product intent and route contracts come from [SPEC-BACKEND.md](./SPEC-BACKEND.md) and [SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md) (API sections). Stack choices are in [../stack.md](../stack.md). The rules and routes of each delivered feature are in [../AGENTS.md](../AGENTS.md).
+This document describes the **LF-BackEnd** API only. Product intent and route contracts come from `SPEC-BACKEND.md` and `SPEC-ADMIN-DASHBOARD.md` (API sections), which are not in this repo (see [Guiding specs](#guiding-specs)). Stack choices are in [../stack.md](../stack.md). The rules and routes of each delivered feature are in [../AGENTS.md](../AGENTS.md).
 
 ## Guiding specs
 
-| Document                                             | Backend scope                                                                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [SPEC-BACKEND.md](./SPEC-BACKEND.md)                 | Client/batch-cooking API, shared domain model, payments, notifications, stats                                 |
-| [SPEC-ADMIN-DASHBOARD.md](./SPEC-ADMIN-DASHBOARD.md) | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
+| Document                  | Backend scope                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `SPEC-BACKEND.md`         | Client/batch-cooking API, shared domain model, payments, notifications, stats                                 |
+| `SPEC-ADMIN-DASHBOARD.md` | Admin REST surface (`/admin/*`), admin-only entities (Kossam, applications, contact, reviews, team, settings) |
+
+> **Not in this repo.** Commit `559c4d6` (2026-10-13) removed both specs from `docs/`, together with
+> `docs/evolution/platform-spec-alignment-evolution.md` and `docs/Revisions_followup.md`. The last
+> committed copies: `git show 559c4d6^:docs/SPEC-BACKEND.md` (same for the others). Where they and the
+> code disagree, Swagger (`/docs`) and [../AGENTS.md](../AGENTS.md) describe what is built.
 
 Frontend apps (`batchcooking-web`, `labsfood-web`, the admin console) consume this API but are **not** documented here.
 
@@ -20,7 +25,7 @@ Frontend apps (`batchcooking-web`, `labsfood-web`, the admin console) consume th
 | Booking aggregate | **`bookings`**                                                                                       | Spec “reservation” maps to existing booking module/table naming                            |
 | Chef role         | **`chef`** replaces `provider`                                                                       | E1 migration landed; `provider_id` columns kept for compatibility                          |
 | Calendar / chat   | **In-house calendar** (`modules/calendar`), no external provider; chat is in-house (`modules/messaging`), Stream dropped | One thread per client and chef pair, plus support; see AGENTS.md                           |
-| Tracking          | [evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md)   | Gap list and delivery status                                                               |
+| Tracking          | The module table below                                                                               | Gap list and delivery status; the former `platform-spec-alignment-evolution.md` is not in the repo |
 
 ## Services in this repo
 
@@ -73,9 +78,9 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | Module           | Responsibility                                        | Status / primary routes                                                          |
 | ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `auth`           | Clerk session bridge, role resolution                 | **Done** — Clerk + `UsersService` upsert; `POST /auth/register`                  |
-| `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`; account/GDPR routes to do  |
+| `users`          | User row + **client profile** (CRM fields)            | **Done** — `GET/PATCH /me/profile`, `/admin/clients`, account deletion (`DELETE /me`, `DELETE /admin/users/:id`); GDPR export and account settings to do |
 | `catalog`        | Meals, weekly menu, formules                          | **Done** — admin meals/menu-weeks/formules                                       |
-| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — `/me/bookings`, `/chef/bookings`, `/admin/bookings`; old `/bookings/*` deprecated |
+| `bookings`       | Session lifecycle, reference `LF-…`, meals on booking | **Done** — creation (`pending`) and follow-up on `/me/bookings`, `/chef/bookings`, `/admin/bookings` |
 | `calendar`       | Working hours, agenda, blocks, free slots, `.ics` feed | **Done** — `/chef/availability`, `/chef/agenda`, `/chef/calendar-feed`, `GET /calendar/feed/:token.ics`, `GET /chefs/:id/availability` |
 | `shopping-lists` | Ingredient aggregation by aisle                       | **Done** — booking detail, `/chef-missions/:id/shopping-list`                    |
 | `quotes`         | Sur-mesure requests & offers                          | **Done** — `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `/admin/quotes`      |
@@ -88,7 +93,7 @@ Modules below are the NestJS boundaries the specs call for, with where each one 
 | `notifications`  | Email/SMS/in-app + preferences                        | Partial — Brevo emails per flow; no in-app, SMS or preferences                   |
 | `stats`          | Dashboard aggregations                                | **Done** — `GET /me/dashboard`, `GET /me/stats`, `GET /admin/dashboard`          |
 | `admin`          | Guards, badges, settings singleton                    | Partial — `AdminGuard`, `/admin/settings/commission`; badges to do               |
-| `team`           | Chefs/staff & service zones                           | Partial — `GET /admin/chefs` (read-only); zones to do                            |
+| `team`           | Chefs/staff & service zones                           | Partial — `GET /admin/chefs`, chef zones (`PATCH /admin/chefs/:id/zones`); staff to do |
 
 Spec uses `/me/reservations`; implementation keeps **`bookings`** paths, split by audience: `/me/bookings`
 (client), `/chef/bookings` (batch cooker), `/admin/bookings`.
@@ -261,7 +266,7 @@ flowchart TB
 
 ```
 
-Every route needs a Clerk bearer token unless listed as public; `/admin/*` additionally requires the persisted `admin` role. Public: `/health`, `/ready`, `POST /auth/register`, `POST /chef-applications`, `POST /contact-messages`, `GET /referentials/*`, `GET /menus/current`, `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /chefs/:chefProfileId/cesu-info`, and the two webhooks.
+Every route needs a Clerk bearer token unless listed as public; `/admin/*` additionally requires the persisted `admin` role. Public: `/health`, `/ready`, `POST /auth/register`, `POST /chef-applications`, `POST /contact-messages`, `GET /referentials/*`, `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /chefs/:id/availability`, `GET /chefs/:chefProfileId/cesu-info`, `GET /calendar/feed/:token.ics` (the token is the secret), and the two webhooks.
 
 `POST /webhooks/clerk` and `POST /webhooks/stripe` are public but **signature-verified** against the raw request bytes (Svix and Stripe respectively). The Fastify `preParsing` hook in `apps/src/main.ts` captures the raw body for the paths listed in `apps/src/auth/fastify-raw-body.ts` — a re-serialised JSON body would fail verification.
 
@@ -289,36 +294,36 @@ Swagger (`/docs`) is the complete, current list. By area:
 | Area                    | Routes                                                                                                   | Auth                    |
 | ----------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------- |
 | Health                  | `GET /health`, `GET /ready`                                                                              | public                  |
-| Account                 | `POST /auth/register`; `GET /thisUser`, `GET /me`, `/me/profile`, `/me/chef-profile`, `/me/avatar`       | public; Clerk           |
+| Account                 | `POST /auth/register`; `GET /thisUser`, `GET\|DELETE /me`, `/me/profile`, `/me/chef-profile`, `/me/avatar` | public; Clerk           |
 | Chef onboarding         | `/chef-applications`, `/me/chef-application`, `/me/chef-documents`, `/referentials/*`                    | public; Clerk           |
 | Dishes & menus          | `/me/dishes`, `/me/menus`, `/me/showcase`, `/me/suggestions`, `/me/offers`, `/menus/week`, `/chefs/:id`  | Clerk; public           |
 | Missions                | `/chef-missions/:id/*`, `GET /me/culinary-map`                                                           | Clerk                   |
-| Bookings                | `/me/bookings`, `/chef/bookings` (+ photos); old `/bookings/*` deprecated                                | Clerk                   |
+| Bookings                | `/me/bookings`, `/chef/bookings` (create, change, reschedule; + photos)                                  | Clerk                   |
 | Agenda                  | `/chef/availability`, `/chef/agenda` (+ `/summary`, `/blocks`), `/chef/calendar-feed`; `GET /me/bookings/:id/calendar.ics`; `GET /chefs/:id/availability`, `GET /calendar/feed/:token.ics` | Clerk; public (feed: secret link) |
 | Quotes & offers         | `POST /quotes`, `/me/quotes`, `/me/chef/quotes`, `GET /pricing-rules`                                    | Clerk                   |
 | Messaging               | `/me/conversations`, `/ws`                                                                               | Clerk                   |
 | Payments                | `/payments/*`, `/me/bookings/:id/payment-*`, `/me/bookings/:id/cesu-proof/upload-url`, `/me/cesu-payments/:id/proof*`, `/bookings/:id/settle`, `/me/urssaf-links`, `/me/chef/*`, `/me/chef-profile/{stripe-connect,sepa-mandate,sap}`, `/me/fiscal-attestations/:year` | Clerk |
 | Contact                 | `POST /contact-messages`                                                                                 | public                  |
 | Stats                   | `GET /me/dashboard`, `GET /me/stats`                                                                     | Clerk                   |
-| Admin                   | everything under `/admin/*` (incl. `/admin/bookings`), plus the deprecated `GET /bookings` and `/bookings/admin/bookings/:id` | Clerk + `admin`         |
+| Admin                   | everything under `/admin/*` (incl. `/admin/bookings`)                                                    | Clerk + `admin`         |
 | Webhooks                | `POST /webhooks/stripe`, `POST /webhooks/clerk`                                                          | signature (public)      |
 
 ### Client / public backlog (SPEC-BACKEND)
 
-Account/notification settings, GDPR export and deletion routes, in-app notifications, an admin refund flow.
+Account/notification settings, GDPR export, in-app notifications, an admin refund flow.
 
 ### Admin backlog (SPEC-ADMIN-DASHBOARD)
 
-`/admin/dashboard/badges`, booking status changes and cancellation, kossam-orders, reviews, team & zones, settings beyond the commission.
+`/admin/dashboard/badges`, kossam-orders, reviews, team (staff; chef zones are done), settings beyond the commission.
 
 ## Documentation map
 
 | File                                                                                             | Role                               |
 | ------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| [evolution/platform-spec-alignment-evolution.md](./evolution/platform-spec-alignment-evolution.md) | Platform spec gap & backlog        |
+| `evolution/platform-spec-alignment-evolution.md` (not in the repo, see [Guiding specs](#guiding-specs)) | Platform spec gap & backlog        |
 | [auth/clerk-integration-contract.md](./auth/clerk-integration-contract.md)                       | Clerk frontend ↔ backend contract  |
 | [payments/stripe-payments-contract.md](./payments/stripe-payments-contract.md)                   | Payment flow, webhooks, commission |
 | [evolution/payments-stripe-cb-evolution.md](./evolution/payments-stripe-cb-evolution.md)         | Payments change register           |
 | [deploy/railway.md](./deploy/railway.md)                                                         | Production deploy checklist        |
 | [database-connection.md](./database-connection.md)                                               | Supabase URLs                      |
-| [Revisions_followup.md](./Revisions_followup.md)                                                 | Release register                   |
+| `Revisions_followup.md` (not in the repo, see [Guiding specs](#guiding-specs))                   | Former release register; versions now come from semantic-release ([deploy/railway.md](./deploy/railway.md) §5) |

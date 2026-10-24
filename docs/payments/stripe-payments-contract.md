@@ -7,13 +7,15 @@ direct-debit mandate, and the "service à la personne" (SAP) fiscal data.
 Companion documents: [`../auth/clerk-integration-contract.md`](../auth/clerk-integration-contract.md)
 (who the caller is), [`../evolution/payments-stripe-cb-evolution.md`](../evolution/payments-stripe-cb-evolution.md)
 (what changed and why), _Paying a prestation (FLOW-03)_ in [`../../AGENTS.md`](../../AGENTS.md)
-(every payment route and rule), [`../SPEC-BACKEND.md`](../SPEC-BACKEND.md) §4.3 (product intent).
+(every payment route and rule), `SPEC-BACKEND.md` §4.3 (product intent; not in this repo since
+`559c4d6`, see `git show 559c4d6^:docs/SPEC-BACKEND.md`).
 
 ## 1. Model in one paragraph
 
-A prestation is created when a client accepts an offer, already `confirmed`, and is paid
-**after** it took place. A card payment is a **Stripe Connect destination charge**: the
-client is charged on the **platform** account; Stripe forwards the amount to the chef's
+A prestation accepted from an offer is created `confirmed` and paid **after** it took place;
+one booked through `POST /me/bookings` (or `/chef/bookings`, `/admin/bookings`) is created
+`pending` and confirmed by its payment (§3 _Booking creation_). A card payment is a **Stripe
+Connect destination charge**: the client is charged on the **platform** account; Stripe forwards the amount to the chef's
 **connected account** minus `application_fee_amount`, which the platform keeps as its
 commission. The commission is therefore collected atomically with the payment — there is
 no second debit, and no payout job to run. The backend never sees card details: it hands
@@ -42,7 +44,7 @@ sequenceDiagram
 
 | Actor | Must have | How |
 |-------|-----------|-----|
-| Client | Clerk session, a booking they own that is due | Accepting an offer (`POST /me/quotes/:id/offers/:offerId/accept`) |
+| Client | Clerk session, a booking they own that is due | Accepting an offer (`POST /me/quotes/:id/offers/:offerId/accept`), or booking (`POST /me/bookings`, or a batch cooker or admin booking for them) |
 | Chef | Verified chef profile | Approved candidature (FLOW-01) |
 | Chef | Connect account with `chargesEnabled` **and** `payoutsEnabled` | `POST /me/chef-profile/stripe-connect/link`, then Stripe hosted onboarding |
 | Platform | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (+ `STRIPE_CONNECT_WEBHOOK_SECRET` when deployed) | see §6 |

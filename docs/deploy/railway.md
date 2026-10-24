@@ -4,6 +4,10 @@ Production runs the **NestJS API** from [`apps/Dockerfile`](../../apps/Dockerfil
 
 ## 1. Create the service
 
+> **Production is not deployed this way any more**: its service runs an image that
+> GitHub Actions built and pushed to GHCR, promoted by a workflow (§5). The steps
+> below are for a service Railway builds itself from the repository.
+
 1. [Railway](https://railway.com/) → **New Project** → **Deploy from GitHub repo** → select `LF-BackEnd`.
 2. Railway reads [`railway.toml`](../../railway.toml): Docker build from `apps/Dockerfile`, health check `GET /health`.
 3. Do **not** deploy the Compose `postgres` service on Railway; use Supabase for the database.
@@ -179,33 +183,66 @@ WHERE a.action = 'document.read' ORDER BY a.created_at DESC;
 
 ## 4c. Scheduled jobs
 
-Three jobs run in-process via `@nestjs/schedule`. There is no queue.
+Five jobs run in-process via `@nestjs/schedule`. There is no queue.
 
 | Job | When | What |
 |-----|------|------|
 | `ChefDossierCron` | daily, 06:00 | Document expiry warnings, automatic suspension, retention purge |
 | `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
 | `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
+| `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h |
+| `booking-reschedules-expiry` | hourly | Lapses reschedule proposals nobody answered in time |
 
 **If you scale the API past one replica, every replica will run them.** The
-messaging and offer jobs claim their rows, so a double run is harmless. The
+messaging, offer and booking jobs claim their rows, or only move rows still in
+the state they expect, so a double run is harmless. The
 chef-dossier steps are idempotent, but move that job to a queue or a Postgres
 advisory lock before relying on that at scale. See `ChefDossierCron`.
 
 ## 5. Deploy flow
 
-On each deploy Railway:
+### Production: an image promoted from GHCR
 
-1. Builds `apps/Dockerfile` (context: repository root `.`).
-2. Starts container → entrypoint runs **`prisma migrate deploy`** → **`node dist/main.js`**.
-3. Probes **`/health`** until success.
+Railway does not build production. GitHub Actions builds and tests the image,
+and a reviewed workflow points the production service at it:
+
+1. **Gate**: `docker.yml` ("LF API Server image") runs on pushes to `main` and
+   `develop`, on version tags and on pull requests to either branch. Its first
+   job is `ci.yml`: lint and unit tests, Semgrep SAST, `npm audit`.
+2. **Image**: `docker.yml` builds `apps/Dockerfile`, runs it against a throwaway
+   Postgres (migrations, `/health`, `/ready`) and, except for pull requests,
+   pushes it to GHCR, tagged `sha-<short commit>` among others.
+3. **Release**: once that passes for a push to `main`, `release.yml`
+   ("SemRelease") runs semantic-release. The version comes from the Conventional
+   Commit messages since the last `v*.*.*` tag, hence the PR-title check in
+   `pr-title.yml`. A new version starts `deploy-production.yml` with its tag.
+4. **Promote**: `deploy-production.yml` ("Deploy production") resolves the tag to
+   a commit on `main` whose `sha-…` image exists (a `chore(release)` commit uses
+   its parent's), then **waits for a reviewer** on the GitHub `production`
+   environment. Once approved, it sets that image as the service's source,
+   deploys it, waits up to 15 minutes for Railway to report it live, and
+   smoke-tests `/health` and `/ready`.
+
+It can also be run by hand: **Actions → Deploy production → Run workflow**, with a
+tag or a commit on `main`. **Rollback**: run it again with an older tag. The
+reviewers, the main-only rule and the Railway token are on the `production`
+environment (GitHub **Settings → Environments**); the service and environment
+ids are in the workflow file.
+
+### What every deploy runs
+
+1. The container entrypoint runs **`prisma migrate deploy`** (with
+   `SUPABASE_DB_MIGRATION_URL`), then **`node dist/main.js`**.
+2. A service Railway builds from the repository (§1) builds `apps/Dockerfile`
+   first (context: repository root `.`) and probes **`/health`**, per
+   `railway.toml`. An image-sourced service builds nothing.
 
 ## 6. Local Docker vs Railway
 
 |          | Local Compose              | Railway                  |
 | -------- | -------------------------- | ------------------------ |
 | Database | `postgres` service         | Supabase                 |
-| Build    | `docker compose build api` | Git push / Railway build |
+| Build    | `docker compose build api` | GitHub Actions → GHCR image, promoted by `deploy-production.yml` (§5) |
 | Env      | Repo-root `.env`           | Railway dashboard        |
 
 See **Getting started → Docker Compose** in the main [README](../../README.md).

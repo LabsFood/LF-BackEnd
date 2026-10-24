@@ -1,15 +1,15 @@
 name: SemRelease
 
-# Cut a semantic-release from main once "LF API Server image" (build + migrate +
-# health-check smoke test) has passed for that exact commit. The version comes
-# from Conventional Commit messages since the last v*.*.* tag; CHANGELOG.md and
-# apps/package.json are committed back to main as "chore(release): x.y.z [skip ci]".
+# Called by "LF API Server image" (docker.yml) once the build + migrate +
+# health-check smoke test has passed for a push to main. It must run inside that
+# run, not from a workflow_run trigger: workflow_run sets GITHUB_REF to the
+# repository's default branch (develop), so semantic-release saw "develop" and
+# published nothing. The version comes from Conventional Commit messages since
+# the last v*.*.* tag; CHANGELOG.md and apps/package.json are committed back to
+# main as "chore(release): x.y.z [skip ci]".
 
 on:
-  workflow_run:
-    workflows: [LF API Server image]
-    types: [completed]
-    branches: [main]
+  workflow_call:
 
 concurrency:
   group: release
@@ -23,8 +23,6 @@ permissions:
 
 jobs:
   release:
-    # Pushes only: skips tag pushes and manual runs of the LF API Server workflow.
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
 
     steps:
@@ -33,7 +31,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Node

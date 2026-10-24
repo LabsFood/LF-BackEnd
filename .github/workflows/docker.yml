@@ -59,7 +59,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       # Build once, load into the runner's Docker so we can run it before
       # pushing. GitHub Actions cache (type=gha) keeps rebuilds fast.
@@ -167,3 +167,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Pushes to main only (not develop, PRs or tags). SemRelease tags the commit,
+  # publishes the GitHub Release and queues "Deploy production".
+  release:
+    needs: build-run-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    uses: ./.github/workflows/release.yml
