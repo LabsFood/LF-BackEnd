@@ -16,7 +16,11 @@ import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
 import { commissionForPayment } from './commission-policy';
 import { assertPayable, paymentPhase } from './payment-rules';
-import { bookingCoverage, settlePayment } from './payment-settlement';
+import {
+  assertNoPendingCesu,
+  bookingCoverage,
+  settlePayment,
+} from './payment-settlement';
 import { UrssafGateway } from './urssaf.gateway';
 
 const BPS = 10_000;
@@ -27,6 +31,12 @@ export type BookingPaymentState = 'not-due' | 'due' | 'processing' | 'paid' | 'f
 export type UrssafReasonCode =
   'URSSAF_LINK_NONE' | 'URSSAF_LINK_PENDING' | 'URSSAF_LINK_REFUSED';
 
+/** Why a method is blocked: the advance's own codes, or a CESU declaration under way. */
+export type MethodReasonCode = UrssafReasonCode | 'CESU_PENDING';
+
+const CESU_PENDING_REASON =
+  'Vos titres CESU attendent la confirmation du batch cooker : le solde se règle ensuite.';
+
 /** Shown as written by the site: addressed to the client, in French. */
 const URSSAF_REASON: Record<UrssafReasonCode, string> = {
   URSSAF_LINK_NONE:
@@ -35,10 +45,15 @@ const URSSAF_REASON: Record<UrssafReasonCode, string> = {
   URSSAF_LINK_REFUSED: 'L’URSSAF a refusé le rattachement à ce batch cooker.',
 };
 
+const REASONS: Record<MethodReasonCode, string> = {
+  ...URSSAF_REASON,
+  CESU_PENDING: CESU_PENDING_REASON,
+};
+
 export interface PaymentMethodOption {
   id: 'urssaf' | 'card' | 'cesu';
   available: boolean;
-  reasonCode?: UrssafReasonCode;
+  reasonCode?: MethodReasonCode;
   reason?: string;
   /** What the client pays on the site, now, with this method. */
   dueNowCents: number;
@@ -85,6 +100,10 @@ export class BookingPaymentsService {
     const coverage = await bookingCoverage(this.prisma, booking);
     const remaining = coverage.remainingAmountCents;
     const methods: PaymentMethodOption[] = [];
+    const cesuPending =
+      (await this.prisma.payment.count({
+        where: { bookingId: booking.id, method: 'cesu', status: 'pending' },
+      })) > 0;
 
     if (
       this.urssaf.enabled &&
@@ -95,8 +114,9 @@ export class BookingPaymentsService {
           clientId_chefProfileId: { clientId: client.id, chefProfileId: chef.id },
         },
       });
-      const reasonCode: UrssafReasonCode | null =
-        link?.status === 'active'
+      const reasonCode: MethodReasonCode | null = cesuPending
+        ? 'CESU_PENDING'
+        : link?.status === 'active'
           ? null
           : link?.status === 'pending'
             ? 'URSSAF_LINK_PENDING'
@@ -106,14 +126,21 @@ export class BookingPaymentsService {
       methods.push({
         id: 'urssaf',
         available: reasonCode === null,
-        ...(reasonCode ? { reasonCode, reason: URSSAF_REASON[reasonCode] } : {}),
+        ...(reasonCode ? { reasonCode, reason: REASONS[reasonCode] } : {}),
         // Nothing is paid on the site: URSSAF debits the client's share afterwards.
         dueNowCents: 0,
         debitedLaterCents: afterTaxCredit(remaining),
       });
     }
     if (chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled) {
-      methods.push({ id: 'card', available: true, dueNowCents: remaining });
+      methods.push({
+        id: 'card',
+        available: !cesuPending,
+        ...(cesuPending
+          ? { reasonCode: 'CESU_PENDING' as const, reason: CESU_PENDING_REASON }
+          : {}),
+        dueNowCents: remaining,
+      });
     }
     if (chef.sapProfile?.acceptsCesu && chef.sapProfile.crcesuNan) {
       methods.push({
@@ -205,6 +232,7 @@ export class BookingPaymentsService {
       });
     }
 
+    await assertNoPendingCesu(this.prisma, booking.id);
     const coverage = await bookingCoverage(this.prisma, booking);
     const amountTtc = coverage.remainingAmountCents;
     if (amountTtc <= 0) {

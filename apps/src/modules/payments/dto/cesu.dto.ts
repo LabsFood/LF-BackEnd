@@ -29,10 +29,14 @@ import { CESU_SUPPORTED_ISSUERS } from '../chef-cesu-info';
 /** The `uploadId` a proof upload link comes with. */
 const PROOF_UPLOAD_ID = /^up_[a-f0-9]{24}$/;
 
+/** What a settlement can hold: paper rows may exist from before it was withdrawn. */
 export const CESU_MEDIUMS = [
   'ecesu',
   'cesu_paper',
 ] as const satisfies readonly CesuMedium[];
+
+/** What a client can declare today: paper is no longer offered, e-CESU only. */
+export const CESU_DECLARABLE_MEDIUMS = ['ecesu'] as const satisfies readonly CesuMedium[];
 
 /**
  * `POST /payments/cesu` — the client declaring a prefinanced CESU payment they already
@@ -64,20 +68,19 @@ export class DeclareCesuPaymentDto {
   amountTtc!: number;
 
   @ApiProperty({
-    enum: CESU_MEDIUMS,
+    enum: CESU_DECLARABLE_MEDIUMS,
     description:
-      'Electronic CESU (the main circuit) or paper titres. For paper the platform ' +
-      'provides the payment method, the invoice and the commission debit only — ' +
-      'depositing, validating and cashing the titres is the chef own responsibility.',
+      'Electronic CESU, the only circuit offered. Paper titres are no longer accepted ' +
+      '(`cesu_paper` is refused with a 400); existing paper settlements stay readable.',
     example: 'ecesu',
   })
-  @IsIn(CESU_MEDIUMS)
+  @IsIn(CESU_DECLARABLE_MEDIUMS)
   medium!: CesuMedium;
 
   @ApiPropertyOptional({
     enum: CESU_SUPPORTED_ISSUERS,
     description:
-      'Issuer the client paid from. Expected for `ecesu`, irrelevant on paper.',
+      'Issuer the client paid from.',
     example: 'pluxee',
   })
   @IsOptional()

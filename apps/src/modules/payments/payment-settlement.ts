@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
 
 /**
@@ -101,6 +102,28 @@ export async function coveredAmount(
     _sum: { amountTtc: true },
   });
   return covered._sum.amountTtc ?? 0;
+}
+
+/**
+ * Whether a CESU declaration is waiting on the chef. `coveredAmount` leaves it out
+ * (nothing is settled yet), so `remaining` still includes it: a card or advance charge
+ * started now would cover the same amount a second time.
+ */
+export async function assertNoPendingCesu(
+  db: Pick<Prisma.TransactionClient, 'payment'>,
+  bookingId: string,
+): Promise<void> {
+  const pending = await db.payment.count({
+    where: { bookingId, method: 'cesu', status: 'pending' },
+  });
+  if (pending > 0) {
+    throw new ConflictException({
+      code: 'CESU_PENDING',
+      message:
+        'A CESU declaration is waiting for the batch cooker to confirm it. Pay the ' +
+        'balance once it is confirmed, or after it is rejected.',
+    });
+  }
 }
 
 export interface BookingCoverage {

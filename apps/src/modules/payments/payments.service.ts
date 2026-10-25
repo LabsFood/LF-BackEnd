@@ -23,7 +23,11 @@ import {
   PaymentIntentDto,
 } from './dto/payment.dto';
 import { assertPayable, commissionBlockApplies } from './payment-rules';
-import { bookingCoverage, settlePayment } from './payment-settlement';
+import {
+  assertNoPendingCesu,
+  bookingCoverage,
+  settlePayment,
+} from './payment-settlement';
 
 /** PaymentIntent states that can still be confirmed by the client. */
 const CONFIRMABLE_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -152,6 +156,7 @@ export class PaymentsService {
     // The card charge covers **what is left**, not the booking total: the client may
     // already have paid part of it in CESU, and charging the full amount again would
     // overcharge them.
+    await assertNoPendingCesu(this.prisma, booking.id);
     const coverage = await bookingCoverage(this.prisma, booking);
     const amountTtc = coverage.remainingAmountCents;
     if (amountTtc <= 0) {

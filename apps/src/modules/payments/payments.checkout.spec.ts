@@ -46,6 +46,7 @@ function setup(booking: object = DONE_BOOKING) {
     payment: {
       findFirst: jest.fn().mockResolvedValue(null),
       aggregate: jest.fn().mockResolvedValue({ _sum: { amountTtc: 0 } }),
+      count: jest.fn().mockResolvedValue(0),
       update: jest.fn(),
     },
     // Net 170 € on a 200 € offer: Lab's Food keeps 30 €.
