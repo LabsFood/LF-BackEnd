@@ -88,6 +88,12 @@ interface StoredZone {
   cities?: unknown;
 }
 
+interface StoredCity {
+  name?: unknown;
+  dept?: unknown;
+  insee?: unknown;
+}
+
 /**
  * The exact condition of each state. One place: the list filter, the counts and
  * the `state` on every row all read it, so they cannot disagree.
@@ -339,10 +345,15 @@ function zonesOf(row: ChefRow) {
       regionLabel:
         REGION_LABEL.get(zone.regionCode as string) ?? (zone.regionCode as string),
       scope: zone.scope === 'cities' ? ('cities' as const) : ('region' as const),
+      // Whole, as stored: what is read here goes back as is to `PATCH …/zones`.
       cities: Array.isArray(zone.cities)
-        ? zone.cities
-            .map((city) => (city as { name?: unknown }).name)
-            .filter((name): name is string => typeof name === 'string')
+        ? (zone.cities as StoredCity[])
+            .filter((city) => typeof city?.name === 'string')
+            .map((city) => ({
+              name: city.name as string,
+              dept: typeof city.dept === 'string' ? city.dept : null,
+              insee: typeof city.insee === 'string' ? city.insee : null,
+            }))
         : [],
     }));
 }

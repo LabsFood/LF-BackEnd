@@ -84,6 +84,19 @@ export interface RegisterClientResult {
   expiresInSeconds: number;
 }
 
+/**
+ * Every email is transactional, so none can be switched off; SMS does not exist yet.
+ * ponytail: a constant, not a column. Store it per account the day a channel or a
+ * message becomes optional.
+ */
+const NOTIFICATION_PREFERENCES = { email: true, sms: false } as const;
+
+const clientNotFound = () =>
+  new NotFoundException({
+    code: 'CLIENT_NOT_FOUND',
+    message: 'No client profile with this id.',
+  });
+
 /** Identity fields that live on `users`, shared by the client and chef onboarding forms. */
 export interface OwnUserFields {
   firstName?: string;
@@ -395,12 +408,18 @@ export class UsersService {
    */
   async getProfileByClerkUserId(clerkUserId: string) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const notificationPreferences = NOTIFICATION_PREFERENCES;
 
     const chef = await this.prisma.chefProfile.findUnique({
       where: { userId: user.id },
     });
     if (chef) {
-      return { user, profileType: 'chef' as const, profile: chef };
+      return {
+        user,
+        profileType: 'chef' as const,
+        profile: chef,
+        notificationPreferences,
+      };
     }
 
     const client = await this.prisma.clientProfile.findUnique({
@@ -410,6 +429,7 @@ export class UsersService {
       user,
       profileType: client ? ('client' as const) : ('none' as const),
       profile: client,
+      notificationPreferences,
     };
   }
 
@@ -794,22 +814,35 @@ export class UsersService {
     };
   }
 
-  getClientById(id: string) {
-    return this.prisma.clientProfile.findUnique({
+  async getClientById(id: string) {
+    const client = await this.prisma.clientProfile.findUnique({
       where: { id },
       include: { user: true },
     });
+    if (!client) throw clientNotFound();
+    return client;
   }
 
-  updateClientById(id: string, payload: UpdateAdminClientDto) {
-    return this.prisma.clientProfile.update({
-      where: { id },
-      data: {
-        ...payload,
-        status: payload.status as never,
-      },
-      include: { user: true },
-    });
+  async updateClientById(id: string, payload: UpdateAdminClientDto) {
+    try {
+      return await this.prisma.clientProfile.update({
+        where: { id },
+        data: {
+          ...payload,
+          status: payload.status as never,
+        },
+        include: { user: true },
+      });
+    } catch (error) {
+      // Prisma's "no row matched the `where`": a 404, not a 500.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw clientNotFound();
+      }
+      throw error;
+    }
   }
 
   toUserRole(role: AppUserRole): UserRole {

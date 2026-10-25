@@ -75,7 +75,11 @@ const CHEF_DETAIL = {
       regionCode: '93',
       regionLabel: "Provence-Alpes-Côte d'Azur",
       scope: 'cities',
-      cities: ['Nice', 'Antibes', 'Cannes'],
+      cities: [
+        { name: 'Nice', dept: '06', insee: '06088' },
+        { name: 'Antibes', dept: '06', insee: '06004' },
+        { name: 'Cannes', dept: '06', insee: '06029' },
+      ],
     },
   ],
   payoutsConnected: false,
@@ -156,6 +160,8 @@ export class AdminChefsController {
     description:
       'The list row, plus the bio, the zones covered city by city, the SAP route and ' +
       'whether payouts and calendar are connected.\n\n' +
+      '`zones` has the shape `PATCH /admin/chefs/{id}/zones` takes: each city whole, ' +
+      '`{ name, dept, insee }`, so a zone read here can be sent back unchanged.\n\n' +
       '`crcesuAffiliationStatus` and `urssafTiersPrestationStatus` read back what ' +
       '`PATCH /admin/chefs/{id}/sap-external-status` wrote (`not_started`, `pending`, ' +
       '`active`); both are `null` until the batch cooker has declared a SAP route.\n\n' +

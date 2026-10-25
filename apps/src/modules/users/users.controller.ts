@@ -133,7 +133,9 @@ export class UsersController {
     description:
       'The person plus their profile. `profileType` tells which kind `profile` is: ' +
       '`client` (tastes, address, household), `chef` (public batch cooker page), or ' +
-      '`none` with `profile: null` for a client who has not filled in the profile yet.',
+      '`none` with `profile: null` for a client who has not filled in the profile yet.\n\n' +
+      '`notificationPreferences` is `{ "email": true, "sms": false }` for everyone and ' +
+      'cannot be changed: every email is transactional, and SMS does not exist yet.',
   })
   @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
@@ -405,20 +407,19 @@ export class UsersController {
     summary: 'Get one client',
     description:
       'The client profile with its account. `{id}` is the client profile id, as listed ' +
-      'by `GET /admin/clients`, not the account id. An unknown id answers `200` with an ' +
-      'empty body.',
+      'by `GET /admin/clients`, not the account id.',
   })
   @ApiParam({
     name: 'id',
     description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
-  @ApiOkResponse({
-    type: AdminClientDto,
-    description: 'The client, or an empty body if the id is unknown.',
+  @ApiOkResponse({ type: AdminClientDto, description: 'The client.' })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
   })
   @ApiAdminAuthResponses()
-  getClient(@Param('id') id: string) {
+  getClient(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.getClientById(id);
   }
 
@@ -440,8 +441,14 @@ export class UsersController {
     type: AdminClientDto,
     description: 'The updated client.',
   })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
+  })
   @ApiAdminAuthResponses()
-  updateClient(@Param('id') id: string, @Body() payload: UpdateAdminClientDto) {
+  updateClient(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UpdateAdminClientDto,
+  ) {
     return this.users.updateClientById(id, payload);
   }
 }

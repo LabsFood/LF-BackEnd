@@ -8,7 +8,8 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminChefsService } from './admin-chefs.service';
 
-const PACA = [{ regionCode: '93', scope: 'cities', cities: [{ name: 'Nice' }] }];
+const NICE = { name: 'Nice', dept: '06', insee: '06088' };
+const PACA = [{ regionCode: '93', scope: 'cities', cities: [NICE] }];
 const IDF = [{ regionCode: '11', scope: 'region', cities: [] }];
 
 const row = (overrides: Record<string, unknown> = {}) => ({
@@ -186,16 +187,24 @@ describe('AdminChefsService', () => {
       expect((await service.get('chef-1')).calendarConnected).toBe(false);
     });
 
-    it('lists the cities of each zone', async () => {
+    it('lists the cities of each zone whole, as the zones route takes them', async () => {
       const chef = await service.get('chef-1');
       expect(chef.zones).toEqual([
         {
           regionCode: '93',
           regionLabel: "Provence-Alpes-Côte d'Azur",
           scope: 'cities',
-          cities: ['Nice'],
+          cities: [NICE],
         },
       ]);
+    });
+
+    it('gives null for what an older zone never stored', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        row({ interventionZones: [{ ...PACA[0], cities: [{ name: 'Nice' }] }] }),
+      );
+      const chef = await service.get('chef-1');
+      expect(chef.zones[0].cities).toEqual([{ name: 'Nice', dept: null, insee: null }]);
     });
 
     it('reads back the SAP statuses an admin wrote, null before any declaration', async () => {
@@ -241,6 +250,20 @@ describe('AdminChefsService', () => {
           metadata: { before: PACA, after: LYON },
         }),
       );
+    });
+
+    it('takes back unchanged the zones it read', async () => {
+      const { zones } = await service.get('chef-1');
+      await service.setZones('chef-1', zones as never, 'clerk-admin');
+
+      const [{ data }] = prisma.chefProfile.update.mock.calls[0] as [
+        { data: { interventionZones: unknown } },
+      ];
+      expect(data.interventionZones).toEqual(zones);
+      prisma.chefProfile.findFirst.mockResolvedValue(
+        row({ interventionZones: data.interventionZones }),
+      );
+      expect((await service.get('chef-1')).zones).toEqual(zones);
     });
 
     it('leaves a batch cooker not approved yet to the candidature', async () => {

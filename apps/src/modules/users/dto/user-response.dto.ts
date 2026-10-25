@@ -170,6 +170,44 @@ export class ClientProfileDto {
   })
   kitchenNotes?: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    description: 'Street of the service address. `null` until the client sets it.',
+    example: '12 rue de la Paix',
+  })
+  addressStreet!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'City of the service address. `null` until the client sets it.',
+    example: 'Paris',
+  })
+  addressCity!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Postal code of the service address. `null` until the client sets it.',
+    example: '75002',
+  })
+  addressPostalCode!: string | null;
+
+  @ApiProperty({
+    minimum: 1,
+    maximum: 20,
+    description:
+      'Adults in the household, to size portions. `1` until the client sets it.',
+    example: 3,
+  })
+  householdAdults!: number;
+
+  @ApiProperty({
+    minimum: 0,
+    maximum: 20,
+    description: 'Children in the household. `0` until the client sets it.',
+    example: 2,
+  })
+  householdKids!: number;
+
   @ApiPropertyOptional({
     enum: CLIENT_STATUSES,
     description: CLIENT_STATUS_HELP,
@@ -245,6 +283,26 @@ export class ChefProfileDto {
   isVerified!: boolean;
 }
 
+/**
+ * What the platform notifies by. Read-only: every message is transactional, so
+ * none can be switched off. `PATCH /me/profile` refuses this field.
+ */
+export class NotificationPreferencesDto {
+  @ApiProperty({
+    description:
+      'Always `true`. Every email is transactional (bookings, quotes, candidature, ' +
+      'documents, messages) and is sent to the account address.',
+    example: true,
+  })
+  email!: boolean;
+
+  @ApiProperty({
+    description: 'Always `false`: SMS is not implemented yet.',
+    example: false,
+  })
+  sms!: boolean;
+}
+
 /** `GET /me/profile` — persisted user plus whichever profile matches `users.role`. */
 export class UserWithProfileDto {
   @ApiProperty({ type: CurrentUserDto, description: 'Persisted application user.' })
@@ -269,11 +327,20 @@ export class UserWithProfileDto {
       '`profileType` is `none`.',
   })
   profile!: ClientProfileDto | ChefProfileDto | null;
+
+  @ApiProperty({
+    type: NotificationPreferencesDto,
+    description: 'The same for every account, whatever `profileType` is.',
+  })
+  notificationPreferences!: NotificationPreferencesDto;
 }
 
 /** Admin client detail item — profile with nested user. */
 export class AdminClientDto extends ClientProfileDto {
-  @ApiProperty({ type: CurrentUserDto, description: 'Linked application user record.' })
+  @ApiProperty({
+    type: CurrentUserDto,
+    description: 'The client account, with its photo in `avatarUrl`.',
+  })
   user!: CurrentUserDto;
 }
 

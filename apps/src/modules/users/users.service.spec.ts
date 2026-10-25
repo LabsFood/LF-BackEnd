@@ -28,6 +28,7 @@ describe('UsersService', () => {
     clientProfile: {
       findUnique: jest.Mock;
       upsert: jest.Mock;
+      update: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
       deleteMany: jest.Mock;
@@ -62,6 +63,7 @@ describe('UsersService', () => {
       clientProfile: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        update: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
         deleteMany: jest.fn(),
@@ -832,6 +834,41 @@ describe('UsersService', () => {
 
       expect(result.profileType).toBe('none');
       expect(result.profile).toBeNull();
+    });
+
+    it('gives every account the same notifications: email, never SMS', async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        role: UserRole.client,
+      } as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.notificationPreferences).toEqual({ email: true, sms: false });
+    });
+  });
+
+  describe('admin client by id', () => {
+    it('answers 404 CLIENT_NOT_FOUND for an unknown id, not an empty 200', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.getClientById('nope')).rejects.toMatchObject({
+        response: { code: 'CLIENT_NOT_FOUND' },
+      });
+    });
+
+    it('answers 404 CLIENT_NOT_FOUND when updating an unknown id, not a 500', async () => {
+      prisma.clientProfile.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('No record', {
+          code: 'P2025',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.updateClientById('nope', { status: 'vip' } as never),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
     });
   });
 
