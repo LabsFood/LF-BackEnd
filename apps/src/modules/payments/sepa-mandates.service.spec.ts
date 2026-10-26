@@ -274,6 +274,19 @@ describe('SepaMandatesService', () => {
       expect(commissionDebits.collectOutstanding).not.toHaveBeenCalled();
     });
 
+    it('only lets a later signature replace the active one, so a late retry cannot', async () => {
+      await service.confirmCheckout('clerk_1', 'cs_test_1');
+
+      const [{ where }] = prisma.sepaMandate.updateMany.mock.calls[0] as [
+        { where: { OR: Record<string, unknown>[] } },
+      ];
+      expect(where.OR).toEqual([
+        { status: { not: 'active' } },
+        { signedAt: null },
+        { signedAt: { lt: new Date(1_792_972_800 * 1000) } },
+      ]);
+    });
+
     it('lets only one of two simultaneous activations file and debit', async () => {
       prisma.sepaMandate.updateMany.mockResolvedValue({ count: 0 });
 

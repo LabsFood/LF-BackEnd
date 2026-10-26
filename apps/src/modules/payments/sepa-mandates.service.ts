@@ -293,13 +293,16 @@ export class SepaMandatesService {
     const signedAt = acceptedAt ? new Date(acceptedAt * 1000) : new Date();
     const ibanLast4 = paymentMethod.sepa_debit?.last4 ?? null;
 
+    // Only a later signature replaces the active one. Stripe retries each event on its own
+    // schedule, so the webhook of an older attempt can land after a newer signature: it
+    // must not bring the old mandate back, nor file a second copy of it.
     const claimed = await this.prisma.sepaMandate.updateMany({
       where: {
         id: row.id,
         OR: [
           { status: { not: 'active' } },
-          { stripeSetupIntentId: null },
-          { stripeSetupIntentId: { not: setupIntent.id } },
+          { signedAt: null },
+          { signedAt: { lt: signedAt } },
         ],
       },
       data: {
