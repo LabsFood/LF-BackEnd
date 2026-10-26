@@ -40,6 +40,8 @@ export const DOCUMENT_FAMILY: Record<ChefDocumentType, DocumentFamily> = {
   haccp: 'recommended',
   ddpp: 'recommended',
   vigilance: 'recommended',
+  // Not part of the vetting: it never gates approval, it sits in the dossier as proof.
+  sepa_mandate: 'recommended',
 };
 
 /**
@@ -60,7 +62,16 @@ export const DOCUMENT_LABEL: Record<ChefDocumentType, string> = {
   haccp: 'Formation hygiène alimentaire (HACCP)',
   ddpp: 'Récépissé de déclaration DDPP',
   vigilance: 'Attestation de vigilance URSSAF',
+  sepa_mandate: 'Mandat de prélèvement SEPA (commissions Lab’s Food)',
 };
+
+/**
+ * Documents the API writes itself and a chef can only read. The mandate is proof of a
+ * signature Stripe collected: an uploaded file of the same type would be a forgery.
+ */
+export const SYSTEM_DOCUMENT_TYPES: ReadonlySet<ChefDocumentType> = new Set([
+  ChefDocumentType.sepa_mandate,
+]);
 
 /** Documents that lapse, and therefore need `expiresOn` at confirm (FLOW-01 §3.3). */
 export const EXPIRING_DOCUMENT_TYPES: ReadonlySet<ChefDocumentType> = new Set([

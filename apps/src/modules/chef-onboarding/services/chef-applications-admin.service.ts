@@ -217,7 +217,7 @@ export class ChefApplicationsAdminService {
     adminUserId: string,
     requestId?: string,
   ) {
-    const type = this.documents.parseType(wireType);
+    const type = this.documents.parseManualType(wireType);
 
     if (body.decision === 'rejected' && !body.reason?.trim()) {
       throw new UnprocessableEntityException({

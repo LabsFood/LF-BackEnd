@@ -79,6 +79,7 @@ describe('VitrineService', () => {
         'interventionZones',
         'languages',
         'sapProfile',
+        'sepaMandate',
         'user',
       ]);
       // Of the account, the photo only: never the email or the phone.
@@ -87,6 +88,8 @@ describe('VitrineService', () => {
       expect(select.sapProfile).toEqual({
         select: { acceptsCesu: true, crcesuNan: true },
       });
+      // Of the mandate, its status: `acceptsCesu` needs it, the IBAN is never read.
+      expect(select.sepaMandate).toEqual({ select: { status: true } });
     });
 
     it('shows the week’s menu with its published dishes only, and never a recipe', async () => {

@@ -49,6 +49,7 @@ const PUBLIC_CHEF_FIELDS = {
   // The profile photo is the account's; nothing else of the account is read.
   user: { select: { avatarUrl: true } },
   sapProfile: { select: { acceptsCesu: true, crcesuNan: true } },
+  sepaMandate: { select: { status: true } },
 } as const;
 
 type PublicChef = Pick<
@@ -57,6 +58,7 @@ type PublicChef = Pick<
 > & {
   user: { avatarUrl: string | null };
   sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
+  sepaMandate: { status: string } | null;
 };
 
 /** A menu's published dishes: a draft or suspended one never shows (§3.4). */
@@ -326,7 +328,7 @@ export class VitrineService {
           newcomer: sessionsDone === 0,
           avatarUrl: chef.user.avatarUrl,
           // The NAN itself is on `GET /chefs/{id}/cesu-info`, read before paying.
-          acceptsCesu: cesuAccepted(chef.sapProfile),
+          acceptsCesu: cesuAccepted(chef.sapProfile, chef.sepaMandate),
           // No source for these yet: shown empty rather than invented.
           rating: null,
           reviewCount: null,

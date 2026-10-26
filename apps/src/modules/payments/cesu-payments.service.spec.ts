@@ -18,6 +18,7 @@ const CESU_READY_CHEF = {
   isActive: true,
   isVerified: true,
   sapProfile: { acceptsCesu: true, crcesuNan: '1234567' },
+  sepaMandate: { status: 'active' },
 };
 
 const PENDING_BOOKING = {
@@ -311,6 +312,18 @@ describe('CesuPaymentsService', () => {
       await expect(service.declare('clerk_1', DECLARATION)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+
+    it('refuses a chef with no active mandate: their commission could not be debited', async () => {
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        chefProfile: { ...CESU_READY_CHEF, sepaMandate: { status: 'pending' } },
+      });
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toMatchObject({
+        response: { code: 'CESU_NOT_ACCEPTED' },
+      });
+      expect(prisma.payment.create).not.toHaveBeenCalled();
     });
 
     it('refuses a chef who opted in but has no NAN', async () => {
@@ -627,6 +640,7 @@ describe('CesuPaymentsService', () => {
           crcesuNan: '1234567',
           crcesuAffiliationStatus: 'active',
         },
+        sepaMandate: { status: 'active' },
       });
 
       const info = await service.getChefCesuInfo('chef-1');

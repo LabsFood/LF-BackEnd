@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
+import { advanceAccepted, cesuAccepted } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
 import { assertPayable, paymentPhase } from './payment-rules';
 import {
@@ -105,10 +106,7 @@ export class BookingPaymentsService {
         where: { bookingId: booking.id, method: 'cesu', status: 'pending' },
       })) > 0;
 
-    if (
-      this.urssaf.enabled &&
-      chef.sapProfile?.urssafTiersPrestationStatus === 'active'
-    ) {
+    if (this.urssaf.enabled && advanceAccepted(chef.sapProfile, chef.sepaMandate)) {
       const link = await this.prisma.urssafLink.findUnique({
         where: {
           clientId_chefProfileId: { clientId: client.id, chefProfileId: chef.id },
@@ -142,13 +140,13 @@ export class BookingPaymentsService {
         dueNowCents: remaining,
       });
     }
-    if (chef.sapProfile?.acceptsCesu && chef.sapProfile.crcesuNan) {
+    if (cesuAccepted(chef.sapProfile, chef.sepaMandate)) {
       methods.push({
         id: 'cesu',
         available: true,
         dueNowCents: remaining,
         maxCesuCents: remaining,
-        crcesuNan: chef.sapProfile.crcesuNan,
+        crcesuNan: chef.sapProfile?.crcesuNan ?? null,
       });
     }
 
@@ -212,7 +210,7 @@ export class BookingPaymentsService {
     assertPayable(booking);
 
     const chef = booking.chefProfile;
-    if (chef.sapProfile?.urssafTiersPrestationStatus !== 'active') {
+    if (!advanceAccepted(chef.sapProfile, chef.sepaMandate)) {
       throw new ConflictException({
         code: 'URSSAF_NOT_ACCEPTED',
         message: 'This batch cooker does not take the immediate advance.',
@@ -582,7 +580,11 @@ export class BookingPaymentsService {
     const client = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: client.id },
-      include: { chefProfile: { include: { sapProfile: true } } },
+      include: {
+        chefProfile: {
+          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+        },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found.');
     return { booking, client };

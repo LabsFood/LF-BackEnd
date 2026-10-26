@@ -79,8 +79,7 @@ export class DeclareCesuPaymentDto {
 
   @ApiPropertyOptional({
     enum: CESU_SUPPORTED_ISSUERS,
-    description:
-      'Issuer the client paid from.',
+    description: 'Issuer the client paid from.',
     example: 'pluxee',
   })
   @IsOptional()

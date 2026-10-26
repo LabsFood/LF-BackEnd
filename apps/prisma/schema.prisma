@@ -733,6 +733,8 @@ enum ChefDocumentType {
   haccp
   ddpp
   vigilance
+  /// Written by the API when Stripe confirms the commission mandate; never uploaded.
+  sepa_mandate
 
   @@map("chef_document_type")
 }

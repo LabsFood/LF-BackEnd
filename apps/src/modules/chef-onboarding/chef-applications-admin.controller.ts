@@ -13,6 +13,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -172,6 +173,10 @@ export class ChefApplicationsAdminController {
       'REASON_REQUIRED',
       'A refusal reason of 15 to 500 characters is required.',
     ),
+  })
+  @ApiForbiddenResponse({
+    description:
+      '`SYSTEM_DOCUMENT`: `sepa-mandate` is written from the Stripe signature.',
   })
   @ApiNotFoundResponse({
     description: `${NOT_FOUND} Or nothing was uploaded for this type.`,

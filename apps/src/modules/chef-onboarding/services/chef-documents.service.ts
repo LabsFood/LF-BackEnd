@@ -1,8 +1,10 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 
 import {
   ChefApplication,
@@ -20,6 +22,7 @@ import {
   EXPIRING_DOCUMENT_TYPES,
   fromWire,
   requiredDocuments,
+  SYSTEM_DOCUMENT_TYPES,
   toWire,
 } from '../domain/chef-onboarding.rules';
 import { ConfirmUploadDto, CreateUploadUrlDto } from '../dto/chef-document.dto';
@@ -40,6 +43,22 @@ export class ChefDocumentsService {
       throw new NotFoundException(`Unknown document type "${wireType}".`);
     }
     return parsed;
+  }
+
+  /**
+   * A type a person handles — the chef deposits it, an admin decides it: the reference
+   * list minus what the API writes itself. A mandate Stripe confirmed is neither
+   * uploaded nor reviewed; it is revoked at Stripe, not refused here.
+   */
+  parseManualType(wireType: string): ChefDocumentType {
+    const type = this.parseType(wireType);
+    if (SYSTEM_DOCUMENT_TYPES.has(type)) {
+      throw new ForbiddenException({
+        code: 'SYSTEM_DOCUMENT',
+        message: `"${wireType}" is produced by Lab’s Food from a Stripe signature: it cannot be uploaded or decided.`,
+      });
+    }
+    return type;
   }
 
   private prefix(chefProfileId: string): string {
@@ -69,7 +88,7 @@ export class ChefDocumentsService {
     wireType: string,
     body: CreateUploadUrlDto,
   ) {
-    const type = this.parseType(wireType);
+    const type = this.parseManualType(wireType);
     const upload = await this.storage.createUploadUrl(
       this.prefix(chefProfileId),
       type,
@@ -97,7 +116,7 @@ export class ChefDocumentsService {
     body: ConfirmUploadDto,
     requestId?: string,
   ) {
-    const type = this.parseType(wireType);
+    const type = this.parseManualType(wireType);
 
     if (EXPIRING_DOCUMENT_TYPES.has(type) && !body.expiresOn) {
       throw new UnprocessableEntityException({
@@ -161,6 +180,58 @@ export class ChefDocumentsService {
     });
 
     return this.toView(document);
+  }
+
+  /**
+   * Files a document the API produced (`SYSTEM_DOCUMENT_TYPES`) as the next version of
+   * its type, already `valid`: nobody reviews a proof Stripe has just confirmed. Same
+   * versioning as a deposit, so a re-signed mandate keeps the previous one on file.
+   */
+  async recordSystemDocument(
+    chefProfileId: string,
+    type: ChefDocumentType,
+    file: { bytes: Buffer; fileName: string; mimeType: string },
+    metadata: Record<string, unknown> = {},
+  ): Promise<ChefDocument> {
+    if (!SYSTEM_DOCUMENT_TYPES.has(type)) {
+      throw new Error(`${type} is a chef deposit, not a document the API writes.`);
+    }
+    const storagePath = this.storage.buildPath(
+      this.prefix(chefProfileId),
+      type,
+      `sys_${randomBytes(12).toString('hex')}`,
+    );
+    await this.storage.putObject(storagePath, file.bytes, file.mimeType);
+
+    const previous = await this.prisma.chefDocument.findFirst({
+      where: { chefProfileId, type },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const now = new Date();
+    const document = await this.prisma.chefDocument.create({
+      data: {
+        chefProfileId,
+        type,
+        status: ChefDocumentStatus.valid,
+        version: (previous?.version ?? 0) + 1,
+        storagePath,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        sizeBytes: file.bytes.length,
+        submittedAt: now,
+        decidedAt: now,
+      },
+    });
+
+    await this.audit.record({
+      actorType: 'system',
+      action: 'document.generated',
+      subjectType: 'chef_document',
+      subjectId: document.id,
+      metadata: { type: toWire(type), version: document.version, ...metadata },
+    });
+    return document;
   }
 
   /**

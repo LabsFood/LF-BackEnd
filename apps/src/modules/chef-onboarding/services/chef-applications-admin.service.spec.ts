@@ -76,6 +76,7 @@ const makeService = (over: {
     (over.prisma ?? makePrisma()) as unknown as PrismaService,
     {
       parseType: (t: string) => t,
+      parseManualType: (t: string) => t,
       dossier: jest.fn().mockResolvedValue(validatedDossier),
       answersOf: jest.fn(() => ({})),
       toView: jest.fn((d: unknown) => d),

@@ -171,6 +171,27 @@ describe('CommissionDebitsService', () => {
     });
   });
 
+  describe('collectOutstanding', () => {
+    it('debits every invoice still due, and one refusal does not stop the next', async () => {
+      prisma.commissionInvoice.findMany.mockResolvedValue([
+        { id: 'invoice-1', invoiceNumber: 'LF-COM-2026-0007' },
+        { id: 'invoice-2', invoiceNumber: 'LF-COM-2026-0008' },
+      ]);
+      const debit = jest
+        .spyOn(service, 'executeDebit')
+        .mockRejectedValueOnce(new ConflictException('no attempt left'))
+        .mockResolvedValueOnce({} as never);
+
+      await service.collectOutstanding('chef-1');
+
+      expect(prisma.commissionInvoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { chefProfileId: 'chef-1', status: 'issued' } }),
+      );
+      expect(debit).toHaveBeenNthCalledWith(1, 'invoice-1');
+      expect(debit).toHaveBeenNthCalledWith(2, 'invoice-2');
+    });
+  });
+
   describe('executeDebit', () => {
     it('is a direct charge: no on_behalf_of, transfer_data or application fee', async () => {
       // The platform is the seller on facture B, and `on_behalf_of` would invalidate the

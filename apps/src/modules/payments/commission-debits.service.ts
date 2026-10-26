@@ -155,6 +155,32 @@ export class CommissionDebitsService {
   }
 
   /**
+   * A mandate has just become active: every facture B still `issued` for this chef is
+   * debited now rather than waiting for the next trigger. One failure does not stop the
+   * others — `executeDebit` already refuses an invoice with a debit in flight or with no
+   * attempt left, and that refusal is only logged here.
+   */
+  async collectOutstanding(chefProfileId: string): Promise<void> {
+    const invoices = await this.prisma.commissionInvoice.findMany({
+      where: { chefProfileId, status: 'issued' },
+      select: { id: true, invoiceNumber: true },
+      orderBy: { issuedAt: 'asc' },
+    });
+    for (const invoice of invoices) {
+      try {
+        await this.executeDebit(invoice.id);
+      } catch (error) {
+        this.logger.warn({
+          event: 'commission.collect_skipped',
+          chefProfileId,
+          invoiceNumber: invoice.invoiceNumber,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
+  }
+
+  /**
    * Cuts one facture B covering the given commissions, all belonging to the same chef.
    *
    * Amounts are the sum of the frozen lines, not a recomputation: an invoice that did not

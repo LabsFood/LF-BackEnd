@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -127,6 +128,10 @@ export class ChefDocumentsController {
     description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
     example: errorExample('FILE_TOO_LARGE', 'Maximum accepted size is 10 MB.'),
   })
+  @ApiForbiddenResponse({
+    description:
+      '`SYSTEM_DOCUMENT`: `sepa-mandate` is written from the Stripe signature.',
+  })
   @ApiNotFoundResponse({ description: `${NOT_A_CHEF} Or \`{type}\` is unknown.` })
   @ApiClerkAuthResponses()
   async uploadUrl(
@@ -168,6 +173,10 @@ export class ChefDocumentsController {
   @ApiUnprocessableEntityResponse({
     description:
       '`VALIDATION_FAILED`: `expiresOn` missing for a document that expires, or in the past.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      '`SYSTEM_DOCUMENT`: `sepa-mandate` is written from the Stripe signature.',
   })
   @ApiNotFoundResponse({ description: `${NOT_A_CHEF} Or \`{type}\` is unknown.` })
   @ApiClerkAuthResponses()

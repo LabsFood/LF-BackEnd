@@ -155,6 +155,25 @@ export class KycStorageService {
   }
 
   /**
+   * Writes a file the API produced itself (the signed SEPA mandate). Everything a chef
+   * sends goes through a signed upload URL instead: the API never relays their files.
+   * `upsert: false` — a path is written once, a new version gets a new path.
+   */
+  async putObject(storagePath: string, body: Buffer, mimeType: string): Promise<void> {
+    const { error } = await this.bucketApi().upload(storagePath, body, {
+      contentType: mimeType,
+      upsert: false,
+    });
+    if (error) {
+      this.logger.error({ event: 'kyc.put_failed', storagePath, error: error.message });
+      throw new ServiceUnavailableException({
+        code: 'DOCUMENT_STORAGE_UNAVAILABLE',
+        message: 'The document could not be stored. Try again in a moment.',
+      });
+    }
+  }
+
+  /**
    * Short-lived read link for an admin or the owning chef (FLOW-01 §3.4). Inline:
    * without Supabase's `download` option the browser displays the file.
    */
