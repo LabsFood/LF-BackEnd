@@ -26,6 +26,14 @@ export const BOOKING_ITEM_EXAMPLE = {
   arrivedAt: null,
   createdAt: '2026-10-14T18:02:11.000Z',
   mealsCount: 3,
+  meals: [
+    {
+      mealId: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+      name: 'Poulet yassa',
+      portions: 4,
+      recipeVersion: 2,
+    },
+  ],
   client: {
     id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     name: 'Sophie M.',
@@ -44,14 +52,6 @@ export const BOOKING_ITEM_EXAMPLE = {
 
 export const BOOKING_DETAIL_EXAMPLE = {
   ...BOOKING_ITEM_EXAMPLE,
-  meals: [
-    {
-      mealId: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
-      name: 'Poulet yassa',
-      portions: 4,
-      recipeVersion: 2,
-    },
-  ],
   photos: [],
   // A new time waiting for an answer (`RESCHEDULE_EXAMPLE`), else null.
   reschedule: null,
