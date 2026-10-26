@@ -39,6 +39,8 @@ export function bookingEarnings(booking: EarningsInput, rates: CommissionRates) 
 
   return {
     netCents: amount - commissionCents,
+    /** What has actually come in, after the commission taken on it: `netCents` counts the unpaid rest too. */
+    collectedNetCents: paidCents - frozen,
     commissionCents,
     commissionEstimated: remaining > 0,
   };

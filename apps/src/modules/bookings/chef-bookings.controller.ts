@@ -95,7 +95,9 @@ export class ChefBookingsController {
       '`from` and `to` (on the start) narrow it down.\n\n' +
       '`netCents` is what I earn: the paid part keeps the commission taken at payment, ' +
       'the rest is priced as its payment would be (a custom request keeps its offer’s ' +
-      'deal). `commissionEstimated` stays true until it is fully paid. The client shows ' +
+      'deal). `commissionEstimated` stays true until it is fully paid. `collectedNetCents` ' +
+      'is only what has come in, after its commission: use it for “encaissé”, not `netCents`. ' +
+      'The client shows ' +
       'as first name and initial.',
   })
   @ApiOkResponse({

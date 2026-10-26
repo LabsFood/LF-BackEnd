@@ -37,6 +37,7 @@ export const BOOKING_ITEM_EXAMPLE = {
   paymentMethods: ['cb'],
   paidCents: 24000,
   netCents: 19680,
+  collectedNetCents: 19680,
   commissionCents: 4320,
   commissionEstimated: false,
 };
@@ -64,6 +65,7 @@ const without = (example: Record<string, unknown>, keys: string[]) =>
 /** The client never sees the commission, the net, or their own diet sheet. */
 const BATCH_COOKER_ONLY = [
   'netCents',
+  'collectedNetCents',
   'commissionCents',
   'commissionEstimated',
   'allergies',

@@ -16,6 +16,7 @@ describe('bookingEarnings', () => {
 
     expect(bookingEarnings(booking({ offer }), { ...RATES, rateBps: 4000 })).toEqual({
       netCents: 17_000,
+      collectedNetCents: 0,
       commissionCents: 3_000,
       commissionEstimated: true,
     });
@@ -25,6 +26,7 @@ describe('bookingEarnings', () => {
     // 15 % of 200 € is 30 € HT, 36 € with VAT.
     expect(bookingEarnings(booking(), RATES)).toEqual({
       netCents: 16_400,
+      collectedNetCents: 0,
       commissionCents: 3_600,
       commissionEstimated: true,
     });
@@ -40,6 +42,7 @@ describe('bookingEarnings', () => {
     // The rate changed since the payment: what was taken stays what was taken.
     expect(bookingEarnings(paid, { ...RATES, rateBps: 4000 })).toEqual({
       netCents: 17_600,
+      collectedNetCents: 17_600,
       commissionCents: 2_400,
       commissionEstimated: false,
     });
@@ -55,8 +58,10 @@ describe('bookingEarnings', () => {
     });
 
     // 14 000 left at 15 % + 20 % VAT = 2 520.
+    // Only the 6 000 that succeeded has come in: 6 000 - 1 080.
     expect(bookingEarnings(split, RATES)).toEqual({
       netCents: 16_400,
+      collectedNetCents: 4_920,
       commissionCents: 3_600,
       commissionEstimated: true,
     });
