@@ -25,6 +25,7 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { AuditService } from '../../common/audit/audit.service';
 import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
@@ -57,6 +58,7 @@ export class CommissionInvoicesController {
   constructor(
     private readonly commissionDebits: CommissionDebitsService,
     private readonly users: UsersService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('me/chef/commission-invoices')
@@ -137,10 +139,11 @@ export class CommissionInvoicesController {
     summary: 'Admin: retry the direct debit on a commission invoice',
     description:
       'Runs another attempt against the same invoice — the number is kept, so no hole ' +
-      'appears in the sequence. Refused once `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS` is ' +
-      'exhausted, at which point the chef stops receiving new bookings and payments until ' +
-      'the invoice is settled out of band. An attempt interrupted before Stripe answered ' +
-      'is replayed with its original idempotency key rather than counted again.',
+      'appears in the sequence. Unlike the automatic attempts, an admin retry may go past ' +
+      '`PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`: it is the human decision that lifts the ' +
+      'commission block. It is refused (`DEBIT_NOT_POSSIBLE`) while the chef has no active ' +
+      'mandate, so a retry never adds a failed attempt for nothing. An attempt interrupted ' +
+      'before Stripe answered is replayed with its original idempotency key. Audited.',
   })
   @ApiParam({ name: 'id', description: 'Commission invoice uuid.' })
   @ApiOkResponse({
@@ -163,13 +166,30 @@ export class CommissionInvoicesController {
   @ApiNotFoundResponse({ description: 'No such commission invoice.' })
   @ApiConflictResponse({
     description:
-      'The invoice is not `issued`, a debit is already under way, or the attempts are used up.',
+      '`INVOICE_NOT_ISSUED`, `DEBIT_IN_PROGRESS`, or `DEBIT_NOT_POSSIBLE` (no active ' +
+      'mandate, or an amount SEPA refuses).',
   })
   @ApiAdminAuthResponses()
-  retryDebit(@Param('id', ParseUUIDPipe) invoiceId: string) {
+  async retryDebit(
+    @Param('id', ParseUUIDPipe) invoiceId: string,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
     // Same engine as the first attempt: the invoice keeps its number, so a retry never
-    // burns one nor leaves a hole in the sequence, and the attempt ceiling still applies.
-    return this.commissionDebits.executeDebit(invoiceId);
+    // burns one nor leaves a hole in the sequence.
+    const debit = await this.commissionDebits.executeDebit(invoiceId, {
+      overrideAttemptCeiling: true,
+    });
+    // Going past the ceiling lifts a block on a chef: who decided it must be answerable.
+    const admin = await this.users.ensurePersistedFromClerk(user.userId);
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'commission.debit_retried',
+      subjectType: 'commission_invoice',
+      subjectId: invoiceId,
+      metadata: { attemptNumber: debit.attemptNumber, status: debit.status },
+    });
+    return debit;
   }
 }
 

@@ -400,9 +400,34 @@ describe('CommissionDebitsService', () => {
     it('refuses once the attempts are exhausted', async () => {
       prisma.commissionDebit.count.mockResolvedValue(3);
 
-      await expect(service.executeDebit('invoice-1')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
+      await expect(service.executeDebit('invoice-1')).rejects.toMatchObject({
+        response: { code: 'DEBIT_ATTEMPTS_EXHAUSTED' },
+      });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin retry go past the ceiling: it is the decision the block waits for', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+
+      await service.executeDebit('invoice-1', { overrideAttemptCeiling: true });
+
+      expect(prisma.commissionDebit.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ attemptNumber: 4, status: 'pending' }),
+      });
+      expect(stripeClient.paymentIntents.create).toHaveBeenCalled();
+    });
+
+    it('refuses an admin retry with no active mandate, without recording an attempt', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, status: 'pending' } },
+      });
+
+      await expect(
+        service.executeDebit('invoice-1', { overrideAttemptCeiling: true }),
+      ).rejects.toMatchObject({ response: { code: 'DEBIT_NOT_POSSIBLE' } });
+      expect(prisma.commissionDebit.create).not.toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
   });

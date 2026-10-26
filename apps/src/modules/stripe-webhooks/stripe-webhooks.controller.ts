@@ -3,6 +3,7 @@ import {
   Controller,
   Headers,
   HttpCode,
+  InternalServerErrorException,
   Post,
   Req,
   ServiceUnavailableException,
@@ -47,9 +48,12 @@ export class StripeWebhooksController {
       ) {
         throw error;
       }
-      const message =
-        error instanceof Error ? error.message : 'Webhook verification failed';
-      throw new BadRequestException(message);
+      // The event was genuine but its handler failed (logged with the event id): a 500
+      // so Stripe retries, without echoing the internal error back to Stripe.
+      throw new InternalServerErrorException({
+        code: 'WEBHOOK_HANDLER_FAILED',
+        message: 'The event could not be processed; Stripe will retry it.',
+      });
     }
 
     return { received: true };

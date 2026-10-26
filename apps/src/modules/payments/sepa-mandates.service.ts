@@ -345,7 +345,7 @@ export class SepaMandatesService {
         where: { id: chefProfileId },
         select: { displayName: true, user: { select: { email: true } } },
       });
-      const pdf = renderMandatePdf({
+      const pdf = await renderMandatePdf({
         reference,
         stripeMandateId: mandate.id,
         creditorName: CREDITOR_NAME,

@@ -1,84 +1,51 @@
-import { renderMandatePdf, textPdf, toWinAnsi, wrap } from './sepa-mandate-document';
+import { inflateSync } from 'node:zlib';
 
-/** Every byte offset the cross-reference table claims, checked against the file. */
-function assertXrefConsistent(pdf: Buffer) {
-  const text = pdf.toString('latin1');
-  const startxref = Number(/startxref\n(\d+)\n%%EOF\n$/.exec(text)![1]);
-  expect(text.slice(startxref, startxref + 4)).toBe('xref');
-  const entries = text
-    .slice(startxref)
-    .split('\n')
-    .filter((line) => / 00000 n $/.test(line))
-    .map((line) => Number(line.slice(0, 10)));
-  entries.forEach((offset, index) => {
-    expect(text.slice(offset, offset + `${index + 1} 0 obj`.length)).toBe(
-      `${index + 1} 0 obj`,
-    );
-  });
-  const length = Number(/\/Length (\d+)/.exec(text)![1]);
-  const stream = text.indexOf('stream\n') + 'stream\n'.length;
-  expect(text.slice(stream + length, stream + length + '\nendstream'.length)).toBe(
-    '\nendstream',
-  );
+import { MandateDocumentInput, renderMandatePdf } from './sepa-mandate-document';
+
+/**
+ * The text a reader sees, back out of the PDF: every content stream inflated, every
+ * hex string PDFKit writes decoded from WinAnsi. Kerning splits words inside a `TJ`
+ * array, so the pieces are joined before the lines are.
+ */
+function textOf(pdf: Buffer): string {
+  const raw = pdf.toString('latin1');
+  const lines: string[] = [];
+  for (const [, body] of raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let content: string;
+    try {
+      content = inflateSync(Buffer.from(body, 'latin1')).toString('latin1');
+    } catch {
+      continue;
+    }
+    for (const [, array] of content.matchAll(/\[(.*?)\] TJ/g)) {
+      lines.push(
+        [...array.matchAll(/<([0-9a-f]*)>/g)]
+          .map(([, hex]) => Buffer.from(hex, 'hex').toString('latin1'))
+          .join(''),
+      );
+    }
+  }
+  return lines.join(' ');
 }
 
-describe('textPdf', () => {
-  it('writes a PDF whose cross-reference table points at every object', () => {
-    const pdf = textPdf([{ text: 'Bonjour', bold: true }, { text: 'Deuxième ligne' }]);
-
-    expect(pdf.subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
-    assertXrefConsistent(pdf);
-  });
-
-  it('escapes what would end a PDF string early', () => {
-    const pdf = textPdf([{ text: 'a (b) c\\d' }]).toString('latin1');
-
-    expect(pdf).toContain('(a \\(b\\) c\\\\d) Tj');
-  });
-
-  it('keeps French accents as single WinAnsi bytes', () => {
-    const pdf = textPdf([{ text: 'Créancier é' }]);
-
-    expect(pdf.includes(Buffer.from([0xe9]))).toBe(true);
-    assertXrefConsistent(pdf);
-  });
-
-  it('refuses content that would run off the page rather than truncate it', () => {
-    const lines = Array.from({ length: 80 }, (_, i) => ({ text: `ligne ${i}` }));
-
-    expect(() => textPdf(lines)).toThrow(/does not fit/);
-  });
-});
-
-describe('toWinAnsi', () => {
-  it('maps typographic punctuation and drops what Helvetica cannot print', () => {
-    expect(toWinAnsi('d’être — 12 € … 漢')).toBe("d'être - 12 EUR ... ?");
-  });
-});
-
-describe('wrap', () => {
-  it('breaks on words, never inside one', () => {
-    const lines = wrap('aaa bbb ccc ddd', 7).map((line) => line.text);
-
-    expect(lines).toEqual(['aaa bbb', 'ccc ddd']);
-  });
-});
+const INPUT: MandateDocumentInput = {
+  reference: 'RUM-2026-001',
+  stripeMandateId: 'mandate_1',
+  creditorName: "LAB'S FOOD",
+  debtorName: 'Marie Dupont',
+  debtorEmail: 'marie@example.com',
+  ibanLast4: '3000',
+  signedAt: new Date('2026-10-26T09:30:00.000Z'),
+  acceptance: { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
+  generatedAt: new Date('2026-10-26T09:31:00.000Z'),
+};
 
 describe('renderMandatePdf', () => {
-  it('carries the mandate reference, the masked IBAN and the signature evidence', () => {
-    const pdf = renderMandatePdf({
-      reference: 'RUM-2026-001',
-      stripeMandateId: 'mandate_1',
-      creditorName: "LAB'S FOOD",
-      debtorName: 'Marie Dupont',
-      debtorEmail: 'marie@example.com',
-      ibanLast4: '3000',
-      signedAt: new Date('2026-10-26T09:30:00.000Z'),
-      acceptance: { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
-      generatedAt: new Date('2026-10-26T09:31:00.000Z'),
-    });
-    const text = pdf.toString('latin1');
+  it('carries the mandate reference, the masked IBAN and the signature evidence', async () => {
+    const pdf = await renderMandatePdf(INPUT);
+    const text = textOf(pdf);
 
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     for (const fact of [
       'RUM-2026-001',
       'mandate_1',
@@ -86,9 +53,26 @@ describe('renderMandatePdf', () => {
       'IBAN se terminant par 3000',
       '203.0.113.7',
       '8 semaines',
+      'Créancier',
     ]) {
       expect(text).toContain(fact);
     }
-    assertXrefConsistent(pdf);
+  });
+
+  it('prints the signature time in Paris time', async () => {
+    const text = textOf(await renderMandatePdf(INPUT));
+
+    // 09:30 UTC is 10:30 in Paris on 26 October 2026 (winter time from the 25th).
+    expect(text).toContain('26 octobre 2026');
+    expect(text).toContain('10:30');
+  });
+
+  it('leaves out the acceptance lines Stripe did not record', async () => {
+    const text = textOf(
+      await renderMandatePdf({ ...INPUT, ibanLast4: null, acceptance: null }),
+    );
+
+    expect(text).toContain('IBAN enregistré chez Stripe');
+    expect(text).not.toContain('Adresse IP');
   });
 });

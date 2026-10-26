@@ -254,8 +254,8 @@ describe('SepaMandatesService', () => {
       expect(type).toBe('sepa_mandate');
       expect(file.mimeType).toBe('application/pdf');
       expect(file.fileName).toBe('mandat-sepa-RUM-2026-001.pdf');
-      expect(file.bytes.subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
-      expect(file.bytes.toString('latin1')).toContain('RUM-2026-001');
+      // The content itself is checked in sepa-mandate-document.spec.ts.
+      expect(file.bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
       expect(metadata).toEqual({ stripeMandateId: 'mandate_1' });
       expect(commissionDebits.collectOutstanding).toHaveBeenCalledWith('chef-1');
     });
