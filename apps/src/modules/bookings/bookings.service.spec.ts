@@ -346,9 +346,13 @@ describe('BookingsService', () => {
     it('stops a batch cooker whose commission could not be collected', async () => {
       prisma.commissionInvoice.findFirst.mockResolvedValue({ invoiceNumber: 'LF-COM-1' });
 
-      await expect(service.create('client', 'clerk_1', dto)).rejects.toMatchObject({
-        response: { code: 'COMMISSION_UNPAID' },
+      const refusal = service.create('client', 'clerk_1', dto);
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
       });
+      // The client is told the cook is unavailable, never which invoice went unpaid.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-1/);
     });
 
     it('lets an admin book without the availability check, and audits it', async () => {

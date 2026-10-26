@@ -89,7 +89,7 @@ export class AdminBookingsController {
   })
   @ApiCreatedResponse({ description: 'The booking.', example: ADMIN_DETAIL_EXAMPLE })
   @ApiNotFoundResponse({ description: '`OFFER_NOT_FOUND` or `CLIENT_NOT_FOUND`.' })
-  @ApiConflictResponse({ description: '`SAME_PERSON` or `COMMISSION_UNPAID`.' })
+  @ApiConflictResponse({ description: '`SAME_PERSON` or `CHEF_UNAVAILABLE`.' })
   @ApiUnprocessableEntityResponse({
     description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',
   })

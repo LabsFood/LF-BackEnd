@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 
 import type { Prisma } from '../../generated/prisma/client';
 
@@ -35,10 +35,15 @@ export interface CommissionStandingBlock {
  * Checked at booking time **and** at payment time, the same double check as the
  * `isActive` / `isVerified` vetting: standing can change between the two.
  */
+const logger = new Logger('CommissionStanding');
+
 /**
- * Throws the block as a 409 when there is one. The three call sites — booking creation,
- * card payment, CESU declaration — all want exactly this, so the throw lives here rather
- * than being re-written beside each of them.
+ * Throws the block as a 409 on the routes a client reaches — booking creation, card
+ * payment, CESU declaration — so the throw lives here rather than beside each of them.
+ *
+ * The client only learns that the cook is unavailable: which invoice went unpaid, or that
+ * a debit was disputed, is between the chef and Lab's Food. The reason goes to the logs;
+ * the chef's own routes read `findCommissionBlock` and show it in full.
  */
 export async function assertNoCommissionBlock(
   db: CommissionStandingDb,
@@ -47,7 +52,16 @@ export async function assertNoCommissionBlock(
 ): Promise<void> {
   const block = await findCommissionBlock(db, chefProfileId, maxAttempts);
   if (block) {
-    throw new ConflictException(block.message);
+    logger.warn({
+      event: 'commission.block_refused',
+      chefProfileId,
+      reason: block.reason,
+      invoiceNumber: block.invoiceNumber ?? null,
+    });
+    throw new ConflictException({
+      code: 'CHEF_UNAVAILABLE',
+      message: 'This batch cooker cannot take bookings or payments at the moment.',
+    });
   }
 }
 

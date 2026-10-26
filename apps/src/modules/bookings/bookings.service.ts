@@ -17,7 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
 import { rateInForce } from '../payments/commission-policy';
-import { findCommissionBlock } from '../payments/commission-standing';
+import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
@@ -213,14 +213,11 @@ export class BookingsService {
       });
     }
     // An uncollected commission stops a batch cooker taking on new work.
-    const block = await findCommissionBlock(
+    await assertNoCommissionBlock(
       this.prisma,
       offer.chefProfileId,
       this.config.get<number>('payments.commissionDebitMaxAttempts', 3),
     );
-    if (block) {
-      throw new ConflictException({ code: 'COMMISSION_UNPAID', message: block.message });
-    }
     const formule = dto.formuleId
       ? await this.prisma.formule.findFirst({
           where: { id: dto.formuleId, active: true },

@@ -140,7 +140,7 @@ export class MeBookingsController {
   @ApiNotFoundResponse({ description: '`OFFER_NOT_FOUND`.' })
   @ApiConflictResponse({
     description:
-      '`SLOT_UNAVAILABLE`, `SAME_PERSON`, or `COMMISSION_UNPAID` (the batch cooker ' +
+      '`SLOT_UNAVAILABLE`, `SAME_PERSON`, or `CHEF_UNAVAILABLE` (the batch cooker ' +
       'cannot take new work right now).',
   })
   @ApiUnprocessableEntityResponse({

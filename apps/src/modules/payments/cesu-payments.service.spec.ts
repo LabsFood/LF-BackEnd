@@ -360,9 +360,13 @@ describe('CesuPaymentsService', () => {
         invoiceNumber: 'LF-COM-2026-0007',
       });
 
-      await expect(service.declare('clerk_1', DECLARATION)).rejects.toThrow(
-        /LF-COM-2026-0007/,
-      );
+      const refusal = service.declare('clerk_1', DECLARATION);
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
+      });
+      // The chef's unpaid invoice is not the paying client's business.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-2026-0007/);
       expect(prisma.payment.create).not.toHaveBeenCalled();
     });
 
