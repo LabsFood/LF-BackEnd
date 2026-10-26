@@ -434,6 +434,92 @@ export class UsersService {
   }
 
   /**
+   * RGPD (art. 15 and 20): what the person gave the platform, as a file they can keep.
+   * Internal ids and payment-provider references stay out: they mean nothing outside.
+   *
+   * ponytail: account, client profile, bookings, quotes and messages written. Add the
+   * chef side, payments and URSSAF links the day someone asks for them.
+   */
+  async exportMyData(clerkUserId: string) {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const address = { addressLine: true, addressCity: true, addressPostalCode: true };
+    const [clientProfile, bookings, quotes, messages] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        omit: { id: true, userId: true },
+      }),
+      this.prisma.booking.findMany({
+        where: { clientId: user.id },
+        orderBy: { startsAt: 'desc' },
+        select: {
+          reference: true,
+          startsAt: true,
+          endsAt: true,
+          status: true,
+          persons: true,
+          amountTtc: true,
+          amountAfterTax: true,
+          currency: true,
+          ...address,
+          notes: true,
+          createdAt: true,
+          chefProfile: { select: { displayName: true } },
+        },
+      }),
+      this.prisma.quote.findMany({
+        where: { clientId: user.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          reference: true,
+          title: true,
+          status: true,
+          persons: true,
+          mealsCount: true,
+          cuisine: true,
+          diet: true,
+          allergies: true,
+          brief: true,
+          occasion: true,
+          desiredDate: true,
+          timeSlot: true,
+          ...address,
+          budgetCents: true,
+          quoteAmountTtc: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.message.findMany({
+        where: { senderUserId: user.id },
+        orderBy: { createdAt: 'asc' },
+        select: { body: true, createdAt: true },
+      }),
+    ]);
+
+    this.logger.log({ event: 'user.data_exported', userId: user.id });
+    await this.audit.record({
+      actorType: user.role,
+      actorUserId: user.id,
+      action: 'user.data_exported',
+      subjectType: 'user',
+      subjectId: user.id,
+    });
+
+    return {
+      exportedAt: new Date(),
+      account: {
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        createdAt: user.createdAt,
+      },
+      clientProfile,
+      bookings,
+      quotes,
+      messages,
+    };
+  }
+
+  /**
    * Client onboarding (`PATCH /me/profile`, form 2).
    * Splits user-level identity fields out of the payload before touching
    * `client_profiles`, which has no columns for them.

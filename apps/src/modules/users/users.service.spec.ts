@@ -808,6 +808,50 @@ describe('UsersService', () => {
     });
   });
 
+  describe('exportMyData', () => {
+    it("gives the person's own data only, without internal ids, and audits it", async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: null,
+        role: UserRole.client,
+        createdAt: new Date('2026-09-01T08:00:00.000Z'),
+      } as never);
+      const bookings = jest.fn().mockResolvedValue([{ reference: 'LF-2026-0001' }]);
+      const quotes = jest.fn().mockResolvedValue([]);
+      const messages = jest.fn().mockResolvedValue([{ body: 'Bonjour' }]);
+      Object.assign(prisma, {
+        booking: { findMany: bookings },
+        quote: { findMany: quotes },
+        message: { findMany: messages },
+      });
+      prisma.clientProfile.findUnique.mockResolvedValue({ allergies: ['Arachides'] });
+
+      const data = await service.exportMyData('user_1');
+
+      expect(data).toMatchObject({
+        account: { email: 'marie@example.com', fullName: 'Marie Dupont', phone: null },
+        clientProfile: { allergies: ['Arachides'] },
+        bookings: [{ reference: 'LF-2026-0001' }],
+        quotes: [],
+        messages: [{ body: 'Bonjour' }],
+      });
+      expect(data.account).not.toHaveProperty('clerkUserId');
+      expect(prisma.clientProfile.findUnique.mock.calls[0][0]).toEqual({
+        where: { userId: 'uuid-1' },
+        omit: { id: true, userId: true },
+      });
+      expect(bookings.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(quotes.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(messages.mock.calls[0][0].where).toEqual({ senderUserId: 'uuid-1' });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.data_exported', subjectId: 'uuid-1' }),
+      );
+    });
+  });
+
   describe('getProfileByClerkUserId', () => {
     it('returns the chef profile for a chef user', async () => {
       jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({

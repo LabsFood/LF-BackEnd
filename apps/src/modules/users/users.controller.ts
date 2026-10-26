@@ -175,6 +175,52 @@ export class UsersController {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
   }
 
+  @Get('me/export')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Download my data',
+    description:
+      'Everything the person gave the platform, for the right of access and portability ' +
+      '(RGPD art. 15 and 20): their account, client profile (`null` if never filled in), ' +
+      'bookings, quotes and the messages they wrote. Internal ids and payment references ' +
+      'are left out. Each export is audited.',
+  })
+  @ApiOkResponse({
+    description: 'The data, newest first except messages, which read in order.',
+    example: {
+      exportedAt: '2026-10-26T10:00:00.000Z',
+      account: {
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: '+33612345678',
+        createdAt: '2026-09-01T08:00:00.000Z',
+      },
+      clientProfile: { allergies: ['Arachides'], addressCity: 'Paris', status: 'active' },
+      bookings: [
+        {
+          reference: 'LF-2026-0001',
+          startsAt: '2026-10-02T09:00:00.000Z',
+          status: 'completed',
+          amountTtc: 29700,
+          chefProfile: { displayName: 'Awa Diallo' },
+        },
+      ],
+      quotes: [
+        { reference: 'LF-DEV-2026-0003', title: 'Anniversaire', status: 'quoted' },
+      ],
+      messages: [
+        {
+          body: 'Bonjour, à quelle heure arrivez-vous ?',
+          createdAt: '2026-10-01T18:00:00.000Z',
+        },
+      ],
+    },
+  })
+  @ApiClerkAuthResponses()
+  exportMyData(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.exportMyData(user.userId);
+  }
+
   @Patch('me/chef-profile')
   @ApiTags(TAGS.me)
   @ApiOperation({
