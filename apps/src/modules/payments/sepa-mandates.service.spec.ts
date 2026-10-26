@@ -17,6 +17,7 @@ describe('SepaMandatesService', () => {
     };
   };
   let stripeClient: {
+    rawRequest: jest.Mock;
     customers: { create: jest.Mock };
     setupIntents: { create: jest.Mock };
     paymentMethods: { retrieve: jest.Mock };
@@ -40,6 +41,7 @@ describe('SepaMandatesService', () => {
       },
     };
     stripeClient = {
+      rawRequest: jest.fn().mockResolvedValue({}),
       customers: { create: jest.fn().mockResolvedValue({ id: 'cus_1' }) },
       setupIntents: {
         create: jest
@@ -85,6 +87,39 @@ describe('SepaMandatesService', () => {
             stripeSetupIntentId: 'seti_1',
             status: 'pending',
           }),
+        }),
+      );
+    });
+
+    it('uses the chef’s connected account as the customer once they have one', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        displayName: 'Chef Marie D.',
+        stripeAccountId: 'acct_1',
+      });
+
+      await service.createSetupIntent('clerk_1');
+
+      expect(stripeClient.customers.create).not.toHaveBeenCalled();
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts/acct_1',
+        { configuration: { customer: {} } },
+        { apiVersion: '2026-09-30.endive' },
+      );
+      const [params, options] = stripeClient.setupIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({
+        customer_account: 'acct_1',
+        payment_method_types: ['sepa_debit'],
+      });
+      expect(params).not.toHaveProperty('customer');
+      expect(options).toEqual({ apiVersion: '2026-09-30.endive' });
+      expect(prisma.sepaMandate.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ stripeCustomerId: 'acct_1' }),
         }),
       );
     });

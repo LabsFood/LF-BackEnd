@@ -12,6 +12,7 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
+import { createConnectedAccount, createOnboardingLink } from './stripe-accounts-v2';
 
 @Injectable()
 export class StripeConnectService {
@@ -25,8 +26,8 @@ export class StripeConnectService {
   ) {}
 
   /**
-   * Hosted onboarding link for the authenticated chef, creating the Express account on
-   * first call. Account links are single-use and short-lived, so a fresh one is minted
+   * Hosted onboarding link for the authenticated chef, creating the Accounts v2
+   * account (Express dashboard) on first call. Account links are single-use and short-lived, so a fresh one is minted
    * on every call rather than stored.
    */
   async createOnboardingLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
@@ -36,38 +37,28 @@ export class StripeConnectService {
 
     let accountId = chefProfile.stripeAccountId;
     if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        country: 'FR',
+      accountId = await createConnectedAccount(stripe, {
         email,
-        // Destination charges need both: `card_payments` to accept the client's card
-        // on the platform, `transfers` to move the net amount to the chef.
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-        // `business_type` is left for Stripe's hosted onboarding to ask: a chef may be
-        // a micro-entreprise (individual) or a company, and guessing wrong here blocks
-        // the form.
+        displayName: chefProfile.displayName,
       });
-      accountId = account.id;
       await this.prisma.chefProfile.update({
         where: { id: chefProfile.id },
         data: { stripeAccountId: accountId },
       });
-      this.logger.log(
-        `Created Stripe Express account ${accountId} for chef profile ${chefProfile.id}.`,
-      );
+      this.logger.log({
+        event: 'stripe.account_created',
+        accountsApi: 'v2',
+        accountId,
+        chefProfileId: chefProfile.id,
+      });
     }
 
-    const link = await stripe.accountLinks.create({
-      account: accountId,
-      type: 'account_onboarding',
-      refresh_url: this.config.getOrThrow<string>('payments.stripeConnectRefreshUrl'),
-      return_url: this.config.getOrThrow<string>('payments.stripeConnectReturnUrl'),
+    const url = await createOnboardingLink(stripe, accountId, {
+      refreshUrl: this.config.getOrThrow<string>('payments.stripeConnectRefreshUrl'),
+      returnUrl: this.config.getOrThrow<string>('payments.stripeConnectReturnUrl'),
     });
 
-    return { url: link.url };
+    return { url };
   }
 
   /**

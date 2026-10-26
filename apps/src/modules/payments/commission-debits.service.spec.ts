@@ -252,6 +252,26 @@ describe('CommissionDebitsService', () => {
       });
     });
 
+    it('debits the chef’s connected account as the customer on an Accounts v2 mandate', async () => {
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, stripeCustomerId: 'acct_1' } },
+      });
+
+      await service.executeDebit('invoice-1');
+
+      const [params, options] = stripeClient.paymentIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ customer_account: 'acct_1', mandate: 'mandate_1' });
+      expect(params).not.toHaveProperty('customer');
+      expect(options).toEqual({
+        idempotencyKey: 'commission-debit-debit-1',
+        apiVersion: '2026-09-30.endive',
+      });
+    });
+
     it('fails the attempt but keeps the invoice due when the chef has no mandate', async () => {
       prisma.commissionInvoice.findUnique.mockResolvedValue({
         ...ISSUED_INVOICE,

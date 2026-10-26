@@ -12,8 +12,8 @@ describe('StripeConnectService', () => {
     chefProfile: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
   };
   let stripeClient: {
-    accounts: { create: jest.Mock; createLoginLink: jest.Mock };
-    accountLinks: { create: jest.Mock };
+    rawRequest: jest.Mock;
+    accounts: { createLoginLink: jest.Mock };
   };
   let stripe: { configured: boolean; getClient: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock };
@@ -34,16 +34,18 @@ describe('StripeConnectService', () => {
       },
     };
     stripeClient = {
+      // Accounts v2 is reached through `rawRequest`: the account, then its onboarding link.
+      rawRequest: jest.fn((_method: string, path: string) =>
+        Promise.resolve(
+          path === '/v2/core/account_links'
+            ? { url: 'https://connect.stripe.com/setup/e/1' }
+            : { id: 'acct_new' },
+        ),
+      ),
       accounts: {
-        create: jest.fn().mockResolvedValue({ id: 'acct_new' }),
         createLoginLink: jest
           .fn()
           .mockResolvedValue({ url: 'https://connect.stripe.com/express/abc' }),
-      },
-      accountLinks: {
-        create: jest
-          .fn()
-          .mockResolvedValue({ url: 'https://connect.stripe.com/setup/e/1' }),
       },
     };
     stripe = { configured: true, getClient: jest.fn(() => stripeClient) };
@@ -72,16 +74,22 @@ describe('StripeConnectService', () => {
     it('creates a French Express account on first use and stores its id', async () => {
       const result = await service.createOnboardingLink('clerk_1');
 
-      expect(stripeClient.accounts.create).toHaveBeenCalledWith(
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts',
         expect.objectContaining({
-          type: 'express',
-          country: 'FR',
-          email: 'chef@example.com',
-          capabilities: {
-            card_payments: { requested: true },
-            transfers: { requested: true },
+          contact_email: 'chef@example.com',
+          dashboard: 'express',
+          identity: { country: 'fr' },
+          configuration: {
+            merchant: { capabilities: { card_payments: { requested: true } } },
+            recipient: {
+              capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
+            },
+            customer: {},
           },
         }),
+        { apiVersion: '2026-09-30.endive' },
       );
       expect(prisma.chefProfile.update).toHaveBeenCalledWith({
         where: { id: 'chef-1' },
@@ -98,10 +106,35 @@ describe('StripeConnectService', () => {
 
       await service.createOnboardingLink('clerk_1');
 
-      expect(stripeClient.accounts.create).not.toHaveBeenCalled();
-      expect(stripeClient.accountLinks.create).toHaveBeenCalledWith(
-        expect.objectContaining({ account: 'acct_existing', type: 'account_onboarding' }),
+      expect(stripeClient.rawRequest).not.toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts',
+        expect.anything(),
+        expect.anything(),
       );
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/account_links',
+        expect.objectContaining({
+          account: 'acct_existing',
+          use_case: expect.objectContaining({ type: 'account_onboarding' }),
+        }),
+        { apiVersion: '2026-09-30.endive' },
+      );
+    });
+
+    it('answers with a typed error, not Stripe’s message, when Stripe refuses', async () => {
+      stripeClient.rawRequest.mockRejectedValue(
+        Object.assign(new Error('Invalid email chef@example.com'), {
+          type: 'StripeInvalidRequestError',
+          code: 'parameter_invalid',
+          statusCode: 400,
+        }),
+      );
+
+      await expect(service.createOnboardingLink('clerk_1')).rejects.toMatchObject({
+        response: { code: 'STRIPE_ACCOUNTS_V2_ERROR' },
+      });
     });
 
     it('requires a chef profile', async () => {

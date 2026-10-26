@@ -10,6 +10,11 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import {
+  addCustomerConfiguration,
+  customerAccountOptions,
+  customerRef,
+} from './stripe-accounts-v2';
+import {
   SepaMandateSetupIntentDto,
   SepaMandateStatusDto,
 } from './dto/stripe-connect.dto';
@@ -44,7 +49,7 @@ export class SepaMandatesService {
       );
     }
 
-    const { chefProfileId, displayName, email } =
+    const { chefProfileId, displayName, email, stripeAccountId } =
       await this.requireChefProfile(clerkUserId);
     const stripe = this.stripe.getClient();
 
@@ -52,7 +57,14 @@ export class SepaMandatesService {
       where: { chefProfileId },
     });
 
+    // The chef's own connected account is the customer once they have one (Accounts v2),
+    // so the mandate and the payouts sit on the same object. A `cus_…` already on the row
+    // keeps being used; a chef who has not started Stripe onboarding yet still gets one.
     let customerId = existing?.stripeCustomerId ?? null;
+    if (!customerId && stripeAccountId) {
+      await addCustomerConfiguration(stripe, stripeAccountId);
+      customerId = stripeAccountId;
+    }
     if (!customerId) {
       const customer = await stripe.customers.create({
         email,
@@ -62,12 +74,15 @@ export class SepaMandatesService {
       customerId = customer.id;
     }
 
-    const setupIntent = await stripe.setupIntents.create({
-      customer: customerId,
+    const params = {
+      ...customerRef(customerId),
       payment_method_types: ['sepa_debit'],
       usage: 'off_session',
       metadata: { chefProfileId },
-    });
+    } as Stripe.SetupIntentCreateParams;
+    const setupIntent = customerId.startsWith('acct_')
+      ? await stripe.setupIntents.create(params, customerAccountOptions)
+      : await stripe.setupIntents.create(params);
 
     const fields = {
       stripeCustomerId: customerId,
@@ -160,13 +175,16 @@ export class SepaMandatesService {
     );
   }
 
-  private async requireChefProfile(
-    clerkUserId: string,
-  ): Promise<{ chefProfileId: string; displayName: string; email: string }> {
+  private async requireChefProfile(clerkUserId: string): Promise<{
+    chefProfileId: string;
+    displayName: string;
+    email: string;
+    stripeAccountId: string | null;
+  }> {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const chefProfile = await this.prisma.chefProfile.findUnique({
       where: { userId: user.id },
-      select: { id: true, displayName: true },
+      select: { id: true, displayName: true, stripeAccountId: true },
     });
     if (!chefProfile) {
       throw new ConflictException(
@@ -177,6 +195,7 @@ export class SepaMandatesService {
       chefProfileId: chefProfile.id,
       displayName: chefProfile.displayName,
       email: user.email,
+      stripeAccountId: chefProfile.stripeAccountId,
     };
   }
 }

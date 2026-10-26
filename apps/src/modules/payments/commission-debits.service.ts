@@ -18,6 +18,7 @@ import type {
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SEPA_CLAWBACK_WINDOW_DAYS } from './commission.util';
+import { customerAccountOptions, customerRef } from './stripe-accounts-v2';
 
 export { SEPA_CLAWBACK_WINDOW_DAYS };
 
@@ -262,7 +263,7 @@ export class CommissionDebitsService {
           amount: invoice.amountTtcCents,
           // SEPA Direct Debit settles in euro only.
           currency: 'eur',
-          customer: mandate!.stripeCustomerId!,
+          ...customerRef(mandate!.stripeCustomerId!),
           payment_method: mandate!.stripePaymentMethodId!,
           // Naming the mandate makes the debit deterministic instead of letting Stripe
           // pick among the customer's mandates.
@@ -288,7 +289,13 @@ export class CommissionDebitsService {
           // the seller on facture B, and on_behalf_of would invalidate the collected
           // mandate by requiring a fresh authorisation.
         },
-        { idempotencyKey: `commission-debit-${debit.id}` },
+        {
+          idempotencyKey: `commission-debit-${debit.id}`,
+          // `customer_account` is only understood from this API version on.
+          ...(mandate!.stripeCustomerId!.startsWith('acct_')
+            ? customerAccountOptions
+            : {}),
+        },
       );
     } catch (error) {
       return this.failDebit(
