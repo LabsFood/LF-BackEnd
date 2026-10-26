@@ -23,20 +23,21 @@ export class StatsController {
     summary: 'My dashboard',
     description:
       "The client's home screen figures: how many bookings and quotes they have, and " +
-      'their most recently made booking (`null` when there is none).',
+      '`nextBooking`, the session ahead of them — pending, confirmed or under way, ' +
+      'not yet over — or `null` when there is none.',
   })
   @ApiOkResponse({
     description: 'The figures.',
     example: {
       bookingsCount: 3,
       quotesCount: 1,
-      latestBooking: {
+      nextBooking: {
         id: '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88',
+        reference: 'LF-2026-0001',
         startsAt: '2026-10-02T09:00:00.000Z',
         endsAt: '2026-10-02T12:00:00.000Z',
         status: 'confirmed',
-        priceCents: 9900,
-        currency: 'EUR',
+        chefName: 'Awa Diallo',
       },
     },
   })
@@ -50,14 +51,15 @@ export class StatsController {
   @ApiOperation({
     summary: 'My totals',
     description:
-      'Everything the client booked, added up (`totals`: number of bookings and amounts ' +
-      'in cents), and their quotes counted by status (`quotesByStatus`).',
+      'Everything the client booked, cancelled bookings left out (`totals`: number of ' +
+      'bookings, `amountTtc` and `amountAfterTax` in cents), and their quotes counted ' +
+      'by status (`quotesByStatus`, only the statuses they have).',
   })
   @ApiOkResponse({
     description: 'The totals.',
     example: {
-      totals: { _count: { _all: 3 }, _sum: { amountTtc: 29700, priceCents: 29700 } },
-      quotesByStatus: [{ status: 'quoted', _count: { _all: 1 } }],
+      totals: { bookings: 3, amountTtc: 29700, amountAfterTax: 14850 },
+      quotesByStatus: { quoted: 1, submitted: 2 },
     },
   })
   @ApiClerkAuthResponses()
