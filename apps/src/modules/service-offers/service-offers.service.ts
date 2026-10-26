@@ -66,6 +66,35 @@ export class ServiceOffersService {
     return rows.map(view);
   }
 
+  /**
+   * `GET /admin/service-offers`: every batch cooker's offers, for the back office, with
+   * the cook and how many bookings each carries. The custom-quote line is left out, as on
+   * the chef's own list: it is plumbing, not something the cook sells.
+   *
+   * ponytail: unpaginated, fine for a few hundred offers. Add `?chefProfileId=` and paging
+   * when the catalogue outgrows one page.
+   */
+  async listAll() {
+    const rows = await this.prisma.serviceOffer.findMany({
+      where: { name: { not: CUSTOM_OFFER_NAME } },
+      orderBy: [
+        { chefProfile: { displayName: 'asc' } },
+        { isActive: 'desc' },
+        { priceCents: 'asc' },
+      ],
+      select: {
+        ...SELECT,
+        chefProfile: { select: { id: true, displayName: true } },
+        _count: { select: { bookings: true } },
+      },
+    });
+    return rows.map(({ chefProfile, _count, ...row }) => ({
+      ...view(row),
+      chef: chefProfile,
+      bookingsCount: _count.bookings,
+    }));
+  }
+
   async create(clerkUserId: string, dto: CreateServiceOfferDto) {
     const chef = await this.users.chefIdentity(clerkUserId);
     this.assertName(dto.name);

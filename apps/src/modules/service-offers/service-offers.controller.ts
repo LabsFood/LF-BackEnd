@@ -26,9 +26,13 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
+import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
-import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import {
+  ApiAdminAuthResponses,
+  ApiClerkAuthResponses,
+} from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
   CreateServiceOfferDto,
@@ -149,6 +153,41 @@ const PRICE_EXAMPLE = {
     extraMealCents: 800,
   },
 };
+
+/** The back office reads every batch cooker's offers; it does not edit them. */
+@ApiTags(TAGS.adminCatalog)
+@ApiBearerAuth()
+@Controller('admin/service-offers')
+@UseGuards(ClerkAuthGuard, AdminGuard)
+export class AdminServiceOffersController {
+  constructor(private readonly offers: ServiceOffersService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Admin: every batch cooker’s service offers',
+    description:
+      'The offers batch cookers sell (a length of visit and its price), grouped by cook ' +
+      'then active first and by price, with how many bookings each carries. Not the ' +
+      'platform formules of `GET /admin/formules`: those are the same for everyone.',
+  })
+  @ApiOkResponse({
+    description: 'Every offer, with its batch cooker.',
+    example: [
+      {
+        ...OFFER_EXAMPLE,
+        chef: {
+          id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+          displayName: 'Chef Marie D.',
+        },
+        bookingsCount: 3,
+      },
+    ],
+  })
+  @ApiAdminAuthResponses()
+  list() {
+    return this.offers.listAll();
+  }
+}
 
 /** What a client sees before booking: public, no token. */
 @ApiTags(TAGS.catalog)

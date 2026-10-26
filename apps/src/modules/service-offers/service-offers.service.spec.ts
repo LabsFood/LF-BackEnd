@@ -47,6 +47,35 @@ describe('ServiceOffersService', () => {
     expect(offer).not.toHaveProperty('isActive');
   });
 
+  it('lists every batch cooker’s offers for the admin, with the cook, never the custom-quote line', async () => {
+    prisma.serviceOffer.findMany.mockResolvedValue([
+      {
+        ...ROW,
+        chefProfile: { id: 'chef-1', displayName: 'Chef Marie D.' },
+        _count: { bookings: 3 },
+      },
+    ]);
+
+    const [offer] = await service.listAll();
+
+    expect(prisma.serviceOffer.findMany.mock.calls[0][0].where).toEqual({
+      name: { not: 'Prestation sur-mesure' },
+    });
+    expect(offer).toEqual({
+      id: 'offer-1',
+      name: 'Session 4 heures',
+      description: null,
+      durationMinutes: 240,
+      priceCents: 18000,
+      currency: 'EUR',
+      shoppingIncluded: true,
+      shoppingFeeCents: 1500,
+      active: true,
+      chef: { id: 'chef-1', displayName: 'Chef Marie D.' },
+      bookingsCount: 3,
+    });
+  });
+
   it('creates an offer on the caller’s own page', async () => {
     await service.create('clerk-1', {
       name: ' Session 4 heures ',
