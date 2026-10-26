@@ -39,6 +39,28 @@ export class StripeConnectController {
     return this.stripeConnect.createOnboardingLink(user.userId);
   }
 
+  @Post('dashboard-link')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Open my Stripe Express dashboard',
+    description:
+      'A single-use link to the chef’s own Stripe dashboard (balance, payouts, bank ' +
+      'account). Meant for the end of onboarding: the frontend calls it once ' +
+      '`detailsSubmitted` is true and redirects the chef there.',
+  })
+  @ApiOkResponse({ type: StripeConnectLinkDto, description: 'Dashboard URL.' })
+  @ApiConflictResponse({
+    description:
+      '`STRIPE_ONBOARDING_INCOMPLETE`, or no chef profile yet — complete ' +
+      '`PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  createDashboardLink(
+    @CurrentClerkUser() user: ClerkUser,
+  ): Promise<StripeConnectLinkDto> {
+    return this.stripeConnect.createDashboardLink(user.userId);
+  }
+
   @Get('status')
   @ApiOperation({
     summary: 'Get my Stripe Connect onboarding status',

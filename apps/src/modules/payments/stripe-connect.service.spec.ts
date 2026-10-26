@@ -12,7 +12,7 @@ describe('StripeConnectService', () => {
     chefProfile: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
   };
   let stripeClient: {
-    accounts: { create: jest.Mock };
+    accounts: { create: jest.Mock; createLoginLink: jest.Mock };
     accountLinks: { create: jest.Mock };
   };
   let stripe: { configured: boolean; getClient: jest.Mock };
@@ -34,7 +34,12 @@ describe('StripeConnectService', () => {
       },
     };
     stripeClient = {
-      accounts: { create: jest.fn().mockResolvedValue({ id: 'acct_new' }) },
+      accounts: {
+        create: jest.fn().mockResolvedValue({ id: 'acct_new' }),
+        createLoginLink: jest
+          .fn()
+          .mockResolvedValue({ url: 'https://connect.stripe.com/express/abc' }),
+      },
       accountLinks: {
         create: jest
           .fn()
@@ -113,6 +118,34 @@ describe('StripeConnectService', () => {
       await expect(service.createOnboardingLink('clerk_1')).rejects.toBeInstanceOf(
         ServiceUnavailableException,
       );
+    });
+  });
+
+  describe('createDashboardLink', () => {
+    it('opens the Express dashboard once the onboarding form is submitted', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_1',
+        stripeDetailsSubmitted: true,
+      });
+
+      await expect(service.createDashboardLink('clerk_1')).resolves.toEqual({
+        url: 'https://connect.stripe.com/express/abc',
+      });
+      expect(stripeClient.accounts.createLoginLink).toHaveBeenCalledWith('acct_1');
+    });
+
+    it('refuses before onboarding is submitted', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_1',
+        stripeDetailsSubmitted: false,
+      });
+
+      await expect(service.createDashboardLink('clerk_1')).rejects.toMatchObject({
+        response: { code: 'STRIPE_ONBOARDING_INCOMPLETE' },
+      });
+      expect(stripeClient.accounts.createLoginLink).not.toHaveBeenCalled();
     });
   });
 

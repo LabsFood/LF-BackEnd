@@ -71,6 +71,27 @@ export class StripeConnectService {
   }
 
   /**
+   * One-time link into the chef's own Stripe Express dashboard (balance, payouts,
+   * bank account). The frontend sends the chef there when they come back from
+   * onboarding. Stripe refuses it before the onboarding form is submitted, so that
+   * case is a clear 409 rather than a Stripe error.
+   */
+  async createDashboardLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
+    this.assertStripeConfigured();
+    const { chefProfile } = await this.requireChefProfile(clerkUserId);
+    if (!chefProfile.stripeAccountId || !chefProfile.stripeDetailsSubmitted) {
+      throw new ConflictException({
+        code: 'STRIPE_ONBOARDING_INCOMPLETE',
+        message: 'Finish Stripe onboarding first: there is no dashboard to open yet.',
+      });
+    }
+    const link = await this.stripe
+      .getClient()
+      .accounts.createLoginLink(chefProfile.stripeAccountId);
+    return { url: link.url };
+  }
+
+  /**
    * Onboarding state as last mirrored from Stripe. Read from Postgres, not from the
    * Stripe API: `account.updated` keeps the columns current and this route is polled
    * by the frontend while the chef finishes onboarding.
