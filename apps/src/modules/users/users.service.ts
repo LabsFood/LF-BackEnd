@@ -823,16 +823,45 @@ export class UsersService {
     return client;
   }
 
-  async updateClientById(id: string, payload: UpdateAdminClientDto) {
+  /**
+   * An admin correcting a client's profile on their behalf. Allergies are what the chef
+   * cooks around, so who changed what is audited, before and after. The log line names
+   * the fields only: diets and allergies are health data.
+   */
+  async updateClientById(
+    id: string,
+    payload: UpdateAdminClientDto,
+    adminClerkUserId: string,
+  ) {
+    const fields = Object.keys(payload) as (keyof UpdateAdminClientDto)[];
+    const pick = (row: Record<string, unknown>) =>
+      Object.fromEntries(fields.map((field) => [field, row[field]]));
     try {
-      return await this.prisma.clientProfile.update({
+      const [before, admin] = await Promise.all([
+        this.prisma.clientProfile.findUnique({ where: { id } }),
+        this.prisma.user.findUnique({
+          where: { clerkUserId: adminClerkUserId },
+          select: { id: true },
+        }),
+      ]);
+      if (!before) throw clientNotFound();
+
+      const updated = await this.prisma.clientProfile.update({
         where: { id },
-        data: {
-          ...payload,
-          status: payload.status as never,
-        },
+        data: payload,
         include: { user: true },
       });
+
+      this.logger.log({ event: 'client.profile_updated', clientProfileId: id, fields });
+      await this.audit.record({
+        actorType: 'admin',
+        actorUserId: admin?.id ?? null,
+        action: 'client.profile_updated',
+        subjectType: 'client_profile',
+        subjectId: id,
+        metadata: { before: pick(before), after: pick(updated) },
+      });
+      return updated;
     } catch (error) {
       // Prisma's "no row matched the `where`": a 404, not a 500.
       if (

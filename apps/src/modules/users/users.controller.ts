@@ -429,8 +429,10 @@ export class UsersController {
   @ApiOperation({
     summary: "Update a client's profile",
     description:
-      'Changes tastes, kitchen notes or the CRM `status` (for example `{ "status": "vip" }`). ' +
-      'Send only the fields to change. `{id}` is the client profile id.',
+      'Changes tastes, diets, allergies, kitchen notes or the CRM `status` (for example ' +
+      '`{ "status": "vip" }`). Send only the fields to change: a list sent replaces the ' +
+      'whole list. `{id}` is the client profile id. Every change is audited with its ' +
+      'before and after values.',
   })
   @ApiParam({
     name: 'id',
@@ -448,7 +450,8 @@ export class UsersController {
   updateClient(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: UpdateAdminClientDto,
+    @CurrentClerkUser() user: ClerkUser,
   ) {
-    return this.users.updateClientById(id, payload);
+    return this.users.updateClientById(id, payload, user.userId);
   }
 }

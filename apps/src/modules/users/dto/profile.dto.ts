@@ -1,5 +1,14 @@
 import { ApiPropertyOptional, IntersectionType, PartialType } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
 
@@ -184,6 +193,6 @@ export class UpdateAdminClientDto extends PartialType(UpsertClientProfileDto) {
     example: 'vip',
   })
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(CLIENT_STATUSES)
+  status?: (typeof CLIENT_STATUSES)[number];
 }

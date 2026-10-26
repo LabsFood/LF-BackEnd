@@ -859,6 +859,16 @@ describe('UsersService', () => {
     });
 
     it('answers 404 CLIENT_NOT_FOUND when updating an unknown id, not a 500', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateClientById('nope', { status: 'vip' }, 'admin_clerk'),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+      expect(prisma.clientProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the profile goes between the read and the write', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'cp-1', allergies: [] });
       prisma.clientProfile.update.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('No record', {
           code: 'P2025',
@@ -867,8 +877,48 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.updateClientById('nope', { status: 'vip' } as never),
+        service.updateClientById('cp-1', { allergies: ['Arachides'] }, 'admin_clerk'),
       ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+    });
+
+    it('audits who corrected which fields, before and after, and only those', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        id: 'cp-1',
+        allergies: ['Arachides'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+      });
+      prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+      prisma.clientProfile.update.mockResolvedValue({
+        id: 'cp-1',
+        allergies: ['Arachides', 'Sésame'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+        user: { id: 'user-1' },
+      });
+
+      await service.updateClientById(
+        'cp-1',
+        { allergies: ['Arachides', 'Sésame'] },
+        'admin_clerk',
+      );
+
+      expect(prisma.clientProfile.update).toHaveBeenCalledWith({
+        where: { id: 'cp-1' },
+        data: { allergies: ['Arachides', 'Sésame'] },
+        include: { user: true },
+      });
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'admin',
+        actorUserId: 'admin-1',
+        action: 'client.profile_updated',
+        subjectType: 'client_profile',
+        subjectId: 'cp-1',
+        metadata: {
+          before: { allergies: ['Arachides'] },
+          after: { allergies: ['Arachides', 'Sésame'] },
+        },
+      });
     });
   });
 
