@@ -9,7 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChefContentService, ChefContext, MENU_DISHES } from './chef-content.service';
 import { DishesMailer } from './dishes.mailer';
-import { toDishView, toPublicDish } from './dishes.views';
+import { toDishSummary, toDishView } from './dishes.views';
 import { toMenuView } from './menus.service';
 
 /**
@@ -339,9 +339,9 @@ export class SuggestionsService {
   }
 }
 
-/** A preview (§6): the public fields of the dish, never its recipe. */
+/** A preview (§6): the dish without its recipe; a chef route, so with the times. */
 function toPreview(meal: Meal) {
-  return { ...toPublicDish(meal), updatedAt: meal.updatedAt };
+  return { ...toDishSummary(meal), updatedAt: meal.updatedAt };
 }
 
 function assertConsent(consent: boolean): void {
