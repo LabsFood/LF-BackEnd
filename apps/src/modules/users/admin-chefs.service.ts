@@ -12,9 +12,10 @@ import {
   buildPaginationMeta,
   resolvePageBounds,
 } from '../../common/dto/pagination.dto';
-import { Prisma } from '../../generated/prisma/client';
+import { ChefTier, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { feedInUse } from '../calendar/calendar-feed.service';
+import { chefTierLabels } from '../platform-settings/chef-tiers';
 import {
   METROPOLITAN_REGIONS,
   interventionZonesProblem,
@@ -49,6 +50,7 @@ const CHEF_SELECT = {
   isActive: true,
   isVerified: true,
   autoSuspendedAt: true,
+  tier: true,
   interventionZones: true,
   sapPath: true,
   sapDeclarationNumber: true,
@@ -146,10 +148,13 @@ export class AdminChefsService {
       }),
       this.prisma.chefProfile.count({ where }),
     ]);
-    const bookings = await this.bookingCounts(rows.map((r) => r.id));
+    const [bookings, tierLabels] = await Promise.all([
+      this.bookingCounts(rows.map((r) => r.id)),
+      chefTierLabels(this.prisma),
+    ]);
 
     return {
-      data: rows.map((row) => toItem(row, bookings.get(row.id))),
+      data: rows.map((row) => toItem(row, tierLabels, bookings.get(row.id))),
       meta: buildPaginationMeta(bounds, total),
     };
   }
@@ -181,9 +186,12 @@ export class AdminChefsService {
         message: 'No batch cooker with this id.',
       });
     }
-    const bookings = await this.bookingCounts([row.id]);
+    const [bookings, tierLabels] = await Promise.all([
+      this.bookingCounts([row.id]),
+      chefTierLabels(this.prisma),
+    ]);
     return {
-      ...toItem(row, bookings.get(row.id)),
+      ...toItem(row, tierLabels, bookings.get(row.id)),
       bio: row.bio,
       serviceRadiusKm: row.serviceRadiusKm,
       sapPath: row.sapPath ? toWire(row.sapPath) : null,
@@ -265,6 +273,48 @@ export class AdminChefsService {
       subjectType: 'chef_profile',
       subjectId: id,
       metadata: { before: chef.interventionZones, after: zones },
+    });
+
+    return this.get(id);
+  }
+
+  /**
+   * `PATCH /admin/chefs/{id}/tier` (Recettes R34). Only a label for now: no billing,
+   * and publishing does not depend on it until product decides which tiers publish.
+   */
+  async setTier(id: string, tier: ChefTier, adminClerkUserId: string) {
+    const [chef, admin] = await Promise.all([
+      this.prisma.chefProfile.findFirst({
+        where: { AND: [LIVE_ACCOUNT, { id }] },
+        select: { tier: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { clerkUserId: adminClerkUserId },
+        select: { id: true },
+      }),
+    ]);
+    if (!chef) {
+      throw new NotFoundException({
+        code: 'CHEF_NOT_FOUND',
+        message: 'No batch cooker with this id.',
+      });
+    }
+
+    await this.prisma.chefProfile.update({ where: { id }, data: { tier } });
+    this.logger.log({
+      event: 'chef.tier_changed',
+      chefProfileId: id,
+      from: chef.tier,
+      to: tier,
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      // AdminGuard has just read the admin's row.
+      actorUserId: admin?.id ?? null,
+      action: 'chef.tier_changed',
+      subjectType: 'chef_profile',
+      subjectId: id,
+      metadata: { before: chef.tier, after: tier },
     });
 
     return this.get(id);
@@ -358,7 +408,11 @@ function zonesOf(row: ChefRow) {
     }));
 }
 
-function toItem(row: ChefRow, bookings?: BookingCounts) {
+function toItem(
+  row: ChefRow,
+  tierLabels: Record<ChefTier, string>,
+  bookings?: BookingCounts,
+) {
   return {
     /** The batch cooker page id (`chefProfile.id`): the `{id}` of every `/admin/chefs/…` route. */
     id: row.id,
@@ -374,6 +428,9 @@ function toItem(row: ChefRow, bookings?: BookingCounts) {
     isVerified: row.isVerified,
     isActive: row.isActive,
     autoSuspendedAt: row.autoSuspendedAt,
+    /** Recettes R34: the code, and the name an admin gave it. */
+    tier: row.tier,
+    tierLabel: tierLabels[row.tier],
     // Back online on a replacement document nobody has reviewed yet.
     reactivatedPendingReview: Boolean(row.autoSuspendedAt && row.isActive),
     regions: zonesOf(row).map((zone) => ({

@@ -1,19 +1,22 @@
 import { Injectable } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { ChefTier } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   SUPPLEMENTS_KEY,
   SupplementRules,
   supplementRulesInForce,
 } from '../bookings/domain/pricing';
+import { CHEF_TIERS_KEY, chefTierLabels } from './chef-tiers';
 import { DEFAULT_COMMISSION_BPS, TAX_CREDIT_BPS } from './pricing.constants';
 
 const COMMISSION_KEY = 'commission_bps';
 
 /**
- * What an admin can change without a deploy: the commission, and the booking
- * supplements (adults beyond what an offer covers, extra dishes).
+ * What an admin can change without a deploy: the commission, the booking
+ * supplements (adults beyond what an offer covers, extra dishes), and the names of
+ * the chef tiers.
  *
  * Read from the database on every use, not cached: it is read when an offer is
  * priced, a handful of times a day, and a cached rate would let two API
@@ -106,5 +109,44 @@ export class PlatformSettingsService {
       requestId,
     });
     return { ...value, updatedAt: row.updatedAt };
+  }
+
+  async chefTiers() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: CHEF_TIERS_KEY },
+    });
+    return {
+      labels: await chefTierLabels(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Renames the tiers: the codes stored on each batch cooker never change. */
+  async setChefTiers(
+    labels: Record<ChefTier, string>,
+    adminUserId: string,
+    requestId?: string,
+  ) {
+    const previous = await chefTierLabels(this.prisma);
+    const value = {
+      tier_1: labels.tier_1,
+      tier_2: labels.tier_2,
+      tier_3: labels.tier_3,
+      tier_4: labels.tier_4,
+    };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: CHEF_TIERS_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: CHEF_TIERS_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.chef_tiers_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: previous, to: value },
+      requestId,
+    });
+    return { labels: value, updatedAt: row.updatedAt };
   }
 }

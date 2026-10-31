@@ -281,6 +281,19 @@ export class ChefProfileDto {
     example: false,
   })
   isVerified!: boolean;
+
+  @ApiProperty({
+    enum: ['tier_1', 'tier_2', 'tier_3', 'tier_4'],
+    description: 'The tier an admin set (`tier_1` until then). No billing depends on it.',
+    example: 'tier_1',
+  })
+  tier!: string;
+
+  @ApiPropertyOptional({
+    description: 'The name of the tier, as an admin set it. On `GET /me/profile`.',
+    example: 'Palier 1',
+  })
+  tierLabel?: string;
 }
 
 /**

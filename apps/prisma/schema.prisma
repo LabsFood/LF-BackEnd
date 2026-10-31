@@ -67,6 +67,9 @@ model ChefProfile {
   /// valid one is deposited. Distinguishes an automatic suspension from an admin
   /// deactivation: only an automatic one may be undone automatically.
   autoSuspendedAt        DateTime?                   @map("auto_suspended_at") @db.Timestamptz(6)
+  /// Recettes R34: set by an admin. The label shown comes from the `chef_tiers`
+  /// platform setting. No billing and no publication rule hang on it yet.
+  tier                   ChefTier                    @default(tier_1)
   createdAt              DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   availabilitySlots      AvailabilitySlot[]
@@ -761,6 +764,16 @@ enum SapPath {
   type_b
 
   @@map("sap_path")
+}
+
+/// Neutral codes: product will name the tiers, and renaming one is a setting change.
+enum ChefTier {
+  tier_1
+  tier_2
+  tier_3
+  tier_4
+
+  @@map("chef_tier")
 }
 
 enum MenuPeriod {
