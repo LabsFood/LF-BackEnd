@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -132,7 +133,9 @@ export class UsersController {
     description:
       'The person plus their profile. `profileType` tells which kind `profile` is: ' +
       '`client` (tastes, address, household), `chef` (public batch cooker page), or ' +
-      '`none` with `profile: null` for a client who has not filled in the profile yet.',
+      '`none` with `profile: null` for a client who has not filled in the profile yet.\n\n' +
+      '`notificationPreferences` is `{ "email": true, "sms": false }` for everyone and ' +
+      'cannot be changed: every email is transactional, and SMS does not exist yet.',
   })
   @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
@@ -172,13 +175,60 @@ export class UsersController {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
   }
 
+  @Get('me/export')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Download my data',
+    description:
+      'Everything the person gave the platform, for the right of access and portability ' +
+      '(RGPD art. 15 and 20): their account, client profile (`null` if never filled in), ' +
+      'bookings, quotes and the messages they wrote. Internal ids and payment references ' +
+      'are left out. Each export is audited.',
+  })
+  @ApiOkResponse({
+    description: 'The data, newest first except messages, which read in order.',
+    example: {
+      exportedAt: '2026-10-26T10:00:00.000Z',
+      account: {
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: '+33612345678',
+        createdAt: '2026-09-01T08:00:00.000Z',
+      },
+      clientProfile: { allergies: ['Arachides'], addressCity: 'Paris', status: 'active' },
+      bookings: [
+        {
+          reference: 'LF-2026-0001',
+          startsAt: '2026-10-02T09:00:00.000Z',
+          status: 'completed',
+          amountTtc: 29700,
+          chefProfile: { displayName: 'Awa Diallo' },
+        },
+      ],
+      quotes: [
+        { reference: 'LF-DEV-2026-0003', title: 'Anniversaire', status: 'quoted' },
+      ],
+      messages: [
+        {
+          body: 'Bonjour, à quelle heure arrivez-vous ?',
+          createdAt: '2026-10-01T18:00:00.000Z',
+        },
+      ],
+    },
+  })
+  @ApiClerkAuthResponses()
+  exportMyData(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.exportMyData(user.userId);
+  }
+
   @Patch('me/chef-profile')
   @ApiTags(TAGS.me)
   @ApiOperation({
     summary: 'Update my batch cooker page',
     description:
       'Changes what clients see on the batch cooker page: `displayName`, `bio`, `city`, ' +
-      '`serviceRadiusKm`, plus `firstName`, `lastName` and `phone` on the account. Send ' +
+      '`serviceRadiusKm`, `languages`, plus `firstName`, `lastName` and `phone` on the ' +
+      'account. Send ' +
       'only the fields to change.\n\n' +
       'Only for an approved batch cooker: while the candidature is reviewed the account ' +
       'is browse-only. The visibility flags, the SAP route and the zones are set at ' +
@@ -352,7 +402,9 @@ export class UsersController {
       'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
       "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
       'only source this field can have. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`); the chef must already have declared a SAP route.',
+      '(`chef_profiles.id`); the chef must already have declared a SAP route. ' +
+      'Audited, with both statuses before and after. ' +
+      '`GET /admin/chefs/{id}` reads them back.',
   })
   @ApiParam({
     name: 'id',
@@ -360,12 +412,18 @@ export class UsersController {
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @ApiOkResponse({ type: SapProfileDto, description: 'SAP profile after the update.' })
+  @ApiNotFoundResponse({
+    description:
+      '`SAP_PROFILE_NOT_FOUND`: no batch cooker with this id, or no SAP route ' +
+      'declared yet.',
+  })
   @ApiAdminAuthResponses()
   updateSapExternalStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: UpdateSapExternalStatusDto,
+    @CurrentClerkUser() user: ClerkUser,
   ) {
-    return this.users.setSapExternalStatus(id, payload);
+    return this.users.setSapExternalStatus(id, payload, user.userId);
   }
 
   @Get('admin/clients')
@@ -395,20 +453,19 @@ export class UsersController {
     summary: 'Get one client',
     description:
       'The client profile with its account. `{id}` is the client profile id, as listed ' +
-      'by `GET /admin/clients`, not the account id. An unknown id answers `200` with an ' +
-      'empty body.',
+      'by `GET /admin/clients`, not the account id.',
   })
   @ApiParam({
     name: 'id',
     description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
-  @ApiOkResponse({
-    type: AdminClientDto,
-    description: 'The client, or an empty body if the id is unknown.',
+  @ApiOkResponse({ type: AdminClientDto, description: 'The client.' })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
   })
   @ApiAdminAuthResponses()
-  getClient(@Param('id') id: string) {
+  getClient(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.getClientById(id);
   }
 
@@ -418,8 +475,10 @@ export class UsersController {
   @ApiOperation({
     summary: "Update a client's profile",
     description:
-      'Changes tastes, kitchen notes or the CRM `status` (for example `{ "status": "vip" }`). ' +
-      'Send only the fields to change. `{id}` is the client profile id.',
+      'Changes tastes, diets, allergies, kitchen notes or the CRM `status` (for example ' +
+      '`{ "status": "vip" }`). Send only the fields to change: a list sent replaces the ' +
+      'whole list. `{id}` is the client profile id. Every change is audited with its ' +
+      'before and after values.',
   })
   @ApiParam({
     name: 'id',
@@ -430,8 +489,15 @@ export class UsersController {
     type: AdminClientDto,
     description: 'The updated client.',
   })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
+  })
   @ApiAdminAuthResponses()
-  updateClient(@Param('id') id: string, @Body() payload: UpdateAdminClientDto) {
-    return this.users.updateClientById(id, payload);
+  updateClient(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UpdateAdminClientDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
+    return this.users.updateClientById(id, payload, user.userId);
   }
 }

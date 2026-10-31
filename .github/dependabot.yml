@@ -1,0 +1,22 @@
+version: 2
+
+# Opens a PR when Node publishes a new node:24 image, so a Node security release
+# reaches the image without anyone watching for it. The PR must also bump `.nvmrc`
+# and `apps/.nvmrc`: CI fails until they match the Dockerfile.
+updates:
+  - package-ecosystem: docker
+    directory: /apps
+    schedule:
+      interval: daily
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # yanked version is caught first. Security updates ignore the cooldown.
+    cooldown:
+      default-days: 14
+    # "fix(deps): ..." passes the PR title check and cuts a patch release.
+    commit-message:
+      prefix: fix
+      include: scope
+    ignore:
+      # A new Node major is a migration, not a bump.
+      - dependency-name: node
+        update-types: [version-update:semver-major]

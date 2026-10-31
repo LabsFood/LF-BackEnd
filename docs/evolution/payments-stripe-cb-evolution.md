@@ -4,8 +4,8 @@
 
 Track the files, routes, DTOs, entities, enums, configuration, and tests introduced or
 changed by the `evol/payment-stripe-flux-cb` branch, so reviewers can see what moved and
-why. Scope: **E8 — Payments** of
-[`platform-spec-alignment-evolution.md`](./platform-spec-alignment-evolution.md), plus the
+why. Scope: **E8 — Payments** of `platform-spec-alignment-evolution.md` (not in the repo
+since `559c4d6`; `git show 559c4d6^:docs/evolution/platform-spec-alignment-evolution.md`), plus the
 parts of **E2 — Bookings** that a payment needs to attach to.
 
 Working contract for frontends and operators:
@@ -228,18 +228,21 @@ no test exercises the migration's backfill against legacy rows.
 
 ## Known follow-ups
 
+Struck-through rows are closed; the original text stays as the record. Checked against
+`develop` at `4caf940` on 2026-10-23.
+
 | Item | Why it matters |
 |------|----------------|
 | **Refund flow** | No API refunds; the commission is not clawed back on a refund (Stripe keeps the fee unless asked) |
 | **PDF attestation** | Clients get JSON; the signed document is a separate deliverable pending the legal template. The renderer must emit **one document per `providers[]` entry**, not one per client |
 | **`paid` status unused** | The enum carries an invoiceable state no code path sets — decide whether it stays |
-| **`avance immédiate` / CESU** | Enums, `payments.metadata`, and the SEPA mandate exist; no flow is implemented, and the mandate has never been debited end-to-end |
-| **URSSAF / CRCESU** | Statuses are inert and no admin route flips them |
+| ~~**`avance immédiate` / CESU**~~ | ~~Enums, `payments.metadata`, and the SEPA mandate exist; no flow is implemented, and the mandate has never been debited end-to-end~~ **Done.** CESU and the SEPA commission-debit engine (`cesu-payments.service.ts`, `commission-debits.service.ts`, section below), and the immediate advance through `UrssafGateway` (`POST /bookings/:id/settle`, `urssaf_links`, FLOW-03 in `AGENTS.md`), all on `develop` since `2f650e3` (2026-10-14). **Still open:** the gateway is simulated only (`URSSAF_GATEWAY=simulated`, an admin answers in URSSAF's place); the live URSSAF API is to come |
+| ~~**URSSAF / CRCESU**~~ | ~~Statuses are inert and no admin route flips them~~ **Done.** `PATCH /admin/chefs/:id/sap-external-status` (`users.controller.ts`) writes `crcesu_affiliation_status` and `urssaf_tiers_prestation_status`, audited; `GET /admin/chefs/:id` reads them back. An `active` URSSAF status is what offers the immediate advance. The CRCESU status is shown on `GET /chefs/:chefProfileId/cesu-info` but gates nothing: CESU needs `accepts_cesu` and a `crcesu_nan`. Still no CRCESU API: an admin transcribes its answer |
 | **Admin surface** | No `/admin/payments` or `/admin/commissions` list |
-| **`is_active` / `is_verified` still unread** | An unvetted chef who finishes Connect onboarding is payable — inherited gap, now with money attached |
+| ~~**`is_active` / `is_verified` still unread**~~ | ~~An unvetted chef who finishes Connect onboarding is payable — inherited gap, now with money attached~~ **Done.** Card (`payments.service.ts`) and CESU (`cesu-payments.service.ts`) refuse a chef who is not `isVerified` (and not `isActive` where the commission guard applies); a URSSAF link needs a verified chef (`booking-payments.service.ts`) |
 | **Email verification off** | Flagged as a pre-payments risk in the Clerk contract; payments shipped first, the gap is still open |
 | **Legacy `payments` rows** | The migration deletes rows it cannot attach to a booking |
-| **Invoicing — two invoice types + S3 archival** | Not implemented. Business rule confirmed 2026-09-05 — see dedicated section below |
+| **Invoicing — two invoice types + S3 archival** | ~~Not implemented.~~ **Partly done:** invoice B (commission invoice) exists as `commission_invoices` rows with the CESU phase, without PDF or S3 archive. Invoice A is not implemented. Business rule confirmed 2026-09-05 — see dedicated section below |
 
 ### Invoicing — two invoice types (not yet implemented, confirmed 2026-09-05)
 
@@ -532,6 +535,9 @@ reproduce success, late failure and dispute without waiting for real settlement.
 4. **Invoice A trigger.** `payment_intent.succeeded` does not mean "service delivered", and
    CESU sharpens it: a CESU settlement can precede the service by days. Whether `bookings`
    needs a `delivered` status distinct from `confirmed` is still open.
+   **Update 2026-10-23:** bookings now carry `delivered` and `completed`
+   (`bookings/domain/booking-status.ts`), and a `confirmed` one is payable only once it has
+   ended. Which status triggers invoice A is still to decide.
 5. **Type B — who owes the commission?** The chef or the cooperative? This phase keeps the
    chef (`SepaMandate.chefProfileId` is `@unique` on `ChefProfile`).
 
@@ -554,3 +560,4 @@ scheduler · CESU refunds to the client · adding `on_behalf_of` to the card cha
 | 2026-09-05 | Added "Invoicing — two invoice types" follow-up: a client-facing service invoice issued in the prestataire's name, and a chef-facing commission invoice issued by the platform, both backed up (never served) to S3 for legal retention | Product decision: two distinct invoices per booking, not one — the service invoice and the commission invoice have different issuers, recipients, and objects, and the commission invoice's collection method (`stripe_application_fee` vs `sepa_direct_debit` prélèvement) depends on the booking's payment method. No code change — planned for after the payment-methods work on this branch |
 | 2026-09-05 | Resolved invoice A's seller-of-record mechanism: add `on_behalf_of` to the existing destination-charge PaymentIntent, keep `transfer_data.destination` + `application_fee_amount` unchanged | Confirmed via Stripe docs — `on_behalf_of` on an indirect (destination) charge makes the connected account the merchant of record without switching to direct charges; chef Express accounts already qualify (they hold `card_payments`, which requires the `full` service agreement). No code change yet |
 | 2026-09-05 | **Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine.** `CesuSettlement`, `CommissionInvoice` (facture B), `CommissionDebit`, `StripeEventLog`; `settlePayment()` extracted and shared; card charges the remaining amount so a booking can be split CESU + card; webhook routing by database lookup instead of metadata; unpaid-commission booking guard; `platformAttestedAmountCents`. Migration `20260905120000_payments_cesu_commission_debits` | The funds never transit through the platform on CESU, so the commission cannot be withheld at charge time and has to be invoiced then debited — the engine deferred out of the card phase, reusable as-is for the avance immédiate |
+| 2026-10-23 | Known follow-ups: avance immédiate / CESU, URSSAF / CRCESU and `is_active` / `is_verified` struck through as done, invoicing marked partly done; open item 4 updated for the `delivered` / `completed` statuses; link to the removed platform register marked as not in the repo | Docs re-checked against `develop` (`4caf940`). No code change |

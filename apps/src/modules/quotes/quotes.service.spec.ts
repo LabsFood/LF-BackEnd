@@ -50,6 +50,7 @@ function setup() {
   const mailer = {
     needsChef: jest.fn().mockResolvedValue({ sent: true }),
     requestForChef: jest.fn().mockResolvedValue({ sent: true }),
+    closed: jest.fn().mockResolvedValue({ sent: true }),
   };
   const availability = { assertOpenOn: jest.fn().mockResolvedValue(undefined) };
   const service = new QuotesService(
@@ -181,5 +182,106 @@ describe('QuotesService and closed days', () => {
       'chef-1',
       new Date('2030-03-12T00:00:00.000Z'),
     );
+  });
+});
+
+describe('QuotesService: Lab’s Food closes a request', () => {
+  const open = (status: string) => ({
+    id: 'q1',
+    reference: 'DEM-2026-0007',
+    title: 'Sunday prep',
+    status,
+    assignedChefUserId: 'u-chef',
+    desiredDate: null,
+    client: { email: 's@exemple.fr', fullName: 'Sophie Marchand' },
+  });
+
+  function closing(status: string) {
+    const ctx = setup();
+    const tx = {
+      quoteOffer: { updateMany: jest.fn() },
+      quote: { update: jest.fn() },
+    };
+    Object.assign(ctx.prisma, {
+      $transaction: jest.fn((work: (t: typeof tx) => unknown) => work(tx)),
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ email: 'c@exemple.fr', fullName: 'Marie' }),
+      },
+    });
+    ctx.prisma.quote.findUnique.mockResolvedValue(open(status));
+    jest.spyOn(ctx.service, 'view').mockResolvedValue({} as never);
+    return { ...ctx, tx };
+  }
+
+  it('closes even with an offer waiting, and withdraws that offer', async () => {
+    const { service, tx } = closing('quoted');
+
+    await service.updateAdmin('clerk_admin', 'q1', { status: 'closed' });
+
+    expect(tx.quoteOffer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { quoteId: 'q1', status: { in: ['sent', 'viewed'] } },
+        data: expect.objectContaining({ status: 'withdrawn' }),
+      }),
+    );
+    expect(tx.quote.update).toHaveBeenCalledWith({
+      where: { id: 'q1' },
+      data: { status: 'closed' },
+    });
+  });
+
+  it('tells the client and the batch cooker it was with', async () => {
+    const { service, mailer } = closing('submitted');
+
+    await service.updateAdmin('clerk_admin', 'q1', { status: 'closed' });
+    await new Promise(setImmediate);
+
+    expect(mailer.closed).toHaveBeenCalledTimes(2);
+    expect(mailer.closed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forChef: false,
+        to: expect.objectContaining({ email: 's@exemple.fr' }),
+      }),
+    );
+    expect(mailer.closed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        forChef: true,
+        to: expect.objectContaining({ email: 'c@exemple.fr' }),
+      }),
+    );
+  });
+
+  it('cannot be reopened', async () => {
+    const { service } = closing('closed');
+
+    await expect(
+      service.updateAdmin('clerk_admin', 'q1', { status: 'submitted' }),
+    ).rejects.toMatchObject({ response: { code: 'QUOTE_CLOSED' } });
+  });
+
+  it('refuses closing and assigning in one go', async () => {
+    const { service } = closing('submitted');
+
+    await expect(
+      service.updateAdmin('clerk_admin', 'q1', {
+        status: 'closed',
+        assignedChefUserId: 'u-other',
+      }),
+    ).rejects.toMatchObject({ response: { code: 'CLOSE_OR_ASSIGN' } });
+  });
+
+  it('is not rewritten as cancelled when the client cancels afterwards', async () => {
+    const { service, prisma } = closing('closed');
+    const update = jest.fn();
+    Object.assign(prisma.quote, {
+      findFirst: jest.fn().mockResolvedValue(open('closed')),
+      update,
+    });
+
+    await service.cancelMine('clerk_1', 'q1');
+
+    expect(update).not.toHaveBeenCalled();
   });
 });

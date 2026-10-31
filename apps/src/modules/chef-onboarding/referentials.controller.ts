@@ -4,6 +4,7 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { TAGS } from '../../common/swagger/tags';
 import { METROPOLITAN_REGIONS } from './domain/chef-onboarding.rules';
 import { ALLERGENS, DIETS, DISH_CATEGORIES } from '../dishes/domain/dishes.rules';
+import { LANGUAGES } from '../users/dto/chef-profile.dto';
 
 /**
  * Metropolitan regions, INSEE codes (FLOW-01 §9.4).
@@ -104,5 +105,28 @@ export class ReferentialsController {
   })
   categories() {
     return { categories: DISH_CATEGORIES };
+  }
+
+  @Get('languages')
+  @ApiOperation({
+    summary: 'List the languages a batch cooker can speak',
+    description:
+      'ISO 639-1 codes. A batch cooker sends the `code` in `languages` on ' +
+      '`PATCH /me/chef-profile`; any other code is refused. The public pages give ' +
+      'the codes, labelled from here. Public.',
+  })
+  @ApiOkResponse({
+    description: 'Every language, as code and label.',
+    schema: {
+      example: {
+        languages: [
+          { code: 'fr', label: 'Français' },
+          { code: 'en', label: 'Anglais' },
+        ],
+      },
+    },
+  })
+  languages() {
+    return { languages: LANGUAGES };
   }
 }

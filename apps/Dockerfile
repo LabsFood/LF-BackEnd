@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22-alpine3.22 AS deps
+# Every stage runs the same exact Node build. Dependabot opens the bump PR when
+# Node ships a release; `.nvmrc` must carry the same version (CI checks it).
+FROM node:24.22.1-alpine3.24 AS deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci
 
-FROM node:22-alpine AS builder
+FROM node:24.22.1-alpine3.24 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/package.json apps/package-lock.json apps/tsconfig.json apps/tsconfig.build.json apps/nest-cli.json ./
@@ -14,13 +16,13 @@ COPY apps/prisma ./prisma
 COPY apps/src ./src
 RUN npx prisma generate && npm run build
 
-FROM node:22-alpine AS prod-deps
+FROM node:24.22.1-alpine3.24 AS prod-deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate && npm cache clean --force
 
-FROM node:22-alpine AS runtime
+FROM node:24.22.1-alpine3.24 AS runtime
 WORKDIR /app
 
 RUN apk update && apk upgrade --no-cache
@@ -36,6 +38,9 @@ COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 COPY apps/prisma.config.ts ./
 COPY apps/src/config/env-files.ts ./src/config/env-files.ts
+# prisma.config.ts imports it to verify the Supabase certificate during migrate deploy.
+COPY apps/src/supabase/db-connection.ts ./src/supabase/db-connection.ts
+COPY apps/certs ./certs
 COPY apps/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 
 RUN chmod +x ./scripts/docker-entrypoint.sh

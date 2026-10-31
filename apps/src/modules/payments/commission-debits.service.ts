@@ -18,6 +18,7 @@ import type {
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SEPA_CLAWBACK_WINDOW_DAYS } from './commission.util';
+import { customerAccountOptions, customerRef } from './stripe-accounts-v2';
 
 export { SEPA_CLAWBACK_WINDOW_DAYS };
 
@@ -154,6 +155,32 @@ export class CommissionDebitsService {
   }
 
   /**
+   * A mandate has just become active: every facture B still `issued` for this chef is
+   * debited now rather than waiting for the next trigger. One failure does not stop the
+   * others — `executeDebit` already refuses an invoice with a debit in flight or with no
+   * attempt left, and that refusal is only logged here.
+   */
+  async collectOutstanding(chefProfileId: string): Promise<void> {
+    const invoices = await this.prisma.commissionInvoice.findMany({
+      where: { chefProfileId, status: 'issued' },
+      select: { id: true, invoiceNumber: true },
+      orderBy: { issuedAt: 'asc' },
+    });
+    for (const invoice of invoices) {
+      try {
+        await this.executeDebit(invoice.id);
+      } catch (error) {
+        this.logger.warn({
+          event: 'commission.collect_skipped',
+          chefProfileId,
+          invoiceNumber: invoice.invoiceNumber,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
+  }
+
+  /**
    * Cuts one facture B covering the given commissions, all belonging to the same chef.
    *
    * Amounts are the sum of the frozen lines, not a recomputation: an invoice that did not
@@ -207,10 +234,15 @@ export class CommissionDebitsService {
    * A precondition failure (no mandate, revoked mandate, amount out of range) records a
    * failed attempt with an explicit reason. **The invoice stays due**; nothing is written
    * off automatically.
+   *
+   * `overrideAttemptCeiling` is the admin retry: the human decision the commission block
+   * waits for (`commission-standing.ts`), so it may go past the ceiling. It is refused
+   * outright when the debit cannot be sent — a retry with no active mandate would only add
+   * one more failed attempt.
    */
   async executeDebit(
     invoiceId: string,
-    options: { targetDateOffsetDays?: number } = {},
+    options: { targetDateOffsetDays?: number; overrideAttemptCeiling?: boolean } = {},
   ): Promise<CommissionDebit> {
     const invoice = await this.prisma.commissionInvoice.findUnique({
       where: { id: invoiceId },
@@ -220,9 +252,10 @@ export class CommissionDebitsService {
       throw new NotFoundException(`Commission invoice ${invoiceId} not found.`);
     }
     if (invoice.status !== 'issued') {
-      throw new ConflictException(
-        `Commission invoice ${invoice.invoiceNumber} is ${invoice.status}; only an issued invoice is collected.`,
-      );
+      throw new ConflictException({
+        code: 'INVOICE_NOT_ISSUED',
+        message: `Commission invoice ${invoice.invoiceNumber} is ${invoice.status}; only an issued invoice is collected.`,
+      });
     }
 
     const live = await this.prisma.commissionDebit.findFirst({
@@ -236,14 +269,26 @@ export class CommissionDebitsService {
       },
     });
     if (live) {
-      throw new ConflictException(
-        `A debit is already under way for commission invoice ${invoice.invoiceNumber}.`,
-      );
+      throw new ConflictException({
+        code: 'DEBIT_IN_PROGRESS',
+        message: `A debit is already under way for commission invoice ${invoice.invoiceNumber}.`,
+      });
     }
 
-    const debit = await this.claimDebit(invoice.id, invoice.amountTtcCents);
-
     const mandate = invoice.chefProfile.sepaMandate;
+    if (options.overrideAttemptCeiling) {
+      const blocked = this.checkPreconditions(invoice.amountTtcCents, mandate);
+      if (blocked) {
+        throw new ConflictException({ code: 'DEBIT_NOT_POSSIBLE', message: blocked });
+      }
+    }
+
+    const debit = await this.claimDebit(
+      invoice.id,
+      invoice.amountTtcCents,
+      options.overrideAttemptCeiling ?? false,
+    );
+
     const precondition = this.checkPreconditions(invoice.amountTtcCents, mandate);
     if (precondition) {
       return this.failDebit(debit, precondition);
@@ -262,7 +307,7 @@ export class CommissionDebitsService {
           amount: invoice.amountTtcCents,
           // SEPA Direct Debit settles in euro only.
           currency: 'eur',
-          customer: mandate!.stripeCustomerId!,
+          ...customerRef(mandate!.stripeCustomerId!),
           payment_method: mandate!.stripePaymentMethodId!,
           // Naming the mandate makes the debit deterministic instead of letting Stripe
           // pick among the customer's mandates.
@@ -288,7 +333,13 @@ export class CommissionDebitsService {
           // the seller on facture B, and on_behalf_of would invalidate the collected
           // mandate by requiring a fresh authorisation.
         },
-        { idempotencyKey: `commission-debit-${debit.id}` },
+        {
+          idempotencyKey: `commission-debit-${debit.id}`,
+          // `customer_account` is only understood from this API version on.
+          ...(mandate!.stripeCustomerId!.startsWith('acct_')
+            ? customerAccountOptions
+            : {}),
+        },
       );
     } catch (error) {
       return this.failDebit(
@@ -583,6 +634,7 @@ export class CommissionDebitsService {
   private async claimDebit(
     commissionInvoiceId: string,
     amountTtcCents: number,
+    overrideCeiling: boolean,
   ): Promise<CommissionDebit> {
     const orphan = await this.prisma.commissionDebit.findFirst({
       where: { commissionInvoiceId, status: 'pending', stripePaymentIntentId: null },
@@ -600,12 +652,14 @@ export class CommissionDebitsService {
     const attempts = await this.prisma.commissionDebit.count({
       where: { commissionInvoiceId },
     });
-    if (attempts >= this.maxAttempts) {
-      throw new ConflictException(
-        `Commission invoice ${commissionInvoiceId} has used its ${this.maxAttempts} debit ` +
-          'attempts. Settle it out of band or write it off — the chef is blocked from new ' +
-          'bookings until then.',
-      );
+    if (attempts >= this.maxAttempts && !overrideCeiling) {
+      throw new ConflictException({
+        code: 'DEBIT_ATTEMPTS_EXHAUSTED',
+        message:
+          `Commission invoice ${commissionInvoiceId} has used its ${this.maxAttempts} debit ` +
+          'attempts. An admin retry goes past the ceiling once the mandate is active; ' +
+          'otherwise settle it out of band — the chef is blocked from new bookings until then.',
+      });
     }
     return this.prisma.commissionDebit.create({
       data: {

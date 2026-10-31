@@ -24,6 +24,7 @@ interface JwtClaims {
 }
 
 /** Local placeholder from AGENTS.md — skips JWKS verification. */
+// nosemgrep: ajinabraham.njsscan.generic.hardcoded_secrets.node_secret -- public placeholder, not a key
 const CLERK_LOCAL_STUB_SECRET = 'sk_test_placeholder';
 
 /** Real Clerk secret keys enable strict JWT verification. Also enforced by env.validation.ts in production. */

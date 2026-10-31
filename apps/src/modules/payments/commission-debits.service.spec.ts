@@ -171,6 +171,27 @@ describe('CommissionDebitsService', () => {
     });
   });
 
+  describe('collectOutstanding', () => {
+    it('debits every invoice still due, and one refusal does not stop the next', async () => {
+      prisma.commissionInvoice.findMany.mockResolvedValue([
+        { id: 'invoice-1', invoiceNumber: 'LF-COM-2026-0007' },
+        { id: 'invoice-2', invoiceNumber: 'LF-COM-2026-0008' },
+      ]);
+      const debit = jest
+        .spyOn(service, 'executeDebit')
+        .mockRejectedValueOnce(new ConflictException('no attempt left'))
+        .mockResolvedValueOnce({} as never);
+
+      await service.collectOutstanding('chef-1');
+
+      expect(prisma.commissionInvoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { chefProfileId: 'chef-1', status: 'issued' } }),
+      );
+      expect(debit).toHaveBeenNthCalledWith(1, 'invoice-1');
+      expect(debit).toHaveBeenNthCalledWith(2, 'invoice-2');
+    });
+  });
+
   describe('executeDebit', () => {
     it('is a direct charge: no on_behalf_of, transfer_data or application fee', async () => {
       // The platform is the seller on facture B, and `on_behalf_of` would invalidate the
@@ -249,6 +270,26 @@ describe('CommissionDebitsService', () => {
       expect(prisma.commission.updateMany).toHaveBeenCalledWith({
         where: { commissionInvoiceId: 'invoice-1' },
         data: { status: 'processing' },
+      });
+    });
+
+    it('debits the chef’s connected account as the customer on an Accounts v2 mandate', async () => {
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, stripeCustomerId: 'acct_1' } },
+      });
+
+      await service.executeDebit('invoice-1');
+
+      const [params, options] = stripeClient.paymentIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ customer_account: 'acct_1', mandate: 'mandate_1' });
+      expect(params).not.toHaveProperty('customer');
+      expect(options).toEqual({
+        idempotencyKey: 'commission-debit-debit-1',
+        apiVersion: '2026-09-30.endive',
       });
     });
 
@@ -359,9 +400,34 @@ describe('CommissionDebitsService', () => {
     it('refuses once the attempts are exhausted', async () => {
       prisma.commissionDebit.count.mockResolvedValue(3);
 
-      await expect(service.executeDebit('invoice-1')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
+      await expect(service.executeDebit('invoice-1')).rejects.toMatchObject({
+        response: { code: 'DEBIT_ATTEMPTS_EXHAUSTED' },
+      });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin retry go past the ceiling: it is the decision the block waits for', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+
+      await service.executeDebit('invoice-1', { overrideAttemptCeiling: true });
+
+      expect(prisma.commissionDebit.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ attemptNumber: 4, status: 'pending' }),
+      });
+      expect(stripeClient.paymentIntents.create).toHaveBeenCalled();
+    });
+
+    it('refuses an admin retry with no active mandate, without recording an attempt', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, status: 'pending' } },
+      });
+
+      await expect(
+        service.executeDebit('invoice-1', { overrideAttemptCeiling: true }),
+      ).rejects.toMatchObject({ response: { code: 'DEBIT_NOT_POSSIBLE' } });
+      expect(prisma.commissionDebit.create).not.toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
   });

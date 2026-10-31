@@ -1,18 +1,22 @@
 # Labs Food — Backend stack
 
-Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, shared by all Lab's Food web clients. Product scope and API contracts are defined in [`docs/SPEC-BACKEND.md`](./docs/SPEC-BACKEND.md) and [`docs/SPEC-ADMIN-DASHBOARD.md`](./docs/SPEC-ADMIN-DASHBOARD.md) (backend sections only).
+Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, shared by all Lab's Food web clients. Product scope and API contracts are defined in `docs/SPEC-BACKEND.md` and `docs/SPEC-ADMIN-DASHBOARD.md` (backend sections only), which are not in this repo: commit `559c4d6` removed them, read the last copy with `git show 559c4d6^:docs/SPEC-BACKEND.md`.
 
 ## Application
 
 | Layer            | Choice                                                                 |
 | ---------------- | ---------------------------------------------------------------------- |
-| Runtime          | Node.js 20                                                             |
+| Runtime          | Node.js 24                                                             |
 | Framework        | NestJS 11 + **Fastify** adapter                                        |
 | API style        | REST controllers, `@nestjs/swagger`                                    |
 | Persistence      | PostgreSQL 16 (Supabase-hosted or local Docker)                        |
-| ORM / migrations | **Prisma 7.6** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
+| ORM / migrations | **Prisma 7.10** — `apps/prisma.config.ts` + `apps/prisma/schema.prisma` |
 | Realtime / limits | Redis 7, optional: messaging rate limit and WebSocket fan-out between instances |
 | Repo path        | [`apps/`](./apps/) — NestJS source (`apps/src/`)                       |
+
+> **Node version.** Every stage of [`apps/Dockerfile`](./apps/Dockerfile), `.nvmrc` and `apps/.nvmrc`
+> pin the same Node (24.22.1), so nvm, the CI lint and test job and the image all run it. CI fails
+> if they disagree, and Dependabot opens the PR for each new `node:24` image.
 
 ## Authentication & roles
 
@@ -79,6 +83,6 @@ flowchart TD
 | Document                                                                                                       | Purpose                                                           |
 | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | [`docs/architecture.md`](./docs/architecture.md)                                                               | Backend modules, data model direction, endpoints (no frontend UI) |
-| [`docs/evolution/platform-spec-alignment-evolution.md`](./docs/evolution/platform-spec-alignment-evolution.md) | Spec gap analysis, decisions, backlog                             |
+| `docs/evolution/platform-spec-alignment-evolution.md` (not in the repo since `559c4d6`)                        | Spec gap analysis, decisions, backlog                             |
 | [`AGENTS.md`](./AGENTS.md)                                                                                     | Local dev and agent instructions                                  |
 | [`docs/database-connection.md`](./docs/database-connection.md)                                                 | Supabase pooler vs direct URLs                                    |

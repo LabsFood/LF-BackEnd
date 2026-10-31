@@ -147,6 +147,29 @@ export class QuotesMailer {
     });
   }
 
+  /** To the client, or to the batch cooker it was with: Lab's Food closed the request. */
+  closed(input: {
+    to: { email: string; fullName: string | null };
+    forChef: boolean;
+    reference: string;
+    title: string;
+  }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.quoteClosed,
+      to: { email: input.to.email, name: input.to.fullName ?? undefined },
+      label: input.forChef ? 'quote-closed-chef' : 'quote-closed-client',
+      params: {
+        firstName: firstName(input.to.fullName),
+        reference: input.reference,
+        title: input.title,
+        forChef: input.forChef,
+        requestsUrl: input.forChef
+          ? `${this.site}/espace-chef/offres`
+          : `${this.site}/espace-client/personnalisation`,
+      },
+    });
+  }
+
   /**
    * To both, once the client has accepted: the prestation is on. The recap is
    * the confirmation; the invoice comes with the payment, after the prestation.

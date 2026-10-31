@@ -272,14 +272,16 @@ class EditableQuoteFieldsDto {
 
 export class UpdateQuoteAdminDto extends PartialType(EditableQuoteFieldsDto) {
   @ApiPropertyOptional({
-    enum: ['submitted', 'in_review'],
+    enum: ['submitted', 'in_review', 'closed'],
     description:
-      '`in_review` to show the team is on it, `submitted` to put it back. The other ' +
-      'statuses follow what the batch cooker and the client do: they cannot be set.',
+      '`in_review` to show the team is on it, `submitted` to put it back, `closed` to ' +
+      'close it without follow-up (Lab’s Food’s call, not the client’s refusal): an ' +
+      'offer still waiting is withdrawn, and a closed request cannot be reopened. The ' +
+      'other statuses follow what the batch cooker and the client do.',
   })
   @IsOptional()
-  @IsIn(['submitted', 'in_review'])
-  status?: 'submitted' | 'in_review';
+  @IsIn(['submitted', 'in_review', 'closed'])
+  status?: 'submitted' | 'in_review' | 'closed';
 
   @ApiPropertyOptional({
     nullable: true,

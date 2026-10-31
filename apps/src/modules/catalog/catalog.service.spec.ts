@@ -458,20 +458,4 @@ describe('CatalogService', () => {
       });
     });
   });
-
-  describe('getCurrentPublishedMenu', () => {
-    it("serves Lab's Food meals only, without their recipe", async () => {
-      await service.getCurrentPublishedMenu();
-
-      const { include } = menuWeek.findFirst.mock.calls[0][0];
-      expect(include.meals).toEqual({
-        where: { meal: { chefProfileId: null } },
-        include: {
-          meal: {
-            omit: { ingredients: true, steps: true, reheating: true, storage: true },
-          },
-        },
-      });
-    });
-  });
 });

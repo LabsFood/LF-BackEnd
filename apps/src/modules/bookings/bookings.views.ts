@@ -34,6 +34,10 @@ export const BOOKING_LIST_INCLUDE = {
   },
   quote: { select: { allergies: true, diet: true, offers: ACCEPTED_OFFER } },
   _count: { select: { bookingMeals: true } },
+  // The dishes ride on every row: a list that says "dishes to define" for a booking
+  // that has three is wrong, and the names are cheap (a page is at most a few dozen).
+  // The recipe stays off the booking (FLOW-02 §8): it is on the recipe sheet.
+  bookingMeals: { include: { meal: { select: { id: true, name: true } } } },
 } satisfies Prisma.BookingInclude;
 
 export const RESCHEDULE_VIEW = {
@@ -69,8 +73,6 @@ export const BOOKING_DETAIL_INCLUDE = {
       clientProfile: { select: { allergies: true, dietaryPreferences: true } },
     },
   },
-  // The recipe stays off the booking (FLOW-02 §8): it is on the recipe sheet.
-  bookingMeals: { include: { meal: { select: { id: true, name: true } } } },
   photos: { orderBy: { takenAt: 'asc' } },
   // A new time waiting for an answer: one at most.
   reschedules: { where: { status: 'pending' }, take: 1, select: RESCHEDULE_VIEW },
@@ -101,13 +103,25 @@ export function toBookingListItem(
     city: booking.addressCity,
     notes: booking.notes,
     shoppingByClient: booking.shoppingByClient,
+    /** The offer's price alone; each supplement apart; `amountTtc` is all of it. */
     priceCents: booking.priceCents,
+    /** Extra dishes asked for, beyond what the offer covers: the batch cooker cooks them. */
+    extraMeals: booking.extraMeals,
+    extraPersonsCents: booking.extraPersonsCents,
+    extraMealsCents: booking.extraMealsCents,
+    shoppingFeeCents: booking.shoppingFeeCents,
     amountTtc: booking.amountTtc,
     amountAfterTax: booking.amountAfterTax,
     currency: booking.currency,
     arrivedAt: booking.arrivedAt,
     createdAt: booking.createdAt,
     mealsCount: booking._count.bookingMeals,
+    meals: booking.bookingMeals.map((line) => ({
+      mealId: line.mealId,
+      name: line.meal.name,
+      portions: line.portions,
+      recipeVersion: line.recipeVersion,
+    })),
     client: {
       id: booking.client.id,
       name:
@@ -143,12 +157,6 @@ export function toBookingDetail(
   const profile = booking.client.clientProfile;
   return {
     ...toBookingListItem(booking, audience, rates),
-    meals: booking.bookingMeals.map((line) => ({
-      mealId: line.mealId,
-      name: line.meal.name,
-      portions: line.portions,
-      recipeVersion: line.recipeVersion,
-    })),
     photos: booking.photos.map((photo) => ({
       id: photo.id,
       url: photo.url,

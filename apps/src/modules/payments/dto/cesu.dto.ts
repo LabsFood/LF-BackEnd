@@ -29,10 +29,14 @@ import { CESU_SUPPORTED_ISSUERS } from '../chef-cesu-info';
 /** The `uploadId` a proof upload link comes with. */
 const PROOF_UPLOAD_ID = /^up_[a-f0-9]{24}$/;
 
+/** What a settlement can hold: paper rows may exist from before it was withdrawn. */
 export const CESU_MEDIUMS = [
   'ecesu',
   'cesu_paper',
 ] as const satisfies readonly CesuMedium[];
+
+/** What a client can declare today: paper is no longer offered, e-CESU only. */
+export const CESU_DECLARABLE_MEDIUMS = ['ecesu'] as const satisfies readonly CesuMedium[];
 
 /**
  * `POST /payments/cesu` — the client declaring a prefinanced CESU payment they already
@@ -64,20 +68,18 @@ export class DeclareCesuPaymentDto {
   amountTtc!: number;
 
   @ApiProperty({
-    enum: CESU_MEDIUMS,
+    enum: CESU_DECLARABLE_MEDIUMS,
     description:
-      'Electronic CESU (the main circuit) or paper titres. For paper the platform ' +
-      'provides the payment method, the invoice and the commission debit only — ' +
-      'depositing, validating and cashing the titres is the chef own responsibility.',
+      'Electronic CESU, the only circuit offered. Paper titres are no longer accepted ' +
+      '(`cesu_paper` is refused with a 400); existing paper settlements stay readable.',
     example: 'ecesu',
   })
-  @IsIn(CESU_MEDIUMS)
+  @IsIn(CESU_DECLARABLE_MEDIUMS)
   medium!: CesuMedium;
 
   @ApiPropertyOptional({
     enum: CESU_SUPPORTED_ISSUERS,
-    description:
-      'Issuer the client paid from. Expected for `ecesu`, irrelevant on paper.',
+    description: 'Issuer the client paid from.',
     example: 'pluxee',
   })
   @IsOptional()
@@ -187,16 +189,31 @@ export class RunDueInvoicesDto {
 }
 
 export class CesuPaymentDto {
-  @ApiProperty({ format: 'uuid', description: 'Local `payments.id`.' })
+  @ApiProperty({
+    example: '3d1f7a20-5b6c-4e8d-9f0a-1b2c3d4e5f60',
+    format: 'uuid',
+    description: 'Local `payments.id`.',
+  })
   paymentId!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Booking paid.' })
+  @ApiProperty({
+    example: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99',
+    format: 'uuid',
+    description: 'Booking paid.',
+  })
   bookingId!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Booking reference, when set.' })
+  @ApiPropertyOptional({
+    example: 'LF-2026-0142',
+    nullable: true,
+    description: 'Booking reference, when set.',
+  })
   bookingReference?: string | null;
 
-  @ApiProperty({ description: 'Declared amount, VAT included, in minor units.' })
+  @ApiProperty({
+    example: 10000,
+    description: 'Declared amount, VAT included, in minor units.',
+  })
   amountTtc!: number;
 
   @ApiProperty({ description: 'ISO 4217 currency code.', example: 'EUR' })
@@ -225,12 +242,14 @@ export class CesuPaymentDto {
   settlementStatus!: CesuSettlementStatus;
 
   @ApiPropertyOptional({
+    example: 'PLX-2026-884213',
     nullable: true,
     description: 'Client-supplied issuer reference.',
   })
   clientProofRef?: string | null;
 
   @ApiPropertyOptional({
+    example: '2026-10-17T09:12:03.412Z',
     nullable: true,
     type: String,
     format: 'date-time',
@@ -241,6 +260,7 @@ export class CesuPaymentDto {
   proofUploadedAt?: Date | null;
 
   @ApiPropertyOptional({
+    example: null,
     nullable: true,
     type: String,
     format: 'date-time',
@@ -248,7 +268,11 @@ export class CesuPaymentDto {
   })
   confirmedAt?: Date | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Why the chef rejected it.' })
+  @ApiPropertyOptional({
+    example: null,
+    nullable: true,
+    description: 'Why the chef rejected it.',
+  })
   rejectionReason?: string | null;
 
   @ApiProperty({
@@ -257,13 +281,26 @@ export class CesuPaymentDto {
   })
   adminOverride!: boolean;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Client display name.' })
+  @ApiPropertyOptional({
+    example: 'Sophie Martin',
+    nullable: true,
+    description: 'Client display name.',
+  })
   clientName?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Chef display name.' })
+  @ApiPropertyOptional({
+    example: 'Chef Marie',
+    nullable: true,
+    description: 'Chef display name.',
+  })
   chefDisplayName?: string | null;
 
-  @ApiProperty({ type: String, format: 'date-time', description: 'Declaration time.' })
+  @ApiProperty({
+    example: '2026-10-17T09:10:00.000Z',
+    type: String,
+    format: 'date-time',
+    description: 'Declaration time.',
+  })
   declaredAt!: Date;
 }
 
@@ -274,16 +311,23 @@ export class CesuPaymentDto {
  * between CESU and card work: the booking confirms when the parts add up.
  */
 export class BookingPaymentStatusDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiProperty({ example: '9c3ebc99-9c0b-4ef8-bb6d-6bb9bd380a99', format: 'uuid' })
   bookingId!: string;
 
-  @ApiProperty({ description: 'Booking total, VAT included, in minor units.' })
+  @ApiProperty({
+    example: 25500,
+    description: 'Booking total, VAT included, in minor units.',
+  })
   amountTtcCents!: number;
 
-  @ApiProperty({ description: 'Sum of settled payments, in minor units.' })
+  @ApiProperty({
+    example: 10000,
+    description: 'Sum of settled payments, in minor units.',
+  })
   coveredAmountCents!: number;
 
   @ApiProperty({
+    example: 15500,
     description:
       'Amount still to pay, in minor units. A card intent is created for exactly this, ' +
       'and a CESU declaration may not exceed it.',
@@ -293,10 +337,11 @@ export class BookingPaymentStatusDto {
   @ApiProperty({ description: 'ISO 4217 currency code.', example: 'EUR' })
   currency!: string;
 
-  @ApiProperty({ description: 'Whether the booking is fully paid.' })
+  @ApiProperty({ example: false, description: 'Whether the booking is fully paid.' })
   fullyCovered!: boolean;
 
   @ApiProperty({
+    example: true,
     description:
       'Whether the chef can be paid in prefinanced CESU: opted in **and** holding a NAN.',
   })
@@ -318,13 +363,20 @@ export class BookingPaymentStatusDto {
  * the service.
  */
 export class ChefCesuInfoDto {
-  @ApiProperty({ format: 'uuid', description: 'Chef profile id.' })
+  @ApiProperty({
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    format: 'uuid',
+    description: 'Chef profile id.',
+  })
   chefProfileId!: string;
 
   @ApiProperty({ description: 'Chef display name.', example: 'Chef Marie D.' })
   chefDisplayName!: string;
 
-  @ApiProperty({ description: 'Whether the chef accepts prefinanced CESU.' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether the chef accepts prefinanced CESU.',
+  })
   acceptsCesu!: boolean;
 
   @ApiPropertyOptional({
@@ -342,6 +394,7 @@ export class ChefCesuInfoDto {
   crcesuAffiliationStatus!: SapExternalStatus;
 
   @ApiProperty({
+    example: ['pluxee', 'edenred', 'up'],
     enum: CESU_SUPPORTED_ISSUERS,
     isArray: true,
     description: 'Issuers a beneficiary can pay from. Informational — none is queryable.',

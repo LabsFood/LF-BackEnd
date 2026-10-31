@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -127,6 +128,10 @@ export class ChefDocumentsController {
     description: '`UNSUPPORTED_MEDIA_TYPE` or `FILE_TOO_LARGE`.',
     example: errorExample('FILE_TOO_LARGE', 'Maximum accepted size is 10 MB.'),
   })
+  @ApiForbiddenResponse({
+    description:
+      '`SYSTEM_DOCUMENT`: `sepa-mandate` is written from the Stripe signature.',
+  })
   @ApiNotFoundResponse({ description: `${NOT_A_CHEF} Or \`{type}\` is unknown.` })
   @ApiClerkAuthResponses()
   async uploadUrl(
@@ -168,6 +173,10 @@ export class ChefDocumentsController {
   @ApiUnprocessableEntityResponse({
     description:
       '`VALIDATION_FAILED`: `expiresOn` missing for a document that expires, or in the past.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      '`SYSTEM_DOCUMENT`: `sepa-mandate` is written from the Stripe signature.',
   })
   @ApiNotFoundResponse({ description: `${NOT_A_CHEF} Or \`{type}\` is unknown.` })
   @ApiClerkAuthResponses()
@@ -230,7 +239,17 @@ export class ChefDocumentsController {
       'document, and every link handed out is written to the audit journal, as for ' +
       'an admin. `404` when nothing has been deposited for this type.',
   })
-  @ApiOkResponse({ description: 'Short-lived signed URL, with the file name and type.' })
+  @ApiOkResponse({
+    description: 'Short-lived signed URL, with the file name and type.',
+    example: {
+      url: 'https://<project>.supabase.co/storage/v1/object/sign/labsfood-kyc/chefs/c2eebc99…/identity/up_9f2a…?token=eyJhbGciOi…',
+      expiresAt: '2026-09-21T08:35:12.000Z',
+      type: 'identity',
+      version: 1,
+      mimeType: 'application/pdf',
+      fileName: 'carte-identite.pdf',
+    },
+  })
   @ApiClerkAuthResponses()
   async previewUrl(
     @CurrentClerkUser() user: ClerkUser,

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Put, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -34,6 +34,48 @@ class UpdateCommissionDto {
   @Max(MAX_COMMISSION_BPS)
   commissionBps!: number;
 }
+
+class BookingSupplementsDto {
+  @ApiProperty({
+    minimum: 0,
+    maximum: 50,
+    description: 'Adults an offer’s price covers.',
+    example: 3,
+  })
+  @IsInt()
+  @Min(0)
+  @Max(50)
+  includedPersons!: number;
+
+  @ApiProperty({
+    minimum: 0,
+    maximum: 100_000,
+    description: 'Each adult beyond, in cents.',
+    example: 1500,
+  })
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
+  extraPersonCents!: number;
+
+  @ApiProperty({
+    minimum: 0,
+    maximum: 100_000,
+    description: 'Each extra dish (the "Plats supp." counter), in cents.',
+    example: 800,
+  })
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
+  extraMealCents!: number;
+}
+
+const SUPPLEMENTS_EXAMPLE = {
+  includedPersons: 3,
+  extraPersonCents: 1500,
+  extraMealCents: 800,
+  updatedAt: '2026-10-18T09:00:00.000Z',
+};
 
 const reqId = (req: { id?: unknown }): string | undefined =>
   typeof req.id === 'string' ? req.id : undefined;
@@ -107,5 +149,46 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setCommission(body.commissionBps, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/booking-supplements')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the booking supplements',
+    description:
+      'The adults an offer’s price covers, what each one beyond costs, and what an ' +
+      'extra dish costs. ' +
+      '`updatedAt: null`: never changed, the defaults apply.',
+  })
+  @ApiOkResponse({ description: 'The rules.', example: SUPPLEMENTS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  bookingSupplements() {
+    return this.settings.bookingSupplements();
+  }
+
+  @Put('admin/settings/booking-supplements')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the booking supplements',
+    description:
+      'All three values, every time. Applies to bookings made, or whose adults or ' +
+      'dishes change, from now on; a booking keeps the lines it has. Recorded in the ' +
+      'audit log.',
+  })
+  @ApiOkResponse({ description: 'The new rules.', example: SUPPLEMENTS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setBookingSupplements(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: BookingSupplementsDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setBookingSupplements(body, admin.id, reqId(req));
   }
 }

@@ -28,6 +28,7 @@ import type { FastifyReply } from 'fastify';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import { ICS_EXAMPLE } from '../../common/swagger/ics-example';
 import { TAGS } from '../../common/swagger/tags';
 import { CalendarFeedService } from '../calendar/calendar-feed.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
@@ -103,7 +104,10 @@ export class MeBookingsController {
   })
   @ApiBookingId()
   @ApiProduces('text/calendar')
-  @ApiOkResponse({ description: 'iCalendar (RFC 5545), as an attachment.' })
+  @ApiOkResponse({
+    description: 'iCalendar (RFC 5545), as an attachment.',
+    content: { 'text/calendar': { schema: { type: 'string' }, example: ICS_EXAMPLE } },
+  })
   @ApiNotFoundResponse({
     description: '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
   })
@@ -136,7 +140,7 @@ export class MeBookingsController {
   @ApiNotFoundResponse({ description: '`OFFER_NOT_FOUND`.' })
   @ApiConflictResponse({
     description:
-      '`SLOT_UNAVAILABLE`, `SAME_PERSON`, or `COMMISSION_UNPAID` (the batch cooker ' +
+      '`SLOT_UNAVAILABLE`, `SAME_PERSON`, or `CHEF_UNAVAILABLE` (the batch cooker ' +
       'cannot take new work right now).',
   })
   @ApiUnprocessableEntityResponse({

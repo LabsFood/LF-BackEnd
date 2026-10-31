@@ -12,7 +12,7 @@ import type { CesuSettlementStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
-import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from './chef-cesu-info';
+import { CHEF_CESU_INFO_SELECT, cesuAccepted, toChefCesuInfo } from './chef-cesu-info';
 import { CommissionDebitsService } from './commission-debits.service';
 import { assertNoCommissionBlock } from './commission-standing';
 import { commissionForPayment } from './commission-policy';
@@ -94,7 +94,11 @@ export class CesuPaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: payload.bookingId, clientId: user.id },
-      include: { chefProfile: { include: { sapProfile: true } } },
+      include: {
+        chefProfile: {
+          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+        },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');
@@ -110,10 +114,15 @@ export class CesuPaymentsService {
         'The chef is not verified by an admin, so this booking cannot be paid.',
       );
     }
-    if (!chef.sapProfile?.acceptsCesu || !chef.sapProfile.crcesuNan) {
-      throw new ConflictException(
-        'This chef does not accept prefinanced CESU (no opt-in, or no CRCESU affiliation number).',
-      );
+    // The commission on a CESU payment is debited from the chef afterwards, so no
+    // mandate means no CESU: the opt-in and the NAN alone are not enough.
+    if (!cesuAccepted(chef.sapProfile, chef.sepaMandate)) {
+      throw new ConflictException({
+        code: 'CESU_NOT_ACCEPTED',
+        message:
+          'This chef does not accept prefinanced CESU (no opt-in, no CRCESU affiliation ' +
+          'number, or no active commission mandate).',
+      });
     }
     // §6 guard: an uncollectable commission stops the chef taking on new work.
     if (commissionBlockApplies(booking)) {
@@ -305,7 +314,11 @@ export class CesuPaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
-      include: { chefProfile: { include: { sapProfile: true } } },
+      include: {
+        chefProfile: {
+          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+        },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');
@@ -315,7 +328,7 @@ export class CesuPaymentsService {
     const sap = booking.chefProfile.sapProfile;
     return {
       ...coverage,
-      cesuAvailable: Boolean(sap?.acceptsCesu && sap.crcesuNan),
+      cesuAvailable: cesuAccepted(sap, booking.chefProfile.sepaMandate),
       crcesuNan: sap?.crcesuNan ?? null,
     };
   }

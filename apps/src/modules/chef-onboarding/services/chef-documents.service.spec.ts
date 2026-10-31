@@ -21,6 +21,7 @@ describe('ChefDocumentsService', () => {
     chefApplication: { updateMany: jest.Mock };
   };
   let storage: {
+    putObject: jest.Mock;
     statObject: jest.Mock;
     buildPath: jest.Mock;
     createUploadUrl: jest.Mock;
@@ -45,6 +46,7 @@ describe('ChefDocumentsService', () => {
       chefApplication: { updateMany: jest.fn() },
     };
     storage = {
+      putObject: jest.fn(),
       statObject: jest
         .fn()
         .mockResolvedValue({ sizeBytes: 842133, mimeType: 'application/pdf' }),
@@ -195,6 +197,70 @@ describe('ChefDocumentsService', () => {
 
     it('refuses an unknown document type', async () => {
       await expect(confirm({ uploadId: 'up_1' }, 'passport-photo')).rejects.toThrow();
+    });
+
+    it('never takes a SEPA mandate from the chef: only Stripe’s signature makes one', async () => {
+      await expect(confirm({ uploadId: 'up_1' }, 'sepa-mandate')).rejects.toMatchObject({
+        response: { code: 'SYSTEM_DOCUMENT' },
+      });
+      await expect(
+        service.createUploadUrl(OWNER, 'sepa-mandate', {
+          mimeType: 'application/pdf',
+          sizeBytes: 1000,
+        } as never),
+      ).rejects.toMatchObject({ response: { code: 'SYSTEM_DOCUMENT' } });
+      expect(prisma.chefDocument.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recordSystemDocument', () => {
+    const PDF = {
+      bytes: Buffer.from('%PDF-1.4'),
+      fileName: 'm.pdf',
+      mimeType: 'application/pdf',
+    };
+
+    it('stores the file and files it already valid, as the next version of its type', async () => {
+      prisma.chefDocument.findFirst.mockResolvedValue({ version: 1 });
+
+      await service.recordSystemDocument(OWNER, ChefDocumentType.sepa_mandate, PDF, {
+        stripeMandateId: 'mandate_1',
+      });
+
+      const [path, bytes, mimeType] = storage.putObject.mock.calls[0] as [
+        string,
+        Buffer,
+        string,
+      ];
+      expect(path).toMatch(/^chefs\/chef-1\/sepa_mandate\/sys_[a-f0-9]{24}$/);
+      expect(bytes).toBe(PDF.bytes);
+      expect(mimeType).toBe('application/pdf');
+      expect(prisma.chefDocument.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: ChefDocumentType.sepa_mandate,
+          status: ChefDocumentStatus.valid,
+          version: 2,
+          storagePath: path,
+          sizeBytes: PDF.bytes.length,
+        }),
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'system',
+          action: 'document.generated',
+          metadata: expect.objectContaining({
+            type: 'sepa-mandate',
+            stripeMandateId: 'mandate_1',
+          }),
+        }),
+      );
+    });
+
+    it('refuses to forge a chef deposit', async () => {
+      await expect(
+        service.recordSystemDocument(OWNER, ChefDocumentType.identity, PDF),
+      ).rejects.toThrow();
+      expect(storage.putObject).not.toHaveBeenCalled();
     });
   });
 

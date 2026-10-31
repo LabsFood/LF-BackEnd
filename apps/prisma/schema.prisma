@@ -51,6 +51,8 @@ model ChefProfile {
   bio                    String?
   city                   String?                     @db.VarChar(120)
   serviceRadiusKm        Int                         @default(10) @map("service_radius_km")
+  /// Languages spoken with clients: codes from `GET /referentials/languages`.
+  languages              String[]                    @default([])
   isActive               Boolean                     @default(false) @map("is_active")
   isVerified             Boolean                     @default(false) @map("is_verified")
   cronofyProfileId       String?                     @map("cronofy_profile_id") @db.VarChar(128)
@@ -98,18 +100,21 @@ model ChefProfile {
 }
 
 model ServiceOffer {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId   String      @map("provider_id") @db.Uuid
-  name            String      @db.VarChar(160)
-  description     String?
-  durationMinutes Int         @map("duration_minutes")
-  priceCents      Int         @map("price_cents")
-  currency        String      @default("EUR") @db.VarChar(3)
-  isActive        Boolean     @default(true) @map("is_active")
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookings        Booking[]
-  chefProfile     ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_chef_profile_id")
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId    String      @map("provider_id") @db.Uuid
+  name             String      @db.VarChar(160)
+  description      String?
+  durationMinutes  Int         @map("duration_minutes")
+  priceCents       Int         @map("price_cents")
+  currency         String      @default("EUR") @db.VarChar(3)
+  isActive         Boolean     @default(true) @map("is_active")
+  /// The chef does the shopping for this offer. Priced by `shoppingFeeCents`, which stays 0 otherwise.
+  shoppingIncluded Boolean     @default(false) @map("shopping_included")
+  shoppingFeeCents Int         @default(0) @map("shopping_fee_cents")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookings         Booking[]
+  chefProfile      ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_service_offers_chef_profile_id")
 
   @@index([chefProfileId], map: "ix_service_offers_chef_profile_id")
   @@map("service_offers")
@@ -130,43 +135,52 @@ model AvailabilitySlot {
 }
 
 model Booking {
-  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reference             String?        @unique(map: "bookings_reference_key") @db.VarChar(32)
-  clientId              String         @map("client_id") @db.Uuid
-  chefProfileId         String         @map("provider_id") @db.Uuid
-  serviceOfferId        String         @map("service_offer_id") @db.Uuid
-  formuleId             String?        @map("formule_id") @db.VarChar(32)
-  bookingDate           DateTime?      @map("booking_date") @db.Date
-  timeSlot              String?        @map("time_slot") @db.VarChar(64)
+  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference             String?             @unique(map: "bookings_reference_key") @db.VarChar(32)
+  clientId              String              @map("client_id") @db.Uuid
+  chefProfileId         String              @map("provider_id") @db.Uuid
+  serviceOfferId        String              @map("service_offer_id") @db.Uuid
+  formuleId             String?             @map("formule_id") @db.VarChar(32)
+  bookingDate           DateTime?           @map("booking_date") @db.Date
+  timeSlot              String?             @map("time_slot") @db.VarChar(64)
   persons               Int?
-  startsAt              DateTime       @map("starts_at") @db.Timestamptz(6)
-  endsAt                DateTime       @map("ends_at") @db.Timestamptz(6)
-  status                BookingStatus  @default(pending)
-  priceCents            Int            @map("price_cents")
-  amountTtc             Int?           @map("amount_ttc")
-  amountAfterTax        Int?           @map("amount_after_tax")
-  currency              String         @default("EUR") @db.VarChar(3)
-  shoppingByClient      Boolean        @default(false) @map("shopping_by_client")
-  addressLine           String?        @map("address_line") @db.VarChar(255)
+  startsAt              DateTime            @map("starts_at") @db.Timestamptz(6)
+  endsAt                DateTime            @map("ends_at") @db.Timestamptz(6)
+  status                BookingStatus       @default(pending)
+  priceCents            Int                 @map("price_cents")
+  amountTtc             Int?                @map("amount_ttc")
+  amountAfterTax        Int?                @map("amount_after_tax")
+  currency              String              @default("EUR") @db.VarChar(3)
+  shoppingByClient      Boolean             @default(false) @map("shopping_by_client")
+  /// The offer's shopping fee, shown apart; already counted in `amountTtc`. 0 when the
+  /// offer has no shopping or the client does it.
+  shoppingFeeCents      Int                 @default(0) @map("shopping_fee_cents")
+  /// Extra dishes the client asked for, beyond what the offer covers ("Plats supp.").
+  extraMeals            Int                 @default(0) @map("extra_meals")
+  /// Adults beyond what the offer covers, and the extra dishes: each shown apart,
+  /// already counted in `amountTtc`. Always 0 on a formule, which is a package.
+  extraPersonsCents     Int                 @default(0) @map("extra_persons_cents")
+  extraMealsCents       Int                 @default(0) @map("extra_meals_cents")
+  addressLine           String?             @map("address_line") @db.VarChar(255)
   /// The city, apart, so the agenda can show it without the street.
-  addressCity           String?        @map("address_city") @db.VarChar(120)
-  addressPostalCode     String?        @map("address_postal_code") @db.VarChar(16)
+  addressCity           String?             @map("address_city") @db.VarChar(120)
+  addressPostalCode     String?             @map("address_postal_code") @db.VarChar(16)
   notes                 String?
-  stripePaymentIntentId String?        @map("stripe_payment_intent_id") @db.VarChar(128)
-  cronofyEventId        String?        @map("cronofy_event_id") @db.VarChar(128)
+  stripePaymentIntentId String?             @map("stripe_payment_intent_id") @db.VarChar(128)
+  cronofyEventId        String?             @map("cronofy_event_id") @db.VarChar(128)
   /// When the batch cooker arrived on site: set by the first move to `cooking`.
-  arrivedAt             DateTime?      @map("arrived_at") @db.Timestamptz(6)
+  arrivedAt             DateTime?           @map("arrived_at") @db.Timestamptz(6)
   /// When the "24 h left to pay" reminder went out, so it goes out once.
-  holdReminderSentAt    DateTime?      @map("hold_reminder_sent_at") @db.Timestamptz(6)
-  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  holdReminderSentAt    DateTime?           @map("hold_reminder_sent_at") @db.Timestamptz(6)
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals          BookingMeal[]
-  client                User           @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
-  chefProfile           ChefProfile    @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
-  formule               Formule?       @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
+  client                User                @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
+  chefProfile           ChefProfile         @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
+  formule               Formule?            @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
   shoppingList          ShoppingList?
-  quote                 Quote?         @relation("QuoteBooking")
-  serviceOffer          ServiceOffer   @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
+  quote                 Quote?              @relation("QuoteBooking")
+  serviceOffer          ServiceOffer        @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
   payments              Payment[]
   photos                BookingPhoto[]
   reschedules           BookingReschedule[]
@@ -544,6 +558,8 @@ enum QuoteStatus {
   chef_declined
   /// The client withdrew it.
   cancelled
+  /// Lab's Food closed it without follow-up: not the client's refusal, not theirs to undo.
+  closed
 
   @@map("quote_status")
 }
@@ -717,6 +733,8 @@ enum ChefDocumentType {
   haccp
   ddpp
   vigilance
+  /// Written by the API when Stripe confirms the commission mandate; never uploaded.
+  sepa_mandate
 
   @@map("chef_document_type")
 }

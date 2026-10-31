@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -12,6 +11,7 @@ import {
 } from 'class-validator';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
+import { QueryBoolean } from '../../../common/dto/query-boolean';
 import { DOCUMENT_TYPES } from '../domain/chef-onboarding.rules';
 
 /** Query for the admin review queue (FLOW-01 §5.1). */
@@ -32,7 +32,7 @@ export class ListChefApplicationsQueryDto extends PaginationQueryDto {
     example: true,
   })
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
+  @QueryBoolean()
   @IsBoolean()
   hasPendingDocuments?: boolean;
 

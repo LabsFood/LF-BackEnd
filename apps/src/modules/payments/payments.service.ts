@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Stripe from 'stripe';
@@ -13,7 +12,6 @@ import { PaymentStatus, Prisma } from '../../generated/prisma/client';
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
-import { resolveAllowedOrigins } from '../../config/allowed-origins';
 import { commissionForPayment } from './commission-policy';
 import { assertNoCommissionBlock } from './commission-standing';
 import type { CommissionBreakdown } from './commission.util';
@@ -23,7 +21,12 @@ import {
   PaymentIntentDto,
 } from './dto/payment.dto';
 import { assertPayable, commissionBlockApplies } from './payment-rules';
-import { bookingCoverage, settlePayment } from './payment-settlement';
+import { assertOwnSiteUrl } from './own-site-url';
+import {
+  assertNoPendingCesu,
+  bookingCoverage,
+  settlePayment,
+} from './payment-settlement';
 
 /** PaymentIntent states that can still be confirmed by the client. */
 const CONFIRMABLE_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -152,6 +155,7 @@ export class PaymentsService {
     // The card charge covers **what is left**, not the booking total: the client may
     // already have paid part of it in CESU, and charging the full amount again would
     // overcharge them.
+    await assertNoPendingCesu(this.prisma, booking.id);
     const coverage = await bookingCoverage(this.prisma, booking);
     const amountTtc = coverage.remainingAmountCents;
     if (amountTtc <= 0) {
@@ -359,19 +363,11 @@ export class PaymentsService {
   }
 
   private assertOwnUrl(url: string): void {
-    const allowed = this.config.get<string[]>('cors.origins', resolveAllowedOrigins());
-    let origin: string | null = null;
-    try {
-      origin = new URL(url).origin;
-    } catch {
-      origin = null;
-    }
-    if (!origin || !allowed.includes(origin)) {
-      throw new UnprocessableEntityException({
-        code: 'RETURN_URL_NOT_ALLOWED',
-        message: 'successUrl and cancelUrl must point at a Lab’s Food site.',
-      });
-    }
+    assertOwnSiteUrl(
+      this.config,
+      url,
+      'successUrl and cancelUrl must point at a Lab’s Food site.',
+    );
   }
 
   /**

@@ -217,7 +217,7 @@ export class ChefApplicationsAdminService {
     adminUserId: string,
     requestId?: string,
   ) {
-    const type = this.documents.parseType(wireType);
+    const type = this.documents.parseManualType(wireType);
 
     if (body.decision === 'rejected' && !body.reason?.trim()) {
       throw new UnprocessableEntityException({
@@ -427,6 +427,19 @@ export class ChefApplicationsAdminService {
           interventionZones: application.interventionZones as Prisma.InputJsonValue,
           sapPath: application.sapPath,
           sapDeclarationNumber: application.sapDeclarationNumber,
+        },
+      });
+      // The dossier's SAP route is the chef's declaration: without this row the admin
+      // statuses read `null` and `PATCH /admin/chefs/:id/sap-external-status` is a 404.
+      // Both statuses stay `not_started`; `update: {}` keeps a declaration the chef or
+      // an admin already made through `/me/chef-profile/sap`.
+      await tx.sapProfile.upsert({
+        where: { chefProfileId: application.chefProfileId },
+        update: {},
+        create: {
+          chefProfileId: application.chefProfileId,
+          declarationType:
+            application.sapPath === 'type_a' ? 'type_a_nova' : 'type_b_cooperative',
         },
       });
     });

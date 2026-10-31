@@ -1,4 +1,9 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type Stripe from 'stripe';
 
 import { StripeService } from '../../integrations/stripe.service';
@@ -7,6 +12,21 @@ import { CommissionDebitsService } from '../payments/commission-debits.service';
 import { idOf, PaymentsService } from '../payments/payments.service';
 import { SepaMandatesService } from '../payments/sepa-mandates.service';
 import { StripeConnectService } from '../payments/stripe-connect.service';
+
+/**
+ * Subscribed on the endpoint, nothing to record: intermediate states whose outcome arrives
+ * as its own event (`…succeeded`, `…payment_failed`, `…setup_failed`), or Stripe Billing,
+ * which this platform does not use — facture B is numbered by the API, not by Stripe
+ * invoices. Acknowledged with a 200 so Stripe does not retry them.
+ */
+const ACKNOWLEDGED_TYPES = new Set<string>([
+  'payment_intent.created',
+  'payment_intent.requires_action',
+  'setup_intent.created',
+  'setup_intent.requires_action',
+  'setup_intent.canceled',
+]);
+const ACKNOWLEDGED_PREFIXES = ['invoice.', 'subscription_schedule.'];
 
 @Injectable()
 export class StripeWebhooksService {
@@ -84,8 +104,48 @@ export class StripeWebhooksService {
       case 'mandate.updated':
         await this.commissionDebits.handleMandateUpdated(event.data.object);
         return;
+      case 'setup_intent.setup_failed': {
+        // The chef saw the error on the Stripe page and can sign again; the mandate row
+        // is left as it was. Logged so repeated failures for one chef show up.
+        const intent = event.data.object;
+        this.logger.warn({
+          event: 'sepa.setup_failed',
+          setupIntentId: intent.id,
+          chefProfileId: intent.metadata?.chefProfileId ?? null,
+          code: intent.last_setup_error?.code ?? null,
+        });
+        return;
+      }
+      case 'refund.failed':
+      case 'refund.updated':
+      case 'charge.refund.updated': {
+        // ponytail: alert only. Refunds are issued from the Stripe Dashboard, never by
+        // this API, so an admin settles a failed one by hand; the payment row still reads
+        // refunded. Revert it here once the API issues refunds itself.
+        const refund = event.data.object;
+        if (refund.status === 'failed') {
+          this.logger.error({
+            event: 'stripe.refund_failed',
+            refundId: refund.id,
+            paymentIntentId: idOf(refund.payment_intent),
+            reason: refund.failure_reason ?? null,
+          });
+        }
+        return;
+      }
       default:
-        this.logger.debug(`Ignored Stripe webhook type: ${event.type}`);
+        if (
+          ACKNOWLEDGED_TYPES.has(event.type) ||
+          ACKNOWLEDGED_PREFIXES.some((prefix) => event.type.startsWith(prefix))
+        ) {
+          this.logger.debug(
+            `Acknowledged Stripe event ${event.type}: nothing to record.`,
+          );
+          return;
+        }
+        // Still a 200: a type subscribed on the endpoint with no code behind it must not
+        // be retried for three days. Logged so the missing handler gets noticed.
+        this.logger.warn({ event: 'stripe.webhook_unhandled', type: event.type });
     }
   }
 
@@ -139,7 +199,19 @@ export class StripeWebhooksService {
       }
     }
     if (!event) {
-      throw lastError;
+      // Type and code only: the payload and the secrets stay out of the logs.
+      const err = lastError as { type?: string; message?: string } | undefined;
+      this.logger.warn({
+        event: 'stripe.webhook_signature_invalid',
+        secretsTried: secrets.length,
+        type: err?.type ?? null,
+      });
+      throw new BadRequestException({
+        code: 'WEBHOOK_SIGNATURE_INVALID',
+        message:
+          'The Stripe signature matches none of the configured webhook secrets. ' +
+          (err?.message ?? ''),
+      });
     }
 
     if (event.account) {
@@ -175,6 +247,12 @@ export class StripeWebhooksService {
       await this.handleVerifiedEvent(event);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.error({
+        event: 'stripe.webhook_handler_failed',
+        eventId: event.id,
+        type: event.type,
+        reason: message,
+      });
       await this.prisma.stripeEventLog.update({
         where: { id: log.id },
         data: { error: message },

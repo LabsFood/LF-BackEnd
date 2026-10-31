@@ -33,6 +33,7 @@ describe('PaymentsService', () => {
       findFirst: jest.Mock;
       findUnique: jest.Mock;
       aggregate: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
@@ -86,6 +87,7 @@ describe('PaymentsService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
         aggregate: jest.fn().mockResolvedValue(covered(0)),
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -146,6 +148,16 @@ describe('PaymentsService', () => {
         where: { id: 'booking-1' },
         data: { stripePaymentIntentId: 'pi_1' },
       });
+    });
+
+    it('refuses to charge the card while a CESU declaration waits on the chef', async () => {
+      // Not settled, so still inside `remaining`: charging it would cover it twice.
+      prisma.payment.count.mockResolvedValue(1);
+
+      await expect(
+        service.createIntentForBooking('clerk_1', 'booking-1'),
+      ).rejects.toMatchObject({ response: { code: 'CESU_PENDING' } });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
     it('freezes the rate and VAT on the commission row', async () => {
@@ -324,9 +336,13 @@ describe('PaymentsService', () => {
         invoiceNumber: 'LF-COM-2026-0007',
       });
 
-      await expect(
-        service.createIntentForBooking('clerk_1', 'booking-1'),
-      ).rejects.toThrow(/LF-COM-2026-0007/);
+      const refusal = service.createIntentForBooking('clerk_1', 'booking-1');
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
+      });
+      // The chef's unpaid invoice is not the paying client's business.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-2026-0007/);
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 

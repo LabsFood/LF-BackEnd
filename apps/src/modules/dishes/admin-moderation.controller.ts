@@ -40,6 +40,7 @@ const QUEUE_EXAMPLE = {
       type: 'dish',
       id: DISH_ID,
       name: 'Poulet rôti aux herbes',
+      imageUrl: 'https://media.labsfood.fr/chefs/c2ee…/dishes/1a2b….jpg',
       chef: CHEF,
       status: 'published',
       publishedAt: '2026-09-20T14:02:11.000Z',
@@ -47,6 +48,9 @@ const QUEUE_EXAMPLE = {
       pendingSince: '2026-09-20T14:02:11.000Z',
       reviewedAt: null,
       flags: ['custom-allergen'],
+      allergens: ['celery'],
+      allergensNone: false,
+      prepTime: 45,
       customAllergens: ['sarrasin'],
       customDiets: [],
     },
@@ -134,7 +138,10 @@ export class AdminModerationController {
       '`no-allergens-declared`, `edited-after-review`, `republished-after-suspension`, ' +
       '`source-changed`.\n\n' +
       'Without `review`: batch cookers’ dishes, most recently changed first. Filter ' +
-      'with `chefId` and `type`.',
+      'with `chefId` and `type`.\n\n' +
+      'A light row: `imageUrl`, `allergens`, `allergensNone` and `prepTime` (`null` ' +
+      'on a menu, whose dishes declare them). Recipe and steps: ' +
+      '`GET /admin/chefs/{id}/dishes`.',
   })
   @ApiOkResponse({ description: 'One page of items.', example: QUEUE_EXAMPLE })
   @ApiAdminAuthResponses()

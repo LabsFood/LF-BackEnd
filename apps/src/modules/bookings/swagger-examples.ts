@@ -16,12 +16,24 @@ export const BOOKING_ITEM_EXAMPLE = {
   notes: 'Digicode 4521B, 3e étage.',
   shoppingByClient: false,
   priceCents: 24000,
-  amountTtc: 24000,
-  amountAfterTax: 12000,
+  extraMeals: 0,
+  extraPersonsCents: 1500,
+  extraMealsCents: 0,
+  shoppingFeeCents: 1500,
+  amountTtc: 27000,
+  amountAfterTax: 13500,
   currency: 'EUR',
   arrivedAt: null,
   createdAt: '2026-10-14T18:02:11.000Z',
   mealsCount: 3,
+  meals: [
+    {
+      mealId: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+      name: 'Poulet yassa',
+      portions: 4,
+      recipeVersion: 2,
+    },
+  ],
   client: {
     id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     name: 'Sophie M.',
@@ -33,20 +45,13 @@ export const BOOKING_ITEM_EXAMPLE = {
   paymentMethods: ['cb'],
   paidCents: 24000,
   netCents: 19680,
+  collectedNetCents: 19680,
   commissionCents: 4320,
   commissionEstimated: false,
 };
 
 export const BOOKING_DETAIL_EXAMPLE = {
   ...BOOKING_ITEM_EXAMPLE,
-  meals: [
-    {
-      mealId: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
-      name: 'Poulet yassa',
-      portions: 4,
-      recipeVersion: 2,
-    },
-  ],
   photos: [],
   // A new time waiting for an answer (`RESCHEDULE_EXAMPLE`), else null.
   reschedule: null,
@@ -60,6 +65,7 @@ const without = (example: Record<string, unknown>, keys: string[]) =>
 /** The client never sees the commission, the net, or their own diet sheet. */
 const BATCH_COOKER_ONLY = [
   'netCents',
+  'collectedNetCents',
   'commissionCents',
   'commissionEstimated',
   'allergies',

@@ -25,14 +25,6 @@ import {
  */
 const LABS_FOOD = { chefProfileId: null };
 
-/** Never on a public route: the recipe, and what the fiche says (FLOW-02 §1). */
-export const RECIPE_FIELDS = {
-  ingredients: true,
-  steps: true,
-  reheating: true,
-  storage: true,
-} as const;
-
 const WITH_MEALS = { meals: { include: { meal: true } } } as const;
 
 export const NOT_LABS_FOOD =
@@ -46,32 +38,6 @@ export class CatalogService {
     private readonly prisma: PrismaService,
     private readonly suggestions: SuggestionsService,
   ) {}
-
-  async getCurrentPublishedMenu(): Promise<{
-    menuWeek: unknown;
-    meals: unknown[];
-  } | null> {
-    const now = new Date();
-    const week = await this.prisma.menuWeek.findFirst({
-      where: { publishedAt: { not: null, lte: now } },
-      orderBy: [{ year: 'desc' }, { weekNumber: 'desc' }],
-      // Public route: Lab's Food meals only, and never the recipe (FLOW-02 §1).
-      include: {
-        meals: {
-          where: { meal: LABS_FOOD },
-          include: { meal: { omit: RECIPE_FIELDS } },
-        },
-      },
-    });
-    if (!week) {
-      return null;
-    }
-
-    return {
-      menuWeek: week,
-      meals: week.meals.map((entry) => entry.meal),
-    };
-  }
 
   listMeals() {
     return this.prisma.meal.findMany({

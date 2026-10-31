@@ -29,6 +29,7 @@ import type { FastifyRequest } from 'fastify';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import { ICS_EXAMPLE } from '../../common/swagger/ics-example';
 import { TAGS } from '../../common/swagger/tags';
 import { CalendarFeedService } from './calendar-feed.service';
 
@@ -132,7 +133,10 @@ export class PublicCalendarFeedController {
   })
   @ApiParam({ name: 'file', description: 'The secret token, then `.ics`.' })
   @ApiProduces('text/calendar')
-  @ApiOkResponse({ description: 'iCalendar (RFC 5545).' })
+  @ApiOkResponse({
+    description: 'iCalendar (RFC 5545).',
+    content: { 'text/calendar': { schema: { type: 'string' }, example: ICS_EXAMPLE } },
+  })
   @ApiNotFoundResponse({ description: '`FEED_NOT_FOUND`.' })
   feed(@Param('file') file: string, @Ip() ip: string) {
     return this.feeds.feed(file.replace(/\.ics$/, ''), ip);

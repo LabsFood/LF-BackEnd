@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { AccountDeletionController } from './account-deletion.controller';
+import { AccountDeletionService } from './account-deletion.service';
 import { AdminChefsController } from './admin-chefs.controller';
 import { AdminChefsService } from './admin-chefs.service';
 import { AvatarController } from './avatar.controller';
@@ -14,8 +16,9 @@ import { UsersService } from './users.service';
     UsersController,
     AvatarController,
     AdminChefsController,
+    AccountDeletionController,
   ],
-  providers: [UsersService, AvatarService, AdminChefsService],
+  providers: [UsersService, AvatarService, AdminChefsService, AccountDeletionService],
   exports: [UsersService],
 })
 export class UsersModule {}

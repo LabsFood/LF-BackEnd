@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
+import { QueryBoolean } from '../../../common/dto/query-boolean';
 import { DIET_CODES } from '../domain/dishes.rules';
 
 /** `?diets=vegetarian,gluten-free` → `['vegetarian', 'gluten-free']`. */
@@ -74,7 +75,7 @@ export class WeekMenusQueryDto extends PaginationQueryDto {
     example: true,
   })
   @IsOptional()
-  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @QueryBoolean()
   @IsBoolean()
   shoppingIncluded?: boolean;
 

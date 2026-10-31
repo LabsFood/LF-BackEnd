@@ -29,8 +29,8 @@ import {
   buildApplicationReference,
   fromWire,
   isDisabledByAdmin,
+  interventionZonesProblem,
   isValidPostcode,
-  isMetropolitanRegion,
   isValidSapDeclarationNumber,
   isValidSiret,
   lockingDocuments,
@@ -510,18 +510,8 @@ export class ChefApplicationsService {
       fail('address.postcode must be a metropolitan French postcode (01000–95999).');
     }
 
-    for (const zone of payload.interventionZones) {
-      if (!isMetropolitanRegion(zone.regionCode)) {
-        fail(
-          `interventionZones: "${zone.regionCode}" is not a metropolitan region code.`,
-        );
-      }
-      if (zone.scope === 'cities' && zone.cities.length === 0) {
-        fail(
-          `interventionZones[${zone.regionCode}] with scope "cities" needs at least one city.`,
-        );
-      }
-    }
+    const zonesProblem = interventionZonesProblem(payload.interventionZones);
+    if (zonesProblem) fail(zonesProblem);
 
     const details = payload.workAuthorization.details?.trim() ?? '';
     if (payload.workAuthorization.status === 'other') {

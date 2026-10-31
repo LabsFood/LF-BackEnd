@@ -55,6 +55,7 @@ const makePrisma = () => {
       findUniqueOrThrow: jest.fn().mockResolvedValue({ userId: 'u-1', isActive: true }),
     },
     chefDocument: { findFirst: jest.fn(), update: jest.fn() },
+    sapProfile: { upsert: jest.fn() },
     user: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -75,6 +76,7 @@ const makeService = (over: {
     (over.prisma ?? makePrisma()) as unknown as PrismaService,
     {
       parseType: (t: string) => t,
+      parseManualType: (t: string) => t,
       dossier: jest.fn().mockResolvedValue(validatedDossier),
       answersOf: jest.fn(() => ({})),
       toView: jest.fn((d: unknown) => d),
@@ -122,6 +124,15 @@ describe('ChefApplicationsAdminService.approve', () => {
     });
     expect(result.chefProfile).toMatchObject({ id: 'cp-1', isVerified: true });
     expect(result.user).toMatchObject({ id: 'u-1' });
+  });
+
+  it('creates the SAP declaration row from the dossier without touching existing statuses', async () => {
+    await service.approve('app-1', {}, 'admin-1');
+    expect(prisma.sapProfile.upsert).toHaveBeenCalledWith({
+      where: { chefProfileId: 'cp-1' },
+      update: {},
+      create: { chefProfileId: 'cp-1', declarationType: 'type_a_nova' },
+    });
   });
 
   it('leaves the chef unpublished unless isActive is explicitly requested', async () => {

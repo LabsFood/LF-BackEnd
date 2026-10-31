@@ -1,15 +1,15 @@
 name: SemRelease
 
-# Cut a semantic-release from main once "LF API Server image" (build + migrate +
-# health-check smoke test) has passed for that exact commit. The version comes
-# from Conventional Commit messages since the last v*.*.* tag; CHANGELOG.md and
-# apps/package.json are committed back to main as "chore(release): x.y.z [skip ci]".
+# Called by "LF API Server image" (docker.yml) once the build + migrate +
+# health-check smoke test has passed for a push to main. It must run inside that
+# run, not from a workflow_run trigger: workflow_run sets GITHUB_REF to the
+# repository's default branch (develop), so semantic-release saw "develop" and
+# published nothing. The version comes from Conventional Commit messages since
+# the last v*.*.* tag; CHANGELOG.md and apps/package.json are committed back to
+# main as "chore(release): x.y.z [skip ci]".
 
 on:
-  workflow_run:
-    workflows: [LF API Server image]
-    types: [completed]
-    branches: [main]
+  workflow_call:
 
 concurrency:
   group: release
@@ -19,26 +19,24 @@ permissions:
   contents: write # tag, GitHub Release, release commit
   issues: write # "released in vX" comments, failure issue
   pull-requests: write
+  actions: write # start "Deploy production"
 
 jobs:
   release:
-    # Pushes only: skips tag pushes and manual runs of the LF API Server workflow.
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
 
     steps:
       # The commit that passed the smoke test. If main has moved since,
       # semantic-release skips and the newer commit's run releases instead.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: semantic-release
         env:
@@ -50,3 +48,14 @@ jobs:
           -p @semantic-release/git@10
           -p conventional-changelog-conventionalcommits@8
           semantic-release
+
+      # A published version is queued for production straight away; the deploy
+      # still waits for a reviewer on the `production` environment.
+      - name: Request production deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(git tag -l 'v*' --points-at HEAD | head -1)"
+          if [ -z "$tag" ]; then echo "No new version: nothing to deploy."; exit 0; fi
+          gh workflow run deploy-production.yml --ref main -f ref="$tag"
+          echo "Deploy of $tag requested: approve it under Actions → Deploy production." >> "$GITHUB_STEP_SUMMARY"

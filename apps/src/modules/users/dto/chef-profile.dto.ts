@@ -4,9 +4,52 @@ import {
   IntersectionType,
   PartialType,
 } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { UpdateOwnUserFieldsDto } from './profile.dto';
+
+/**
+ * Languages a batch cooker can say they speak, ISO 639-1. A closed list so the
+ * public page can label and filter them; one missing is a line added here.
+ */
+export const LANGUAGES = [
+  { code: 'fr', label: 'Français' },
+  { code: 'en', label: 'Anglais' },
+  { code: 'es', label: 'Espagnol' },
+  { code: 'it', label: 'Italien' },
+  { code: 'de', label: 'Allemand' },
+  { code: 'pt', label: 'Portugais' },
+  { code: 'nl', label: 'Néerlandais' },
+  { code: 'ar', label: 'Arabe' },
+  { code: 'zh', label: 'Chinois' },
+  { code: 'ru', label: 'Russe' },
+  { code: 'pl', label: 'Polonais' },
+  { code: 'ro', label: 'Roumain' },
+  { code: 'tr', label: 'Turc' },
+  { code: 'el', label: 'Grec' },
+  { code: 'uk', label: 'Ukrainien' },
+  { code: 'vi', label: 'Vietnamien' },
+  { code: 'ja', label: 'Japonais' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'fa', label: 'Persan' },
+  { code: 'wo', label: 'Wolof' },
+  { code: 'ln', label: 'Lingala' },
+  { code: 'bm', label: 'Bambara' },
+  { code: 'ff', label: 'Peul' },
+  { code: 'sw', label: 'Swahili' },
+] as const;
+
+const LANGUAGE_CODES = LANGUAGES.map((l) => l.code);
 
 /**
  * Public fields a batch cooker may edit on their own `chef_profiles` row.
@@ -59,6 +102,20 @@ export class ChefProfileFieldsDto {
   @Min(1)
   @Max(200)
   serviceRadiusKm?: number;
+
+  @ApiPropertyOptional({
+    enum: LANGUAGE_CODES,
+    isArray: true,
+    description:
+      'Languages spoken with clients, codes from `GET /referentials/languages`. ' +
+      'Replaces the whole list; `[]` clears it.',
+    example: ['fr', 'en'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(LANGUAGE_CODES, { each: true })
+  languages?: string[];
 }
 
 /**

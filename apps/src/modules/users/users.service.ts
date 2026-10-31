@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -26,6 +27,7 @@ import {
   resolvePageBounds,
   type Paginated,
 } from '../../common/dto/pagination.dto';
+import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
@@ -82,6 +84,19 @@ export interface RegisterClientResult {
   expiresInSeconds: number;
 }
 
+/**
+ * Every email is transactional, so none can be switched off; SMS does not exist yet.
+ * ponytail: a constant, not a column. Store it per account the day a channel or a
+ * message becomes optional.
+ */
+const NOTIFICATION_PREFERENCES = { email: true, sms: false } as const;
+
+const clientNotFound = () =>
+  new NotFoundException({
+    code: 'CLIENT_NOT_FOUND',
+    message: 'No client profile with this id.',
+  });
+
 /** Identity fields that live on `users`, shared by the client and chef onboarding forms. */
 export interface OwnUserFields {
   firstName?: string;
@@ -91,10 +106,13 @@ export interface OwnUserFields {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
   ) {}
 
   private createPersistedUser(
@@ -390,12 +408,18 @@ export class UsersService {
    */
   async getProfileByClerkUserId(clerkUserId: string) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const notificationPreferences = NOTIFICATION_PREFERENCES;
 
     const chef = await this.prisma.chefProfile.findUnique({
       where: { userId: user.id },
     });
     if (chef) {
-      return { user, profileType: 'chef' as const, profile: chef };
+      return {
+        user,
+        profileType: 'chef' as const,
+        profile: chef,
+        notificationPreferences,
+      };
     }
 
     const client = await this.prisma.clientProfile.findUnique({
@@ -405,6 +429,93 @@ export class UsersService {
       user,
       profileType: client ? ('client' as const) : ('none' as const),
       profile: client,
+      notificationPreferences,
+    };
+  }
+
+  /**
+   * RGPD (art. 15 and 20): what the person gave the platform, as a file they can keep.
+   * Internal ids and payment-provider references stay out: they mean nothing outside.
+   *
+   * ponytail: account, client profile, bookings, quotes and messages written. Add the
+   * chef side, payments and URSSAF links the day someone asks for them.
+   */
+  async exportMyData(clerkUserId: string) {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const address = { addressLine: true, addressCity: true, addressPostalCode: true };
+    const [clientProfile, bookings, quotes, messages] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        omit: { id: true, userId: true },
+      }),
+      this.prisma.booking.findMany({
+        where: { clientId: user.id },
+        orderBy: { startsAt: 'desc' },
+        select: {
+          reference: true,
+          startsAt: true,
+          endsAt: true,
+          status: true,
+          persons: true,
+          amountTtc: true,
+          amountAfterTax: true,
+          currency: true,
+          ...address,
+          notes: true,
+          createdAt: true,
+          chefProfile: { select: { displayName: true } },
+        },
+      }),
+      this.prisma.quote.findMany({
+        where: { clientId: user.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          reference: true,
+          title: true,
+          status: true,
+          persons: true,
+          mealsCount: true,
+          cuisine: true,
+          diet: true,
+          allergies: true,
+          brief: true,
+          occasion: true,
+          desiredDate: true,
+          timeSlot: true,
+          ...address,
+          budgetCents: true,
+          quoteAmountTtc: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.message.findMany({
+        where: { senderUserId: user.id },
+        orderBy: { createdAt: 'asc' },
+        select: { body: true, createdAt: true },
+      }),
+    ]);
+
+    this.logger.log({ event: 'user.data_exported', userId: user.id });
+    await this.audit.record({
+      actorType: user.role,
+      actorUserId: user.id,
+      action: 'user.data_exported',
+      subjectType: 'user',
+      subjectId: user.id,
+    });
+
+    return {
+      exportedAt: new Date(),
+      account: {
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        createdAt: user.createdAt,
+      },
+      clientProfile,
+      bookings,
+      quotes,
+      messages,
     };
   }
 
@@ -540,19 +651,31 @@ export class UsersService {
    *
    * `:id` is the chef profile uuid, and the row has to exist: a status about a
    * declaration that was never made would be meaningless.
+   *
+   * Audited with both statuses before and after: it is what puts a batch cooker
+   * on the CESU circuit, so who said so, and when, has to be answerable.
    */
-  async setSapExternalStatus(chefProfileId: string, payload: UpdateSapExternalStatusDto) {
-    const sapProfile = await this.prisma.sapProfile.findUnique({
-      where: { chefProfileId },
-      select: { id: true },
-    });
-    if (!sapProfile) {
-      throw new NotFoundException(
-        `Chef profile ${chefProfileId} has no SAP declaration to habilitate.`,
-      );
+  async setSapExternalStatus(
+    chefProfileId: string,
+    payload: UpdateSapExternalStatusDto,
+    adminClerkUserId: string,
+  ) {
+    const statuses = { crcesuAffiliationStatus: true, urssafTiersPrestationStatus: true };
+    const [before, admin] = await Promise.all([
+      this.prisma.sapProfile.findUnique({ where: { chefProfileId }, select: statuses }),
+      this.prisma.user.findUnique({
+        where: { clerkUserId: adminClerkUserId },
+        select: { id: true },
+      }),
+    ]);
+    if (!before) {
+      throw new NotFoundException({
+        code: 'SAP_PROFILE_NOT_FOUND',
+        message: 'No SAP declaration for this batch cooker: nothing to habilitate yet.',
+      });
     }
 
-    return this.prisma.sapProfile.update({
+    const updated = await this.prisma.sapProfile.update({
       where: { chefProfileId },
       data: {
         ...(payload.crcesuAffiliationStatus !== undefined
@@ -563,6 +686,23 @@ export class UsersService {
           : {}),
       },
     });
+    const after = {
+      crcesuAffiliationStatus: updated.crcesuAffiliationStatus,
+      urssafTiersPrestationStatus: updated.urssafTiersPrestationStatus,
+    };
+
+    this.logger.log({ event: 'chef.sap_status_changed', chefProfileId, ...after });
+    await this.audit.record({
+      actorType: 'admin',
+      // AdminGuard has just read the admin's row.
+      actorUserId: admin?.id ?? null,
+      action: 'chef.sap_status_changed',
+      subjectType: 'chef_profile',
+      subjectId: chefProfileId,
+      metadata: { before, after },
+    });
+
+    return updated;
   }
 
   /**
@@ -760,22 +900,64 @@ export class UsersService {
     };
   }
 
-  getClientById(id: string) {
-    return this.prisma.clientProfile.findUnique({
+  async getClientById(id: string) {
+    const client = await this.prisma.clientProfile.findUnique({
       where: { id },
       include: { user: true },
     });
+    if (!client) throw clientNotFound();
+    return client;
   }
 
-  updateClientById(id: string, payload: UpdateAdminClientDto) {
-    return this.prisma.clientProfile.update({
-      where: { id },
-      data: {
-        ...payload,
-        status: payload.status as never,
-      },
-      include: { user: true },
-    });
+  /**
+   * An admin correcting a client's profile on their behalf. Allergies are what the chef
+   * cooks around, so who changed what is audited, before and after. The log line names
+   * the fields only: diets and allergies are health data.
+   */
+  async updateClientById(
+    id: string,
+    payload: UpdateAdminClientDto,
+    adminClerkUserId: string,
+  ) {
+    const fields = Object.keys(payload) as (keyof UpdateAdminClientDto)[];
+    const pick = (row: Record<string, unknown>) =>
+      Object.fromEntries(fields.map((field) => [field, row[field]]));
+    try {
+      const [before, admin] = await Promise.all([
+        this.prisma.clientProfile.findUnique({ where: { id } }),
+        this.prisma.user.findUnique({
+          where: { clerkUserId: adminClerkUserId },
+          select: { id: true },
+        }),
+      ]);
+      if (!before) throw clientNotFound();
+
+      const updated = await this.prisma.clientProfile.update({
+        where: { id },
+        data: payload,
+        include: { user: true },
+      });
+
+      this.logger.log({ event: 'client.profile_updated', clientProfileId: id, fields });
+      await this.audit.record({
+        actorType: 'admin',
+        actorUserId: admin?.id ?? null,
+        action: 'client.profile_updated',
+        subjectType: 'client_profile',
+        subjectId: id,
+        metadata: { before: pick(before), after: pick(updated) },
+      });
+      return updated;
+    } catch (error) {
+      // Prisma's "no row matched the `where`": a 404, not a 500.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw clientNotFound();
+      }
+      throw error;
+    }
   }
 
   toUserRole(role: AppUserRole): UserRole {

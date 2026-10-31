@@ -103,6 +103,8 @@ export class ChefAvailabilityController {
     example: { scheduled: true, slots: ['2026-10-19T07:00:00.000Z'] },
   })
   @ApiUnprocessableEntityResponse({ description: 'Window empty, past or over 31 days.' })
+  @ApiNotFoundResponse({ description: NO_CHEF })
+  @ApiForbiddenResponse({ description: NOT_VERIFIED })
   @ApiClerkAuthResponses()
   slots(@CurrentClerkUser() user: ClerkUser, @Query() query: ChefSlotsQueryDto) {
     return this.availability.chefSlots(user.userId, query);

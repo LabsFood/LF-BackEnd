@@ -9,13 +9,17 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 
 | Layer                           | Choice                                                                        |
 | ------------------------------- | ----------------------------------------------------------------------------- |
-| Runtime / application framework | Node.js 20, **NestJS 11** with **Fastify** adapter                            |
+| Runtime / application framework | Node.js 24, **NestJS 11** with **Fastify** adapter                            |
 | REST API                        | NestJS controllers + `@nestjs/swagger` (OpenAPI/Swagger)                      |
 | ORM / migrations                | **Prisma 7** (`apps/prisma/`)                                                 |
 | Database                        | PostgreSQL 16 (Supabase in production)                                        |
 | Realtime & rate limits          | Redis 7, optional (messaging)                                                 |
 | Containers                      | Docker / Docker Compose                                                       |
 | Hosting                         | **Railway**                                                                   |
+
+> **Node version.** Every stage of [`apps/Dockerfile`](./apps/Dockerfile), `.nvmrc` and `apps/.nvmrc`
+> pin the same Node (24.22.1), so nvm, the CI lint and test job and the image all run it. CI fails
+> if they disagree, and Dependabot opens the PR for each new `node:24` image.
 
 ## Third-party services
 
@@ -88,13 +92,11 @@ graph TD
 apps/                  # NestJS + Fastify primary API (src/, prisma/, package.json)
 brevo/                 # Brevo email templates (HTML sources, tests, upload script)
 docs/
-  SPEC-BACKEND.md      # product spec — client API & shared domain
-  SPEC-ADMIN-DASHBOARD.md
   architecture.md      # backend architecture
   auth/                # Clerk integration contract and Clerk ↔ Postgres sync
   payments/            # Stripe payment flow & webhook contract
   deploy/              # Railway production checklist
-  evolution/           # change registers (platform + payments)
+  evolution/           # payments change register
 local-dev/             # full-stack Compose file for the 4 repos (see LOCAL_SETUP.md)
 docker-compose.yml     # postgres, redis, api (local); Railway uses apps/Dockerfile
 railway.toml           # Railway config-as-code
@@ -202,9 +204,7 @@ npm test          # jest unit tests
 - [AGENTS.md](./AGENTS.md) — development guide: local setup, auth testing, and the rules and routes of every feature.
 - [stack.md](./stack.md) — backend stack, integrations, resolved decisions.
 - [docs/architecture.md](./docs/architecture.md) — backend architecture.
-- [docs/SPEC-BACKEND.md](./docs/SPEC-BACKEND.md) — client API & domain spec.
-- [docs/SPEC-ADMIN-DASHBOARD.md](./docs/SPEC-ADMIN-DASHBOARD.md) — admin API spec.
-- [docs/evolution/platform-spec-alignment-evolution.md](./docs/evolution/platform-spec-alignment-evolution.md) — spec gap backlog & decisions.
+- `docs/SPEC-BACKEND.md` (client API & domain spec), `docs/SPEC-ADMIN-DASHBOARD.md` (admin API spec) and `docs/evolution/platform-spec-alignment-evolution.md` (spec gap backlog) — **not in this repo**: removed in `559c4d6`; last copy with `git show 559c4d6^:docs/SPEC-BACKEND.md` (same for the others).
 - [docs/auth/clerk-integration-contract.md](./docs/auth/clerk-integration-contract.md) — Clerk frontend ↔ backend contract.
 - [docs/auth/clerk-supabase-sync.md](./docs/auth/clerk-supabase-sync.md) — Clerk ↔ Postgres sync, webhooks, backfill scripts.
 - [docs/payments/stripe-payments-contract.md](./docs/payments/stripe-payments-contract.md) — payment flow, Stripe Connect, commissions, webhook contract.

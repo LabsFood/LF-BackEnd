@@ -61,7 +61,7 @@ export class KycStorageService {
   private bucketApi() {
     if (!this.supabase.configured) {
       throw new ServiceUnavailableException(
-        'Document storage is not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY missing).',
+        'Document storage is not configured (SUPABASE_URL and SUPABASE_SECRET_KEY missing).',
       );
     }
     return this.supabase.getClient().storage.from(this.bucket);
@@ -152,6 +152,25 @@ export class KycStorageService {
       sizeBytes: Number(data.size ?? 0),
       mimeType: String(data.contentType ?? 'application/octet-stream'),
     };
+  }
+
+  /**
+   * Writes a file the API produced itself (the signed SEPA mandate). Everything a chef
+   * sends goes through a signed upload URL instead: the API never relays their files.
+   * `upsert: false` — a path is written once, a new version gets a new path.
+   */
+  async putObject(storagePath: string, body: Buffer, mimeType: string): Promise<void> {
+    const { error } = await this.bucketApi().upload(storagePath, body, {
+      contentType: mimeType,
+      upsert: false,
+    });
+    if (error) {
+      this.logger.error({ event: 'kyc.put_failed', storagePath, error: error.message });
+      throw new ServiceUnavailableException({
+        code: 'DOCUMENT_STORAGE_UNAVAILABLE',
+        message: 'The document could not be stored. Try again in a moment.',
+      });
+    }
   }
 
   /**

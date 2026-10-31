@@ -4,6 +4,10 @@ Production runs the **NestJS API** from [`apps/Dockerfile`](../../apps/Dockerfil
 
 ## 1. Create the service
 
+> **Production is not deployed this way any more**: its service runs an image that
+> GitHub Actions built and pushed to GHCR, promoted by a workflow (§5). The steps
+> below are for a service Railway builds itself from the repository.
+
 1. [Railway](https://railway.com/) → **New Project** → **Deploy from GitHub repo** → select `LF-BackEnd`.
 2. Railway reads [`railway.toml`](../../railway.toml): Docker build from `apps/Dockerfile`, health check `GET /health`.
 3. Do **not** deploy the Compose `postgres` service on Railway; use Supabase for the database.
@@ -48,12 +52,12 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` | Supabase Storage client (KYC documents and message attachments) |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Supabase Storage client (KYC documents and message attachments). A secret key (`sb_secret_…`) per environment; the legacy `service_role` JWT is refused at startup |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
 | `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish, menu and profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
-| `BREVO_TPL_*` (21 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests, booking hold reminders (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `BREVO_TPL_*` (24 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests, booking hold reminders (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
 | `CONTACT_NOTIFICATION_EMAIL`, `ADMIN_SITE_URL` | Team address told about contact messages and custom requests with no batch cooker (Reply-To of the answers), and the admin console link in those emails. Without `BREVO_TPL_CONTACT_REPLY` an admin cannot answer a contact message |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
@@ -179,33 +183,66 @@ WHERE a.action = 'document.read' ORDER BY a.created_at DESC;
 
 ## 4c. Scheduled jobs
 
-Three jobs run in-process via `@nestjs/schedule`. There is no queue.
+Five jobs run in-process via `@nestjs/schedule`. There is no queue.
 
 | Job | When | What |
 |-----|------|------|
 | `ChefDossierCron` | daily, 06:00 | Document expiry warnings, automatic suspension, retention purge |
 | `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
 | `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
+| `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h |
+| `booking-reschedules-expiry` | hourly | Lapses reschedule proposals nobody answered in time |
 
 **If you scale the API past one replica, every replica will run them.** The
-messaging and offer jobs claim their rows, so a double run is harmless. The
+messaging, offer and booking jobs claim their rows, or only move rows still in
+the state they expect, so a double run is harmless. The
 chef-dossier steps are idempotent, but move that job to a queue or a Postgres
 advisory lock before relying on that at scale. See `ChefDossierCron`.
 
 ## 5. Deploy flow
 
-On each deploy Railway:
+### Production: an image promoted from GHCR
 
-1. Builds `apps/Dockerfile` (context: repository root `.`).
-2. Starts container → entrypoint runs **`prisma migrate deploy`** → **`node dist/main.js`**.
-3. Probes **`/health`** until success.
+Railway does not build production. GitHub Actions builds and tests the image,
+and a reviewed workflow points the production service at it:
+
+1. **Gate**: `docker.yml` ("LF API Server image") runs on pushes to `main` and
+   `develop`, on version tags and on pull requests to either branch. Its first
+   job is `ci.yml`: lint and unit tests, Semgrep SAST, `npm audit`.
+2. **Image**: `docker.yml` builds `apps/Dockerfile`, runs it against a throwaway
+   Postgres (migrations, `/health`, `/ready`) and, except for pull requests,
+   pushes it to GHCR, tagged `sha-<short commit>` among others.
+3. **Release**: once that passes for a push to `main`, `release.yml`
+   ("SemRelease") runs semantic-release. The version comes from the Conventional
+   Commit messages since the last `v*.*.*` tag, hence the PR-title check in
+   `pr-title.yml`. A new version starts `deploy-production.yml` with its tag.
+4. **Promote**: `deploy-production.yml` ("Deploy production") resolves the tag to
+   a commit on `main` whose `sha-…` image exists (a `chore(release)` commit uses
+   its parent's), then **waits for a reviewer** on the GitHub `production`
+   environment. Once approved, it sets that image as the service's source,
+   deploys it, waits up to 15 minutes for Railway to report it live, and
+   smoke-tests `/health` and `/ready`.
+
+It can also be run by hand: **Actions → Deploy production → Run workflow**, with a
+tag or a commit on `main`. **Rollback**: run it again with an older tag. The
+reviewers, the main-only rule and the Railway token are on the `production`
+environment (GitHub **Settings → Environments**); the service and environment
+ids are in the workflow file.
+
+### What every deploy runs
+
+1. The container entrypoint runs **`prisma migrate deploy`** (with
+   `SUPABASE_DB_MIGRATION_URL`), then **`node dist/main.js`**.
+2. A service Railway builds from the repository (§1) builds `apps/Dockerfile`
+   first (context: repository root `.`) and probes **`/health`**, per
+   `railway.toml`. An image-sourced service builds nothing.
 
 ## 6. Local Docker vs Railway
 
 |          | Local Compose              | Railway                  |
 | -------- | -------------------------- | ------------------------ |
 | Database | `postgres` service         | Supabase                 |
-| Build    | `docker compose build api` | Git push / Railway build |
+| Build    | `docker compose build api` | GitHub Actions → GHCR image, promoted by `deploy-production.yml` (§5) |
 | Env      | Repo-root `.env`           | Railway dashboard        |
 
 See **Getting started → Docker Compose** in the main [README](../../README.md).

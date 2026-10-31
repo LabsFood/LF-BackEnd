@@ -10,6 +10,7 @@ import {
   Prisma,
   UserRole,
 } from '../../generated/prisma/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
@@ -27,6 +28,7 @@ describe('UsersService', () => {
     clientProfile: {
       findUnique: jest.Mock;
       upsert: jest.Mock;
+      update: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
       deleteMany: jest.Mock;
@@ -40,6 +42,7 @@ describe('UsersService', () => {
     sapProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
     $transaction: jest.Mock;
   };
+  let audit: { record: jest.Mock };
   let clerk: {
     configured: boolean;
     getClient: jest.Mock;
@@ -60,6 +63,7 @@ describe('UsersService', () => {
       clientProfile: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        update: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
         deleteMany: jest.fn(),
@@ -78,10 +82,12 @@ describe('UsersService', () => {
       getClient: jest.fn(),
     };
     config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
       config as unknown as ConfigService,
+      audit as unknown as AuditService,
     );
   });
 
@@ -802,6 +808,50 @@ describe('UsersService', () => {
     });
   });
 
+  describe('exportMyData', () => {
+    it("gives the person's own data only, without internal ids, and audits it", async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: null,
+        role: UserRole.client,
+        createdAt: new Date('2026-09-01T08:00:00.000Z'),
+      } as never);
+      const bookings = jest.fn().mockResolvedValue([{ reference: 'LF-2026-0001' }]);
+      const quotes = jest.fn().mockResolvedValue([]);
+      const messages = jest.fn().mockResolvedValue([{ body: 'Bonjour' }]);
+      Object.assign(prisma, {
+        booking: { findMany: bookings },
+        quote: { findMany: quotes },
+        message: { findMany: messages },
+      });
+      prisma.clientProfile.findUnique.mockResolvedValue({ allergies: ['Arachides'] });
+
+      const data = await service.exportMyData('user_1');
+
+      expect(data).toMatchObject({
+        account: { email: 'marie@example.com', fullName: 'Marie Dupont', phone: null },
+        clientProfile: { allergies: ['Arachides'] },
+        bookings: [{ reference: 'LF-2026-0001' }],
+        quotes: [],
+        messages: [{ body: 'Bonjour' }],
+      });
+      expect(data.account).not.toHaveProperty('clerkUserId');
+      expect(prisma.clientProfile.findUnique.mock.calls[0][0]).toEqual({
+        where: { userId: 'uuid-1' },
+        omit: { id: true, userId: true },
+      });
+      expect(bookings.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(quotes.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(messages.mock.calls[0][0].where).toEqual({ senderUserId: 'uuid-1' });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.data_exported', subjectId: 'uuid-1' }),
+      );
+    });
+  });
+
   describe('getProfileByClerkUserId', () => {
     it('returns the chef profile for a chef user', async () => {
       jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
@@ -828,6 +878,91 @@ describe('UsersService', () => {
 
       expect(result.profileType).toBe('none');
       expect(result.profile).toBeNull();
+    });
+
+    it('gives every account the same notifications: email, never SMS', async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        role: UserRole.client,
+      } as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.notificationPreferences).toEqual({ email: true, sms: false });
+    });
+  });
+
+  describe('admin client by id', () => {
+    it('answers 404 CLIENT_NOT_FOUND for an unknown id, not an empty 200', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.getClientById('nope')).rejects.toMatchObject({
+        response: { code: 'CLIENT_NOT_FOUND' },
+      });
+    });
+
+    it('answers 404 CLIENT_NOT_FOUND when updating an unknown id, not a 500', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateClientById('nope', { status: 'vip' }, 'admin_clerk'),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+      expect(prisma.clientProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the profile goes between the read and the write', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'cp-1', allergies: [] });
+      prisma.clientProfile.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('No record', {
+          code: 'P2025',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.updateClientById('cp-1', { allergies: ['Arachides'] }, 'admin_clerk'),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+    });
+
+    it('audits who corrected which fields, before and after, and only those', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        id: 'cp-1',
+        allergies: ['Arachides'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+      });
+      prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+      prisma.clientProfile.update.mockResolvedValue({
+        id: 'cp-1',
+        allergies: ['Arachides', 'Sésame'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+        user: { id: 'user-1' },
+      });
+
+      await service.updateClientById(
+        'cp-1',
+        { allergies: ['Arachides', 'Sésame'] },
+        'admin_clerk',
+      );
+
+      expect(prisma.clientProfile.update).toHaveBeenCalledWith({
+        where: { id: 'cp-1' },
+        data: { allergies: ['Arachides', 'Sésame'] },
+        include: { user: true },
+      });
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'admin',
+        actorUserId: 'admin-1',
+        action: 'client.profile_updated',
+        subjectType: 'client_profile',
+        subjectId: 'cp-1',
+        metadata: {
+          before: { allergies: ['Arachides'] },
+          after: { allergies: ['Arachides', 'Sésame'] },
+        },
+      });
     });
   });
 
@@ -1066,13 +1201,20 @@ describe('UsersService', () => {
     });
 
     describe('setSapExternalStatus', () => {
+      const BEFORE = {
+        crcesuAffiliationStatus: 'not_started',
+        urssafTiersPrestationStatus: 'pending',
+      };
+
       it('is the writer the CRCESU affiliation never had', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          crcesuAffiliationStatus: 'active',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
 
         expect(prisma.sapProfile.update).toHaveBeenCalledWith({
           where: { chefProfileId: 'chef-1' },
@@ -1080,13 +1222,46 @@ describe('UsersService', () => {
         });
       });
 
+      it('journals who changed what, before and after', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
+        prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+        prisma.sapProfile.update.mockResolvedValue({
+          id: 'sap-1',
+          ...BEFORE,
+          crcesuAffiliationStatus: 'active',
+        });
+
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
+
+        expect(audit.record).toHaveBeenCalledWith({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'chef.sap_status_changed',
+          subjectType: 'chef_profile',
+          subjectId: 'chef-1',
+          metadata: {
+            before: BEFORE,
+            after: {
+              crcesuAffiliationStatus: 'active',
+              urssafTiersPrestationStatus: 'pending',
+            },
+          },
+        });
+      });
+
       it('leaves an omitted status untouched', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          urssafTiersPrestationStatus: 'pending',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { urssafTiersPrestationStatus: 'pending' },
+          'clerk_admin',
+        );
 
         const [{ data }] = prisma.sapProfile.update.mock.calls[0] as [
           { data: Record<string, unknown> },
@@ -1098,9 +1273,16 @@ describe('UsersService', () => {
         prisma.sapProfile.findUnique.mockResolvedValue(null);
 
         await expect(
-          service.setSapExternalStatus('chef-1', { crcesuAffiliationStatus: 'active' }),
-        ).rejects.toBeInstanceOf(NotFoundException);
+          service.setSapExternalStatus(
+            'chef-1',
+            { crcesuAffiliationStatus: 'active' },
+            'clerk_admin',
+          ),
+        ).rejects.toMatchObject({
+          response: { code: 'SAP_PROFILE_NOT_FOUND' },
+        });
         expect(prisma.sapProfile.update).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
       });
     });
 

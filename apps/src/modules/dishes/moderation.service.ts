@@ -364,6 +364,7 @@ function toQueueItem(
     type,
     id: row.id,
     name: dish ? dish.name : (row as Menu).title,
+    imageUrl: row.imageUrl,
     chef: row.chefProfile,
     status: row.status,
     publishedAt: row.publishedAt,
@@ -376,6 +377,10 @@ function toQueueItem(
       customDiets: dish?.customDiets,
       allergensNone: dish?.allergensNone,
     }),
+    // A menu declares nothing itself: its dishes do. `null` there, not "none".
+    allergens: dish ? dish.allergens : null,
+    allergensNone: dish ? dish.allergensNone : null,
+    prepTime: dish ? dish.prepTime : null,
     customAllergens: dish?.customAllergens ?? [],
     customDiets: dish?.customDiets ?? [],
     updatedAt: row.updatedAt,

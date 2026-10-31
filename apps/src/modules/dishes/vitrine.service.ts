@@ -10,6 +10,7 @@ import {
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
+import { cesuAccepted } from '../payments/chef-cesu-info';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { toPublicDish } from './dishes.views';
 import {
@@ -44,15 +45,20 @@ const PUBLIC_CHEF_FIELDS = {
   city: true,
   bio: true,
   interventionZones: true,
+  languages: true,
   // The profile photo is the account's; nothing else of the account is read.
   user: { select: { avatarUrl: true } },
+  sapProfile: { select: { acceptsCesu: true, crcesuNan: true } },
+  sepaMandate: { select: { status: true } },
 } as const;
 
 type PublicChef = Pick<
   ChefProfile,
-  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones'
+  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones' | 'languages'
 > & {
   user: { avatarUrl: string | null };
+  sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
+  sepaMandate: { status: string } | null;
 };
 
 /** A menu's published dishes: a draft or suspended one never shows (§3.4). */
@@ -178,7 +184,7 @@ export class VitrineService {
   async chef(id: string) {
     const chef = await this.listedChef(id);
     const week = weekOf(parisDay(new Date()));
-    const [extras, dishes, menus, slotsLeft] = await Promise.all([
+    const [extras, dishes, menus, slotsLeft, serviceOffers] = await Promise.all([
       this.cardExtras([chef.id]),
       this.prisma.meal.findMany({
         where: { chefProfileId: chef.id, status: MealStatus.published },
@@ -194,6 +200,18 @@ export class VitrineService {
         parisMidnight(week.start),
         parisMidnight(toDay(new Date(toDate(week.start).getTime() + 7 * DAY_MS))),
       ),
+      this.prisma.serviceOffer.findMany({
+        where: { chefProfileId: chef.id, isActive: true },
+        orderBy: [{ priceCents: 'asc' }, { durationMinutes: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          priceCents: true,
+          shoppingIncluded: true,
+          shoppingFeeCents: true,
+        },
+      }),
     ]);
     return {
       ...extras.chefCard(chef),
@@ -209,6 +227,7 @@ export class VitrineService {
         })),
       })),
       ...extras.price(chef.id),
+      serviceOffers,
       dishes: dishes.map(toPublicDish),
       menus: menus.map(toPublicMenu),
     };
@@ -308,10 +327,12 @@ export class VitrineService {
           sessionsDone,
           newcomer: sessionsDone === 0,
           avatarUrl: chef.user.avatarUrl,
+          // The NAN itself is on `GET /chefs/{id}/cesu-info`, read before paying.
+          acceptsCesu: cesuAccepted(chef.sapProfile, chef.sepaMandate),
           // No source for these yet: shown empty rather than invented.
           rating: null,
           reviewCount: null,
-          languages: [] as string[],
+          languages: chef.languages,
         };
       },
       /**

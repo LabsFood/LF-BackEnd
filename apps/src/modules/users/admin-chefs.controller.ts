@@ -1,19 +1,35 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { AdminGuard } from '../../auth/admin.guard';
-import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
+import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
+import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { AdminChefsService } from './admin-chefs.service';
-import { CHEF_STATE_HELP, ListAdminChefsQueryDto } from './dto/admin-chefs.dto';
+import {
+  CHEF_STATE_HELP,
+  ListAdminChefsQueryDto,
+  UpdateChefZonesDto,
+} from './dto/admin-chefs.dto';
 
 const CHEF_ID = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33';
 
@@ -52,12 +68,18 @@ const CHEF_DETAIL = {
   serviceRadiusKm: 30,
   sapPath: 'type-b',
   sapDeclarationNumber: null,
+  crcesuAffiliationStatus: 'active',
+  urssafTiersPrestationStatus: 'pending',
   zones: [
     {
       regionCode: '93',
       regionLabel: "Provence-Alpes-Côte d'Azur",
       scope: 'cities',
-      cities: ['Nice', 'Antibes', 'Cannes'],
+      cities: [
+        { name: 'Nice', dept: '06', insee: '06088' },
+        { name: 'Antibes', dept: '06', insee: '06004' },
+        { name: 'Cannes', dept: '06', insee: '06029' },
+      ],
     },
   ],
   payoutsConnected: false,
@@ -75,9 +97,9 @@ const ID_HELP =
   'the candidature id.';
 
 /**
- * The batch cookers of the platform, as the back office lists them. Read-only:
- * putting someone online is `PATCH /admin/chefs/{id}/verification`, approving
- * them is the candidature.
+ * The batch cookers of the platform, as the back office lists them. Only the
+ * zones are written here: putting someone online is
+ * `PATCH /admin/chefs/{id}/verification`, approving them is the candidature.
  */
 @ApiTags(TAGS.adminChefs)
 @ApiBearerAuth()
@@ -138,6 +160,11 @@ export class AdminChefsController {
     description:
       'The list row, plus the bio, the zones covered city by city, the SAP route and ' +
       'whether payouts and calendar are connected.\n\n' +
+      '`zones` has the shape `PATCH /admin/chefs/{id}/zones` takes: each city whole, ' +
+      '`{ name, dept, insee }`, so a zone read here can be sent back unchanged.\n\n' +
+      '`crcesuAffiliationStatus` and `urssafTiersPrestationStatus` read back what ' +
+      '`PATCH /admin/chefs/{id}/sap-external-status` wrote (`not_started`, `pending`, ' +
+      '`active`); both are `null` until the batch cooker has declared a SAP route.\n\n' +
       'The rest has its own route, each the single source of its data: the dossier ' +
       'and documents at `GET /admin/chef-applications/{application.id}`, the content ' +
       `at \`GET /admin/chefs/{id}/dishes\` and \`/menus\`.\n\n${ID_HELP}`,
@@ -147,5 +174,40 @@ export class AdminChefsController {
   @ApiAdminAuthResponses()
   get(@Param('id', ParseUUIDPipe) id: string) {
     return this.chefs.get(id);
+  }
+
+  @Patch(':id/zones')
+  @ApiParam({ name: 'id', description: 'The batch cooker page id.', example: CHEF_ID })
+  @ApiOperation({
+    summary: 'Change the zones of an approved batch cooker',
+    description:
+      'For a batch cooker who moves or covers one more city. Replaces every zone, in ' +
+      'the shape and with the rules of the candidature’s `interventionZones`. The ' +
+      'batch cooker cannot do it themselves: the zones were checked against documents ' +
+      'at the candidature. Audited.\n\n' +
+      `Answers the batch cooker as \`GET /admin/chefs/{id}\` does.\n\n${ID_HELP}`,
+  })
+  @ApiOkResponse({
+    description: 'The batch cooker, with the new zones.',
+    example: CHEF_DETAIL,
+  })
+  @ApiNotFoundResponse({ description: '`CHEF_NOT_FOUND`: no batch cooker with this id.' })
+  @ApiConflictResponse({
+    description:
+      '`CHEF_NOT_VERIFIED`: not approved yet. Until then the zones are the ' +
+      'candidature’s: ask for changes on the candidature instead.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a region outside metropolitan France, or a `cities` zone ' +
+      'without a city.',
+  })
+  @ApiAdminAuthResponses()
+  setZones(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateChefZonesDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
+    return this.chefs.setZones(id, body.interventionZones, user.userId);
   }
 }

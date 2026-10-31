@@ -10,28 +10,15 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
-import {
-  buildPaginationMeta,
-  resolvePageBounds,
-  type Paginated,
-  type PaginationQueryDto,
-} from '../../common/dto/pagination.dto';
+import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { parisHhmm, parisToday } from '../../common/paris-time';
-import {
-  Booking,
-  BookingStatus,
-  MealStatus,
-  Prisma,
-} from '../../generated/prisma/client';
+import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
-import { RECIPE_FIELDS } from '../catalog/catalog.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
-import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { rateInForce } from '../payments/commission-policy';
-import { findCommissionBlock } from '../payments/commission-standing';
+import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
-import { afterTaxCredit } from '../quotes/domain/quote.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -43,6 +30,13 @@ import {
   toBookingListItem,
 } from './bookings.views';
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
+import {
+  bookingAmounts,
+  reprice,
+  shoppingFee,
+  supplementRulesInForce,
+  supplementsFor,
+} from './domain/pricing';
 import {
   AdminBookingsQueryDto,
   AdminUpdateBookingDto,
@@ -193,6 +187,8 @@ export class BookingsService {
         durationMinutes: true,
         priceCents: true,
         currency: true,
+        shoppingIncluded: true,
+        shoppingFeeCents: true,
         chefProfile: { select: { userId: true } },
       },
     });
@@ -217,14 +213,11 @@ export class BookingsService {
       });
     }
     // An uncollected commission stops a batch cooker taking on new work.
-    const block = await findCommissionBlock(
+    await assertNoCommissionBlock(
       this.prisma,
       offer.chefProfileId,
       this.config.get<number>('payments.commissionDebitMaxAttempts', 3),
     );
-    if (block) {
-      throw new ConflictException({ code: 'COMMISSION_UNPAID', message: block.message });
-    }
     const formule = dto.formuleId
       ? await this.prisma.formule.findFirst({
           where: { id: dto.formuleId, active: true },
@@ -241,7 +234,20 @@ export class BookingsService {
       await this.availability.assertBookable(offer.chefProfileId, dto.startsAt, endsAt);
     }
 
-    const price = formule?.priceTtc ?? offer.priceCents;
+    // The offer's price (or the formule's), then each supplement on its own line.
+    const amounts = bookingAmounts(
+      formule?.priceTtc ?? offer.priceCents,
+      supplementsFor(
+        {
+          persons: dto.persons,
+          extraMeals: dto.extraMeals ?? 0,
+          shoppingFeeCents: shoppingFee(offer, dto.shoppingByClient ?? false),
+          formule: Boolean(formule),
+        },
+        await supplementRulesInForce(this.prisma),
+      ),
+      formule?.priceAfterTax,
+    );
     const { id } = await this.withReference(now, (reference) =>
       this.prisma.booking.create({
         data: {
@@ -258,9 +264,8 @@ export class BookingsService {
           notes: dto.notes ?? null,
           shoppingByClient: dto.shoppingByClient ?? false,
           status: 'pending',
-          priceCents: price,
-          amountTtc: price,
-          amountAfterTax: formule?.priceAfterTax ?? afterTaxCredit(price),
+          extraMeals: dto.extraMeals ?? 0,
+          ...amounts,
           currency: offer.currency,
           ...(dto.meals?.length && {
             bookingMeals: {
@@ -281,6 +286,10 @@ export class BookingsService {
       chefProfileId: offer.chefProfileId,
       by: caller.role,
       meals: dto.meals?.length ?? 0,
+      amountTtc: amounts.amountTtc,
+      extraPersonsCents: amounts.extraPersonsCents,
+      extraMealsCents: amounts.extraMealsCents,
+      shoppingFeeCents: amounts.shoppingFeeCents,
       ms: Date.now() - now.getTime(),
     });
     if (dto.meals?.length) {
@@ -325,7 +334,15 @@ export class BookingsService {
     const caller = await this.caller(role, clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id, ...this.scope(caller) },
-      include: { serviceOffer: { select: { durationMinutes: true } } },
+      include: {
+        serviceOffer: {
+          select: {
+            durationMinutes: true,
+            shoppingIncluded: true,
+            shoppingFeeCents: true,
+          },
+        },
+      },
     });
     if (!booking) throw notFound();
 
@@ -365,6 +382,41 @@ export class BookingsService {
       when = schedule(startsAt, endsAt);
     }
     if (meals?.length) await this.assertMeals(booking.chefProfileId, meals);
+    // Each supplement follows only what changed: the base price, and any line the
+    // client did not touch, stay as booked.
+    const shoppingSwitched =
+      fields.shoppingByClient !== undefined &&
+      fields.shoppingByClient !== booking.shoppingByClient;
+    const persons = fields.persons !== undefined ? fields.persons : booking.persons;
+    const personsChanged = persons !== booking.persons;
+    let repriced: ReturnType<typeof reprice> | undefined;
+    const extraMeals = fields.extraMeals ?? booking.extraMeals;
+    const extraMealsChanged = extraMeals !== booking.extraMeals;
+    if (shoppingSwitched || personsChanged || extraMealsChanged) {
+      const next = supplementsFor(
+        {
+          persons,
+          extraMeals,
+          shoppingFeeCents: shoppingFee(
+            booking.serviceOffer,
+            fields.shoppingByClient ?? false,
+          ),
+          formule: Boolean(booking.formuleId),
+        },
+        await supplementRulesInForce(this.prisma),
+      );
+      repriced = reprice(booking, {
+        extraPersonsCents: personsChanged
+          ? next.extraPersonsCents
+          : booking.extraPersonsCents,
+        extraMealsCents: extraMealsChanged
+          ? next.extraMealsCents
+          : booking.extraMealsCents,
+        shoppingFeeCents: shoppingSwitched
+          ? next.shoppingFeeCents
+          : booking.shoppingFeeCents,
+      });
+    }
 
     await this.prisma
       .$transaction(async (tx) => {
@@ -384,6 +436,14 @@ export class BookingsService {
           where: { id, status: booking.status },
           data: {
             ...fields,
+            // An admin's explicit amounts win over the recomputed ones.
+            ...(repriced && {
+              extraPersonsCents: repriced.extraPersonsCents,
+              extraMealsCents: repriced.extraMealsCents,
+              shoppingFeeCents: repriced.shoppingFeeCents,
+              amountTtc: fields.amountTtc ?? repriced.amountTtc,
+              amountAfterTax: fields.amountAfterTax ?? repriced.amountAfterTax,
+            }),
             ...when,
             ...(moving && { status }),
             ...(moving &&
@@ -402,6 +462,7 @@ export class BookingsService {
       from: booking.status,
       to: moving ? status : booking.status,
       fields: changedKeys(dto),
+      ...(repriced && { repricedAmountTtc: fields.amountTtc ?? repriced.amountTtc }),
       ms: Date.now() - now.getTime(),
     });
     if (meals) {
@@ -523,68 +584,6 @@ export class BookingsService {
       this.logger.error({ event: 'job.unpaid_holds_failed' }, stackOf(error));
       return { reminded: 0, expired: 0 };
     }
-  }
-
-  // ── Deprecated routes (`/bookings/…`), kept one release ──────────────────
-
-  list(): Promise<Booking[]> {
-    return this.prisma.booking.findMany({ orderBy: { startsAt: 'asc' } });
-  }
-
-  /** The caller's own bookings, as client or as batch cooker, one page at a time. */
-  async listMine(
-    clerkUserId: string,
-    query: PaginationQueryDto = {},
-  ): Promise<Paginated<Booking>> {
-    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    const bounds = resolvePageBounds(query);
-    const where = {
-      OR: [{ clientId: user.id }, { chefProfile: { userId: user.id } }],
-    };
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.booking.findMany({
-        where,
-        orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
-        skip: bounds.skip,
-        take: bounds.take,
-      }),
-      this.prisma.booking.count({ where }),
-    ]);
-    return { data, meta: buildPaginationMeta(bounds, total) };
-  }
-
-  async getMyBookingDetail(clerkUserId: string, bookingId: string) {
-    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
-    // `chefCesu`: a client paying in prefinanced CESU must add the batch cooker as an
-    // intervenant on their issuer's portal, with this number, before they can pay.
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, clientId: user.id },
-      include: {
-        // The client gets the recipe on the fiche, after the prestation (FLOW-02 §8).
-        bookingMeals: {
-          include: { meal: { omit: RECIPE_FIELDS } },
-        },
-        shoppingList: { include: { items: true } },
-        chefProfile: { select: CHEF_CESU_INFO_SELECT },
-      },
-    });
-    if (!booking) {
-      return null;
-    }
-
-    const { chefProfile, ...rest } = booking;
-    return { ...rest, chefCesu: toChefCesuInfo(chefProfile) };
-  }
-
-  getAdminBookingDetail(bookingId: string) {
-    return this.prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: {
-        client: true,
-        bookingMeals: { include: { meal: true } },
-        shoppingList: { include: { items: true } },
-      },
-    });
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

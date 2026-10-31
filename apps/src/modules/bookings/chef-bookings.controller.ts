@@ -74,6 +74,10 @@ const NO_CHEF =
  */
 @ApiTags(TAGS.chefBookings)
 @ApiBearerAuth()
+// Every route here is work: a candidate awaiting approval gets this 403.
+@ApiForbiddenResponse({
+  description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+})
 @Controller('chef/bookings')
 @UseGuards(ClerkAuthGuard)
 export class ChefBookingsController {
@@ -91,7 +95,9 @@ export class ChefBookingsController {
       '`from` and `to` (on the start) narrow it down.\n\n' +
       '`netCents` is what I earn: the paid part keeps the commission taken at payment, ' +
       'the rest is priced as its payment would be (a custom request keeps its offer’s ' +
-      'deal). `commissionEstimated` stays true until it is fully paid. The client shows ' +
+      'deal). `commissionEstimated` stays true until it is fully paid. `collectedNetCents` ' +
+      'is only what has come in, after its commission: use it for “encaissé”, not `netCents`. ' +
+      'The client shows ' +
       'as first name and initial.',
   })
   @ApiOkResponse({
@@ -132,7 +138,7 @@ export class ChefBookingsController {
   @ApiCreatedResponse({ description: 'The prestation.', example: BOOKING_DETAIL_EXAMPLE })
   @ApiNotFoundResponse({ description: '`OFFER_NOT_FOUND` or `CLIENT_NOT_FOUND`.' })
   @ApiConflictResponse({
-    description: '`SLOT_UNAVAILABLE`, `SAME_PERSON` or `COMMISSION_UNPAID`.',
+    description: '`SLOT_UNAVAILABLE`, `SAME_PERSON` or `CHEF_UNAVAILABLE`.',
   })
   @ApiUnprocessableEntityResponse({
     description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',

@@ -25,6 +25,7 @@ export const CHEF_CESU_INFO_SELECT = {
       crcesuAffiliationStatus: true,
     },
   },
+  sepaMandate: { select: { status: true } },
 } as const;
 
 export type ChefCesuInfoRow = {
@@ -35,6 +36,7 @@ export type ChefCesuInfoRow = {
     crcesuNan: string | null;
     crcesuAffiliationStatus: SapExternalStatus;
   } | null;
+  sepaMandate: { status: string } | null;
 };
 
 export interface ChefCesuInfo {
@@ -58,8 +60,28 @@ export interface ChefCesuInfo {
  * The number is only published for a chef who has opted in: without the opt-in it is not
  * actionable, and publishing it would invite a payment the chef will refuse.
  */
+/**
+ * Whether the commission can be debited from this chef (`sepa-mandates.service.ts`).
+ * CESU and the immediate advance never cross Stripe, so their commission can only be
+ * collected by direct debit: without an active mandate, neither is offered.
+ */
+export const mandateActive = (mandate: { status: string } | null | undefined) =>
+  mandate?.status === 'active';
+
+/** CESU is only offered with the NAN a client needs to add the chef on their portal. */
+export const cesuAccepted = (
+  sap: { acceptsCesu: boolean; crcesuNan: string | null } | null | undefined,
+  mandate: { status: string } | null | undefined,
+) => Boolean(sap?.acceptsCesu && sap.crcesuNan && mandateActive(mandate));
+
+/** The immediate advance: URSSAF habilitation, and a mandate for the commission. */
+export const advanceAccepted = (
+  sap: { urssafTiersPrestationStatus: string } | null | undefined,
+  mandate: { status: string } | null | undefined,
+) => sap?.urssafTiersPrestationStatus === 'active' && mandateActive(mandate);
+
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
-  const acceptsCesu = Boolean(chef.sapProfile?.acceptsCesu && chef.sapProfile.crcesuNan);
+  const acceptsCesu = cesuAccepted(chef.sapProfile, chef.sepaMandate);
   return {
     chefProfileId: chef.id,
     chefDisplayName: chef.displayName,

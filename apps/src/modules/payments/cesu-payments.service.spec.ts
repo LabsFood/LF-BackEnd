@@ -18,6 +18,7 @@ const CESU_READY_CHEF = {
   isActive: true,
   isVerified: true,
   sapProfile: { acceptsCesu: true, crcesuNan: '1234567' },
+  sepaMandate: { status: 'active' },
 };
 
 const PENDING_BOOKING = {
@@ -313,6 +314,18 @@ describe('CesuPaymentsService', () => {
       );
     });
 
+    it('refuses a chef with no active mandate: their commission could not be debited', async () => {
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        chefProfile: { ...CESU_READY_CHEF, sepaMandate: { status: 'pending' } },
+      });
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toMatchObject({
+        response: { code: 'CESU_NOT_ACCEPTED' },
+      });
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+    });
+
     it('refuses a chef who opted in but has no NAN', async () => {
       // Without the number the client cannot add them on the issuer portal at all.
       prisma.booking.findFirst.mockResolvedValue({
@@ -347,9 +360,13 @@ describe('CesuPaymentsService', () => {
         invoiceNumber: 'LF-COM-2026-0007',
       });
 
-      await expect(service.declare('clerk_1', DECLARATION)).rejects.toThrow(
-        /LF-COM-2026-0007/,
-      );
+      const refusal = service.declare('clerk_1', DECLARATION);
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
+      });
+      // The chef's unpaid invoice is not the paying client's business.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-2026-0007/);
       expect(prisma.payment.create).not.toHaveBeenCalled();
     });
 
@@ -627,6 +644,7 @@ describe('CesuPaymentsService', () => {
           crcesuNan: '1234567',
           crcesuAffiliationStatus: 'active',
         },
+        sepaMandate: { status: 'active' },
       });
 
       const info = await service.getChefCesuInfo('chef-1');

@@ -77,10 +77,19 @@ describe('VitrineService', () => {
         'displayName',
         'id',
         'interventionZones',
+        'languages',
+        'sapProfile',
+        'sepaMandate',
         'user',
       ]);
       // Of the account, the photo only: never the email or the phone.
       expect(select.user).toEqual({ select: { avatarUrl: true } });
+      // Of the SAP file, what `acceptsCesu` needs: never the NOVA or the cooperative.
+      expect(select.sapProfile).toEqual({
+        select: { acceptsCesu: true, crcesuNan: true },
+      });
+      // Of the mandate, its status: `acceptsCesu` needs it, the IBAN is never read.
+      expect(select.sepaMandate).toEqual({ select: { status: true } });
     });
 
     it('shows the week’s menu with its published dishes only, and never a recipe', async () => {
@@ -198,6 +207,14 @@ describe('VitrineService', () => {
       const { data } = await service.week({});
 
       expect(data[0].chef.avatarUrl).toBe(photo);
+    });
+
+    it('shows the languages the chef speaks on their card', async () => {
+      const { service } = vitrine({ chefs: [chef('a', { languages: ['fr', 'wo'] })] });
+
+      const { data } = await service.week({});
+
+      expect(data[0].chef.languages).toEqual(['fr', 'wo']);
     });
   });
 
