@@ -1,7 +1,7 @@
 import { X509Certificate } from 'crypto';
 import { readFileSync } from 'fs';
-import { rootCertificates } from 'tls';
 
+import { TRUSTED_ROOT_CERTIFICATES } from '../config/trusted-roots';
 import { postgresPoolConfig, prismaCliUrl, SUPABASE_CA_FILE } from './db-connection';
 
 // No password in fixtures: secret scanners flag any credential-shaped Postgres URL.
@@ -19,14 +19,18 @@ describe('db-connection', () => {
   });
 
   describe('postgresPoolConfig', () => {
-    it('verifies Supabase certificates against the Supabase CA and the public roots', () => {
+    it('verifies Supabase certificates against the Supabase CA and the trusted public roots', () => {
       const { connectionString, ssl } = postgresPoolConfig(POOLER);
       expect(connectionString).toBe(POOLER);
       expect(ssl?.rejectUnauthorized).toBe(true);
       expect(ssl?.ca).toEqual([
-        ...rootCertificates,
+        ...TRUSTED_ROOT_CERTIFICATES,
         readFileSync(SUPABASE_CA_FILE, 'utf8'),
       ]);
+      const ca = ssl?.ca as string[];
+      expect(
+        ca.some((pem) => /eMudhra|emSign/i.test(new X509Certificate(pem).subject)),
+      ).toBe(false);
     });
 
     it('drops URL TLS parameters, which node-postgres would apply over `ssl`', () => {

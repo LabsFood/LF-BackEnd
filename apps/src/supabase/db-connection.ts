@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type ConnectionOptions, rootCertificates } from 'node:tls';
+import { type ConnectionOptions } from 'node:tls';
+
+import { TRUSTED_ROOT_CERTIFICATES } from '../config/trusted-roots';
 
 /** Shared Postgres URL helpers (no secrets logged). */
 
@@ -44,8 +46,9 @@ export interface PostgresPoolConfig {
 
 /**
  * node-postgres settings for a database URL. On Supabase the server certificate is
- * verified, hostname included, against the Supabase CA (the public roots stay trusted in
- * case Supabase moves to a public CA). TLS parameters are taken out of the URL, since
+ * verified, hostname included, against the Supabase CA (the public roots, minus the
+ * distrusted ones in config/trusted-roots.ts, stay trusted in case Supabase moves to a
+ * public CA). TLS parameters are taken out of the URL, since
  * node-postgres would let them replace this `ssl`.
  */
 export function postgresPoolConfig(url: string): PostgresPoolConfig {
@@ -58,7 +61,7 @@ export function postgresPoolConfig(url: string): PostgresPoolConfig {
   return {
     connectionString: hasTlsParams ? parsed.toString() : url,
     ssl: {
-      ca: [...rootCertificates, readFileSync(SUPABASE_CA_FILE, 'utf8')],
+      ca: [...TRUSTED_ROOT_CERTIFICATES, readFileSync(SUPABASE_CA_FILE, 'utf8')],
       rejectUnauthorized: true,
     },
   };
