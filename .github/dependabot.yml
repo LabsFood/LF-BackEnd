@@ -8,6 +8,10 @@ updates:
     directory: /apps
     schedule:
       interval: daily
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # yanked version is caught first. Security updates ignore the cooldown.
+    cooldown:
+      default-days: 14
     # "fix(deps): ..." passes the PR title check and cuts a patch release.
     commit-message:
       prefix: fix
