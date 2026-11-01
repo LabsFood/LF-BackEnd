@@ -373,3 +373,44 @@ export class PaginatedAdminClientsDto {
   })
   meta!: PaginationMetaDto;
 }
+
+/** `GET /admin/users` row — an account of any role. */
+export class AdminUserListItemDto extends CurrentUserDto {
+  @ApiProperty({
+    format: 'date-time',
+    description: 'When the account was created.',
+    example: '2026-10-31T17:00:00.000Z',
+  })
+  createdAt!: string;
+
+  @ApiProperty({
+    nullable: true,
+    format: 'uuid',
+    description:
+      'The id `GET /admin/clients/:id` expects. `null` until the client saves their ' +
+      'preferences, and for every other role.',
+    example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
+  })
+  clientProfileId!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    format: 'uuid',
+    description:
+      'The id `GET /admin/chefs/:id` expects. `null` for anyone but a batch cooker.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  chefProfileId!: string | null;
+}
+
+/** `GET /admin/users` — one page of accounts plus its page descriptor. */
+export class PaginatedAdminUsersDto {
+  @ApiProperty({
+    type: [AdminUserListItemDto],
+    description: 'Accounts for the requested page, newest first.',
+  })
+  data!: AdminUserListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: 'Page descriptor.' })
+  meta!: PaginationMetaDto;
+}

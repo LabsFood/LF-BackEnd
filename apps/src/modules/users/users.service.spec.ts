@@ -1099,6 +1099,76 @@ describe('UsersService', () => {
     });
   });
 
+  describe('listUsers', () => {
+    const account = {
+      id: 'uuid-1',
+      clerkUserId: 'user_1',
+      email: 'team@labsfood.fr',
+      fullName: 'Labs Food Team',
+      phone: null,
+      avatarUrl: null,
+      role: UserRole.admin,
+      createdAt: new Date('2026-10-31T17:00:00Z'),
+    };
+
+    beforeEach(() => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: null, chefProfile: null },
+      ]);
+      prisma.user.count.mockResolvedValue(1);
+    });
+
+    it('lists every role, newest first, without deleted accounts', async () => {
+      await service.listUsers();
+
+      // Admins have no client or chef profile, so only `users` lists them all.
+      const where = { deletedAt: null };
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: 0,
+          take: 20,
+        }),
+      );
+      expect(prisma.user.count).toHaveBeenCalledWith({ where });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('flattens each profile to the id its admin page expects', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: { id: 'client-1' }, chefProfile: null },
+        { ...account, id: 'uuid-2', clientProfile: null, chefProfile: { id: 'chef-1' } },
+      ]);
+
+      const result = await service.listUsers({ page: 1, limit: 2 });
+
+      expect(result.data).toEqual([
+        { ...account, clientProfileId: 'client-1', chefProfileId: null },
+        { ...account, id: 'uuid-2', clientProfileId: null, chefProfileId: 'chef-1' },
+      ]);
+      expect(result.meta).toMatchObject({ page: 1, limit: 2, total: 1 });
+    });
+
+    it('selects only the public account fields', async () => {
+      await service.listUsers();
+
+      const { select } = prisma.user.findMany.mock.calls[0][0];
+      expect(Object.keys(select).sort()).toEqual([
+        'avatarUrl',
+        'chefProfile',
+        'clerkUserId',
+        'clientProfile',
+        'createdAt',
+        'email',
+        'fullName',
+        'id',
+        'phone',
+        'role',
+      ]);
+    });
+  });
+
   describe('SAP profile', () => {
     beforeEach(() => {
       prisma.user.findUnique.mockResolvedValue({

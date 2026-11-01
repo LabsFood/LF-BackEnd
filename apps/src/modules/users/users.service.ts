@@ -26,6 +26,7 @@ import {
   buildPaginationMeta,
   resolvePageBounds,
   type Paginated,
+  type PaginationQueryDto,
 } from '../../common/dto/pagination.dto';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
@@ -77,6 +78,19 @@ export interface ChefIdentity {
 
 /** Row of `GET /admin/clients`: a client account and its profile, if any. */
 export type AdminClientListItem = { user: User; clientProfile: ClientProfile | null };
+
+/** Row of `GET /admin/users`: an account, with the id of its client or chef profile. */
+export type AdminUserListItem = Pick<
+  User,
+  | 'id'
+  | 'clerkUserId'
+  | 'email'
+  | 'fullName'
+  | 'phone'
+  | 'avatarUrl'
+  | 'role'
+  | 'createdAt'
+> & { clientProfileId: string | null; chefProfileId: string | null };
 
 export interface RegisterClientResult {
   user: User;
@@ -896,6 +910,48 @@ export class UsersService {
 
     return {
       data: rows.map(({ clientProfile, ...user }) => ({ user, clientProfile })),
+      meta: buildPaginationMeta(bounds, total),
+    };
+  }
+
+  /**
+   * One page of accounts of every role, newest first. Admins have no client or chef
+   * profile, so this is the only list that shows them. Accounts deleted in Clerk are
+   * left out: their row only stays for the bookings, with its personal data blanked.
+   * Same transaction and tiebreaker as `listClients`, for the same reasons.
+   */
+  async listUsers(query: PaginationQueryDto = {}): Promise<Paginated<AdminUserListItem>> {
+    const bounds = resolvePageBounds(query);
+    const where = { deletedAt: null };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          clerkUserId: true,
+          email: true,
+          fullName: true,
+          phone: true,
+          avatarUrl: true,
+          role: true,
+          createdAt: true,
+          clientProfile: { select: { id: true } },
+          chefProfile: { select: { id: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: bounds.skip,
+        take: bounds.take,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: rows.map(({ clientProfile, chefProfile, ...user }) => ({
+        ...user,
+        clientProfileId: clientProfile?.id ?? null,
+        chefProfileId: chefProfile?.id ?? null,
+      })),
       meta: buildPaginationMeta(bounds, total),
     };
   }
