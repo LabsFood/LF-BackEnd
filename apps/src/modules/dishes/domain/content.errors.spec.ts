@@ -8,8 +8,10 @@ import {
   limitReached,
   menuFrozen,
   recipeNotReady,
+  shoppingByClient,
   shoppingListFrozen,
   shoppingListNotSent,
+  shoppingListUpdated,
   tierCannotPublish,
 } from './content.errors';
 
@@ -46,6 +48,8 @@ describe('Recettes reason codes', () => {
       409,
       { frozenSince: SINCE },
     ],
+    ['SHOPPING_LIST_UPDATED', () => shoppingListUpdated(2), 409, { version: 2 }],
+    ['SHOPPING_BY_CLIENT', () => shoppingByClient(), 409, {}],
     [
       'LIMIT_REACHED',
       () => limitReached('ingredients', 60),

@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../../common/audit/audit.service';
 import { BookingStatus, UserRole } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { codeOf } from './dishes.test-helpers';
@@ -17,6 +18,7 @@ const booking = (overrides: Record<string, unknown> = {}) => ({
   status: BookingStatus.confirmed,
   startsAt: FUTURE,
   persons: 3,
+  shoppingByClient: false,
   bookingMeals: [{ mealId: 'dish-1', recipeVersion: 2 }],
   ...overrides,
 });
@@ -59,24 +61,42 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
       findMany: jest.fn(async (): Promise<unknown[]> => []),
     },
     chefProfile: {
-      findUnique: jest.fn(async () => (as === 'chef' ? { id: 'chef-1' } : null)),
+      // By the caller's user id (who is this?) or by the booking's chef id (who to tell).
+      findUnique: jest.fn(async ({ where }: { where: { id?: string } }) =>
+        where.id === 'chef-1'
+          ? { id: 'chef-1', userId: 'chef-user' }
+          : as === 'chef'
+            ? { id: 'chef-1' }
+            : null,
+      ),
     },
+  };
+  const LIST = {
+    generatedAt: new Date(),
+    version: 0,
+    sentAt: null,
+    finalReceivedAt: null,
+    groups: [],
   };
   const lists = {
     pinRecipes: jest.fn(async () => [PINNED]),
     regenerateForBooking: jest.fn(async () => ({})),
-    view: jest.fn(async () => ({ generatedAt: new Date(), groups: [] })),
-    correct: jest.fn(async () => ({ generatedAt: new Date(), groups: [] })),
-    reset: jest.fn(async () => ({ generatedAt: new Date(), groups: [] })),
+    view: jest.fn(async () => LIST),
+    correct: jest.fn(async () => LIST),
+    reset: jest.fn(async () => LIST),
+    send: jest.fn(async () => ({ version: 1 })),
+    submit: jest.fn(async () => ({ version: 1, marks: 1 })),
   };
   const audit = { record: jest.fn(async () => undefined) };
+  const notifications = { notify: jest.fn(async () => ({})) };
   const service = new MissionsService(
     prisma as unknown as PrismaService,
     { findByClerkId: jest.fn(async () => user) } as unknown as UsersService,
     lists as unknown as ShoppingListsService,
     audit as unknown as AuditService,
+    notifications as unknown as NotificationsService,
   );
-  return { service, prisma, lists, audit };
+  return { service, prisma, lists, audit, notifications };
 }
 
 describe('MissionsService (FLOW-02 §7, §8)', () => {
@@ -162,6 +182,126 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       await expect(started.service.repin('clerk', 'b1')).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('the list goes to the client and back (Recettes §10.7, case 1)', () => {
+    const SUBJECT = { type: 'booking', id: 'b1' };
+    const ANSWER = {
+      version: 1,
+      marks: [{ name: 'Ail', unit: 'gousse', alreadyHave: true }],
+    };
+    // Starts in an hour: noon the day before is already past.
+    const tooLate = () => booking({ startsAt: new Date(Date.now() + 3600_000) });
+
+    it('sends the list and tells the client, with the deadline and the status', async () => {
+      const { service, lists, notifications } = missions('chef');
+
+      const sent = await service.sendShoppingList('clerk', 'b1');
+
+      expect(lists.send).toHaveBeenCalledWith('b1');
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'shopping_list.sent',
+        SUBJECT,
+      );
+      expect(sent).toMatchObject({ shoppingByClient: false, status: 'preparing' });
+      expect(sent.deadline).toBeInstanceOf(Date);
+    });
+
+    it('calls a second send an update', async () => {
+      const { service, lists, notifications } = missions('chef');
+      lists.send.mockResolvedValueOnce({ version: 2 });
+
+      await service.sendShoppingList('clerk', 'b1');
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'shopping_list.updated',
+        SUBJECT,
+      );
+    });
+
+    it('still sends when the notification fails: the client sees the list anyway', async () => {
+      const { service, notifications } = missions('chef');
+      notifications.notify.mockRejectedValueOnce(new Error('down'));
+
+      await expect(service.sendShoppingList('clerk', 'b1')).resolves.toMatchObject({
+        missionId: 'b1',
+      });
+    });
+
+    it('refuses to send after noon the day before', async () => {
+      const { service, lists } = missions('chef', tooLate());
+
+      const error = await service
+        .sendShoppingList('clerk', 'b1')
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error).code).toBe('SHOPPING_LIST_FROZEN');
+      expect(lists.send).not.toHaveBeenCalled();
+    });
+
+    it('refuses both ways when the client does the shopping', async () => {
+      const row = booking({ shoppingByClient: true });
+      const chefSends = await missions('chef', row)
+        .service.sendShoppingList('clerk', 'b1')
+        .catch((e: unknown) => e);
+      const clientAnswers = await missions('client', row)
+        .service.submitShoppingList('clerk', 'b1', ANSWER)
+        .catch((e: unknown) => e);
+
+      expect(codeOf(chefSends).code).toBe('SHOPPING_BY_CLIENT');
+      expect(codeOf(clientAnswers).code).toBe('SHOPPING_BY_CLIENT');
+    });
+
+    it('lets only the chef send and only the client answer', async () => {
+      for (const who of ['admin', 'client'] as const) {
+        const error = await missions(who)
+          .service.sendShoppingList('clerk', 'b1')
+          .catch((e: unknown) => e);
+        expect(codeOf(error).code).toBe('CONTENT_NOT_OWNED');
+      }
+      for (const who of ['admin', 'chef'] as const) {
+        const error = await missions(who)
+          .service.submitShoppingList('clerk', 'b1', ANSWER)
+          .catch((e: unknown) => e);
+        expect(codeOf(error).code).toBe('CONTENT_NOT_OWNED');
+      }
+    });
+
+    it('takes the final list against the deadline and tells the chef', async () => {
+      const { service, lists, notifications } = missions('client');
+
+      await service.submitShoppingList('clerk', 'b1', ANSWER);
+
+      expect(lists.submit).toHaveBeenCalledWith('b1', ANSWER, expect.any(Date));
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'chef-user',
+        'shopping_list.final_received',
+        SUBJECT,
+      );
+      expect(lists.view).toHaveBeenLastCalledWith('b1', { forClient: true });
+    });
+
+    it('shows the client their last answer, the others only an answer to the current list', async () => {
+      for (const [who, forClient] of [
+        ['client', true],
+        ['chef', false],
+        ['admin', false],
+      ] as const) {
+        const { service, lists } = missions(who);
+        await service.shoppingList('clerk', 'b1');
+        expect(lists.view).toHaveBeenCalledWith('b1', { forClient });
+      }
+    });
+
+    it('shows the client only what counts once the list is frozen', async () => {
+      const { service, lists } = missions('client', tooLate());
+
+      await service.shoppingList('clerk', 'b1');
+
+      expect(lists.view).toHaveBeenCalledWith('b1', { forClient: false });
     });
   });
 

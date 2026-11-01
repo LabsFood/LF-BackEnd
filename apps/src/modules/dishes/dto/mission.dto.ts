@@ -3,12 +3,14 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Length,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -63,4 +65,51 @@ export class PutShoppingListDto {
   @ValidateNested({ each: true })
   @Type(() => ShoppingLineDto)
   lines!: ShoppingLineDto[];
+}
+
+export class ShoppingMarkDto {
+  @ApiProperty({ maxLength: 120, example: 'Ail' })
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  @ApiProperty({ maxLength: 32, example: 'gousse' })
+  @IsString()
+  @Length(0, 32)
+  unit!: string;
+
+  @ApiProperty({ description: 'I already have it: the batch cooker does not buy it.' })
+  @IsBoolean()
+  alreadyHave!: boolean;
+
+  @ApiPropertyOptional({ maxLength: 280, example: 'De l’ail rose si possible' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  comment?: string;
+}
+
+export class SubmitShoppingListDto {
+  @ApiProperty({
+    minimum: 0,
+    example: 1,
+    description:
+      'The `version` of the list on screen. If the batch cooker has sent a newer one ' +
+      'since, the answer is refused (`SHOPPING_LIST_UPDATED`): reload and check it.',
+  })
+  @IsInt()
+  @Min(0)
+  version!: number;
+
+  @ApiProperty({
+    type: [ShoppingMarkDto],
+    description:
+      'The lines you already have or comment, each once, named as on the list. The ' +
+      'others are bought as listed. An empty list means: buy everything.',
+  })
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => ShoppingMarkDto)
+  marks!: ShoppingMarkDto[];
 }

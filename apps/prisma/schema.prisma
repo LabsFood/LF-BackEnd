@@ -357,6 +357,13 @@ model ShoppingList {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   bookingId   String         @unique(map: "shopping_lists_booking_id_key") @map("booking_id") @db.Uuid
   generatedAt DateTime       @default(now()) @map("generated_at") @db.Timestamptz(6)
+  /// Recettes §10.7, case 1: how many times the batch cooker sent the list (0 = never).
+  version         Int       @default(0)
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  /// When the client last sent their final list back.
+  finalReceivedAt DateTime? @map("final_received_at") @db.Timestamptz(6)
+  /// The client's answer, keyed like the lines: `ClientMark[]` in shopping-list.rules.ts.
+  clientMarks     Json      @default("[]") @map("client_marks")
   booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
   items       ShoppingItem[]
 

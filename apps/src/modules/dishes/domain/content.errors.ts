@@ -100,6 +100,25 @@ export const shoppingListFrozen = (frozenSince: Date): ConflictException =>
     frozenSince,
   });
 
+/**
+ * The client answers a list the batch cooker has sent again since it was opened:
+ * their marks would land on other quantities. `version` is the one to reload.
+ */
+export const shoppingListUpdated = (version: number): ConflictException =>
+  new ConflictException({
+    code: 'SHOPPING_LIST_UPDATED',
+    message: 'The batch cooker has updated the shopping list since you opened it.',
+    version,
+  });
+
+/** Sending or answering a list when the client does the shopping (§10.7, case 2). */
+export const shoppingByClient = (): ConflictException =>
+  new ConflictException({
+    code: 'SHOPPING_BY_CLIENT',
+    message:
+      'The client does the shopping for this prestation: no list goes back and forth.',
+  });
+
 /** A cap is reached: ingredients, steps, AI generations. */
 export const limitReached = (limit: string, max: number): UnprocessableEntityException =>
   new UnprocessableEntityException({

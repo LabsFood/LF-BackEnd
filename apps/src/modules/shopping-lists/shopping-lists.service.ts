@@ -14,13 +14,20 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   aggregate,
   applyCorrections,
-  Correction,
   diffCorrections,
   groupByAisle,
   Line,
   lineKey,
   scale,
 } from '../dishes/domain/recipes.rules';
+import {
+  ClientMark,
+  MarkInput,
+  marksApply,
+  submitRefusal,
+  toMarks,
+  withMarks,
+} from './domain/shopping-list.rules';
 
 /** One booked dish with the recipe version it cooks from. */
 export interface PinnedRecipe {
@@ -38,6 +45,15 @@ const toLine = (item: ShoppingItem): Line => ({
   unit: item.unit ?? '',
   aisle: item.aisle,
 });
+
+/** The list as the chef left it: computed lines with their corrections applied. */
+const linesOf = (items: ShoppingItem[]) =>
+  applyCorrections(
+    items.filter((item) => !item.edited).map(toLine),
+    items
+      .filter((item) => item.edited)
+      .map((item) => ({ ...toLine(item), removed: item.removed })),
+  );
 
 /**
  * A prestation's shopping list (FLOW-02 §7), computed from the recipes it cooks
@@ -136,19 +152,67 @@ export class ShoppingListsService {
     return (await this.getByBookingId(bookingId))!;
   }
 
-  /** §7's shape: the list the batch cooker sees, grouped by aisle. */
-  async view(bookingId: string) {
+  /**
+   * §7's shape, grouped by aisle, with the exchange with the client (§10.7). Each
+   * line carries the client's answer: for the chef and admins only once it answers
+   * the list sent last; for the client always, to start again from it after an
+   * update.
+   */
+  async view(bookingId: string, options: { forClient?: boolean } = {}) {
     const list =
       (await this.getByBookingId(bookingId)) ??
       (await this.regenerateForBooking(bookingId));
-    const computed = list.items.filter((item) => !item.edited).map(toLine);
-    const corrections: Correction[] = list.items
-      .filter((item) => item.edited)
-      .map((item) => ({ ...toLine(item), removed: item.removed }));
+    const marks =
+      options.forClient || marksApply(list)
+        ? (list.clientMarks as unknown as ClientMark[])
+        : [];
     return {
       generatedAt: list.generatedAt,
-      groups: groupByAisle(applyCorrections(computed, corrections)),
+      version: list.version,
+      sentAt: list.sentAt,
+      finalReceivedAt: list.finalReceivedAt,
+      groups: groupByAisle(withMarks(linesOf(list.items), marks)),
     };
+  }
+
+  /** The batch cooker sends the list as it is now. Each send counts. */
+  async send(bookingId: string) {
+    if (!(await this.getByBookingId(bookingId)))
+      await this.regenerateForBooking(bookingId);
+    return this.prisma.shoppingList.update({
+      where: { bookingId },
+      data: { version: { increment: 1 }, sentAt: new Date() },
+      select: { version: true },
+    });
+  }
+
+  /**
+   * The client's final list: their marks, checked against the list as it is inside
+   * the lock. A send that lands meanwhile waits, then makes this answer out of date.
+   */
+  async submit(
+    bookingId: string,
+    answer: { version: number; marks: MarkInput[] },
+    deadline: Date,
+  ) {
+    return this.locked(bookingId, async (tx, listId) => {
+      const list = await tx.shoppingList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: true },
+      });
+      const now = new Date();
+      const refusal = submitRefusal(list, deadline, now, answer.version);
+      if (refusal) throw refusal;
+      const marks = toMarks(linesOf(list.items), answer.marks);
+      await tx.shoppingList.update({
+        where: { id: listId },
+        data: {
+          clientMarks: marks as unknown as Prisma.InputJsonValue,
+          finalReceivedAt: now,
+        },
+      });
+      return { version: list.version, marks: marks.length };
+    });
   }
 
   /**
