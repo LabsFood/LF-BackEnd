@@ -19,6 +19,7 @@ import {
   lockingDocuments,
   requiredDocuments,
   toWire,
+  zoneCitiesProblem,
 } from './chef-onboarding.rules';
 
 const answers = (over: Partial<ApplicationAnswers> = {}): ApplicationAnswers => ({
@@ -88,9 +89,17 @@ describe('requiredDocuments (FLOW-01 §2)', () => {
     },
   );
 
-  it('asks for the SAP receipt only on the type-a route', () => {
+  it('asks for the SAP receipt on the type-a route, the cooperative membership on type-b', () => {
+    // Lab's Food is not a cooperative: a candidate with no declaration of their own
+    // proves they belong to one that holds it.
     expect(types(answers({ sapPath: 'type_a' }))).toContain(
       ChefDocumentType.sap_declaration,
+    );
+    expect(types(answers({ sapPath: 'type_a' }))).not.toContain(
+      ChefDocumentType.sap_cooperative,
+    );
+    expect(types(answers({ sapPath: 'type_b' }))).toContain(
+      ChefDocumentType.sap_cooperative,
     );
     expect(types(answers({ sapPath: 'type_b' }))).not.toContain(
       ChefDocumentType.sap_declaration,
@@ -246,7 +255,8 @@ describe('isDisabledByAdmin', () => {
 });
 
 describe('lockingDocuments — answers a validated document proves', () => {
-  const { identity, registration, sap_declaration, status_proof } = ChefDocumentType;
+  const { identity, registration, sap_cooperative, sap_declaration, status_proof } =
+    ChefDocumentType;
   const on = (...entries: [ChefDocumentType, ChefDocumentStatus][]) =>
     new Map(entries.map(([type, status]) => [type, { status }]));
 
@@ -334,11 +344,18 @@ describe('lockingDocuments — answers a validated document proves', () => {
     ).toEqual([registration]);
   });
 
-  it('locks the SAP answers only on the type-a route, where a receipt proves them', () => {
+  it('locks the SAP answers against the document that proves the route taken', () => {
     const validReceipt = on([sap_declaration, ChefDocumentStatus.valid]);
     expect(
       lockingDocuments(['sapPath'], answers({ sapPath: 'type_b' }), validReceipt),
     ).toEqual([]);
+    expect(
+      lockingDocuments(
+        ['sapPath'],
+        answers({ sapPath: 'type_b' }),
+        on([sap_cooperative, ChefDocumentStatus.valid]),
+      ),
+    ).toEqual([sap_cooperative]);
     expect(
       lockingDocuments(
         ['sapDeclarationNumber'],
@@ -383,6 +400,55 @@ describe('isValidPostcode (metropolitan France, Corsica included)', () => {
 
   it.each(['97400', '98000', '00999', '9500', 'ABCDE', ''])('rejects %s', (value) => {
     expect(isValidPostcode(value)).toBe(false);
+  });
+});
+
+describe('zoneCitiesProblem — every town is the commune its INSEE code names', () => {
+  // geo.api.gouv.fr, `communes?codeRegion=84`.
+  const region84 = [
+    { nom: 'Lyon', code: '69123', codeDepartement: '69' },
+    { nom: 'Saint-Étienne', code: '42218', codeDepartement: '42' },
+  ];
+  const zone = (cities: { name: string; dept: string; insee: string }[]) => ({
+    regionCode: '84',
+    scope: 'cities',
+    cities,
+  });
+
+  it('accepts towns of the region as geo.api.gouv.fr names them', () => {
+    expect(
+      zoneCitiesProblem(
+        zone([
+          { name: 'Lyon', dept: '69', insee: '69123' },
+          { name: 'Saint-Etienne', dept: '42', insee: '42218' },
+        ]),
+        region84,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('refuses a town from another region', () => {
+    expect(
+      zoneCitiesProblem(
+        zone([{ name: 'Marseille', dept: '13', insee: '13055' }]),
+        region84,
+      ),
+    ).toMatch(/13055/);
+  });
+
+  it('refuses a name that is not the commune of that INSEE code', () => {
+    expect(
+      zoneCitiesProblem(
+        zone([{ name: 'Marseille', dept: '69', insee: '69123' }]),
+        region84,
+      ),
+    ).toMatch(/69123/);
+  });
+
+  it('refuses a department that is not the commune’s', () => {
+    expect(
+      zoneCitiesProblem(zone([{ name: 'Lyon', dept: '13', insee: '69123' }]), region84),
+    ).toMatch(/69123/);
   });
 });
 

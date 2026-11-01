@@ -12,6 +12,7 @@ import {
 } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
 
@@ -48,6 +49,7 @@ describe('UsersService', () => {
     getClient: jest.Mock;
   };
   let config: { get: jest.Mock };
+  let geo: GeoService & { communesByPostcode: jest.Mock };
   let service: UsersService;
 
   beforeEach(() => {
@@ -83,11 +85,22 @@ describe('UsersService', () => {
     };
     config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
+    // The real address check, over a stubbed geo.api.gouv.fr.
+    geo = Object.assign(new GeoService(), {
+      communesByPostcode: jest.fn(
+        async (code: string) =>
+          ({
+            '75002': [{ nom: 'Paris', code: '75056', codeDepartement: '75' }],
+            '93100': [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }],
+          })[code] ?? [],
+      ),
+    });
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
       config as unknown as ConfigService,
       audit as unknown as AuditService,
+      geo,
     );
   });
 
@@ -620,6 +633,46 @@ describe('UsersService', () => {
       await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
 
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    describe('the service address against the official commune base', () => {
+      beforeEach(() => {
+        jest
+          .spyOn(service, 'ensurePersistedFromClerk')
+          .mockResolvedValue(currentUser as never);
+        prisma.chefProfile.findUnique.mockResolvedValue(null);
+        prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+      });
+
+      it('refuses a town the postcode does not serve, writing nothing', async () => {
+        await expect(
+          service.updateProfileByClerkUserId('user_1', {
+            firstName: 'Marie',
+            addressPostalCode: '93100',
+            addressCity: 'Marseille',
+          }),
+        ).rejects.toMatchObject({
+          status: 422,
+          response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Montreuil'] },
+        });
+        expect(prisma.user.update).not.toHaveBeenCalled();
+        expect(prisma.clientProfile.upsert).not.toHaveBeenCalled();
+      });
+
+      it('checks a changed town against the postcode on file', async () => {
+        prisma.clientProfile.findUnique.mockResolvedValue({
+          addressPostalCode: '93100',
+          addressCity: 'Montreuil',
+        });
+        await expect(
+          service.updateProfileByClerkUserId('user_1', { addressCity: 'Marseille' }),
+        ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      });
+
+      it('looks nothing up when the address is not sent', async () => {
+        await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
+        expect(geo.communesByPostcode).not.toHaveBeenCalled();
+      });
     });
 
     it('rejects a client profile when a chef profile already exists', async () => {

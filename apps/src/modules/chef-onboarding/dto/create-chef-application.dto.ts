@@ -163,9 +163,11 @@ export class CompanySapDto {
   @ApiProperty({
     enum: ['type-b', 'type-a'],
     description:
-      'Who holds the "services à la personne" declaration. `type-b`, the usual case: ' +
-      'the cooperative does. `type-a`: the batch cooker has their own, and gives its ' +
-      'number in `declarationNumber`.',
+      'Who holds the "services à la personne" declaration; Lab’s Food is not a ' +
+      'cooperative and onboards no one without one. `type-a`: the batch cooker has ' +
+      'their own, gives its number in `declarationNumber` and deposits the ' +
+      '`sap-declaration` receipt. `type-b`: an SAP cooperative they joined holds it, ' +
+      'and they deposit `sap-cooperative`, its membership certificate.',
     example: 'type-b',
   })
   @IsIn(['type-a', 'type-b'])

@@ -193,7 +193,14 @@ export class CreateQuoteDto {
   @Matches(HAS_LETTER, { message: 'addressLine must contain a street name' })
   addressLine!: string;
 
-  @ApiProperty({ example: 'Nice', maxLength: 120 })
+  @ApiProperty({
+    example: 'Nice',
+    maxLength: 120,
+    description:
+      'A commune that `addressPostalCode` serves in the official base ' +
+      '(geo.api.gouv.fr): otherwise 422 `ADDRESS_CITY_MISMATCH`, `communes` listing ' +
+      'those it serves; 502/504 `GEO_UNAVAILABLE` when that base fails.',
+  })
   @Transform(oneLine)
   @IsString()
   @Length(1, 120)

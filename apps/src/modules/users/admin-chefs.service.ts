@@ -13,12 +13,14 @@ import {
   resolvePageBounds,
 } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../generated/prisma/client';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { feedInUse } from '../calendar/calendar-feed.service';
 import {
   METROPOLITAN_REGIONS,
   interventionZonesProblem,
   toWire,
+  zoneCitiesProblem,
 } from '../chef-onboarding/domain/chef-onboarding.rules';
 import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-application.dto';
 import {
@@ -125,6 +127,7 @@ export class AdminChefsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly geo: GeoService,
   ) {}
 
   async list(
@@ -223,6 +226,20 @@ export class AdminChefsService {
         code: 'VALIDATION_FAILED',
         message: problem,
       });
+    }
+    // Against the official base, as the candidature does.
+    for (const zone of zones) {
+      if (zone.cities.length === 0) continue;
+      const unknown = zoneCitiesProblem(
+        zone,
+        await this.geo.communesByRegion(zone.regionCode),
+      );
+      if (unknown) {
+        throw new UnprocessableEntityException({
+          code: 'ZONE_CITY_UNKNOWN',
+          message: unknown,
+        });
+      }
     }
 
     const [chef, admin] = await Promise.all([

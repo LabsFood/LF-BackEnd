@@ -28,6 +28,7 @@ import {
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
   PHOTO_UPLOAD_EXAMPLE,
@@ -143,6 +144,7 @@ export class ChefBookingsController {
   @ApiUnprocessableEntityResponse({
     description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   create(@CurrentClerkUser() user: ClerkUser, @Body() body: NewBookingForClientDto) {
     return this.bookings.create('chef', user.userId, body);

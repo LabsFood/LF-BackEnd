@@ -35,6 +35,7 @@ import {
   MAX_PAGE_SIZE,
   PaginationQueryDto,
 } from '../../common/dto/pagination.dto';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
@@ -172,6 +173,7 @@ export class UsersController {
     description:
       'This account is a batch cooker. One account holds one kind of profile for now.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   patchMeProfile(
     @CurrentClerkUser() user: ClerkUser,

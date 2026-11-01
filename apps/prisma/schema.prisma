@@ -729,6 +729,8 @@ enum ChefDocumentType {
   status_proof
   registration
   sap_declaration
+  /// Type-b route: proof of membership of the SAP cooperative that holds the declaration.
+  sap_cooperative
   rc_pro
   haccp
   ddpp

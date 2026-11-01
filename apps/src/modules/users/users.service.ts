@@ -30,6 +30,7 @@ import {
 } from '../../common/dto/pagination.dto';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
@@ -127,6 +128,7 @@ export class UsersService {
     private readonly clerk: ClerkService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly geo: GeoService,
   ) {}
 
   private createPersistedUser(
@@ -543,6 +545,21 @@ export class UsersService {
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'client');
+    // The town must be a commune of the postcode; the half not sent is the one on file.
+    if (
+      profileFields.addressCity !== undefined ||
+      profileFields.addressPostalCode !== undefined
+    ) {
+      const stored = await this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: { addressCity: true, addressPostalCode: true },
+      });
+      await this.geo.assertCommune(
+        profileFields.addressPostalCode ?? stored?.addressPostalCode,
+        profileFields.addressCity ?? stored?.addressCity,
+        'addressCity',
+      );
+    }
     // No role argument: saving a client profile must never change `users.role`.
     await this.applyOwnUserFields(user, { firstName, lastName, phone });
 

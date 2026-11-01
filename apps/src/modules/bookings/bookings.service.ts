@@ -13,6 +13,7 @@ import { stackOf } from '../../common/logging/app-logger';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { parisHhmm, parisToday } from '../../common/paris-time';
 import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
@@ -116,6 +117,7 @@ export class BookingsService {
     private readonly audit: AuditService,
     private readonly mailer: BookingsMailer,
     private readonly config: ConfigService,
+    private readonly geo: GeoService,
   ) {}
 
   // ── By audience ───────────────────────────────────────────────────────────
@@ -227,6 +229,7 @@ export class BookingsService {
       throw invalid('This formule is not offered.', 'FORMULE_UNAVAILABLE');
     }
     if (dto.meals?.length) await this.assertMeals(offer.chefProfileId, dto.meals);
+    await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
     // An admin books on support's word: the override is audited below.
@@ -358,6 +361,15 @@ export class BookingsService {
         code: 'BOOKING_LOCKED',
         message: 'Only a pending booking can be changed. Cancel it, or ask Lab’s Food.',
       });
+    }
+
+    // The town must be a commune of the postcode; the half not sent is the one booked.
+    if (fields.addressCity !== undefined || fields.addressPostalCode !== undefined) {
+      await this.geo.assertCommune(
+        fields.addressPostalCode ?? booking.addressPostalCode,
+        fields.addressCity ?? booking.addressCity,
+        'addressCity',
+      );
     }
 
     const moving = status !== undefined && status !== booking.status;
