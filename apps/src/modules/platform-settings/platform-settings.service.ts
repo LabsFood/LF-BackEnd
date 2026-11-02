@@ -8,15 +8,26 @@ import {
   SupplementRules,
   supplementRulesInForce,
 } from '../bookings/domain/pricing';
+import { validationFailed } from '../dishes/domain/content.errors';
 import { CHEF_TIERS_KEY, chefTierLabels } from './chef-tiers';
+import {
+  DEFAULT_RECIPE_PROFILES,
+  DEFAULT_REHEAT_MODES,
+  ListItem,
+  listInForce,
+  RECIPE_PROFILES_KEY,
+  recipeProfilesInForce,
+  REHEAT_MODES_KEY,
+  reheatModesInForce,
+} from './recipe-lists';
 import { DEFAULT_COMMISSION_BPS, TAX_CREDIT_BPS } from './pricing.constants';
 
 const COMMISSION_KEY = 'commission_bps';
 
 /**
  * What an admin can change without a deploy: the commission, the booking
- * supplements (adults beyond what an offer covers, extra dishes), and the names of
- * the chef tiers.
+ * supplements (adults beyond what an offer covers, extra dishes), the names of
+ * the chef tiers, and the lists a recipe picks from (reheating modes, profiles).
  *
  * Read from the database on every use, not cached: it is read when an offer is
  * priced, a handful of times a day, and a cached rate would let two API
@@ -148,5 +159,90 @@ export class PlatformSettingsService {
       requestId,
     });
     return { labels: value, updatedAt: row.updatedAt };
+  }
+
+  async reheatModes() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: REHEAT_MODES_KEY },
+    });
+    return {
+      modes: await reheatModesInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Recettes §4.6. The whole list, every time. A dish keeps a code that leaves the
+   * list (the fronts show the code); it no longer accepts it when saved again.
+   */
+  async setReheatModes(modes: ListItem[], adminUserId: string, requestId?: string) {
+    const saved = await this.setList(
+      REHEAT_MODES_KEY,
+      DEFAULT_REHEAT_MODES,
+      modes,
+      'settings.reheat_modes_changed',
+      adminUserId,
+      requestId,
+    );
+    return { modes: saved.value, updatedAt: saved.updatedAt };
+  }
+
+  async recipeProfiles() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: RECIPE_PROFILES_KEY },
+    });
+    return {
+      profiles: await recipeProfilesInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Recettes §4.8. Same rules as the reheating modes. */
+  async setRecipeProfiles(profiles: ListItem[], adminUserId: string, requestId?: string) {
+    const saved = await this.setList(
+      RECIPE_PROFILES_KEY,
+      DEFAULT_RECIPE_PROFILES,
+      profiles,
+      'settings.recipe_profiles_changed',
+      adminUserId,
+      requestId,
+    );
+    return { profiles: saved.value, updatedAt: saved.updatedAt };
+  }
+
+  /** An editable list: each code once, saved whole, journalled before and after. */
+  private async setList(
+    key: string,
+    defaults: ListItem[],
+    items: ListItem[],
+    action: string,
+    adminUserId: string,
+    requestId?: string,
+  ) {
+    assertUniqueCodes(items);
+    const previous = await listInForce(this.prisma, key, defaults);
+    const value = items.map(({ code, label }) => ({ code, label }));
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action,
+      subjectType: 'platform_setting',
+      metadata: { from: previous, to: value },
+      requestId,
+    });
+    return { value, updatedAt: row.updatedAt };
+  }
+}
+
+function assertUniqueCodes(items: ListItem[]): void {
+  const seen = new Set<string>();
+  const twice = items.filter(({ code }) => seen.has(code) || !seen.add(code));
+  if (twice.length) {
+    throw validationFailed(`Each code once: ${twice.map((i) => i.code).join(', ')}.`);
   }
 }

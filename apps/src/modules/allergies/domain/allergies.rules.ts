@@ -47,6 +47,8 @@ export interface DishAllergens {
   id: string;
   allergens: string[];
   allergensNone: boolean;
+  /** Recettes lot 2: null until the chef verifies, and again after an ingredient change. */
+  allergensVerifiedAt: Date | null;
 }
 
 export interface Conflict {
@@ -72,6 +74,7 @@ export const DISH_ALLERGEN_SELECT = {
   id: true,
   allergens: true,
   allergensNone: true,
+  allergensVerifiedAt: true,
 } as const;
 
 /** Withdrawing consent erases the allergies and asks the question again. */
@@ -119,9 +122,17 @@ export function checkable(client: ClientAllergies, extra: string[] = []) {
   return { codes: [...codes], text: unique(text) };
 }
 
-/** Dishes that declare neither allergens nor "none": nothing to check them against. */
+/**
+ * Dishes the client cannot be checked against: their allergens are not verified
+ * since the last ingredient change (Recettes §4.9), or they declare neither
+ * allergens nor "none".
+ */
 export const unverifiedDishes = (dishes: DishAllergens[]) =>
-  dishes.filter((d) => d.allergens.length === 0 && !d.allergensNone).map((d) => d.id);
+  dishes
+    .filter(
+      (d) => !d.allergensVerifiedAt || (d.allergens.length === 0 && !d.allergensNone),
+    )
+    .map((d) => d.id);
 
 export const conflicts = (codes: string[], dishes: DishAllergens[]): Conflict[] =>
   dishes

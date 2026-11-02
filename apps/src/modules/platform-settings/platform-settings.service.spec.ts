@@ -22,6 +22,73 @@ function harness(saved: unknown = null) {
 }
 
 describe('PlatformSettingsService', () => {
+  describe('reheating modes (Recettes §4.6)', () => {
+    it('lists the default modes until an admin changes them', async () => {
+      const { modes, updatedAt } = await harness().service.reheatModes();
+
+      expect(modes[0]).toEqual({ code: 'oven', label: 'Four' });
+      expect(updatedAt).toBeNull();
+    });
+
+    it('reads the saved list, and the defaults when what is saved is not a list', async () => {
+      const grill = [{ code: 'grill', label: 'Gril' }];
+
+      expect((await harness(grill).service.reheatModes()).modes).toEqual(grill);
+      expect((await harness({ broken: true }).service.reheatModes()).modes[0].code).toBe(
+        'oven',
+      );
+    });
+
+    it('saves the list and journals before and after', async () => {
+      const { service, prisma, audit } = harness();
+      const modes = [
+        { code: 'oven', label: 'Four' },
+        { code: 'grill', label: 'Gril' },
+      ];
+
+      expect(await service.setReheatModes(modes, 'admin-1', 'req-1')).toEqual({
+        modes,
+        updatedAt: UPDATED_AT,
+      });
+      expect(prisma.platformSetting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { key: 'reheat_modes' },
+          update: { value: modes, updatedByUserId: 'admin-1' },
+        }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'settings.reheat_modes_changed' }),
+      );
+    });
+
+    it('lists the recipe profiles of the PRD until an admin changes them', async () => {
+      const { profiles } = await harness().service.recipeProfiles();
+
+      expect(profiles.map((p) => p.code)).toEqual([
+        'kids',
+        'post-partum',
+        'sport',
+        'budget',
+        'high-protein',
+      ]);
+    });
+
+    it('refuses the same code twice', async () => {
+      const { service, prisma } = harness();
+
+      await expect(
+        service.setReheatModes(
+          [
+            { code: 'oven', label: 'Four' },
+            { code: 'oven', label: 'Four à chaleur tournante' },
+          ],
+          'admin-1',
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(prisma.platformSetting.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('chef tiers (Recettes R34)', () => {
     it('names the four tiers neutrally until an admin renames them', async () => {
       const { service } = harness();

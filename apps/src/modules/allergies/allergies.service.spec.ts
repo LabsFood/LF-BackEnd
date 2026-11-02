@@ -17,7 +17,16 @@ describe('AllergiesService', () => {
     id: 'booking-1',
     quote: null,
     chefProfile: { userId: 'chef-user' },
-    bookingMeals: [{ meal: { id: 'meal-1', allergens, allergensNone: false } }],
+    bookingMeals: [
+      {
+        meal: {
+          id: 'meal-1',
+          allergens,
+          allergensNone: false,
+          allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
+        },
+      },
+    ],
   });
 
   beforeEach(() => {

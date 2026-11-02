@@ -11,6 +11,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -23,15 +24,19 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+
+import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { DishesService } from './dishes.service';
+import { DuplicationService } from './duplication.service';
 import { CreateDishDto, UpdateDishDto } from './dto/dish.dto';
 import {
   CreateMenuDto,
@@ -103,6 +108,7 @@ export class MeContentController {
     private readonly menus: MenusService,
     private readonly suggestions: SuggestionsService,
     private readonly photos: ContentPhotosService,
+    private readonly duplication: DuplicationService,
   ) {}
 
   @Get('dishes')
@@ -221,14 +227,16 @@ export class MeContentController {
     summary: 'Publish one of my dishes',
     description:
       'Puts the dish on the public site at once; admins look at it afterwards. ' +
-      'Every check below must pass, and all failures are returned together:\n\n' +
-      '- the batch cooker is approved and their dossier is `validated`, else ' +
-      '`403 CHEF_NOT_VERIFIED`;\n' +
-      '- `name`, `country` and `portions ≥ 1`, else `422 VALIDATION_FAILED`;\n' +
-      '- an allergen declaration: `allergens` not empty, or `allergensNone: true`, ' +
-      'else `422 ALLERGENS_REQUIRED`. Free-text allergens do not count.\n\n' +
-      'The recipe is not required; `recipeComplete` says whether the fiche can be ' +
-      'produced. Publishing a published dish changes nothing.',
+      'The batch cooker must be approved with a `validated` dossier, else ' +
+      '`403 CHEF_NOT_VERIFIED`. Then the recipe must be "Prête" (Recettes §4.11) and ' +
+      'have a short description, else `422 RECIPE_NOT_READY` with every point in ' +
+      '`problems` (`readiness` on the dish says the same beforehand): name, type, ' +
+      'portions, cooking time, an ingredient, none still to verify ' +
+      '(`INGREDIENT_TO_VERIFY`), a step, each typed (`STEP_TYPE_MISSING`), storage, ' +
+      'reheating, allergens declared (`ALLERGENS_REQUIRED`) and confirmed since the ' +
+      'last ingredient change (`ALLERGENS_UNVERIFIED`). Origin and equipment are never ' +
+      'asked; a missing photo is a warning only, for now.\n\n' +
+      'Publishing a published dish changes nothing.',
   })
   @ApiDishIdParam()
   @ApiOkResponse({ description: 'The published dish.', example: DISH_EXAMPLE })
@@ -244,6 +252,87 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.dishes.publish(user.userId, id);
+  }
+
+  @Post('dishes/:id/duplicate')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Copy one of my dishes',
+    description:
+      'Recettes §5.4: a new draft named "[name] (copie)", never published, linked to the ' +
+      'original by `variantOfId`. Its allergens are to confirm again and its version ' +
+      'starts over; its photo is a copy of the file. A dish can be copied any number ' +
+      'of times.',
+  })
+  @ApiDishIdParam()
+  @ApiCreatedResponse({ description: 'The copy.', example: DISH_EXAMPLE })
+  @ApiNotFoundResponse({ description: 'No dish of mine with this id.' })
+  @ApiClerkAuthResponses()
+  duplicateDish(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.duplication.dish(user.userId, id);
+  }
+
+  @Get('dishes/:id/recipe.pdf')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Download the recipe sheet of one of my dishes',
+    description:
+      'Recettes §7: the sheet as it stands, as a PDF/A with a LAB’S FOOD watermark ' +
+      'on every page: ingredients (fixed quantities marked), typed steps, allergens, ' +
+      'equipment, storage and reheating.',
+  })
+  @ApiDishIdParam()
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'The PDF, as an attachment.',
+    content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
+  })
+  @ApiNotFoundResponse({ description: 'No dish of mine with this id.' })
+  @ApiClerkAuthResponses()
+  async recipePdf(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { filename, body } = await this.dishes.recipePdf(user.userId, id);
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store');
+    return body;
+  }
+
+  @Post('dishes/:id/allergens/confirm')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm the allergens of one of my dishes',
+    description:
+      'Recettes §4.9: the batch cooker confirms the allergens declared match the ' +
+      'ingredients. Sets `allergensVerifiedAt`, needed for the dish to be ready and to ' +
+      'be booked. Adding, removing or renaming an ingredient clears it again; a ' +
+      'quantity does not.\n\n' +
+      '`422 ALLERGENS_REQUIRED` while nothing is declared: `allergens` empty and ' +
+      '`allergensNone` false.',
+  })
+  @ApiDishIdParam()
+  @ApiOkResponse({
+    description: 'The dish, with `allergensVerifiedAt`.',
+    example: DISH_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({ description: 'Nothing is declared yet.' })
+  @ApiForbiddenResponse(NOT_OWNED)
+  @ApiNotFoundResponse({ description: 'No dish with this id.' })
+  @ApiClerkAuthResponses()
+  confirmDishAllergens(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.dishes.confirmAllergens(user.userId, id);
   }
 
   @Post('dishes/:id/unpublish')
@@ -371,6 +460,30 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.menus.remove(user.userId, id);
+  }
+
+  @Post('menus/:id/duplicate')
+  @ApiTags(TAGS.chefContent)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Copy one of my menus',
+    description:
+      'Recettes §5.4: a new draft named "[title] (copie)", never published, holding the ' +
+      'same dishes in the same order (no dish is copied). The cover photo is a copy ' +
+      'of the file.',
+  })
+  @ApiMenuIdParam()
+  @ApiCreatedResponse({
+    description: 'The copy.',
+    example: { ...MENU_EXAMPLE, status: 'draft', publishedAt: null },
+  })
+  @ApiNotFoundResponse({ description: 'No menu of mine with this id.' })
+  @ApiClerkAuthResponses()
+  duplicateMenu(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.duplication.menu(user.userId, id);
   }
 
   @Post('menus/:id/publish')

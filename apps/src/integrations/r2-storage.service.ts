@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -226,6 +227,27 @@ export class R2StorageService {
     if (!url || !this.publicBaseUrl || !url.startsWith(`${this.publicBaseUrl}/`))
       return null;
     return url.slice(this.publicBaseUrl.length + 1);
+  }
+
+  /**
+   * A copy inside the bucket, without the file passing through the API. `false`
+   * when storage is not configured or the copy fails: the caller decides.
+   */
+  async copy(fromKey: string, toKey: string): Promise<boolean> {
+    if (!this.client || !this.bucket) return false;
+    try {
+      await this.client.send(
+        new CopyObjectCommand({
+          Bucket: this.bucket,
+          CopySource: `${this.bucket}/${fromKey.split('/').map(encodeURIComponent).join('/')}`,
+          Key: toKey,
+        }),
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn(`Could not copy ${fromKey}: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   /** Best-effort: an orphaned object costs storage, never correctness. */

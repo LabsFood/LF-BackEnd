@@ -18,6 +18,7 @@ import {
   groupByAisle,
   Line,
   lineKey,
+  roundLines,
   scale,
 } from '../dishes/domain/recipes.rules';
 import {
@@ -107,7 +108,7 @@ export class ShoppingListsService {
               version: meal.recipeVersion,
               portions: meal.portions,
               ingredients: meal.ingredients ?? [],
-              steps: meal.steps,
+              steps: meal.steps ?? [],
               reheating: meal.reheating ?? Prisma.DbNull,
               storage: meal.storage ?? Prisma.DbNull,
             },
@@ -272,8 +273,11 @@ export class ShoppingListsService {
   /** What the pinned recipes give, scaled to the portions booked and added up. */
   private async computedLines(bookingId: string): Promise<Line[]> {
     const pinned = await this.pinRecipes(bookingId);
-    return aggregate(
-      pinned.flatMap((p) => scale(p.recipe.ingredients, p.recipe.portions, p.portions)),
+    // Recettes §4.12: added up unrounded, rounded once at the end.
+    return roundLines(
+      aggregate(
+        pinned.flatMap((p) => scale(p.recipe.ingredients, p.recipe.portions, p.portions)),
+      ),
     );
   }
 

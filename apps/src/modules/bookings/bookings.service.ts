@@ -23,6 +23,10 @@ import {
 } from '../allergies/domain/allergies.rules';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
+import { householdPortions } from '../dishes/domain/recipes.rules';
+
+/** A dish booked for a client without a household on file. */
+const DEFAULT_PORTIONS = 4;
 import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
@@ -234,6 +238,7 @@ export class BookingsService {
     if (dto.formuleId && !formule) {
       throw invalid('This formule is not offered.', 'FORMULE_UNAVAILABLE');
     }
+    let portions = DEFAULT_PORTIONS;
     if (dto.meals?.length) {
       await this.assertMeals(offer.chefProfileId, dto.meals);
       await this.assertAllergies(
@@ -241,6 +246,7 @@ export class BookingsService {
         dto.meals.map((meal) => meal.mealId),
         [],
       );
+      portions = await this.householdPortions(clientId, dto.meals);
     }
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
@@ -286,7 +292,7 @@ export class BookingsService {
             bookingMeals: {
               create: dto.meals.map((meal) => ({
                 mealId: meal.mealId,
-                portions: meal.portions ?? 4,
+                portions: meal.portions ?? portions,
               })),
             },
           }),
@@ -397,6 +403,7 @@ export class BookingsService {
       }
       when = schedule(startsAt, endsAt);
     }
+    let portions = DEFAULT_PORTIONS;
     if (meals?.length) {
       await this.assertMeals(booking.chefProfileId, meals);
       await this.assertAllergies(
@@ -404,6 +411,7 @@ export class BookingsService {
         meals.map((meal) => meal.mealId),
         booking.quote?.allergies ?? [],
       );
+      portions = await this.householdPortions(booking.clientId, meals);
     }
     // Each supplement follows only what changed: the base price, and any line the
     // client did not touch, stay as booked.
@@ -449,7 +457,7 @@ export class BookingsService {
             data: meals.map((meal) => ({
               bookingId: id,
               mealId: meal.mealId,
-              portions: meal.portions ?? 4,
+              portions: meal.portions ?? portions,
             })),
           });
         }
@@ -812,6 +820,21 @@ export class BookingsService {
     ]);
     const refusal = menuRefusal(client, dishes, extra);
     if (refusal) throw refusal;
+  }
+
+  /**
+   * Portions for a dish booked without any (Recettes §9.1, BLK-27): the client's
+   * household, a child as half a portion. Read only when a dish needs it.
+   */
+  private async householdPortions(clientId: string, meals: BookingMealDto[]) {
+    if (meals.every((meal) => meal.portions != null)) return DEFAULT_PORTIONS;
+    const household = await this.prisma.clientProfile.findUnique({
+      where: { userId: clientId },
+      select: { householdAdults: true, householdKids: true },
+    });
+    return household
+      ? householdPortions(household.householdAdults, household.householdKids)
+      : DEFAULT_PORTIONS;
   }
 
   /** The batch cooker's published dishes, or Lab's Food's own. */

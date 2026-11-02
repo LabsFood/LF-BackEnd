@@ -14,6 +14,7 @@ import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.mod
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -73,6 +74,7 @@ import { RedisModule } from './redis/redis.module';
     HealthModule,
     UsersModule,
     CatalogModule,
+    IngredientsModule,
     ShoppingListsModule,
     QuotesModule,
     StatsModule,

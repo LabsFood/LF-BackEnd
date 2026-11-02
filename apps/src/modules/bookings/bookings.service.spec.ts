@@ -577,6 +577,7 @@ describe('BookingsService', () => {
       id,
       allergens,
       allergensNone: false,
+      allergensVerifiedAt: START,
     });
     const line = (id: string, allergens: string[]) => ({
       mealId: id,
@@ -593,13 +594,29 @@ describe('BookingsService', () => {
         allergiesDeclaredAt: null,
       });
       prisma.meal.findMany.mockResolvedValue([
-        { id: 'meal-1', allergens: [], allergensNone: true },
+        { id: 'meal-1', allergens: [], allergensNone: true, allergensVerifiedAt: START },
       ]);
 
       await expect(service.create('client', 'clerk_1', withMeals)).rejects.toMatchObject({
         response: { code: 'ALLERGIES_NOT_DECLARED' },
       });
       expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('sizes a dish for the household when no portions are given, a child as half', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        householdAdults: 2,
+        householdKids: 1,
+      });
+      prisma.meal.findMany.mockResolvedValue([dish('meal-1', ['milk'])]);
+      prisma.booking.create.mockRejectedValue(new Error('stop after the write'));
+
+      await service.create('client', 'clerk_1', withMeals).catch(() => undefined);
+
+      expect(prisma.booking.create.mock.calls[0][0].data.bookingMeals).toEqual({
+        create: [{ mealId: 'meal-1', portions: 2.5 }],
+      });
     });
 
     it('refuses a dish holding a declared allergen, for an admin too', async () => {

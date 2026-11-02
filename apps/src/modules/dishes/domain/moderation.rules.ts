@@ -16,6 +16,8 @@ export const MODERATION_REASON_CODES = [
   'inappropriate-content',
   'copyright',
   'misleading-origin',
+  // Recettes BLK-32: the main photo must be a real one, not a generated image.
+  'not-a-real-photo',
   'duplicate',
   'quality',
   'other',

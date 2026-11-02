@@ -243,6 +243,9 @@ model Meal {
   sourceVersion          DateTime?           @map("source_version") @db.Timestamptz(6)
   /// Set when the suggestion's allergens, diets or country changed after adoption.
   sourceChangedAt        DateTime?           @map("source_changed_at") @db.Timestamptz(6)
+  /// Recettes §5.4: the dish this one was copied from ("variante de"). Not the
+  /// adoption link above, whose unique index allows one copy per chef.
+  variantOfId            String?             @map("variant_of_id") @db.Uuid
   name                   String              @db.VarChar(255)
   description            String?
   imageUrl               String?             @map("image_url") @db.VarChar(512)
@@ -256,6 +259,9 @@ model Meal {
   /// list alone cannot be told apart from "not filled in" (FLOW-02 §3.3). A CHECK
   /// in the migration forbids it next to a listed allergen.
   allergensNone          Boolean             @default(false) @map("allergens_none")
+  /// Recettes §4.9: when the chef last confirmed the allergens. Cleared when an
+  /// ingredient is added, removed or renamed; a dish without it cannot be booked.
+  allergensVerifiedAt    DateTime?           @map("allergens_verified_at") @db.Timestamptz(6)
   /// Free-text values outside the reference lists (the "Autre" button).
   customDiets            String[]            @default([]) @map("custom_diets")
   customAllergens        String[]            @default([]) @map("custom_allergens")
@@ -264,10 +270,28 @@ model Meal {
   calories               Int?
   difficulty             MealDifficulty?
   ingredients            Json                @default("[]")
-  steps                  String[]            @default([])
+  /// Recettes §4.5: `[{ order, text, type, durationMinutes }]`, in order.
+  steps                  Json                @default("[]")
+  /// Recettes §4.7: what the recipe needs, as free text. Optional, never checked.
+  equipment              String[]            @default([])
+  /// Recettes §4.8. Diets the chef declares (halal, kosher): not computable.
+  declaredDiets          String[]            @default([]) @map("declared_diets")
+  /// Codes of the `recipe_profiles` list.
+  profiles               String[]            @default([])
+  /// The chef's own tags: never shown to clients.
+  personalTags           String[]            @default([]) @map("personal_tags")
+  /// Months the chef sets instead of the computed ones; empty: none.
+  seasonsOverride        Int[]               @default([]) @map("seasons_override")
+  /// `{ diets, seasonMonths }` computed from the common ingredient list; null while
+  /// a line is not linked ("non calculé"). Recomputed when the list changes.
+  classification         Json?
   /// The recipe's version: +1 on every change to ingredients, steps, reheating,
   /// storage or portions. A booking pins the version it was cooked from (§9.2).
   recipeVersion          Int                 @default(1) @map("recipe_version")
+  /// Recettes R6: the recipe changed since its last version. A version is made,
+  /// and kept in meal_recipe_versions, once the recipe is "Prête" again or when the
+  /// allergens are confirmed; saving a draft never makes one.
+  versionPending         Boolean             @default(false) @map("version_pending")
   reheating              Json?
   storage                Json?
   isFeatured             Boolean             @default(false) @map("is_featured")
@@ -289,6 +313,8 @@ model Meal {
   menus                  MenuDish[]
   recipeVersions         MealRecipeVersion[]
   copies                 Meal[]              @relation("MealSource")
+  variants               Meal[]              @relation("MealVariant")
+  variantOf              Meal?               @relation("MealVariant", fields: [variantOfId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_variant_of_id")
   source                 Meal?               @relation("MealSource", fields: [sourceMealId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_source_meal_id")
   offeredTo              ChefProfile?        @relation("MealOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_offered_to_chef_profile_id")
   // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
@@ -303,6 +329,7 @@ model Meal {
   @@index([createdByUserId], map: "ix_meals_created_by_user_id")
   @@index([offeredToChefProfileId], map: "ix_meals_offered_to_chef_profile_id")
   @@index([sourceMealId], map: "ix_meals_source_meal_id")
+  @@index([variantOfId], map: "ix_meals_variant_of_id")
   @@index([reviewPendingSince], map: "ix_meals_review_pending_since")
   @@map("meals")
 }
@@ -351,7 +378,8 @@ model Formule {
 model BookingMeal {
   bookingId     String             @map("booking_id") @db.Uuid
   mealId        String             @map("meal_id") @db.Uuid
-  portions      Int                @default(4)
+  /// Recettes BLK-27: a child counts as half a portion, so halves are possible.
+  portions      Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
   recipeVersion Int?               @map("recipe_version")
   booking       Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
@@ -881,13 +909,31 @@ model ChefShowcaseWeek {
 
 /// A recipe as it was at one version, kept once a booking pins it, so the fiche a
 /// client received and the one the API serves always agree (FLOW-02 §9.2).
+/// Recettes §4.10: the common ingredient list, filled by the Lab's Food admin.
+/// What each ingredient suits (diets) and when it is in season. No allergens and
+/// no purchase units in this release.
+model CatalogIngredient {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @unique(map: "uq_catalog_ingredients_name") @db.VarChar(120)
+  /// Other names, folded to lowercase: what a chef may type instead.
+  aliases      String[] @default([])
+  /// Codes of COMPUTED_DIETS (dishes.rules.ts) the ingredient suits.
+  diets        String[] @default([])
+  /// Months 1 to 12; empty: not seasonal, in season all year.
+  seasonMonths Int[]    @default([]) @map("season_months")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("catalog_ingredients")
+}
+
 model MealRecipeVersion {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   mealId       String        @map("meal_id") @db.Uuid
   version      Int
   portions     Int
   ingredients  Json          @default("[]")
-  steps        String[]      @default([])
+  steps        Json          @default("[]")
   reheating    Json?
   storage      Json?
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)

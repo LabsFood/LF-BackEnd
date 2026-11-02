@@ -3,7 +3,13 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { TAGS } from '../../common/swagger/tags';
 import { METROPOLITAN_REGIONS } from './domain/chef-onboarding.rules';
-import { ALLERGENS, DIETS, DISH_CATEGORIES } from '../dishes/domain/dishes.rules';
+import {
+  ALLERGENS,
+  COMPUTED_DIETS,
+  DIETS,
+  DISH_CATEGORIES,
+} from '../dishes/domain/dishes.rules';
+import { STEP_TYPES } from '../dishes/domain/recipes.rules';
 import { LANGUAGES } from '../users/dto/chef-profile.dto';
 
 /**
@@ -105,6 +111,43 @@ export class ReferentialsController {
   })
   categories() {
     return { categories: DISH_CATEGORIES };
+  }
+
+  @Get('computed-diets')
+  @ApiOperation({
+    summary: 'List the diets computed from the common ingredient list',
+    description:
+      'Recettes §4.8: what an ingredient of the common list may suit, and what a ' +
+      'dish shows when all its ingredients share it. Public.',
+  })
+  @ApiOkResponse({
+    description: 'Every diet, as code and label.',
+    schema: { example: { diets: [{ code: 'vegan', label: 'Végétalien' }] } },
+  })
+  computedDiets() {
+    return { diets: COMPUTED_DIETS };
+  }
+
+  @Get('step-types')
+  @ApiOperation({
+    summary: 'List the step types of a recipe',
+    description:
+      'What a recipe step is (Recettes §4.5), for `steps[].type`. A step without a ' +
+      'type keeps the recipe from being ready. Public.',
+  })
+  @ApiOkResponse({
+    description: 'Every type, as code and label.',
+    schema: {
+      example: {
+        stepTypes: [
+          { code: 'preparation', label: 'Préparation' },
+          { code: 'cuisson', label: 'Cuisson' },
+        ],
+      },
+    },
+  })
+  stepTypes() {
+    return { stepTypes: STEP_TYPES };
   }
 
   @Get('languages')

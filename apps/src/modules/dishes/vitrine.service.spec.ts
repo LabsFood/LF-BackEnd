@@ -222,14 +222,18 @@ describe('VitrineService', () => {
   describe('what the storefront shows of a dish (Recettes, lot 0)', () => {
     // The whole list: a field added to the public projection fails here until it is
     // listed on purpose. Times and calories are for the chef and the admin only.
+    // Recettes §4.8 adds the computed and declared diets, the seasons and the
+    // profiles. Never the chef's personal tags.
     const PUBLIC_DISH_KEYS = [
       'allergens',
       'allergensNone',
       'category',
+      'computedDiets',
       'continent',
       'country',
       'customAllergens',
       'customDiets',
+      'declaredDiets',
       'description',
       'diets',
       'difficulty',
@@ -237,6 +241,8 @@ describe('VitrineService', () => {
       'imageUrl',
       'name',
       'portions',
+      'profiles',
+      'seasonMonths',
     ];
     const dish = dishRow({ id: 'd1', ...WITH_RECIPE, calories: 640 });
     const menu = menuRow({ id: 'm1', chefProfileId: 'a', status: MealStatus.published }, [

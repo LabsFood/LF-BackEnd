@@ -1,7 +1,14 @@
 import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 
 import { MealStatus } from '../../generated/prisma/client';
-import { CHEF, codeOf, dishRow, harness, menuRow } from './dishes.test-helpers';
+import {
+  CHEF,
+  codeOf,
+  dishRow,
+  harness,
+  menuRow,
+  readyDishRow,
+} from './dishes.test-helpers';
 import { MenusService } from './menus.service';
 
 const service = (h: ReturnType<typeof harness>) => new MenusService(h.prisma, h.access);
@@ -53,7 +60,10 @@ describe('MenusService', () => {
     it('publishes the menu and its draft dishes together', async () => {
       const h = harness();
       h.menu.findUnique.mockResolvedValue(
-        menuRow({}, [dishRow({ id: 'd1' }), dishRow({ id: 'd2', status: 'published' })]),
+        menuRow({}, [
+          readyDishRow({ id: 'd1' }),
+          dishRow({ id: 'd2', status: 'published' }),
+        ]),
       );
 
       await service(h).publish('clerk_1', 'menu-1');
@@ -79,7 +89,10 @@ describe('MenusService', () => {
     it('publishes nothing when one draft dish fails, and says which', async () => {
       const h = harness();
       h.menu.findUnique.mockResolvedValue(
-        menuRow({}, [dishRow({ id: 'd1' }), dishRow({ id: 'd2', allergens: [] })]),
+        menuRow({}, [
+          readyDishRow({ id: 'd1' }),
+          readyDishRow({ id: 'd2', allergens: [] }),
+        ]),
       );
 
       const error = await service(h)

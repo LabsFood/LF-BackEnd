@@ -8,10 +8,14 @@ import {
 } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsDefined,
   IsInt,
   IsNotEmpty,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -137,6 +141,61 @@ const CHEF_TIERS_EXAMPLE = {
     tier_4: 'Partenaire',
   },
   updatedAt: '2026-10-31T09:00:00.000Z',
+};
+
+/** One entry of an editable list: a stable code, the label shown. */
+class ListItemDto {
+  @ApiProperty({
+    maxLength: 40,
+    description: 'Lowercase letters, digits, `-` and `_`. Stored on each dish.',
+    example: 'oven',
+  })
+  @IsString()
+  @Matches(/^[a-z0-9_-]{1,40}$/)
+  code!: string;
+
+  @ApiProperty({ maxLength: 60, example: 'Four' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  label!: string;
+}
+
+class ReheatModesDto {
+  @ApiProperty({ type: [ListItemDto], description: 'The whole list, 1 to 30 modes.' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  modes!: ListItemDto[];
+}
+
+class RecipeProfilesDto {
+  @ApiProperty({ type: [ListItemDto], description: 'The whole list, 1 to 30 profiles.' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  profiles!: ListItemDto[];
+}
+
+const RECIPE_PROFILES_EXAMPLE = {
+  profiles: [
+    { code: 'kids', label: 'Adapté aux enfants' },
+    { code: 'budget', label: 'Petit budget' },
+  ],
+  updatedAt: '2026-11-02T09:00:00.000Z',
+};
+
+const REHEAT_MODES_EXAMPLE = {
+  modes: [
+    { code: 'oven', label: 'Four' },
+    { code: 'microwave', label: 'Micro-ondes' },
+  ],
+  updatedAt: '2026-11-02T09:00:00.000Z',
 };
 
 const reqId = (req: { id?: unknown }): string | undefined =>
@@ -292,5 +351,111 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setChefTiers(body.labels, admin.id, reqId(req));
+  }
+
+  @Get('referentials/reheat-modes')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the reheating modes',
+    description:
+      'What `recipe.reheating.modes` takes (Recettes §4.6). The list is edited in ' +
+      'the console. Public.',
+  })
+  @ApiOkResponse({
+    description: 'The modes, as code and label.',
+    example: REHEAT_MODES_EXAMPLE,
+  })
+  reheatModes() {
+    return this.settings.reheatModes();
+  }
+
+  @Get('admin/settings/reheat-modes')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the reheating modes',
+    description: '`updatedAt: null`: never changed, the default list applies.',
+  })
+  @ApiOkResponse({ description: 'The modes.', example: REHEAT_MODES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminReheatModes() {
+    return this.settings.reheatModes();
+  }
+
+  @Put('admin/settings/reheat-modes')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the reheating modes',
+    description:
+      'The whole list, every time, each code once (else 422 `VALIDATION_FAILED`). A ' +
+      'dish keeps a code removed from the list; it is refused when the dish is saved ' +
+      'again. Changing a mode never makes a new recipe version. Recorded in the audit ' +
+      'log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: REHEAT_MODES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setReheatModes(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: ReheatModesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setReheatModes(body.modes, admin.id, reqId(req));
+  }
+
+  @Get('referentials/recipe-profiles')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the recipe profiles',
+    description:
+      'What `profiles` takes on a dish (Recettes §4.8): adapted to children, sport… ' +
+      'The list is edited in the console. Public.',
+  })
+  @ApiOkResponse({ description: 'The profiles.', example: RECIPE_PROFILES_EXAMPLE })
+  recipeProfiles() {
+    return this.settings.recipeProfiles();
+  }
+
+  @Get('admin/settings/recipe-profiles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the recipe profiles',
+    description: '`updatedAt: null`: never changed, the PRD’s examples apply.',
+  })
+  @ApiOkResponse({ description: 'The profiles.', example: RECIPE_PROFILES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminRecipeProfiles() {
+    return this.settings.recipeProfiles();
+  }
+
+  @Put('admin/settings/recipe-profiles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the recipe profiles',
+    description:
+      'The whole list, every time, each code once (else 422 `VALIDATION_FAILED`). A ' +
+      'dish keeps a code removed from the list; it is refused when the dish is saved ' +
+      'again. Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: RECIPE_PROFILES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setRecipeProfiles(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: RecipeProfilesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setRecipeProfiles(body.profiles, admin.id, reqId(req));
   }
 }

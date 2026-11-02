@@ -29,6 +29,8 @@ import { TAGS } from '../../common/swagger/tags';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { Meal } from '../../generated/prisma/client';
+import { readiness } from '../dishes/domain/dishes.rules';
 import { UsersService } from '../users/users.service';
 import {
   CatalogService,
@@ -65,7 +67,10 @@ const MEAL = {
   category: 'main',
   cookTime: 40,
   ingredients: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
-  steps: ['Mariner le poulet', 'Faire revenir les oignons'],
+  steps: [
+    { order: 1, text: 'Mariner le poulet', type: 'preparation', durationMinutes: 60 },
+    { order: 2, text: 'Faire revenir les oignons', type: 'cuisson', durationMinutes: 10 },
+  ],
   reheating: { mode: 'oven', temperature: 160, minutes: 15, note: null },
   storage: { method: 'fridge', days: 3, container: null },
   publishedAt: '2026-09-03T14:12:00.000Z',
@@ -144,6 +149,9 @@ const MEAL_NOT_LABS_FOOD = {
   },
 };
 
+/** Recettes §4.11: what keeps a Lab's Food meal from "Prête", as on a chef's dish. */
+const withReadiness = (meal: Meal) => ({ ...meal, readiness: readiness(meal) });
+
 @Controller()
 export class CatalogController {
   constructor(
@@ -173,8 +181,8 @@ export class CatalogController {
     type: [MealResponseDto],
   })
   @ApiAdminAuthResponses()
-  listMeals() {
-    return this.catalog.listMeals();
+  async listMeals() {
+    return (await this.catalog.listMeals()).map(withReadiness);
   }
 
   @Post('admin/meals')
@@ -194,7 +202,9 @@ export class CatalogController {
   @ApiCreatedResponse({ description: 'The new meal.', type: MealResponseDto })
   @ApiAdminAuthResponses()
   async createMeal(@Body() payload: CreateMealDto, @CurrentClerkUser() user: ClerkUser) {
-    return this.catalog.createMeal(payload, await this.adminId(user));
+    return withReadiness(
+      await this.catalog.createMeal(payload, await this.adminId(user)),
+    );
   }
 
   @Patch('admin/meals/:id')
@@ -223,7 +233,9 @@ export class CatalogController {
     @Body() payload: UpdateMealDto,
     @CurrentClerkUser() user: ClerkUser,
   ) {
-    return this.catalog.updateMeal(id, payload, await this.adminId(user));
+    return withReadiness(
+      await this.catalog.updateMeal(id, payload, await this.adminId(user)),
+    );
   }
 
   @Delete('admin/meals/:id')

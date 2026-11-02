@@ -13,6 +13,7 @@ import {
   IsUrl,
   IsUUID,
   Length,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -28,7 +29,12 @@ import {
   DIET_CODES,
   DISH_CATEGORY_CODES,
 } from '../../dishes/domain/dishes.rules';
-import { IngredientDto, ReheatingDto, StorageDto } from '../../dishes/dto/dish.dto';
+import {
+  IngredientDto,
+  ReheatingDto,
+  StepDto,
+  StorageDto,
+} from '../../dishes/dto/dish.dto';
 
 /** Choices in a sensible order: alphabetical for places, lifecycle for statuses. */
 const CONTINENTS = ['africa', 'americas', 'asia', 'europe', 'middle_east'];
@@ -238,14 +244,60 @@ export class CreateMealDto {
   difficulty?: MealDifficulty | null;
 
   @ApiPropertyOptional({
-    type: [String],
-    description: 'Ordered preparation steps.',
-    example: ['Marinate the chicken', 'Sear the onions'],
+    type: [StepDto],
+    description: 'The steps, in order: at most 40, of 2,000 characters each.',
   })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => StepDto)
+  steps?: StepDto[];
+
+  @ApiPropertyOptional({
+    enum: ['halal', 'kosher'],
+    isArray: true,
+    description: 'Recettes §4.8: the diets declared, not computable (halal, kosher).',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsIn(['halal', 'kosher'], { each: true })
+  declaredDiets?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Codes from `GET /referentials/recipe-profiles`.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
   @IsString({ each: true })
-  steps?: string[];
+  @Length(1, 40, { each: true })
+  profiles?: string[];
+
+  @ApiPropertyOptional({
+    type: [Number],
+    description: 'Months in season set instead of the computed ones; `[]` for none.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(12, { each: true })
+  seasonsOverride?: number[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Equipment the recipe needs, as free text. Optional, never checked.',
+    example: ['Cocotte en fonte'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @Length(1, 60, { each: true })
+  equipment?: string[];
 
   @ApiPropertyOptional({
     default: false,
@@ -414,13 +466,26 @@ export class MealResponseDto {
   ingredients!: unknown;
 
   @ApiProperty({
-    type: [String],
-    example: ['Mariner le poulet', 'Faire revenir les oignons'],
+    type: [StepDto],
+    description:
+      '`{ order, text, type, durationMinutes }`, in order. Steps written before ' +
+      'Recettes lot 2 are plain text.',
+    example: [
+      { order: 1, text: 'Mariner le poulet', type: 'preparation', durationMinutes: 60 },
+    ],
   })
-  steps!: string[];
+  steps!: unknown;
 
   @ApiProperty({ example: false })
   isFeatured!: boolean;
+
+  @ApiProperty({
+    description:
+      'Recettes §4.11, computed: `{ ready, problems, toPublish, warnings }`, each ' +
+      'problem `{ code, field, message }`.',
+    example: { ready: false, problems: [], toPublish: [], warnings: [] },
+  })
+  readiness!: unknown;
 
   @ApiProperty({
     enum: MEAL_STATUSES,
