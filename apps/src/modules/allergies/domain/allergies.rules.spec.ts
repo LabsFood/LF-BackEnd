@@ -9,6 +9,7 @@ import {
   DishAllergens,
   HEALTH_CONSENT,
   menuRefusal,
+  newConflicts,
   toDeclaration,
   unverifiedDishes,
 } from './allergies.rules';
@@ -221,5 +222,23 @@ describe('toDeclaration', () => {
       healthConsentAt: NOW,
       healthConsentVersion: HEALTH_CONSENT.version,
     });
+  });
+});
+
+describe('newConflicts', () => {
+  it('keeps only the allergens that were not already in conflict on that dish', () => {
+    expect(
+      newConflicts(
+        [{ mealId: 'a', allergens: ['milk'] }],
+        [
+          { mealId: 'a', allergens: ['milk', 'eggs'] },
+          { mealId: 'b', allergens: ['soy'] },
+        ],
+      ),
+    ).toEqual([
+      { mealId: 'a', allergens: ['eggs'] },
+      { mealId: 'b', allergens: ['soy'] },
+    ]);
+    expect(newConflicts([{ mealId: 'a', allergens: ['milk'] }], [])).toEqual([]);
   });
 });

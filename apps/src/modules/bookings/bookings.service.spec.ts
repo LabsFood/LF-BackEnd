@@ -613,7 +613,7 @@ describe('BookingsService', () => {
       });
     });
 
-    it('says why the menu is unverified on the detail, and only the reason on a row', async () => {
+    it('flags a dish in conflict on the detail, and only the reason on a row', async () => {
       prisma.booking.findFirst.mockResolvedValue(
         row({ bookingMeals: [line('meal-1', ['peanuts'])] }),
       );
@@ -627,6 +627,7 @@ describe('BookingsService', () => {
       expect(detail).toMatchObject({
         allergyCheck: 'unverified',
         allergyCheckReasons: ['ALLERGEN_CONFLICT'],
+        allergyConflicts: [{ mealId: 'meal-1', allergens: ['peanuts'] }],
       });
       expect(page.data[0]).toMatchObject({ allergyCheckReasons: ['ALLERGEN_CONFLICT'] });
       expect(JSON.stringify(page.data[0])).not.toContain('peanuts');

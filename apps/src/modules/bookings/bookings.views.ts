@@ -193,6 +193,8 @@ export function toBookingDetail(
       takenAt: photo.takenAt,
     })),
     reschedule: booking.reschedules[0] ? toRescheduleView(booking.reschedules[0]) : null,
+    /** Dishes holding one of the client's allergens: to replace (`…/meals/replace`). */
+    allergyConflicts: checkOf(booking).allergyConflicts,
     // Read live: an allergy added after booking must still reach the cook.
     ...(audience !== 'client' && {
       allergies: allergyLabels(profile, booking.quote?.allergies ?? []),

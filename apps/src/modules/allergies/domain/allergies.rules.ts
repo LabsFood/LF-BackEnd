@@ -170,6 +170,18 @@ export function allergyLabels(client: ClientAllergies | null, extra: string[] = 
   return [...codes.map((code) => LABEL.get(code) ?? code), ...text];
 }
 
+/** `newer` minus what `older` already flagged, dish by dish. */
+export const newConflicts = (older: Conflict[], newer: Conflict[]): Conflict[] =>
+  newer
+    .map((c) => {
+      const known = older.find((o) => o.mealId === c.mealId)?.allergens ?? [];
+      return {
+        mealId: c.mealId,
+        allergens: c.allergens.filter((a) => !known.includes(a)),
+      };
+    })
+    .filter((c) => c.allergens.length > 0);
+
 export interface DeclarationInput {
   none?: boolean;
   allergies?: string[];
