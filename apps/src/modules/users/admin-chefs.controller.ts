@@ -23,6 +23,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { AdminChefsService } from './admin-chefs.service';
 import {
@@ -203,8 +204,10 @@ export class AdminChefsController {
   @ApiUnprocessableEntityResponse({
     description:
       '`VALIDATION_FAILED`: a region outside metropolitan France, or a `cities` zone ' +
-      'without a city.',
+      'without a city. `ZONE_CITY_UNKNOWN`: a town is not the commune its INSEE code ' +
+      'names in that region (geo.api.gouv.fr).',
   })
+  @ApiGeoResponses()
   @ApiAdminAuthResponses()
   setZones(
     @Param('id', ParseUUIDPipe) id: string,

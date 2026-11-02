@@ -26,9 +26,11 @@ import {
   buildPaginationMeta,
   resolvePageBounds,
   type Paginated,
+  type PaginationQueryDto,
 } from '../../common/dto/pagination.dto';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
@@ -86,6 +88,19 @@ export type AdminClientListItem = {
   clientProfile: Omit<ClientProfile, keyof typeof LIST_OMIT> | null;
 };
 
+/** Row of `GET /admin/users`: an account, with the id of its client or chef profile. */
+export type AdminUserListItem = Pick<
+  User,
+  | 'id'
+  | 'clerkUserId'
+  | 'email'
+  | 'fullName'
+  | 'phone'
+  | 'avatarUrl'
+  | 'role'
+  | 'createdAt'
+> & { clientProfileId: string | null; chefProfileId: string | null };
+
 export interface RegisterClientResult {
   user: User;
   signInToken: string;
@@ -121,6 +136,7 @@ export class UsersService {
     private readonly clerk: ClerkService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly geo: GeoService,
   ) {}
 
   private createPersistedUser(
@@ -545,6 +561,21 @@ export class UsersService {
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'client');
+    // The town must be a commune of the postcode; the half not sent is the one on file.
+    if (
+      profileFields.addressCity !== undefined ||
+      profileFields.addressPostalCode !== undefined
+    ) {
+      const stored = await this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: { addressCity: true, addressPostalCode: true },
+      });
+      await this.geo.assertCommune(
+        profileFields.addressPostalCode ?? stored?.addressPostalCode,
+        profileFields.addressCity ?? stored?.addressCity,
+        'addressCity',
+      );
+    }
     // No role argument: saving a client profile must never change `users.role`.
     await this.applyOwnUserFields(user, { firstName, lastName, phone });
 
@@ -911,6 +942,48 @@ export class UsersService {
 
     return {
       data: rows.map(({ clientProfile, ...user }) => ({ user, clientProfile })),
+      meta: buildPaginationMeta(bounds, total),
+    };
+  }
+
+  /**
+   * One page of accounts of every role, newest first. Admins have no client or chef
+   * profile, so this is the only list that shows them. Accounts deleted in Clerk are
+   * left out: their row only stays for the bookings, with its personal data blanked.
+   * Same transaction and tiebreaker as `listClients`, for the same reasons.
+   */
+  async listUsers(query: PaginationQueryDto = {}): Promise<Paginated<AdminUserListItem>> {
+    const bounds = resolvePageBounds(query);
+    const where = { deletedAt: null };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          clerkUserId: true,
+          email: true,
+          fullName: true,
+          phone: true,
+          avatarUrl: true,
+          role: true,
+          createdAt: true,
+          clientProfile: { select: { id: true } },
+          chefProfile: { select: { id: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: bounds.skip,
+        take: bounds.take,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: rows.map(({ clientProfile, chefProfile, ...user }) => ({
+        ...user,
+        clientProfileId: clientProfile?.id ?? null,
+        chefProfileId: chefProfile?.id ?? null,
+      })),
       meta: buildPaginationMeta(bounds, total),
     };
   }

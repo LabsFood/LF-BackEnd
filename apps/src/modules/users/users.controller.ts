@@ -30,7 +30,12 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  PaginationQueryDto,
+} from '../../common/dto/pagination.dto';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
@@ -51,6 +56,7 @@ import {
   CurrentUserDto,
   MeResponseDto,
   PaginatedAdminClientsDto,
+  PaginatedAdminUsersDto,
   UserWithProfileDto,
 } from './dto/user-response.dto';
 import { UsersService } from './users.service';
@@ -168,6 +174,7 @@ export class UsersController {
     description:
       'This account is a batch cooker. One account holds one kind of profile for now.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   patchMeProfile(
     @CurrentClerkUser() user: ClerkUser,
@@ -299,6 +306,23 @@ export class UsersController {
     @Body() payload: UpdateMeSapProfileDto,
   ) {
     return this.users.updateSapProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Get('admin/users')
+  @ApiTags(TAGS.adminUsers)
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'List accounts',
+    description:
+      'Every role, admins included, newest first, one page at a time: ' +
+      `\`?page=2&limit=50\`, ${DEFAULT_PAGE_SIZE} per page by default, ${MAX_PAGE_SIZE} at ` +
+      'most. Accounts deleted in Clerk are left out. Each row carries the profile id its ' +
+      'admin page expects, `clientProfileId` or `chefProfileId`.',
+  })
+  @ApiOkResponse({ type: PaginatedAdminUsersDto, description: 'One page of accounts.' })
+  @ApiAdminAuthResponses()
+  listUsers(@Query() query: PaginationQueryDto) {
+    return this.users.listUsers(query);
   }
 
   @Post('admin/users')

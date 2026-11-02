@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ServiceUnavailableException,
@@ -9,6 +10,7 @@ import {
 import { ChefApplicationStatus, UserRole } from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
+import { GeoService } from '../../../integrations/geo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
 import { UpdateChefApplicationDto } from '../dto/update-chef-application.dto';
@@ -57,6 +59,14 @@ const validPayload = (): CreateChefApplicationDto =>
       },
     }),
   );
+
+/** geo.api.gouv.fr, as far as these tests go. */
+const LYON = { nom: 'Lyon', code: '69123', codeDepartement: '69' };
+const COMMUNES_BY_POSTCODE: Record<string, (typeof LYON)[]> = {
+  '69003': [LYON],
+  '93100': [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }],
+};
+const COMMUNES_BY_REGION: Record<string, (typeof LYON)[]> = { '84': [LYON] };
 
 /** What Clerk returns as `url`: its own hosted page, which strands the person there. */
 const CLERK_TICKET_URL = 'https://clerk.labsfood.fr/v1/tickets/accept?ticket=sit_secret';
@@ -133,6 +143,7 @@ describe('ChefApplicationsService', () => {
   };
   let audit: { record: jest.Mock; failed: jest.Mock };
   let documents: { dossier: jest.Mock; answersOf: jest.Mock; latestPerType: jest.Mock };
+  let geo: GeoService & { communesByPostcode: jest.Mock; communesByRegion: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -203,6 +214,13 @@ describe('ChefApplicationsService', () => {
       })),
       latestPerType: jest.fn().mockResolvedValue(new Map()),
     };
+    // The real checks, over a stubbed base.
+    geo = Object.assign(new GeoService(), {
+      communesByPostcode: jest.fn(
+        async (code: string) => COMMUNES_BY_POSTCODE[code] ?? [],
+      ),
+      communesByRegion: jest.fn(async (code: string) => COMMUNES_BY_REGION[code] ?? []),
+    });
 
     service = new ChefApplicationsService(
       prisma as unknown as PrismaService,
@@ -210,6 +228,7 @@ describe('ChefApplicationsService', () => {
       mailer as unknown as ChefOnboardingMailer,
       clerk as unknown as ClerkService,
       documents as unknown as ChefDocumentsService,
+      geo,
     );
   });
 
@@ -542,6 +561,50 @@ describe('ChefApplicationsService', () => {
     ])('refuses when consent.%s is not given', (_name, mutate) => expectRejected(mutate));
   });
 
+  describe('address and towns against the official base (geo.api.gouv.fr)', () => {
+    it('refuses a town the postcode does not serve, naming those it does', async () => {
+      const refused = submit((p) => {
+        p.address.postcode = '93100';
+        p.address.city = 'Marseille';
+      });
+      await expect(refused).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Montreuil'] },
+      });
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+    });
+
+    it('refuses a zone town that is not the commune of its INSEE code', async () => {
+      const refused = submit((p) => {
+        p.interventionZones[0].cities = [
+          { name: 'Marseille', dept: '13', insee: '13055' },
+        ];
+      });
+      await expect(refused).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'ZONE_CITY_UNKNOWN' },
+      });
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+    });
+
+    it('does not look up a region taken whole', async () => {
+      await submit((p) => {
+        p.interventionZones = [
+          { regionCode: '11', regionLabel: 'Île-de-France', scope: 'region', cities: [] },
+        ];
+      });
+      expect(geo.communesByRegion).not.toHaveBeenCalled();
+    });
+
+    it('creates nothing when the base cannot be reached — nothing unchecked is stored', async () => {
+      geo.communesByPostcode.mockRejectedValue(
+        new BadGatewayException({ code: 'GEO_UNAVAILABLE', upstream: 'geo.api.gouv.fr' }),
+      );
+      await expect(submit()).rejects.toBeInstanceOf(BadGatewayException);
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+    });
+  });
+
   describe('mine — the signed-in candidate’s view', () => {
     const profile = (over: Record<string, unknown> = {}) => ({
       id: 'cp-1',
@@ -774,6 +837,21 @@ describe('ChefApplicationsService', () => {
         companyLegalForm: 'micro',
         companySiret: '44306184100047',
       });
+    });
+
+    it('checks a corrected address against the official base', async () => {
+      await expect(
+        update({
+          address: { ...validPayload().address, postcode: '93100', city: 'Marseille' },
+        }),
+      ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      expect(prisma.chefApplication.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('looks up only the sections sent — a stored address does not hold back a correction', async () => {
+      await update({ identity: renamed });
+      expect(geo.communesByPostcode).not.toHaveBeenCalled();
+      expect(geo.communesByRegion).not.toHaveBeenCalled();
     });
 
     it('validates a section as a submission would', async () => {

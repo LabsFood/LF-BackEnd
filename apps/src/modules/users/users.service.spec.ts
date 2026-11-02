@@ -12,6 +12,7 @@ import {
 } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
 
@@ -49,6 +50,7 @@ describe('UsersService', () => {
     getClient: jest.Mock;
   };
   let config: { get: jest.Mock };
+  let geo: GeoService & { communesByPostcode: jest.Mock };
   let service: UsersService;
 
   beforeEach(() => {
@@ -85,11 +87,22 @@ describe('UsersService', () => {
     };
     config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
+    // The real address check, over a stubbed geo.api.gouv.fr.
+    geo = Object.assign(new GeoService(), {
+      communesByPostcode: jest.fn(
+        async (code: string) =>
+          ({
+            '75002': [{ nom: 'Paris', code: '75056', codeDepartement: '75' }],
+            '93100': [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }],
+          })[code] ?? [],
+      ),
+    });
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
       config as unknown as ConfigService,
       audit as unknown as AuditService,
+      geo,
     );
   });
 
@@ -624,6 +637,46 @@ describe('UsersService', () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
+    describe('the service address against the official commune base', () => {
+      beforeEach(() => {
+        jest
+          .spyOn(service, 'ensurePersistedFromClerk')
+          .mockResolvedValue(currentUser as never);
+        prisma.chefProfile.findUnique.mockResolvedValue(null);
+        prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+      });
+
+      it('refuses a town the postcode does not serve, writing nothing', async () => {
+        await expect(
+          service.updateProfileByClerkUserId('user_1', {
+            firstName: 'Marie',
+            addressPostalCode: '93100',
+            addressCity: 'Marseille',
+          }),
+        ).rejects.toMatchObject({
+          status: 422,
+          response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Montreuil'] },
+        });
+        expect(prisma.user.update).not.toHaveBeenCalled();
+        expect(prisma.clientProfile.upsert).not.toHaveBeenCalled();
+      });
+
+      it('checks a changed town against the postcode on file', async () => {
+        prisma.clientProfile.findUnique.mockResolvedValue({
+          addressPostalCode: '93100',
+          addressCity: 'Montreuil',
+        });
+        await expect(
+          service.updateProfileByClerkUserId('user_1', { addressCity: 'Marseille' }),
+        ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      });
+
+      it('looks nothing up when the address is not sent', async () => {
+        await service.updateProfileByClerkUserId('user_1', { dislikes: ['cilantro'] });
+        expect(geo.communesByPostcode).not.toHaveBeenCalled();
+      });
+    });
+
     it('rejects a client profile when a chef profile already exists', async () => {
       jest
         .spyOn(service, 'ensurePersistedFromClerk')
@@ -1103,6 +1156,76 @@ describe('UsersService', () => {
         hasNextPage: false,
         hasPreviousPage: false,
       });
+    });
+  });
+
+  describe('listUsers', () => {
+    const account = {
+      id: 'uuid-1',
+      clerkUserId: 'user_1',
+      email: 'team@labsfood.fr',
+      fullName: 'Labs Food Team',
+      phone: null,
+      avatarUrl: null,
+      role: UserRole.admin,
+      createdAt: new Date('2026-10-31T17:00:00Z'),
+    };
+
+    beforeEach(() => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: null, chefProfile: null },
+      ]);
+      prisma.user.count.mockResolvedValue(1);
+    });
+
+    it('lists every role, newest first, without deleted accounts', async () => {
+      await service.listUsers();
+
+      // Admins have no client or chef profile, so only `users` lists them all.
+      const where = { deletedAt: null };
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: 0,
+          take: 20,
+        }),
+      );
+      expect(prisma.user.count).toHaveBeenCalledWith({ where });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('flattens each profile to the id its admin page expects', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: { id: 'client-1' }, chefProfile: null },
+        { ...account, id: 'uuid-2', clientProfile: null, chefProfile: { id: 'chef-1' } },
+      ]);
+
+      const result = await service.listUsers({ page: 1, limit: 2 });
+
+      expect(result.data).toEqual([
+        { ...account, clientProfileId: 'client-1', chefProfileId: null },
+        { ...account, id: 'uuid-2', clientProfileId: null, chefProfileId: 'chef-1' },
+      ]);
+      expect(result.meta).toMatchObject({ page: 1, limit: 2, total: 1 });
+    });
+
+    it('selects only the public account fields', async () => {
+      await service.listUsers();
+
+      const { select } = prisma.user.findMany.mock.calls[0][0];
+      expect(Object.keys(select).sort()).toEqual([
+        'avatarUrl',
+        'chefProfile',
+        'clerkUserId',
+        'clientProfile',
+        'createdAt',
+        'email',
+        'fullName',
+        'id',
+        'phone',
+        'role',
+      ]);
     });
   });
 

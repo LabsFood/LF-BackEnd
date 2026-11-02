@@ -17,6 +17,7 @@ import {
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { CreateChefApplicationDto } from './dto/create-chef-application.dto';
 import { UpdateChefApplicationDto } from './dto/update-chef-application.dto';
@@ -33,7 +34,11 @@ const VALIDATION_FAILED = {
   description:
     '`VALIDATION_FAILED`: the answers do not fit together, for example a SIRET sent by ' +
     'someone with no company, a bad SIRET key, or a postcode outside metropolitan ' +
-    'France. `message` names the field.',
+    'France. `message` names the field. ' +
+    '`ADDRESS_CITY_MISMATCH`: `address.city` is not a commune the postcode serves in ' +
+    'the official base (geo.api.gouv.fr); `communes` lists those it does. ' +
+    '`ZONE_CITY_UNKNOWN`: a zone town is not the commune its INSEE code names in that ' +
+    'region.',
   example: errorExample(
     'VALIDATION_FAILED',
     'company.siret is required and must be 14 digits with a valid Luhn key.',
@@ -98,6 +103,7 @@ export class ChefApplicationsController {
   @ApiServiceUnavailableResponse({
     description: 'The server has no Clerk key, so it cannot create accounts.',
   })
+  @ApiGeoResponses()
   submit(@Body() payload: CreateChefApplicationDto, @Req() req: { id?: unknown }) {
     return this.applications.submit(payload, reqId(req));
   }
@@ -169,6 +175,7 @@ export class MyChefApplicationController {
     description: `${VALIDATION_FAILED.description} Also when \`identity.email\` is not this account's email.`,
   })
   @ApiNotFoundResponse({ description: 'This account has no candidature.' })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   reapply(
     @CurrentClerkUser() user: ClerkUser,
@@ -201,9 +208,12 @@ export class MyChefApplicationController {
       'deposit a new version of that document first.',
   })
   @ApiUnprocessableEntityResponse({
-    description: '`VALIDATION_FAILED` — see the message for the field.',
+    description:
+      '`VALIDATION_FAILED` — see the message for the field. `ADDRESS_CITY_MISMATCH`, ' +
+      '`ZONE_CITY_UNKNOWN` — as at submission, checked on the sections sent.',
   })
   @ApiNotFoundResponse({ description: 'This account has no candidature.' })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   update(
     @CurrentClerkUser() user: ClerkUser,

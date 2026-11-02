@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
@@ -90,6 +91,14 @@ describe('BookingsService', () => {
   let availability: { assertBookable: jest.Mock };
   let audit: { record: jest.Mock };
   let mailer: { holdReminder: jest.Mock };
+  /** The real address check, over a stubbed geo.api.gouv.fr. */
+  const geo = Object.assign(new GeoService(), {
+    communesByPostcode: jest.fn(async (code: string) =>
+      code === '93100'
+        ? [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }]
+        : [],
+    ),
+  });
   let service: BookingsService;
 
   beforeEach(() => {
@@ -159,6 +168,7 @@ describe('BookingsService', () => {
       audit as unknown as AuditService,
       mailer as unknown as BookingsMailer,
       config as unknown as ConfigService,
+      geo,
     );
   });
 
@@ -254,6 +264,20 @@ describe('BookingsService', () => {
           }),
         }),
       );
+    });
+
+    it('refuses a town the postcode does not serve, creating nothing', async () => {
+      await expect(
+        service.create('client', 'clerk_1', {
+          ...dto,
+          addressPostalCode: '93100',
+          addressCity: 'Marseille',
+        }),
+      ).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Montreuil'] },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
     });
 
     it('prices from the formule when one is chosen', async () => {
@@ -389,6 +413,17 @@ describe('BookingsService', () => {
       await expect(
         service.update('client', 'clerk_1', 'booking-1', { notes: 'Digicode 12' }),
       ).rejects.toMatchObject({ response: { code: 'BOOKING_LOCKED' } });
+    });
+
+    it('checks a changed town against the postcode on file', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ addressPostalCode: '93100', addressCity: 'Montreuil' }),
+      );
+
+      await expect(
+        service.update('client', 'clerk_1', 'booking-1', { addressCity: 'Marseille' }),
+      ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      expect(prisma.booking.update).not.toHaveBeenCalled();
     });
 
     it('never lets a client confirm: paying does', async () => {

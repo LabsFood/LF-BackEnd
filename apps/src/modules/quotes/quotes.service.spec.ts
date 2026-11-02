@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { UsersService } from '../users/users.service';
@@ -53,17 +54,36 @@ function setup() {
     closed: jest.fn().mockResolvedValue({ sent: true }),
   };
   const availability = { assertOpenOn: jest.fn().mockResolvedValue(undefined) };
+  // The real address check, over a stubbed geo.api.gouv.fr.
+  const geo = Object.assign(new GeoService(), {
+    communesByPostcode: jest.fn(async (code: string) =>
+      code === '06000' ? [{ nom: 'Nice', code: '06088', codeDepartement: '06' }] : [],
+    ),
+  });
   const service = new QuotesService(
     prisma as unknown as PrismaService,
     users as unknown as UsersService,
     mailer as unknown as QuotesMailer,
     { record: jest.fn() } as unknown as AuditService,
     availability as unknown as AvailabilityService,
+    geo,
   );
   return { service, prisma, mailer, availability };
 }
 
 describe('QuotesService.createQuote', () => {
+  it('refuses a town the postcode does not serve, storing nothing', async () => {
+    const { service, prisma } = setup();
+
+    await expect(
+      service.createQuote('clerk_1', form({ addressCity: 'Marseille' })),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Nice'] },
+    });
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
   it('numbers the request after the ones of the year and stores it', async () => {
     const { service, prisma } = setup();
 

@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsService } from './payments.service';
 
 const CONNECT_READY_CHEF = {
@@ -54,6 +55,7 @@ describe('PaymentsService', () => {
   };
   let stripe: { configured: boolean; getClient: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock };
+  let invoices: { issue: jest.Mock; archive: jest.Mock };
   let service: PaymentsService;
 
   /** Amount already settled on the booking, as the coverage sum sees it. */
@@ -105,6 +107,12 @@ describe('PaymentsService', () => {
     };
     stripe = { configured: true, getClient: jest.fn(() => stripeClient) };
     users = { ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }) };
+    invoices = {
+      issue: jest
+        .fn()
+        .mockResolvedValue({ id: 'invoice-1', invoiceNumber: 'LF-FAC-2026-0001' }),
+      archive: jest.fn().mockResolvedValue(undefined),
+    };
 
     const get = jest.fn((key: string, fallback?: unknown) =>
       key === 'payments.commissionRateBps'
@@ -122,6 +130,7 @@ describe('PaymentsService', () => {
       stripe as unknown as StripeService,
       config as unknown as ConfigService,
       users as unknown as UsersService,
+      invoices as unknown as PaymentInvoicesService,
     );
   });
 
@@ -133,6 +142,8 @@ describe('PaymentsService', () => {
         expect.objectContaining({
           amount: 12_500,
           currency: 'eur',
+          // The chef is merchant of record: invoice A is issued in their name.
+          on_behalf_of: 'acct_123',
           transfer_data: { destination: 'acct_123' },
           application_fee_amount: 2250,
         }),
@@ -194,6 +205,7 @@ describe('PaymentsService', () => {
           return { get: g, getOrThrow: g };
         })() as unknown as ConfigService,
         users as unknown as UsersService,
+        invoices as unknown as PaymentInvoicesService,
       );
 
       await service.createIntentForBooking('clerk_1', 'booking-1');
@@ -443,6 +455,24 @@ describe('PaymentsService', () => {
         where: { id: 'booking-1' },
         data: { status: 'confirmed' },
       });
+    });
+
+    it('numbers invoice A inside the settlement, then stores its PDF', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        id: 'payment-1',
+        bookingId: 'booking-1',
+        status: 'pending',
+        amountTtc: 12_500,
+      });
+
+      await service.handlePaymentIntentSucceeded(intent);
+
+      // Same transaction client as the settlement: no settled payment without invoice.
+      expect(invoices.issue).toHaveBeenCalledWith(tx, 'payment-1', expect.any(Date));
+      expect(invoices.archive).toHaveBeenCalledWith('invoice-1');
+      expect(invoices.issue.mock.invocationCallOrder[0]).toBeLessThan(
+        invoices.archive.mock.invocationCallOrder[0],
+      );
     });
 
     it('leaves the booking pending while the payments do not cover it', async () => {

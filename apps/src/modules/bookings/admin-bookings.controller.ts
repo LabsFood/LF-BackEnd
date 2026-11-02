@@ -26,6 +26,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../common/swagger/auth-responses';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { BookingsService } from './bookings.service';
@@ -93,6 +94,7 @@ export class AdminBookingsController {
   @ApiUnprocessableEntityResponse({
     description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',
   })
+  @ApiGeoResponses()
   @ApiAdminAuthResponses()
   create(@CurrentClerkUser() user: ClerkUser, @Body() body: NewBookingForClientDto) {
     return this.bookings.create('admin', user.userId, body);
@@ -110,6 +112,7 @@ export class AdminBookingsController {
   @ApiOkResponse({ description: 'The booking.', example: ADMIN_DETAIL_EXAMPLE })
   @ApiNotFoundResponse({ description: 'No booking with this id.' })
   @ApiConflictResponse({ description: '`CHANGED_MEANWHILE`: reload and try again.' })
+  @ApiGeoResponses()
   @ApiAdminAuthResponses()
   update(
     @CurrentClerkUser() user: ClerkUser,

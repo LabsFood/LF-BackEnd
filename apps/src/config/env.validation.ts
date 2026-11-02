@@ -74,6 +74,8 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
   /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
   PAYMENTS_COMMISSION_INVOICE_PREFIX: Joi.string().max(16).default('LF-COM'),
+  /** Numbering prefix of facture A, the client's invoice (`LF-FAC-<year>-NNNN`). */
+  PAYMENTS_INVOICE_PREFIX: Joi.string().max(16).default('LF-FAC'),
 
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
@@ -163,6 +165,8 @@ export const envValidationSchema = Joi.object({
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
   /** Private bucket for conversation attachments. Must not allow public reads. */
   SUPABASE_MESSAGING_BUCKET: Joi.string().default('labsfood-messages'),
+  /** Private bucket for the clients' invoices (facture A). Must not allow public reads. */
+  SUPABASE_INVOICES_BUCKET: Joi.string().default('labsfood-invoices'),
   /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */
   R2_ACCOUNT_ID: Joi.string().optional(),
   R2_ACCESS_KEY_ID: Joi.string().optional(),

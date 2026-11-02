@@ -22,6 +22,7 @@ import {
 } from './dto/payment.dto';
 import { assertPayable, commissionBlockApplies } from './payment-rules';
 import { assertOwnSiteUrl } from './own-site-url';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import {
   assertNoPendingCesu,
   bookingCoverage,
@@ -50,6 +51,7 @@ export class PaymentsService {
     private readonly stripe: StripeService,
     private readonly config: ConfigService,
     private readonly users: UsersService,
+    private readonly invoices: PaymentInvoicesService,
   ) {}
 
   /**
@@ -74,14 +76,14 @@ export class PaymentsService {
 
     const commission = await this.commissionOn(booking, amountTtc);
 
-    // ponytail: no `on_behalf_of` here — decided 2026-09-05 (see
-    // docs/evolution/payments-stripe-cb-evolution.md) to make the chef merchant of
-    // record for invoice A, still not implemented. Add it to this call when invoice A
-    // seller-of-record is built; it's unrelated to the commission debit, which must
-    // never carry `on_behalf_of` (see commission-debits.service.ts).
+    // `on_behalf_of` makes the chef merchant of record, which is what lets invoice A
+    // (`PaymentInvoicesService`) be issued in their name — decided 2026-09-05, see
+    // docs/evolution/payments-stripe-cb-evolution.md. Card payments only: the commission
+    // debit must never carry it (see commission-debits.service.ts).
     const intent = await this.stripe.getClient().paymentIntents.create({
       amount: amountTtc,
       currency: booking.currency.toLowerCase(),
+      on_behalf_of: chef.stripeAccountId,
       transfer_data: { destination: chef.stripeAccountId },
       // Stripe rejects a zero fee, so a 0 % commission means sending no fee at all.
       ...(commission.amountTtcCents > 0
@@ -296,6 +298,8 @@ export class PaymentsService {
             },
           ],
           payment_intent_data: {
+            // Chef as merchant of record, as on the direct intent above.
+            on_behalf_of: chef.stripeAccountId,
             transfer_data: { destination: chef.stripeAccountId },
             ...(commission.amountTtcCents > 0
               ? { application_fee_amount: commission.amountTtcCents }
@@ -512,13 +516,18 @@ export class PaymentsService {
         where: { paymentId: payment.id },
         data: { status: 'collected', collectedAt: paidAt },
       });
-      return settled;
+      // Invoice A, numbered in the same transaction: a settled card payment always has
+      // its invoice. The PDF is drawn once the transaction is committed.
+      const invoice = await this.invoices.issue(tx, payment.id, paidAt);
+      return { ...settled, invoice };
     });
+    await this.invoices.archive(outcome.invoice.id);
 
     this.logger.log(
       `Payment ${payment.id} succeeded (booking ${payment.bookingId}); ` +
         `${outcome.coveredAmountCents}/${outcome.bookingAmountTtcCents} covered` +
-        `${outcome.bookingConfirmed ? ', booking confirmed' : ''}.`,
+        `${outcome.bookingConfirmed ? ', booking confirmed' : ''}; ` +
+        `invoice ${outcome.invoice.invoiceNumber}.`,
     );
   }
 
