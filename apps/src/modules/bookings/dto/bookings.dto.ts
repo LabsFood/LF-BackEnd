@@ -122,7 +122,12 @@ export class NewBookingDto {
 
   @ApiPropertyOptional({
     maxLength: 120,
-    description: 'The city, apart: the agenda shows it without the street.',
+    description:
+      'The city, apart: the agenda shows it without the street. With a postcode ' +
+      '(sent, or already booked), it must be a commune that postcode serves in the ' +
+      'official base (geo.api.gouv.fr): otherwise 422 `ADDRESS_CITY_MISMATCH`, ' +
+      '`communes` listing those it serves; 502/504 `GEO_UNAVAILABLE` when that base ' +
+      'fails.',
     example: 'Paris',
   })
   @IsOptional()

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminChefsService } from './admin-chefs.service';
 
@@ -63,6 +64,16 @@ describe('AdminChefsService', () => {
     booking: { groupBy: jest.Mock };
   };
   let audit: { record: jest.Mock };
+  /** geo.api.gouv.fr, as far as these tests go. */
+  const geo = {
+    communesByRegion: jest.fn(
+      async (code: string) =>
+        ({
+          '84': [{ nom: 'Lyon', code: '69123', codeDepartement: '69' }],
+          '93': [{ nom: 'Nice', code: '06088', codeDepartement: '06' }],
+        })[code] ?? [],
+    ),
+  };
 
   /** The conditions the list query was run with. */
   const conditions = () => prisma.chefProfile.findMany.mock.calls[0][0].where.AND;
@@ -82,6 +93,7 @@ describe('AdminChefsService', () => {
     service = new AdminChefsService(
       prisma as unknown as PrismaService,
       audit as unknown as AuditService,
+      geo as unknown as GeoService,
     );
   });
 
@@ -283,6 +295,16 @@ describe('AdminChefsService', () => {
         expect(prisma.chefProfile.update).not.toHaveBeenCalled();
       },
     );
+
+    it('refuses a town that is not the commune of its INSEE code, as the candidature does', async () => {
+      const marseille = [
+        { ...LYON[0], cities: [{ name: 'Marseille', dept: '13', insee: '13055' }] },
+      ];
+      await expect(
+        service.setZones('chef-1', marseille, 'clerk-admin'),
+      ).rejects.toMatchObject({ status: 422, response: { code: 'ZONE_CITY_UNKNOWN' } });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
 
     it('answers 404 for an unknown or deleted batch cooker', async () => {
       prisma.chefProfile.findFirst.mockResolvedValue(null);

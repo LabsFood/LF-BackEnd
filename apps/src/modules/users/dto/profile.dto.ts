@@ -91,7 +91,12 @@ export class UpsertClientProfileDto {
 
   @ApiPropertyOptional({
     maxLength: 120,
-    description: 'City for the service address.',
+    description:
+      'City for the service address. ' +
+      'Must be a commune that `addressPostalCode` (sent, or on file) serves in the ' +
+      'official base (geo.api.gouv.fr): otherwise 422 `ADDRESS_CITY_MISMATCH`, ' +
+      '`communes` listing those it serves; 502/504 `GEO_UNAVAILABLE` when that base ' +
+      'fails.',
     example: 'Paris',
   })
   @IsOptional()

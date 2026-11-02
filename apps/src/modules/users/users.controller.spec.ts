@@ -20,6 +20,7 @@ describe('UsersController', () => {
       | 'toUserRole'
       | 'setChefVerification'
       | 'listClients'
+      | 'listUsers'
       | 'updateOwnChefProfile'
     >
   >;
@@ -48,6 +49,7 @@ describe('UsersController', () => {
         isActive: true,
         isVerified: true,
       }),
+      listUsers: jest.fn().mockResolvedValue({ data: [], meta: {} }),
       listClients: jest.fn().mockResolvedValue({
         data: [],
         meta: {
@@ -175,6 +177,12 @@ describe('UsersController', () => {
       meta: expect.objectContaining({ page: 2, limit: 10, hasPreviousPage: true }),
     });
     expect(users.listClients).toHaveBeenCalledWith(query);
+  });
+
+  it('forwards the account list query', async () => {
+    await controller.listUsers({ page: 1, limit: 100 });
+
+    expect(users.listUsers).toHaveBeenCalledWith({ page: 1, limit: 100 });
   });
 
   describe('ListAdminClientsQueryDto under the global validation pipe', () => {

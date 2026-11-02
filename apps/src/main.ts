@@ -19,6 +19,7 @@ import { AppLogger, LOG_BASE } from './common/logging/app-logger';
 import { registerRequestContext } from './common/logging/request-context';
 import { ApiValidationPipe } from './common/validation.pipe';
 import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
+import { distrustCompromisedRoots } from './config/trusted-roots';
 import { buildOpenApiDocument } from './swagger';
 
 /**
@@ -40,6 +41,8 @@ const logLevel =
   process.env.LOG_LEVEL ?? (process.env.ENVIRONMENT === 'production' ? 'info' : 'debug');
 
 async function bootstrap(): Promise<void> {
+  // Before the first connection (Prisma, Stripe, Clerk...): src/config/trusted-roots.ts.
+  const distrustedRoots = distrustCompromisedRoots();
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
@@ -77,6 +80,7 @@ async function bootstrap(): Promise<void> {
     },
   );
   const logger = new Logger('Bootstrap');
+  logger.log(`TLS: ${distrustedRoots} eMudhra (emSign) root CAs distrusted`);
   const config = app.get(ConfigService);
 
   const fastify = app.getHttpAdapter().getInstance();

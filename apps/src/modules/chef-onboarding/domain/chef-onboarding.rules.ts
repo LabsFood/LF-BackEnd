@@ -6,6 +6,7 @@ import {
   CompanyLegalForm,
   WorkAuthorizationStatus,
 } from '../../../generated/prisma/client';
+import { Commune, communeKey } from '../../../common/commune.rules';
 
 /**
  * Pure rules behind FLOW-01. No database, no I/O — everything here is a function of
@@ -36,6 +37,7 @@ export const DOCUMENT_FAMILY: Record<ChefDocumentType, DocumentFamily> = {
   renewal_receipt: 'conditional',
   status_proof: 'conditional',
   sap_declaration: 'conditional',
+  sap_cooperative: 'conditional',
   rc_pro: 'recommended',
   haccp: 'recommended',
   ddpp: 'recommended',
@@ -58,6 +60,7 @@ export const DOCUMENT_LABEL: Record<ChefDocumentType, string> = {
   status_proof: 'Justificatif de situation',
   registration: "Justificatif d'immatriculation",
   sap_declaration: 'Récépissé de déclaration SAP',
+  sap_cooperative: "Attestation d'adhésion à une coopérative SAP",
   rc_pro: 'Assurance responsabilité civile professionnelle',
   haccp: 'Formation hygiène alimentaire (HACCP)',
   ddpp: 'Récépissé de déclaration DDPP',
@@ -117,6 +120,11 @@ export interface ApplicationAnswers {
   sapPath: 'type_a' | 'type_b';
 }
 
+const sapProof = (answers: ApplicationAnswers): ChefDocumentType =>
+  answers.sapPath === 'type_a'
+    ? ChefDocumentType.sap_declaration
+    : ChefDocumentType.sap_cooperative;
+
 export interface DocumentRequirement {
   type: ChefDocumentType;
   label: string;
@@ -143,7 +151,9 @@ export function requiredDocuments(answers: ApplicationAnswers): DocumentRequirem
     types.push(ChefDocumentType.registration);
   }
 
-  if (answers.sapPath === 'type_a') types.push(ChefDocumentType.sap_declaration);
+  // Lab's Food is not a cooperative: the candidate proves their own declaration, or
+  // the cooperative that holds one for them.
+  types.push(sapProof(answers));
 
   types.push(ChefDocumentType.rc_pro, ChefDocumentType.haccp, ChefDocumentType.ddpp);
 
@@ -277,6 +287,7 @@ function proofOf(
         ? undefined
         : ChefDocumentType.registration;
     case 'sapPath':
+      return sapProof(answers);
     case 'sapDeclarationNumber':
       return answers.sapPath === 'type_a' ? ChefDocumentType.sap_declaration : undefined;
     default:
@@ -385,6 +396,33 @@ export function interventionZonesProblem(
     }
     if (zone.scope === 'cities' && zone.cities.length === 0) {
       return `interventionZones[${zone.regionCode}] with scope "cities" needs at least one city.`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * What is wrong with a zone's towns against the communes of its region, or
+ * `undefined`. Each town must be the commune its INSEE code names, in its department:
+ * a town from another region, or a name or department that does not go with the code,
+ * is refused.
+ */
+export function zoneCitiesProblem(
+  zone: {
+    regionCode: string;
+    cities: readonly { name: string; dept: string; insee: string }[];
+  },
+  regionCommunes: readonly Commune[],
+): string | undefined {
+  const byCode = new Map(regionCommunes.map((commune) => [commune.code, commune]));
+  for (const city of zone.cities) {
+    const commune = byCode.get(city.insee);
+    if (
+      !commune ||
+      commune.codeDepartement !== city.dept ||
+      communeKey(commune.nom) !== communeKey(city.name)
+    ) {
+      return `interventionZones[${zone.regionCode}]: "${city.name}" (${city.insee}) is not a commune of this region.`;
     }
   }
   return undefined;

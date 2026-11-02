@@ -19,6 +19,7 @@ import {
 } from '../../../generated/prisma/client';
 import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
+import { GeoService } from '../../../integrations/geo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CreateChefApplicationDto,
@@ -37,6 +38,7 @@ import {
   requiredDocuments,
   toWire,
   UNDECIDED,
+  zoneCitiesProblem,
 } from '../domain/chef-onboarding.rules';
 import { ChefDocumentsService } from './chef-documents.service';
 import { ChefOnboardingMailer } from './chef-onboarding.mailer';
@@ -65,6 +67,7 @@ export class ChefApplicationsService {
     private readonly mailer: ChefOnboardingMailer,
     private readonly clerk: ClerkService,
     private readonly documents: ChefDocumentsService,
+    private readonly geo: GeoService,
   ) {}
 
   /**
@@ -80,6 +83,7 @@ export class ChefApplicationsService {
    */
   async submit(payload: CreateChefApplicationDto, requestId?: string) {
     this.assertValid(payload);
+    await this.assertPlaces(payload);
     if (!this.clerk.configured) {
       throw new ServiceUnavailableException(
         'Submitting a candidature requires a real CLERK_SECRET_KEY (not sk_test_placeholder).',
@@ -245,6 +249,7 @@ export class ChefApplicationsService {
     requestId?: string,
   ) {
     this.assertValid(payload);
+    await this.assertPlaces(payload);
 
     const profile = await this.prisma.chefProfile.findFirst({
       where: { user: { clerkUserId } },
@@ -357,6 +362,8 @@ export class ChefApplicationsService {
       consent: stored.consent,
     };
     this.assertValid(merged);
+    // The sections sent only: what is on file was checked when it was written.
+    await this.assertPlaces(payload);
 
     const next = this.answers(merged, application.email);
     const changed = (Object.keys(next) as (keyof typeof next)[]).filter(
@@ -545,6 +552,31 @@ export class ChefApplicationsService {
 
     if (!payload.consent.privacyPolicy || !payload.consent.terms) {
       fail('Both consent.privacyPolicy and consent.terms must be accepted.');
+    }
+  }
+
+  /**
+   * The address and the zone towns against the official commune base
+   * (geo.api.gouv.fr): `93100` + `Marseille` is refused, naming the communes the
+   * postcode does serve. Only the sections given are checked.
+   */
+  private async assertPlaces(
+    sections: Pick<Partial<CreateChefApplicationDto>, 'address' | 'interventionZones'>,
+  ): Promise<void> {
+    const { address, interventionZones = [] } = sections;
+    await this.geo.assertCommune(address?.postcode, address?.city, 'address.city');
+    for (const zone of interventionZones) {
+      if (zone.cities.length === 0) continue;
+      const problem = zoneCitiesProblem(
+        zone,
+        await this.geo.communesByRegion(zone.regionCode),
+      );
+      if (problem) {
+        throw new UnprocessableEntityException({
+          code: 'ZONE_CITY_UNKNOWN',
+          message: problem,
+        });
+      }
     }
   }
 

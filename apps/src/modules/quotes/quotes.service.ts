@@ -10,6 +10,7 @@ import {
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma, User } from '../../generated/prisma/client';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { type ChefIdentity, UsersService } from '../users/users.service';
@@ -59,6 +60,7 @@ export class QuotesService {
     private readonly mailer: QuotesMailer,
     private readonly audit: AuditService,
     private readonly availability: AvailabilityService,
+    private readonly geo: GeoService,
   ) {}
 
   // ── Client ────────────────────────────────────────────────────────────────
@@ -79,6 +81,8 @@ export class QuotesService {
         message: `desiredDate must be within ${MAX_DAYS_AHEAD} days.`,
       });
     }
+
+    await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
 
     // Checked here and not in the browser: the form can be replayed by anything.
     const open = await this.prisma.quote.findMany({

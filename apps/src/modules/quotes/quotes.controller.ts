@@ -34,6 +34,7 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
   ADMIN_QUOTE_FILTERS,
@@ -165,6 +166,7 @@ export class QuotesController {
       '`CHEF_NOT_AVAILABLE`: not a verified batch cooker.',
     example: error('CHEF_NOT_AVAILABLE', 'chefProfileId is not a verified batch cooker.'),
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   createQuote(@CurrentClerkUser() user: ClerkUser, @Body() payload: CreateQuoteDto) {
     return this.quotes.createQuote(user.userId, payload);

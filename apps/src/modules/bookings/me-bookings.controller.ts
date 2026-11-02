@@ -29,6 +29,7 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { ICS_EXAMPLE } from '../../common/swagger/ics-example';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { CalendarFeedService } from '../calendar/calendar-feed.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
@@ -146,6 +147,7 @@ export class MeBookingsController {
   @ApiUnprocessableEntityResponse({
     description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   create(@CurrentClerkUser() user: ClerkUser, @Body() body: NewBookingDto) {
     return this.bookings.create('client', user.userId, body);
@@ -167,6 +169,7 @@ export class MeBookingsController {
       '`BOOKING_LOCKED`, `INVALID_TRANSITION`, `BOOKING_PAID`, `BOOKING_STARTED`, ' +
       '`SLOT_UNAVAILABLE` or `CHANGED_MEANWHILE`.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   update(
     @CurrentClerkUser() user: ClerkUser,
