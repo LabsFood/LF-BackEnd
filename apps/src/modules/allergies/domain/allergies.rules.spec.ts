@@ -1,3 +1,5 @@
+import { HttpException } from '@nestjs/common';
+
 import {
   allergyCheck,
   allergyLabels,
@@ -6,6 +8,7 @@ import {
   conflicts,
   DishAllergens,
   HEALTH_CONSENT,
+  menuRefusal,
   toDeclaration,
   unverifiedDishes,
 } from './allergies.rules';
@@ -25,6 +28,9 @@ const dish = (id: string, allergens: string[], allergensNone = false): DishAller
   allergens,
   allergensNone,
 });
+
+const body = (error: HttpException | null) =>
+  error?.getResponse() as Record<string, unknown>;
 
 describe('checkable', () => {
   it('keeps the codes and turns free text naming an allergen into its code', () => {
@@ -56,6 +62,48 @@ describe('unverifiedDishes and conflicts', () => {
       { mealId: 'a', allergens: ['milk'] },
     ]);
     expect(conflicts([], dishes)).toEqual([]);
+  });
+});
+
+describe('menuRefusal', () => {
+  it('refuses a client who never answered, whatever the dishes', () => {
+    expect(body(menuRefusal(null, [dish('a', [], true)]))?.code).toBe(
+      'ALLERGIES_NOT_DECLARED',
+    );
+    expect(
+      body(menuRefusal(client({ allergiesDeclaredAt: null }), [dish('a', [], true)]))
+        ?.code,
+    ).toBe('ALLERGIES_NOT_DECLARED');
+  });
+
+  it('then refuses a dish that cannot be checked, before any conflict', () => {
+    const refusal = body(
+      menuRefusal(client({ allergies: ['milk'] }), [dish('a', ['milk']), dish('b', [])]),
+    );
+    expect(refusal).toMatchObject({ code: 'ALLERGENS_UNVERIFIED', mealIds: ['b'] });
+  });
+
+  it('then refuses a dish holding a declared allergen, free text and quote included', () => {
+    const refusal = body(
+      menuRefusal(
+        client({ customAllergies: ['Arachides'] }),
+        [dish('a', ['peanuts', 'soy'])],
+        ['soja'],
+      ),
+    );
+    expect(refusal).toMatchObject({
+      code: 'ALLERGEN_CONFLICT',
+      conflicts: [{ mealId: 'a', allergens: ['peanuts', 'soy'] }],
+    });
+  });
+
+  it('lets a declared client book dishes that are checked and safe', () => {
+    expect(
+      menuRefusal(client({ allergiesNone: true }), [dish('a', ['milk'])]),
+    ).toBeNull();
+    expect(
+      menuRefusal(client({ allergies: ['eggs'] }), [dish('a', [], true)]),
+    ).toBeNull();
   });
 });
 

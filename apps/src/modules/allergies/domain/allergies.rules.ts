@@ -1,6 +1,11 @@
-import { UnprocessableEntityException } from '@nestjs/common';
+import { HttpException, UnprocessableEntityException } from '@nestjs/common';
 
-import { healthConsentRequired } from '../../dishes/domain/content.errors';
+import {
+  allergenConflict,
+  allergensUnverified,
+  allergiesNotDeclared,
+  healthConsentRequired,
+} from '../../dishes/domain/content.errors';
 import { ALLERGENS } from '../../dishes/domain/dishes.rules';
 
 /**
@@ -63,6 +68,12 @@ export const CLIENT_ALLERGY_SELECT = {
   allergiesDeclaredAt: true,
 } as const;
 
+export const DISH_ALLERGEN_SELECT = {
+  id: true,
+  allergens: true,
+  allergensNone: true,
+} as const;
+
 /** Withdrawing consent erases the allergies and asks the question again. */
 export const CONSENT_WITHDRAWN = {
   allergies: [],
@@ -119,6 +130,19 @@ export const conflicts = (codes: string[], dishes: DishAllergens[]): Conflict[] 
       allergens: d.allergens.filter((a) => codes.includes(a)),
     }))
     .filter((c) => c.allergens.length > 0);
+
+/** Why this menu cannot be validated, in the contract's order; null when it can. */
+export function menuRefusal(
+  client: ClientAllergies | null,
+  dishes: DishAllergens[],
+  extra: string[] = [],
+): HttpException | null {
+  if (!client?.allergiesDeclaredAt) return allergiesNotDeclared();
+  const unverified = unverifiedDishes(dishes);
+  if (unverified.length) return allergensUnverified(unverified);
+  const found = conflicts(checkable(client, extra).codes, dishes);
+  return found.length ? allergenConflict(found) : null;
+}
 
 /** What the screens show, with every reason it is not "verified". */
 export function allergyCheck(

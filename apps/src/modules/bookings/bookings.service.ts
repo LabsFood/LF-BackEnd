@@ -14,6 +14,11 @@ import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/paginat
 import { parisHhmm, parisToday } from '../../common/paris-time';
 import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  CLIENT_ALLERGY_SELECT,
+  DISH_ALLERGEN_SELECT,
+  menuRefusal,
+} from '../allergies/domain/allergies.rules';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
 import { rateInForce } from '../payments/commission-policy';
@@ -226,7 +231,14 @@ export class BookingsService {
     if (dto.formuleId && !formule) {
       throw invalid('This formule is not offered.', 'FORMULE_UNAVAILABLE');
     }
-    if (dto.meals?.length) await this.assertMeals(offer.chefProfileId, dto.meals);
+    if (dto.meals?.length) {
+      await this.assertMeals(offer.chefProfileId, dto.meals);
+      await this.assertAllergies(
+        clientId,
+        dto.meals.map((meal) => meal.mealId),
+        [],
+      );
+    }
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
     // An admin books on support's word: the override is audited below.
@@ -342,6 +354,7 @@ export class BookingsService {
             shoppingFeeCents: true,
           },
         },
+        quote: { select: { allergies: true } },
       },
     });
     if (!booking) throw notFound();
@@ -381,7 +394,14 @@ export class BookingsService {
       }
       when = schedule(startsAt, endsAt);
     }
-    if (meals?.length) await this.assertMeals(booking.chefProfileId, meals);
+    if (meals?.length) {
+      await this.assertMeals(booking.chefProfileId, meals);
+      await this.assertAllergies(
+        booking.clientId,
+        meals.map((meal) => meal.mealId),
+        booking.quote?.allergies ?? [],
+      );
+    }
     // Each supplement follows only what changed: the base price, and any line the
     // client did not touch, stay as booked.
     const shoppingSwitched =
@@ -693,6 +713,26 @@ export class BookingsService {
       this.prisma.conversation.count({ where: { clientId, chefProfileId } }),
     ]);
     if (!bookings && !threads) throw clientNotFound();
+  }
+
+  /**
+   * Fail-closed (Recettes lot 1): no menu until the client declared their allergies,
+   * every dish declares its allergens, and none holds one of the client's. For every
+   * caller, admins included: it is the client's health, not a permission.
+   */
+  private async assertAllergies(clientId: string, mealIds: string[], extra: string[]) {
+    const [client, dishes] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: clientId },
+        select: CLIENT_ALLERGY_SELECT,
+      }),
+      this.prisma.meal.findMany({
+        where: { id: { in: mealIds } },
+        select: DISH_ALLERGEN_SELECT,
+      }),
+    ]);
+    const refusal = menuRefusal(client, dishes, extra);
+    if (refusal) throw refusal;
   }
 
   /** The batch cooker's published dishes, or Lab's Food's own. */

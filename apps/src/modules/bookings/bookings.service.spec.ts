@@ -107,7 +107,11 @@ describe('BookingsService', () => {
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
       conversation: { count: jest.fn().mockResolvedValue(0) },
       formule: { findFirst: jest.fn().mockResolvedValue(null) },
-      meal: { count: jest.fn().mockResolvedValue(0) },
+      meal: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      clientProfile: { findUnique: jest.fn().mockResolvedValue(DECLARED) },
       payment: { count: jest.fn().mockResolvedValue(0) },
       platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -555,6 +559,77 @@ describe('BookingsService', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'booking.expired', subjectId: 'booking-1' }),
       );
+    });
+  });
+
+  describe('allergies (Recettes lot 1)', () => {
+    const withMeals = {
+      serviceOfferId: 'offer-1',
+      startsAt: START,
+      meals: [{ mealId: 'meal-1' }],
+    };
+    const dish = (id: string, allergens: string[]) => ({
+      id,
+      allergens,
+      allergensNone: false,
+    });
+    const line = (id: string, allergens: string[]) => ({
+      mealId: id,
+      portions: 6,
+      recipeVersion: null,
+      meal: { ...dish(id, allergens), name: 'Curry' },
+    });
+
+    beforeEach(() => prisma.meal.count.mockResolvedValue(1));
+
+    it('refuses a menu while the client never declared their allergies', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        allergiesDeclaredAt: null,
+      });
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-1', allergens: [], allergensNone: true },
+      ]);
+
+      await expect(service.create('client', 'clerk_1', withMeals)).rejects.toMatchObject({
+        response: { code: 'ALLERGIES_NOT_DECLARED' },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a dish holding a declared allergen, for an admin too', async () => {
+      prisma.meal.findMany.mockResolvedValue([dish('meal-1', ['peanuts'])]);
+
+      await expect(
+        service.create('admin', 'clerk_1', {
+          ...withMeals,
+          clientId: 'client-1',
+        } as never),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'ALLERGEN_CONFLICT',
+          conflicts: [{ mealId: 'meal-1', allergens: ['peanuts'] }],
+        },
+      });
+    });
+
+    it('says why the menu is unverified on the detail, and only the reason on a row', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ bookingMeals: [line('meal-1', ['peanuts'])] }),
+      );
+      prisma.booking.findMany.mockResolvedValue([
+        row({ bookingMeals: [line('meal-1', ['peanuts'])] }),
+      ]);
+
+      const detail = await service.detailFor('client', 'clerk_1', 'booking-1');
+      const page = await service.listFor('client', 'clerk_1');
+
+      expect(detail).toMatchObject({
+        allergyCheck: 'unverified',
+        allergyCheckReasons: ['ALLERGEN_CONFLICT'],
+      });
+      expect(page.data[0]).toMatchObject({ allergyCheckReasons: ['ALLERGEN_CONFLICT'] });
+      expect(JSON.stringify(page.data[0])).not.toContain('peanuts');
     });
   });
 
