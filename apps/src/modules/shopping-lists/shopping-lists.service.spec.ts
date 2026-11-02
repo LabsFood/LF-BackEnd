@@ -15,8 +15,22 @@ const meal = (id: string, overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function lists(bookingMeals: object[], items: object[] = []) {
+function lists(
+  bookingMeals: object[],
+  items: object[] = [],
+  state: Record<string, unknown> = {},
+) {
   const kept = new Map<string, object>();
+  const row = {
+    id: 'sl1',
+    generatedAt: new Date('2026-09-20'),
+    version: 0,
+    sentAt: null,
+    finalReceivedAt: null,
+    clientMarks: [],
+    items,
+    ...state,
+  };
   const prisma = {
     booking: {
       findUnique: jest.fn(async () => ({ id: 'b1', bookingMeals })),
@@ -32,11 +46,8 @@ function lists(bookingMeals: object[], items: object[] = []) {
     shoppingList: {
       createMany: jest.fn(async () => ({ count: 0 })),
       update: jest.fn(async () => ({})),
-      findUnique: jest.fn(async () => ({
-        id: 'sl1',
-        generatedAt: new Date('2026-09-20'),
-        items,
-      })),
+      findUnique: jest.fn(async () => row),
+      findUniqueOrThrow: jest.fn(async () => row),
     },
     shoppingItem: {
       findMany: jest.fn(async () =>
@@ -140,8 +151,22 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
       {
         aisle: 'fruits-legumes',
         lines: [
-          { name: 'Ail', qty: 6, unit: 'gousse', edited: true },
-          { name: 'Citron', qty: 2, unit: 'pièce', edited: true },
+          {
+            name: 'Ail',
+            qty: 6,
+            unit: 'gousse',
+            edited: true,
+            alreadyHave: false,
+            comment: null,
+          },
+          {
+            name: 'Citron',
+            qty: 2,
+            unit: 'pièce',
+            edited: true,
+            alreadyHave: false,
+            comment: null,
+          },
         ],
       },
     ]);
@@ -200,5 +225,63 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
       [{ data: { name: string; edited: boolean }[] }],
     ];
     expect(data.map((line) => line.name)).toEqual(['Échalote']);
+  });
+
+  describe('the client answer (Recettes §10.7)', () => {
+    const SENT = new Date('2026-11-02T09:00:00.000Z');
+    const DEADLINE = new Date(Date.now() + 24 * 3600 * 1000);
+    const garlicItem = { ...garlic, quantity: '4 gousse', edited: false, removed: false };
+    const mark = {
+      name: 'Ail',
+      unit: 'gousse',
+      qty: 4,
+      alreadyHave: true,
+      comment: null,
+    };
+
+    it('shows the chef an answer only when it answers the list sent last', async () => {
+      const older = {
+        version: 2,
+        sentAt: SENT,
+        finalReceivedAt: new Date('2026-11-01'),
+        clientMarks: [mark],
+      };
+
+      const chef = await lists([], [garlicItem], older).service.view('b1');
+      const client = await lists([], [garlicItem], older).service.view('b1', {
+        forClient: true,
+      });
+
+      expect(chef.groups[0].lines[0]).toMatchObject({ alreadyHave: false });
+      expect(client.groups[0].lines[0]).toMatchObject({ alreadyHave: true });
+      expect(client).toMatchObject({ version: 2, sentAt: SENT });
+    });
+
+    it('stores the final list with the quantities of the list, and when it came', async () => {
+      const { service, prisma } = lists([], [garlicItem], { version: 1, sentAt: SENT });
+
+      const stored = await service.submit(
+        'b1',
+        { version: 1, marks: [{ name: 'ail', unit: 'gousse', alreadyHave: true }] },
+        DEADLINE,
+      );
+
+      expect(stored).toEqual({ version: 1, marks: 1 });
+      expect(prisma.shoppingList.update).toHaveBeenCalledWith({
+        where: { id: 'sl1' },
+        data: { clientMarks: [mark], finalReceivedAt: expect.any(Date) },
+      });
+    });
+
+    it('stores nothing when the chef sent a newer list since', async () => {
+      const { service, prisma } = lists([], [garlicItem], { version: 2, sentAt: SENT });
+
+      await expect(
+        service.submit('b1', { version: 1, marks: [] }, DEADLINE),
+      ).rejects.toMatchObject({
+        response: { code: 'SHOPPING_LIST_UPDATED', version: 2 },
+      });
+      expect(prisma.shoppingList.update).not.toHaveBeenCalled();
+    });
   });
 });

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { CalendarModule } from '../calendar/calendar.module';
 import { ChefOnboardingModule } from '../chef-onboarding/chef-onboarding.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 import { UsersModule } from '../users/users.module';
 import { AdminContentController } from './admin-content.controller';
@@ -22,7 +23,13 @@ import { VitrineService } from './vitrine.service';
 
 /** FLOW-02 — dishes, menus, publication and moderation. */
 @Module({
-  imports: [ChefOnboardingModule, UsersModule, ShoppingListsModule, CalendarModule],
+  imports: [
+    ChefOnboardingModule,
+    UsersModule,
+    ShoppingListsModule,
+    CalendarModule,
+    NotificationsModule,
+  ],
   controllers: [
     MeContentController,
     AdminContentController,
