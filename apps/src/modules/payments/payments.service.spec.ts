@@ -133,6 +133,8 @@ describe('PaymentsService', () => {
         expect.objectContaining({
           amount: 12_500,
           currency: 'eur',
+          // The chef is merchant of record: invoice A is issued in their name.
+          on_behalf_of: 'acct_123',
           transfer_data: { destination: 'acct_123' },
           application_fee_amount: 2250,
         }),

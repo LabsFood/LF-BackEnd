@@ -74,14 +74,14 @@ export class PaymentsService {
 
     const commission = await this.commissionOn(booking, amountTtc);
 
-    // ponytail: no `on_behalf_of` here — decided 2026-09-05 (see
-    // docs/evolution/payments-stripe-cb-evolution.md) to make the chef merchant of
-    // record for invoice A, still not implemented. Add it to this call when invoice A
-    // seller-of-record is built; it's unrelated to the commission debit, which must
-    // never carry `on_behalf_of` (see commission-debits.service.ts).
+    // `on_behalf_of` makes the chef merchant of record, which is what lets invoice A
+    // (`PaymentInvoicesService`) be issued in their name — decided 2026-09-05, see
+    // docs/evolution/payments-stripe-cb-evolution.md. Card payments only: the commission
+    // debit must never carry it (see commission-debits.service.ts).
     const intent = await this.stripe.getClient().paymentIntents.create({
       amount: amountTtc,
       currency: booking.currency.toLowerCase(),
+      on_behalf_of: chef.stripeAccountId,
       transfer_data: { destination: chef.stripeAccountId },
       // Stripe rejects a zero fee, so a 0 % commission means sending no fee at all.
       ...(commission.amountTtcCents > 0
@@ -296,6 +296,8 @@ export class PaymentsService {
             },
           ],
           payment_intent_data: {
+            // Chef as merchant of record, as on the direct intent above.
+            on_behalf_of: chef.stripeAccountId,
             transfer_data: { destination: chef.stripeAccountId },
             ...(commission.amountTtcCents > 0
               ? { application_fee_amount: commission.amountTtcCents }

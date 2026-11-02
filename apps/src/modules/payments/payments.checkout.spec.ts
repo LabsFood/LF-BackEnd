@@ -105,6 +105,7 @@ describe('PaymentsService.createCheckoutSession', () => {
     });
     // The cook receives 200 − 30 = 170 €, the net of their offer.
     expect(params.payment_intent_data).toMatchObject({
+      on_behalf_of: 'acct_123',
       transfer_data: { destination: 'acct_123' },
       application_fee_amount: 3_000,
       metadata: { bookingId: 'booking-1', paymentId: 'pay-1' },
