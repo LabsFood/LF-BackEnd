@@ -1,3 +1,14 @@
+## [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02)
+
+### Features
+
+* integrate geo.api.gouv.fr for address validation across modules ([427dd75](https://github.com/LabsFood/LF-BackEnd/commit/427dd75190ac4701b173e2a1ddde03309efd2ca9))
+* **users:** add listUsers endpoint for admin to retrieve user accounts ([070b2f8](https://github.com/LabsFood/LF-BackEnd/commit/070b2f88c8ea7a22253f923a9009fc21436e580a))
+
+### Bug Fixes
+
+* **tls:** distrust eMudhra (emSign) root CAs ([164a4cb](https://github.com/LabsFood/LF-BackEnd/commit/164a4cb95b398f2e5554ae1b7daec11dd17af967))
+
 ## [1.4.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.3.0...v1.4.0) (2026-10-31)
 
 ### Features
