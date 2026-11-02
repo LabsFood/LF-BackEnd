@@ -55,7 +55,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "ioredis": "^5.4.1",
-    "joi": "^17.13.8",
+    "joi": "^17.13.9",
     "pdfkit": "^0.20.2",
     "pg": "^8.13.1",
     "prisma": "7.10.1",
