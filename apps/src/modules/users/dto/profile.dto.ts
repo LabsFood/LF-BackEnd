@@ -31,16 +31,6 @@ export class UpsertClientProfileDto {
 
   @ApiPropertyOptional({
     type: [String],
-    description: 'Food allergies the chef must avoid.',
-    example: ['peanuts', 'shellfish'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  allergies?: string[];
-
-  @ApiPropertyOptional({
-    type: [String],
     description: 'Ingredients, textures, or dishes the client dislikes.',
     example: ['cilantro'],
   })

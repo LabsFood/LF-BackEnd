@@ -158,11 +158,12 @@ export class UsersController {
   @ApiOperation({
     summary: 'Fill in or update my client profile',
     description:
-      'Saves the client profile: tastes, allergies, kitchen notes, address, household. ' +
+      'Saves the client profile: tastes, kitchen notes, address, household; allergies go through ' +
+      '`PUT /me/profile/allergies`, with consent. ' +
       'The first call creates it; later calls change only the fields sent. ' +
       '`firstName`, `lastName` and `phone` go to the account itself (and to Clerk for ' +
       'the names). Never changes the role.\n\n' +
-      'Example: `{ "allergies": ["arachides"], "householdAdults": 2 }` updates those two ' +
+      'Example: `{ "dislikes": ["coriandre"], "householdAdults": 2 }` updates those two ' +
       'fields and leaves the rest as it was.',
   })
   @ApiOkResponse({
@@ -202,7 +203,12 @@ export class UsersController {
         phone: '+33612345678',
         createdAt: '2026-09-01T08:00:00.000Z',
       },
-      clientProfile: { allergies: ['Arachides'], addressCity: 'Paris', status: 'active' },
+      clientProfile: {
+        allergies: ['peanuts'],
+        customAllergies: [],
+        addressCity: 'Paris',
+        status: 'active',
+      },
       bookings: [
         {
           reference: 'LF-2026-0001',
@@ -499,7 +505,7 @@ export class UsersController {
   @ApiOperation({
     summary: "Update a client's profile",
     description:
-      'Changes tastes, diets, allergies, kitchen notes or the CRM `status` (for example ' +
+      'Changes tastes, diets, kitchen notes or the CRM `status`, never allergies (for example ' +
       '`{ "status": "vip" }`). Send only the fields to change: a list sent replaces the ' +
       'whole list. `{id}` is the client profile id. Every change is audited with its ' +
       'before and after values.',

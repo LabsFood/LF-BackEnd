@@ -201,7 +201,18 @@ model ClientProfile {
   id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId             String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
   dietaryPreferences String[]            @default([]) @map("dietary_preferences")
+  /// The 14 regulated allergens only (codes of dishes.rules.ts): health data. Declared
+  /// through PUT /me/profile/allergies, never in a list or an export.
   allergies          String[]            @default([])
+  /// What the 14 codes do not cover, in the client's words.
+  customAllergies    String[]            @default([]) @map("custom_allergies")
+  /// "No allergy", said explicitly; the database forbids it next to a listed one.
+  allergiesNone      Boolean             @default(false) @map("allergies_none")
+  /// Null: the client never answered, so no menu can be validated (fail-closed).
+  allergiesDeclaredAt DateTime?          @map("allergies_declared_at") @db.Timestamptz(6)
+  healthConsentAt    DateTime?           @map("health_consent_at") @db.Timestamptz(6)
+  /// The version of the consent text accepted.
+  healthConsentVersion String?           @map("health_consent_version") @db.VarChar(32)
   dislikes           String[]            @default([])
   favorites          String[]            @default([])
   spiceLevel         Int?                @map("spice_level")

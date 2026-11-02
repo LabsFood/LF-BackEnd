@@ -1,5 +1,11 @@
 import { ymd } from '../../common/paris-time';
 import type { Prisma } from '../../generated/prisma/client';
+import {
+  allergyCheck,
+  allergyLabels,
+  CLIENT_ALLERGY_SELECT,
+  DISH_ALLERGEN_SELECT,
+} from '../allergies/domain/allergies.rules';
 import { shortName } from '../messaging/domain/messaging.rules';
 import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { ACCEPTED_OFFER } from '../payments/commission-policy';
@@ -18,7 +24,16 @@ import { bookingEarnings } from './domain/earnings';
 export type Audience = 'client' | 'chef' | 'admin';
 
 export const BOOKING_LIST_INCLUDE = {
-  client: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+  client: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      avatarUrl: true,
+      // Read to say "verified" or why not; the values never leave in a list.
+      clientProfile: { select: CLIENT_ALLERGY_SELECT },
+    },
+  },
   chefProfile: { select: CHEF_CESU_INFO_SELECT },
   serviceOffer: { select: { id: true, name: true } },
   formule: { select: { id: true, name: true } },
@@ -37,7 +52,9 @@ export const BOOKING_LIST_INCLUDE = {
   // The dishes ride on every row: a list that says "dishes to define" for a booking
   // that has three is wrong, and the names are cheap (a page is at most a few dozen).
   // The recipe stays off the booking (FLOW-02 §8): it is on the recipe sheet.
-  bookingMeals: { include: { meal: { select: { id: true, name: true } } } },
+  bookingMeals: {
+    include: { meal: { select: { ...DISH_ALLERGEN_SELECT, name: true } } },
+  },
 } satisfies Prisma.BookingInclude;
 
 export const RESCHEDULE_VIEW = {
@@ -70,7 +87,7 @@ export const BOOKING_DETAIL_INCLUDE = {
   client: {
     select: {
       ...BOOKING_LIST_INCLUDE.client.select,
-      clientProfile: { select: { allergies: true, dietaryPreferences: true } },
+      clientProfile: { select: { ...CLIENT_ALLERGY_SELECT, dietaryPreferences: true } },
     },
   },
   photos: { orderBy: { takenAt: 'asc' } },
@@ -83,6 +100,14 @@ type DetailRow = Prisma.BookingGetPayload<{ include: typeof BOOKING_DETAIL_INCLU
 
 const unique = (values: string[]) => [...new Set(values)];
 
+/** Recettes lot 1, read live: an allergy declared after booking still counts. */
+const checkOf = (booking: ListRow) =>
+  allergyCheck(
+    booking.client.clientProfile,
+    booking.bookingMeals.map((line) => line.meal),
+    booking.quote?.allergies ?? [],
+  );
+
 /** A row of "Mes prestations", of a client's bookings, or of the admin list. */
 export function toBookingListItem(
   booking: ListRow,
@@ -90,6 +115,7 @@ export function toBookingListItem(
   rates: CommissionRates | null,
 ) {
   const paid = booking.payments.filter((payment) => payment.status === 'succeeded');
+  const check = checkOf(booking);
   return {
     id: booking.id,
     reference: booking.reference,
@@ -116,6 +142,9 @@ export function toBookingListItem(
     arrivedAt: booking.arrivedAt,
     createdAt: booking.createdAt,
     mealsCount: booking._count.bookingMeals,
+    /** `verified` only when nothing is left to check by hand; the reasons say what is. */
+    allergyCheck: check.allergyCheck,
+    allergyCheckReasons: check.allergyCheckReasons,
     meals: booking.bookingMeals.map((line) => ({
       mealId: line.mealId,
       name: line.meal.name,
@@ -164,12 +193,11 @@ export function toBookingDetail(
       takenAt: photo.takenAt,
     })),
     reschedule: booking.reschedules[0] ? toRescheduleView(booking.reschedules[0]) : null,
+    /** Dishes holding one of the client's allergens: to replace (`…/meals/replace`). */
+    allergyConflicts: checkOf(booking).allergyConflicts,
     // Read live: an allergy added after booking must still reach the cook.
     ...(audience !== 'client' && {
-      allergies: unique([
-        ...(profile?.allergies ?? []),
-        ...(booking.quote?.allergies ?? []),
-      ]),
+      allergies: allergyLabels(profile, booking.quote?.allergies ?? []),
       diets: unique([
         ...(profile?.dietaryPreferences ?? []),
         ...(booking.quote?.diet ?? []),

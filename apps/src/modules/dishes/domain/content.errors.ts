@@ -67,6 +67,14 @@ export const allergensUnverified = (mealIds: string[]): UnprocessableEntityExcep
     mealIds,
   });
 
+/** Allergies listed without consent to the current text (missing, refused or outdated). */
+export const healthConsentRequired = (version: string): UnprocessableEntityException =>
+  new UnprocessableEntityException({
+    code: 'HEALTH_CONSENT_REQUIRED',
+    message: 'Accept the current consent text to record allergies.',
+    version,
+  });
+
 /** Publishing a recipe that is not ready: every problem at once. */
 export const recipeNotReady = (
   problems: PublishProblem[],
