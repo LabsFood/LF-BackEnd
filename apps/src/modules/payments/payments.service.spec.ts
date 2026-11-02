@@ -110,7 +110,7 @@ describe('PaymentsService', () => {
     invoices = {
       issue: jest
         .fn()
-        .mockResolvedValue({ id: 'invoice-1', invoiceNumber: 'LF-FAC-2026-0001' }),
+        .mockResolvedValue({ id: 'invoice-1', invoiceNumber: 'LF-CUS26-00001' }),
       archive: jest.fn().mockResolvedValue(undefined),
     };
 

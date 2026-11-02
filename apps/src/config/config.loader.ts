@@ -83,7 +83,7 @@ export interface AppConfig {
     commissionDebitMaxAttempts: number;
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
-    /** Numbering prefix of facture A, the client's invoice: `<prefix>-<year>-NNNN`. */
+    /** Numbering template of facture A, the client's invoice: `LF-CUSYY-XXXXX`. */
     paymentInvoicePrefix: string;
   };
   brevo: {
@@ -217,7 +217,7 @@ export const configLoader = (): AppConfig => ({
       process.env.PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS ?? 3,
     ),
     commissionInvoicePrefix: process.env.PAYMENTS_COMMISSION_INVOICE_PREFIX ?? 'LF-COM',
-    paymentInvoicePrefix: process.env.PAYMENTS_INVOICE_PREFIX ?? 'LF-FAC',
+    paymentInvoicePrefix: process.env.PAYMENTS_INVOICE_PREFIX ?? 'LF-CUSYY-XXXXX',
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
     stripeConnectRefreshUrl:
       process.env.STRIPE_CONNECT_REFRESH_URL ??

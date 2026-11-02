@@ -1,6 +1,7 @@
 import {
   formatInvoiceNumber,
   invoiceLines,
+  invoiceNumberPrefix,
   invoiceYear,
   type InvoiceBookingFacts,
 } from './payment-invoices.rules';
@@ -16,23 +17,43 @@ const BOOKING: InvoiceBookingFacts = {
 const sum = (lines: { amountCents: number }[]) =>
   lines.reduce((total, line) => total + line.amountCents, 0);
 
+const TEMPLATE = 'LF-CUSYY-XXXXX';
+
 describe('formatInvoiceNumber', () => {
-  it('numbers <prefix>-<year>-NNNN, padded to four digits', () => {
-    expect(formatInvoiceNumber('LF-FAC', 2026, 1)).toBe('LF-FAC-2026-0001');
-    expect(formatInvoiceNumber('LF-FAC', 2026, 372)).toBe('LF-FAC-2026-0372');
+  it('puts the last two digits of the year for YY and the sequence for the Xs', () => {
+    expect(formatInvoiceNumber(TEMPLATE, 2026, 1)).toBe('LF-CUS26-00001');
+    expect(formatInvoiceNumber(TEMPLATE, 2026, 372)).toBe('LF-CUS26-00372');
+    expect(formatInvoiceNumber(TEMPLATE, 2105, 1)).toBe('LF-CUS05-00001');
   });
 
-  it('keeps counting past 9999 instead of truncating', () => {
-    expect(formatInvoiceNumber('LF-FAC', 2026, 12_345)).toBe('LF-FAC-2026-12345');
+  it('keeps counting past 99999 instead of truncating', () => {
+    expect(formatInvoiceNumber(TEMPLATE, 2026, 123_456)).toBe('LF-CUS26-123456');
   });
 
   it('refuses a sequence that is not a positive integer', () => {
-    expect(() => formatInvoiceNumber('LF-FAC', 2026, 0)).toThrow(
+    expect(() => formatInvoiceNumber(TEMPLATE, 2026, 0)).toThrow(
       expect.objectContaining({
         response: expect.objectContaining({ code: 'INVOICE_SEQUENCE_INVALID' }),
       }),
     );
-    expect(() => formatInvoiceNumber('LF-FAC', 2026, 1.5)).toThrow();
+    expect(() => formatInvoiceNumber(TEMPLATE, 2026, 1.5)).toThrow();
+  });
+
+  it('refuses a template without YY or without a trailing run of X', () => {
+    for (const template of ['LF-FAC', 'LF-CUS-XXXXX', 'LF-CUSYY-XXXXX-A']) {
+      expect(() => formatInvoiceNumber(template, 2026, 1)).toThrow(
+        expect.objectContaining({
+          response: expect.objectContaining({ code: 'INVOICE_TEMPLATE_INVALID' }),
+        }),
+      );
+    }
+  });
+});
+
+describe('invoiceNumberPrefix', () => {
+  it("is everything before the sequence: what the year's invoices start with", () => {
+    expect(invoiceNumberPrefix(TEMPLATE, 2026)).toBe('LF-CUS26-');
+    expect(invoiceNumberPrefix(TEMPLATE, 2027)).toBe('LF-CUS27-');
   });
 });
 

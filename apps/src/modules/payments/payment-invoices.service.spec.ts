@@ -97,12 +97,16 @@ describe('PaymentInvoicesService', () => {
   const asTx = () => tx as unknown as Prisma.TransactionClient;
 
   describe('issue', () => {
+    afterEach(() => jest.useRealTimers());
+
     it("numbers the year's next invoice and freezes what the PDF shows", async () => {
+      jest.useFakeTimers().setSystemTime(PAID_AT);
+
       const result = await service.issue(asTx(), 'payment-1', PAID_AT);
 
-      expect(result).toEqual({ id: 'invoice-1', invoiceNumber: 'LF-FAC-2026-0007' });
+      expect(result).toEqual({ id: 'invoice-1', invoiceNumber: 'LF-CUS26-00007' });
       expect(tx.paymentInvoice.count).toHaveBeenCalledWith({
-        where: { invoiceNumber: { startsWith: 'LF-FAC-2026-' } },
+        where: { invoiceNumber: { startsWith: 'LF-CUS26-' } },
       });
       const { data } = tx.paymentInvoice.create.mock.calls[0][0] as {
         data: { snapshot: PaymentInvoiceSnapshot } & Record<string, unknown>;
@@ -116,7 +120,7 @@ describe('PaymentInvoicesService', () => {
         issuedAt: PAID_AT,
       });
       expect(data.snapshot).toMatchObject({
-        invoiceNumber: 'LF-FAC-2026-0007',
+        invoiceNumber: 'LF-CUS26-00007',
         seller: { displayName: 'Chef Amina' },
         client: { name: 'Marie Dupont' },
         booking: { address: '12 rue de la Paix, 69002 Lyon' },
@@ -127,22 +131,42 @@ describe('PaymentInvoicesService', () => {
       });
     });
 
+    it('dates a late invoice the day it is issued, in that year, with the real payment date', async () => {
+      const today = new Date('2027-01-15T09:00:00.000Z');
+      jest.useFakeTimers().setSystemTime(today);
+
+      const result = await service.issue(asTx(), 'payment-1', PAID_AT);
+
+      expect(result.invoiceNumber).toBe('LF-CUS27-00007');
+      expect(tx.paymentInvoice.count).toHaveBeenCalledWith({
+        where: { invoiceNumber: { startsWith: 'LF-CUS27-' } },
+      });
+      const { data } = tx.paymentInvoice.create.mock.calls[0][0] as {
+        data: { issuedAt: Date; snapshot: PaymentInvoiceSnapshot };
+      };
+      expect(data.issuedAt).toEqual(today);
+      expect(data.snapshot).toMatchObject({
+        issuedAt: today.toISOString(),
+        paidAt: PAID_AT.toISOString(),
+      });
+    });
+
     it('hands back the existing invoice on a replay instead of numbering a second one', async () => {
       tx.paymentInvoice.findUnique.mockResolvedValue({
         id: 'invoice-1',
-        invoiceNumber: 'LF-FAC-2026-0003',
+        invoiceNumber: 'LF-CUS26-00003',
       });
 
       const result = await service.issue(asTx(), 'payment-1', PAID_AT);
 
-      expect(result.invoiceNumber).toBe('LF-FAC-2026-0003');
+      expect(result.invoiceNumber).toBe('LF-CUS26-00003');
       expect(tx.paymentInvoice.create).not.toHaveBeenCalled();
     });
   });
 
   describe('archive', () => {
     const SNAPSHOT: PaymentInvoiceSnapshot = {
-      invoiceNumber: 'LF-FAC-2026-0007',
+      invoiceNumber: 'LF-CUS26-00007',
       issuedAt: PAID_AT.toISOString(),
       paidAt: PAID_AT.toISOString(),
       currency: 'EUR',
@@ -157,7 +181,7 @@ describe('PaymentInvoicesService', () => {
       prisma.paymentInvoice.findUniqueOrThrow.mockResolvedValue({
         id: 'invoice-1',
         clientId: 'client-1',
-        invoiceNumber: 'LF-FAC-2026-0007',
+        invoiceNumber: 'LF-CUS26-00007',
         snapshot: SNAPSHOT,
       });
     });
@@ -166,14 +190,14 @@ describe('PaymentInvoicesService', () => {
       await service.archive('invoice-1');
 
       expect(bucket.upload).toHaveBeenCalledWith(
-        'clients/client-1/LF-FAC-2026-0007.pdf',
+        'clients/client-1/LF-CUS26-00007.pdf',
         expect.any(Buffer),
         { contentType: 'application/pdf', upsert: true },
       );
       expect(prisma.paymentInvoice.update).toHaveBeenCalledWith({
         where: { id: 'invoice-1' },
         data: {
-          storagePath: 'clients/client-1/LF-FAC-2026-0007.pdf',
+          storagePath: 'clients/client-1/LF-CUS26-00007.pdf',
           archivedAt: expect.any(Date),
         },
       });
@@ -189,7 +213,7 @@ describe('PaymentInvoicesService', () => {
     it('draws and stores a missing PDF when it is downloaded', async () => {
       prisma.paymentInvoice.findFirst.mockResolvedValue({
         id: 'invoice-1',
-        invoiceNumber: 'LF-FAC-2026-0007',
+        invoiceNumber: 'LF-CUS26-00007',
         storagePath: null,
       });
 
@@ -197,9 +221,9 @@ describe('PaymentInvoicesService', () => {
 
       expect(bucket.upload).toHaveBeenCalled();
       expect(bucket.createSignedUrl).toHaveBeenCalledWith(
-        'clients/client-1/LF-FAC-2026-0007.pdf',
+        'clients/client-1/LF-CUS26-00007.pdf',
         300,
-        { download: 'facture-LF-FAC-2026-0007.pdf' },
+        { download: 'facture-LF-CUS26-00007.pdf' },
       );
       expect(link.url).toBe('https://signed');
     });
@@ -227,8 +251,8 @@ describe('PaymentInvoicesService', () => {
       supabase.configured = false;
       prisma.paymentInvoice.findFirst.mockResolvedValue({
         id: 'invoice-1',
-        invoiceNumber: 'LF-FAC-2026-0007',
-        storagePath: 'clients/client-1/LF-FAC-2026-0007.pdf',
+        invoiceNumber: 'LF-CUS26-00007',
+        storagePath: 'clients/client-1/LF-CUS26-00007.pdf',
       });
 
       await expect(service.downloadUrl('clerk_1', 'invoice-1')).rejects.toMatchObject({

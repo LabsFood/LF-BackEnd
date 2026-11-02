@@ -13,6 +13,7 @@ import { UsersService } from '../users/users.service';
 import {
   formatInvoiceNumber,
   invoiceLines,
+  invoiceNumberPrefix,
   invoiceYear,
 } from './domain/payment-invoices.rules';
 import type { DocumentLinkDto, PaymentInvoiceDto } from './dto/payment-invoice.dto';
@@ -38,7 +39,7 @@ const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 export class PaymentInvoicesService {
   private readonly logger = new Logger(PaymentInvoicesService.name);
   private readonly bucketName: string;
-  private readonly prefix: string;
+  private readonly template: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,14 +48,16 @@ export class PaymentInvoicesService {
     config: ConfigService,
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
-    this.prefix = config.get<string>('payments.paymentInvoicePrefix', 'LF-FAC');
+    this.template = config.get<string>('payments.paymentInvoicePrefix', 'LF-CUSYY-XXXXX');
   }
 
   /**
-   * Numbers and freezes the invoice of a payment that is being settled. Idempotent on
-   * `paymentId`. Numbering counts the year's invoices: two concurrent settlements may
-   * draw the same number, the unique index refuses the second, its transaction rolls
-   * back with the payment, and Stripe's webhook retry settles it again with the next one.
+   * Numbers and freezes the invoice of a payment. Idempotent on `paymentId`. The invoice
+   * is dated and numbered the moment it is issued, never backdated: for a late one
+   * (`backfill`) the PDF shows today as the issue date and `paidAt` as the payment date.
+   * Numbering counts the year's invoices: two concurrent issues may draw the same number,
+   * the unique index refuses the second, and its transaction rolls back (with the payment,
+   * in the webhook, whose Stripe retry then settles it again with the next number).
    */
   async issue(
     tx: Prisma.TransactionClient,
@@ -102,16 +105,16 @@ export class PaymentInvoicesService {
     });
     const { booking } = payment;
 
-    const year = invoiceYear(paidAt);
-    const yearPrefix = `${this.prefix}-${year}-`;
+    const issuedAt = new Date();
+    const year = invoiceYear(issuedAt);
     const issuedThisYear = await tx.paymentInvoice.count({
-      where: { invoiceNumber: { startsWith: yearPrefix } },
+      where: { invoiceNumber: { startsWith: invoiceNumberPrefix(this.template, year) } },
     });
-    const invoiceNumber = formatInvoiceNumber(this.prefix, year, issuedThisYear + 1);
+    const invoiceNumber = formatInvoiceNumber(this.template, year, issuedThisYear + 1);
 
     const snapshot: PaymentInvoiceSnapshot = {
       invoiceNumber,
-      issuedAt: paidAt.toISOString(),
+      issuedAt: issuedAt.toISOString(),
       paidAt: paidAt.toISOString(),
       currency: payment.currency,
       amountTtcCents: payment.amountTtc,
@@ -154,7 +157,7 @@ export class PaymentInvoicesService {
         clientId: booking.client.id,
         chefProfileId: booking.chefProfile.id,
         invoiceNumber,
-        issuedAt: paidAt,
+        issuedAt,
         amountTtcCents: payment.amountTtc,
         currency: payment.currency,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
