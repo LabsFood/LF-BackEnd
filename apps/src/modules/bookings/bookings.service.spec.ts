@@ -14,6 +14,14 @@ const START = new Date('2030-03-12T08:00:00.000Z'); // 09:00 in Paris
 const prismaError = (code: string) =>
   new Prisma.PrismaClientKnownRequestError(code, { code, clientVersion: 'test' });
 
+/** A client who answered the allergy question (Recettes lot 1): peanuts. */
+const DECLARED = {
+  allergies: ['peanuts'],
+  customAllergies: [],
+  allergiesNone: false,
+  allergiesDeclaredAt: new Date('2030-03-01T10:00:00.000Z'),
+};
+
 /** A booking as the detail view reads it. */
 const row = (overrides: Record<string, unknown> = {}) => ({
   id: 'booking-1',
@@ -44,7 +52,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     fullName: 'Sophie Martin',
     email: 'sophie@example.com',
     avatarUrl: null,
-    clientProfile: { allergies: ['arachides'], dietaryPreferences: ['halal'] },
+    clientProfile: { ...DECLARED, dietaryPreferences: ['halal'] },
   },
   chefProfile: { id: 'chef-1', displayName: 'Chef Marie', sapProfile: null },
   serviceOffer: {
@@ -205,7 +213,7 @@ describe('BookingsService', () => {
       const detail = await service.detailFor('chef', 'clerk_1', 'booking-1');
 
       expect(detail).toMatchObject({
-        allergies: ['arachides', 'sésame'],
+        allergies: ['Arachides', 'Graines de sésame'],
         diets: ['halal'],
       });
     });

@@ -587,7 +587,7 @@ describe('UsersService', () => {
 
       await service.updateProfileByClerkUserId('user_1', {
         firstName: 'Marie',
-        allergies: ['peanuts'],
+        dislikes: ['coriandre'],
       });
 
       expect(prisma.user.update).toHaveBeenCalledWith({
@@ -619,7 +619,7 @@ describe('UsersService', () => {
       prisma.chefProfile.findUnique.mockResolvedValue(null);
       prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
 
-      await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
+      await service.updateProfileByClerkUserId('user_1', { dislikes: ['coriandre'] });
 
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
@@ -928,21 +928,21 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.updateClientById('cp-1', { allergies: ['Arachides'] }, 'admin_clerk'),
+        service.updateClientById('cp-1', { dislikes: ['Coriandre'] }, 'admin_clerk'),
       ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
     });
 
     it('audits who corrected which fields, before and after, and only those', async () => {
       prisma.clientProfile.findUnique.mockResolvedValue({
         id: 'cp-1',
-        allergies: ['Arachides'],
+        dislikes: ['Coriandre'],
         dietaryPreferences: ['Halal'],
         kitchenNotes: 'Induction',
       });
       prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
       prisma.clientProfile.update.mockResolvedValue({
         id: 'cp-1',
-        allergies: ['Arachides', 'Sésame'],
+        dislikes: ['Coriandre', 'Céleri'],
         dietaryPreferences: ['Halal'],
         kitchenNotes: 'Induction',
         user: { id: 'user-1' },
@@ -950,13 +950,13 @@ describe('UsersService', () => {
 
       await service.updateClientById(
         'cp-1',
-        { allergies: ['Arachides', 'Sésame'] },
+        { dislikes: ['Coriandre', 'Céleri'] },
         'admin_clerk',
       );
 
       expect(prisma.clientProfile.update).toHaveBeenCalledWith({
         where: { id: 'cp-1' },
-        data: { allergies: ['Arachides', 'Sésame'] },
+        data: { dislikes: ['Coriandre', 'Céleri'] },
         include: { user: true },
       });
       expect(audit.record).toHaveBeenCalledWith({
@@ -966,8 +966,8 @@ describe('UsersService', () => {
         subjectType: 'client_profile',
         subjectId: 'cp-1',
         metadata: {
-          before: { allergies: ['Arachides'] },
-          after: { allergies: ['Arachides', 'Sésame'] },
+          before: { dislikes: ['Coriandre'] },
+          after: { dislikes: ['Coriandre', 'Céleri'] },
         },
       });
     });
@@ -1015,7 +1015,7 @@ describe('UsersService', () => {
 
       expect(prisma.user.findMany).toHaveBeenCalledWith({
         where: { role: UserRole.client },
-        include: { clientProfile: true },
+        include: { clientProfile: { omit: { allergies: true, customAllergies: true } } },
         // `id` is the tiebreaker that keeps paging stable across equal timestamps.
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: 0,

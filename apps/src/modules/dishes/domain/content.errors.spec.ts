@@ -5,6 +5,7 @@ import {
   allergenConflict,
   allergensUnverified,
   allergiesNotDeclared,
+  healthConsentRequired,
   limitReached,
   menuFrozen,
   recipeNotReady,
@@ -31,6 +32,12 @@ describe('Recettes reason codes', () => {
       { conflicts: [{ mealId: 'm1', allergens: ['peanuts'] }] },
     ],
     ['ALLERGENS_UNVERIFIED', () => allergensUnverified(['m1']), 422, { mealIds: ['m1'] }],
+    [
+      'HEALTH_CONSENT_REQUIRED',
+      () => healthConsentRequired('v1'),
+      422,
+      { version: 'v1' },
+    ],
     [
       'RECIPE_NOT_READY',
       () =>

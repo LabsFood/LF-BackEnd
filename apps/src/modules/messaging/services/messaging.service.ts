@@ -8,6 +8,7 @@ import {
 
 import { Prisma, User, UserRole } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { allergyLabels } from '../../allergies/domain/allergies.rules';
 import { UsersService } from '../../users/users.service';
 import { detectContact, maskContact } from '../domain/contact-detector';
 import {
@@ -612,7 +613,7 @@ export class MessagingService {
       city: profile.addressCity,
       householdAdults: profile.householdAdults,
       householdKids: profile.householdKids,
-      allergies: profile.allergies,
+      allergies: allergyLabels(profile),
       dietaryPreferences: profile.dietaryPreferences,
       kitchenNotes: profile.kitchenNotes,
     };

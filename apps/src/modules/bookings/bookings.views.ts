@@ -1,5 +1,9 @@
 import { ymd } from '../../common/paris-time';
 import type { Prisma } from '../../generated/prisma/client';
+import {
+  allergyLabels,
+  CLIENT_ALLERGY_SELECT,
+} from '../allergies/domain/allergies.rules';
 import { shortName } from '../messaging/domain/messaging.rules';
 import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { ACCEPTED_OFFER } from '../payments/commission-policy';
@@ -70,7 +74,7 @@ export const BOOKING_DETAIL_INCLUDE = {
   client: {
     select: {
       ...BOOKING_LIST_INCLUDE.client.select,
-      clientProfile: { select: { allergies: true, dietaryPreferences: true } },
+      clientProfile: { select: { ...CLIENT_ALLERGY_SELECT, dietaryPreferences: true } },
     },
   },
   photos: { orderBy: { takenAt: 'asc' } },
@@ -166,10 +170,7 @@ export function toBookingDetail(
     reschedule: booking.reschedules[0] ? toRescheduleView(booking.reschedules[0]) : null,
     // Read live: an allergy added after booking must still reach the cook.
     ...(audience !== 'client' && {
-      allergies: unique([
-        ...(profile?.allergies ?? []),
-        ...(booking.quote?.allergies ?? []),
-      ]),
+      allergies: allergyLabels(profile, booking.quote?.allergies ?? []),
       diets: unique([
         ...(profile?.dietaryPreferences ?? []),
         ...(booking.quote?.diet ?? []),
