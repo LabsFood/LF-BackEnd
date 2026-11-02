@@ -267,3 +267,21 @@ export class RescheduleAnswerDto {
   @IsIn(['accepted', 'declined', 'withdrawn'])
   decision!: 'accepted' | 'declined' | 'withdrawn';
 }
+
+/** Body of `POST …/bookings/{id}/meals/replace`: a dish in allergy conflict, and the new one. */
+export class ReplaceMealDto {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The dish in conflict with the client’s allergies.',
+  })
+  @IsUUID()
+  from!: string;
+
+  @ApiProperty({
+    format: 'uuid',
+    description:
+      'A published dish of the batch cooker or of Lab’s Food, safe for the client.',
+  })
+  @IsUUID()
+  to!: string;
+}

@@ -16,6 +16,8 @@ import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CLIENT_ALLERGY_SELECT,
+  checkable,
+  conflicts,
   DISH_ALLERGEN_SELECT,
   menuRefusal,
 } from '../allergies/domain/allergies.rules';
@@ -46,6 +48,7 @@ import {
   AdminBookingsQueryDto,
   AdminUpdateBookingDto,
   BookingMealDto,
+  ReplaceMealDto,
   NewBookingDto,
 } from './dto/bookings.dto';
 
@@ -509,6 +512,82 @@ export class BookingsService {
         },
       });
     }
+    return this.view(caller, id);
+  }
+
+  /**
+   * R41: an allergy declared after the menu was validated puts a dish in conflict.
+   * The client or the batch cooker swaps that dish for another, whatever the status
+   * (a frozen menu included, lot 3); only a dish in conflict, and only for a safe one.
+   */
+  async replaceConflictingMeal(
+    role: Audience,
+    clerkUserId: string,
+    id: string,
+    dto: ReplaceMealDto,
+  ) {
+    const caller = await this.caller(role, clerkUserId);
+    const booking = await this.prisma.booking.findFirst({
+      where: { id, ...this.scope(caller) },
+      select: {
+        status: true,
+        clientId: true,
+        chefProfileId: true,
+        quote: { select: { allergies: true } },
+        bookingMeals: {
+          select: { portions: true, meal: { select: DISH_ALLERGEN_SELECT } },
+        },
+      },
+    });
+    if (!booking) throw notFound();
+    if (['cancelled', 'completed', 'delivered'].includes(booking.status)) {
+      throw new ConflictException({
+        code: 'BOOKING_LOCKED',
+        message: 'This prestation is over: its dishes no longer change.',
+      });
+    }
+    const client = await this.prisma.clientProfile.findUnique({
+      where: { userId: booking.clientId },
+      select: CLIENT_ALLERGY_SELECT,
+    });
+    const extra = booking.quote?.allergies ?? [];
+    const dishes = booking.bookingMeals.map((row) => row.meal);
+    const clashing = client ? conflicts(checkable(client, extra).codes, dishes) : [];
+    const from = booking.bookingMeals.find((row) => row.meal.id === dto.from);
+    if (!from || !clashing.some((c) => c.mealId === dto.from)) {
+      throw invalid(
+        'Only a dish in conflict with the client’s allergies is replaced here.',
+      );
+    }
+    if (dishes.some((dish) => dish.id === dto.to)) {
+      throw invalid('This dish is already on the menu.');
+    }
+    await this.assertMeals(booking.chefProfileId, [{ mealId: dto.to }]);
+    // The new dish alone: another dish still in conflict is replaced in its own turn.
+    await this.assertAllergies(booking.clientId, [dto.to], extra);
+
+    await this.prisma.$transaction([
+      this.prisma.bookingMeal.delete({
+        where: { bookingId_mealId: { bookingId: id, mealId: dto.from } },
+      }),
+      this.prisma.bookingMeal.create({
+        data: { bookingId: id, mealId: dto.to, portions: from.portions },
+      }),
+    ]);
+    this.logger.log({
+      event: 'booking.allergy_meal_replaced',
+      bookingId: id,
+      chefProfileId: booking.chefProfileId,
+      by: caller.role,
+    });
+    await this.lists
+      .regenerateForBooking(id)
+      .catch((error: unknown) =>
+        this.logger.error(
+          { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
+          stackOf(error),
+        ),
+      );
     return this.view(caller, id);
   }
 
