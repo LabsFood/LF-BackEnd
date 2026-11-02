@@ -83,6 +83,8 @@ export interface AppConfig {
     commissionDebitMaxAttempts: number;
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
+    /** Numbering prefix of facture A, the client's invoice: `<prefix>-<year>-NNNN`. */
+    paymentInvoicePrefix: string;
   };
   brevo: {
     apiKey?: string;
@@ -154,6 +156,8 @@ export interface AppConfig {
     kycBucket: string;
     /** Private bucket holding the files sent in conversations. Never publicly readable. */
     messagingBucket: string;
+    /** Private bucket holding the clients' invoices (facture A). Never publicly readable. */
+    invoicesBucket: string;
   };
   /**
    * Cloudflare R2, for dish and profile photos (FLOW-02). Optional: without all five, photo
@@ -213,6 +217,7 @@ export const configLoader = (): AppConfig => ({
       process.env.PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS ?? 3,
     ),
     commissionInvoicePrefix: process.env.PAYMENTS_COMMISSION_INVOICE_PREFIX ?? 'LF-COM',
+    paymentInvoicePrefix: process.env.PAYMENTS_INVOICE_PREFIX ?? 'LF-FAC',
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
     stripeConnectRefreshUrl:
       process.env.STRIPE_CONNECT_REFRESH_URL ??
@@ -294,6 +299,7 @@ export const configLoader = (): AppConfig => ({
     secretKey: process.env.SUPABASE_SECRET_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
     messagingBucket: process.env.SUPABASE_MESSAGING_BUCKET ?? 'labsfood-messages',
+    invoicesBucket: process.env.SUPABASE_INVOICES_BUCKET ?? 'labsfood-invoices',
   },
   r2: {
     accountId: process.env.R2_ACCOUNT_ID,

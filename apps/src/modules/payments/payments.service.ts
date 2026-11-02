@@ -22,6 +22,7 @@ import {
 } from './dto/payment.dto';
 import { assertPayable, commissionBlockApplies } from './payment-rules';
 import { assertOwnSiteUrl } from './own-site-url';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import {
   assertNoPendingCesu,
   bookingCoverage,
@@ -50,6 +51,7 @@ export class PaymentsService {
     private readonly stripe: StripeService,
     private readonly config: ConfigService,
     private readonly users: UsersService,
+    private readonly invoices: PaymentInvoicesService,
   ) {}
 
   /**
@@ -514,13 +516,18 @@ export class PaymentsService {
         where: { paymentId: payment.id },
         data: { status: 'collected', collectedAt: paidAt },
       });
-      return settled;
+      // Invoice A, numbered in the same transaction: a settled card payment always has
+      // its invoice. The PDF is drawn once the transaction is committed.
+      const invoice = await this.invoices.issue(tx, payment.id, paidAt);
+      return { ...settled, invoice };
     });
+    await this.invoices.archive(outcome.invoice.id);
 
     this.logger.log(
       `Payment ${payment.id} succeeded (booking ${payment.bookingId}); ` +
         `${outcome.coveredAmountCents}/${outcome.bookingAmountTtcCents} covered` +
-        `${outcome.bookingConfirmed ? ', booking confirmed' : ''}.`,
+        `${outcome.bookingConfirmed ? ', booking confirmed' : ''}; ` +
+        `invoice ${outcome.invoice.invoiceNumber}.`,
     );
   }
 

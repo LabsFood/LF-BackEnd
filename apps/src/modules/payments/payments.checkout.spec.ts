@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsService } from './payments.service';
 
 const SITE = 'https://batchcooking.labsfood.fr';
@@ -84,6 +85,12 @@ function setup(booking: object = DONE_BOOKING) {
     {
       ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }),
     } as unknown as UsersService,
+    {
+      issue: jest
+        .fn()
+        .mockResolvedValue({ id: 'inv-1', invoiceNumber: 'LF-FAC-2026-0001' }),
+      archive: jest.fn(),
+    } as unknown as PaymentInvoicesService,
   );
   return { service, prisma, tx, sessions };
 }

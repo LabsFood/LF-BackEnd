@@ -277,7 +277,7 @@ Every route needs a Clerk bearer token unless listed as public; `/admin/*` addit
 | Stripe        | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET`, `PAYMENTS_*`, `STRIPE_CONNECT_*_URL` | **Live** — Connect destination charges (Checkout + PaymentIntent), SEPA mandates and commission debits, `POST /webhooks/stripe` |
 | Brevo         | `BREVO_API_KEY`, `BREVO_SENDER_*`, `BREVO_TPL_*`                                           | **Live** — transactional templates in [`brevo/`](../brevo/README.md); an unset template id skips that email |
 | Cloudflare R2 | `R2_*`                                                                                     | Public dish, menu and profile photos (`R2StorageService`); routes answer 503 without all five vars          |
-| Supabase API  | `SUPABASE_*`, `SUPABASE_KYC_BUCKET`, `SUPABASE_MESSAGING_BUCKET`                           | Private storage for chef KYC documents and message attachments                                              |
+| Supabase API  | `SUPABASE_*`, `SUPABASE_KYC_BUCKET`, `SUPABASE_MESSAGING_BUCKET`, `SUPABASE_INVOICES_BUCKET` | Private storage for chef KYC documents, message attachments and client invoices                                              |
 | URSSAF        | `URSSAF_GATEWAY`                                                                           | Simulated only (`disabled` by default): an admin answers in URSSAF's place                                  |
 
 ## Health checks

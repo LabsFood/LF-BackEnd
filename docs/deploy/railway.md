@@ -48,6 +48,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` | Payments — **live**. Without the key `/payments/*` answers `503`; without the Connect secret `account.updated` is rejected and chefs stay `chargesEnabled=false` |
 | `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). Fallback until an admin saves the rate from the console (`PATCH /admin/settings/commission`) |
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
+| `PAYMENTS_INVOICE_PREFIX` | Numbering of the client's invoice, facture A (default `LF-FAC`, giving `LF-FAC-<year>-NNNN`) |
 | `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
@@ -55,6 +56,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Supabase Storage client (KYC documents and message attachments). A secret key (`sb_secret_…`) per environment; the legacy `service_role` JWT is refused at startup |
 | `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
 | `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
+| `SUPABASE_INVOICES_BUCKET` | Clients' invoices (facture A, PDF) — **private bucket**, create it before the first card payment settles. Without it the invoice is numbered but its PDF waits (see below) |
 | `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish, menu and profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
 | `BREVO_TPL_*` (24 ids) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests, booking hold reminders (see [`brevo/README.md`](../../brevo/README.md)). An unset id skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
@@ -63,6 +65,14 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §7 |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).
+
+### Invoices bucket (facture A)
+
+Create the bucket named by `SUPABASE_INVOICES_BUCKET` (default `labsfood-invoices`) in
+Supabase Storage, **private**, with no policy for `anon` or `authenticated`: only the API's
+secret key reads and writes it, and a client gets a 5-minute signed link per download.
+A PDF whose upload fails stays `storagePath = null`; the next download request redraws it
+from the invoice's frozen snapshot and stores it, so no job has to run.
 
 ### KYC bucket (chef onboarding)
 
