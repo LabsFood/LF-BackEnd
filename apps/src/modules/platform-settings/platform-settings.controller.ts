@@ -6,7 +6,17 @@ import {
   ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsDefined,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
@@ -75,6 +85,58 @@ const SUPPLEMENTS_EXAMPLE = {
   extraPersonCents: 1500,
   extraMealCents: 800,
   updatedAt: '2026-10-18T09:00:00.000Z',
+};
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+/** The name shown for each tier code. All four, every time. */
+class ChefTierLabelsDto {
+  @ApiProperty({ maxLength: 40, example: 'Découverte' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_1!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Confirmé' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_2!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Expert' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_3!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Partenaire' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_4!: string;
+}
+
+class ChefTiersDto {
+  @ApiProperty({ type: ChefTierLabelsDto })
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => ChefTierLabelsDto)
+  labels!: ChefTierLabelsDto;
+}
+
+const CHEF_TIERS_EXAMPLE = {
+  labels: {
+    tier_1: 'Découverte',
+    tier_2: 'Confirmé',
+    tier_3: 'Expert',
+    tier_4: 'Partenaire',
+  },
+  updatedAt: '2026-10-31T09:00:00.000Z',
 };
 
 const reqId = (req: { id?: unknown }): string | undefined =>
@@ -190,5 +252,45 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setBookingSupplements(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/chef-tiers')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the names of the chef tiers',
+    description:
+      'The name shown for each of the four tier codes (`tier_1` to `tier_4`) set on a ' +
+      'batch cooker with `PATCH /admin/chefs/{id}/tier`. `updatedAt: null`: never ' +
+      'changed, the neutral names apply ("Palier 1" to "Palier 4").',
+  })
+  @ApiOkResponse({ description: 'The names.', example: CHEF_TIERS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  chefTiers() {
+    return this.settings.chefTiers();
+  }
+
+  @Put('admin/settings/chef-tiers')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Rename the chef tiers',
+    description:
+      'All four names, every time, 40 characters at most. Only the names change: ' +
+      'each batch cooker keeps their tier code. Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new names.', example: CHEF_TIERS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setChefTiers(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: ChefTiersDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setChefTiers(body.labels, admin.id, reqId(req));
   }
 }

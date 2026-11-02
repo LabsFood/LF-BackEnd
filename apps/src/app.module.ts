@@ -26,6 +26,7 @@ import { DishesModule } from './modules/dishes/dishes.module';
 import { ServiceOffersModule } from './modules/service-offers/service-offers.module';
 import { UsersModule } from './modules/users/users.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { RedisModule } from './redis/redis.module';
 
@@ -80,6 +81,7 @@ import { RedisModule } from './redis/redis.module';
     DishesModule,
     ServiceOffersModule,
     MessagingModule,
+    NotificationsModule,
     ContactModule,
     PlatformSettingsModule,
     PaymentsModule,

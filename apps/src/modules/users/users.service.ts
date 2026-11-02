@@ -32,6 +32,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { chefTierLabels } from '../platform-settings/chef-tiers';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -430,10 +431,11 @@ export class UsersService {
       where: { userId: user.id },
     });
     if (chef) {
+      const tierLabels = await chefTierLabels(this.prisma);
       return {
         user,
         profileType: 'chef' as const,
-        profile: chef,
+        profile: { ...chef, tierLabel: tierLabels[chef.tier] },
         notificationPreferences,
       };
     }

@@ -29,10 +29,7 @@ export const PUBLIC_DISH_EXAMPLE = {
   category: 'main',
   imageUrl: null,
   portions: 3,
-  prepMinutes: 20,
-  cookMinutes: 55,
   difficulty: 'easy',
-  calories: 640,
   diets: ['lactose-free'],
   customDiets: [],
   allergens: ['celery'],
@@ -40,9 +37,17 @@ export const PUBLIC_DISH_EXAMPLE = {
   customAllergens: ['sarrasin'],
 };
 
+/** The public fields plus the times and calories: chef and admin routes. */
+export const DISH_SUMMARY_EXAMPLE = {
+  ...PUBLIC_DISH_EXAMPLE,
+  prepMinutes: 20,
+  cookMinutes: 55,
+  calories: 640,
+};
+
 /** `GET /me/dishes/{id}` → 200. */
 export const DISH_EXAMPLE = {
-  ...PUBLIC_DISH_EXAMPLE,
+  ...DISH_SUMMARY_EXAMPLE,
   recipe: RECIPE_EXAMPLE,
   recipeComplete: true,
   recipeVersion: 3,
@@ -140,7 +145,7 @@ export const SHOWCASE_EXAMPLE = {
 export const SUGGESTIONS_EXAMPLE = {
   dishes: [
     {
-      ...PUBLIC_DISH_EXAMPLE,
+      ...DISH_SUMMARY_EXAMPLE,
       id: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
       name: 'Poulet yassa',
       country: 'SN',
@@ -155,7 +160,7 @@ export const SUGGESTIONS_EXAMPLE = {
       pitch: 'Une semaine qui voyage.',
       period: 'week',
       updatedAt: '2026-09-10T09:00:00.000Z',
-      dishes: [{ ...PUBLIC_DISH_EXAMPLE, updatedAt: '2026-09-03T14:12:00.000Z' }],
+      dishes: [{ ...DISH_SUMMARY_EXAMPLE, updatedAt: '2026-09-03T14:12:00.000Z' }],
       adoptedCopyId: MENU_ID,
     },
   ],

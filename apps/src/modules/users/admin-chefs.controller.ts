@@ -29,6 +29,7 @@ import { AdminChefsService } from './admin-chefs.service';
 import {
   CHEF_STATE_HELP,
   ListAdminChefsQueryDto,
+  UpdateChefTierDto,
   UpdateChefZonesDto,
 } from './dto/admin-chefs.dto';
 
@@ -47,6 +48,8 @@ const CHEF = {
   isVerified: true,
   isActive: true,
   autoSuspendedAt: null,
+  tier: 'tier_2',
+  tierLabel: 'Confirmé',
   reactivatedPendingReview: false,
   regions: [{ code: '93', label: "Provence-Alpes-Côte d'Azur" }],
   application: {
@@ -212,5 +215,29 @@ export class AdminChefsController {
     @CurrentClerkUser() user: ClerkUser,
   ) {
     return this.chefs.setZones(id, body.interventionZones, user.userId);
+  }
+
+  @Patch(':id/tier')
+  @ApiParam({ name: 'id', description: 'The batch cooker page id.', example: CHEF_ID })
+  @ApiOperation({
+    summary: 'Set the tier of a batch cooker',
+    description:
+      'One of four codes (`tier_1` to `tier_4`), named in ' +
+      '`GET /admin/settings/chef-tiers`. Every batch cooker starts at `tier_1`. ' +
+      'No billing and no publication rule depend on it yet. Audited.\n\n' +
+      `Answers the batch cooker as \`GET /admin/chefs/{id}\` does.\n\n${ID_HELP}`,
+  })
+  @ApiOkResponse({
+    description: 'The batch cooker, with the new tier.',
+    example: CHEF_DETAIL,
+  })
+  @ApiNotFoundResponse({ description: '`CHEF_NOT_FOUND`: no batch cooker with this id.' })
+  @ApiAdminAuthResponses()
+  setTier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateChefTierDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
+    return this.chefs.setTier(id, body.tier, user.userId);
   }
 }

@@ -1,6 +1,8 @@
-import { ApiPropertyOptional, PickType } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PickType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+
+import { ChefTier } from '../../../generated/prisma/client';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import { METROPOLITAN_REGIONS } from '../../chef-onboarding/domain/chef-onboarding.rules';
@@ -10,6 +12,17 @@ import { CreateChefApplicationDto } from '../../chef-onboarding/dto/create-chef-
 export class UpdateChefZonesDto extends PickType(CreateChefApplicationDto, [
   'interventionZones',
 ] as const) {}
+
+/** Body of `PATCH /admin/chefs/{id}/tier`. */
+export class UpdateChefTierDto {
+  @ApiProperty({
+    enum: ChefTier,
+    description: 'A tier code; its name comes from `GET /admin/settings/chef-tiers`.',
+    example: 'tier_2',
+  })
+  @IsEnum(ChefTier)
+  tier!: ChefTier;
+}
 
 /**
  * Where a batch cooker stands, from the three columns that decide it. Each

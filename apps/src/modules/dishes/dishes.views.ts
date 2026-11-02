@@ -7,7 +7,10 @@ import { isRecipeComplete } from './domain/dishes.rules';
  * nowhere else.
  */
 
-/** Everything the public may see (§1): no ingredients, no steps. */
+/**
+ * Everything the public may see (§1): no ingredients, no steps. An explicit list:
+ * Recettes lot 0 keeps the times and calories off the storefront, portions stay.
+ */
 export function toPublicDish(meal: Meal) {
   return {
     id: meal.id,
@@ -18,10 +21,7 @@ export function toPublicDish(meal: Meal) {
     category: meal.category,
     imageUrl: meal.imageUrl,
     portions: meal.portions,
-    prepMinutes: meal.prepTime,
-    cookMinutes: meal.cookTime,
     difficulty: meal.difficulty,
-    calories: meal.calories,
     diets: meal.dietaryTags,
     customDiets: meal.customDiets,
     allergens: meal.allergens,
@@ -30,11 +30,21 @@ export function toPublicDish(meal: Meal) {
   };
 }
 
+/** The public fields plus the times and calories, which only chefs and admins see. */
+export function toDishSummary(meal: Meal) {
+  return {
+    ...toPublicDish(meal),
+    prepMinutes: meal.prepTime,
+    cookMinutes: meal.cookTime,
+    calories: meal.calories,
+  };
+}
+
 /** The chef's own view, and the admin's (§8): with the recipe and the status. */
 export function toDishView(meal: Meal) {
   const ingredients = Array.isArray(meal.ingredients) ? meal.ingredients : [];
   return {
-    ...toPublicDish(meal),
+    ...toDishSummary(meal),
     recipe: {
       ingredients,
       steps: meal.steps,

@@ -64,6 +64,8 @@ export class ChefContentService {
    * so a chef whose blocking document expired cannot put anything new online.
    */
   async assertCanPublish(chef: ChefContext): Promise<void> {
+    // Recettes R34: which chef tiers may publish is not decided (BLK-26). The tier
+    // check goes here, answering `tierCannotPublish` (content.errors.ts).
     this.assertVerified(chef);
     const status = chef.application
       ? this.documents.deriveStatus(
