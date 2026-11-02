@@ -13,9 +13,14 @@ import { UsersService } from '../users/users.service';
 import {
   formatInvoiceNumber,
   invoiceLines,
+  invoiceNumberPrefix,
   invoiceYear,
 } from './domain/payment-invoices.rules';
-import type { DocumentLinkDto, PaymentInvoiceDto } from './dto/payment-invoice.dto';
+import type {
+  DocumentLinkDto,
+  PaymentInvoiceBackfillResultDto,
+  PaymentInvoiceDto,
+} from './dto/payment-invoice.dto';
 import {
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
@@ -38,7 +43,7 @@ const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 export class PaymentInvoicesService {
   private readonly logger = new Logger(PaymentInvoicesService.name);
   private readonly bucketName: string;
-  private readonly prefix: string;
+  private readonly template: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,14 +52,16 @@ export class PaymentInvoicesService {
     config: ConfigService,
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
-    this.prefix = config.get<string>('payments.paymentInvoicePrefix', 'LF-FAC');
+    this.template = config.get<string>('payments.paymentInvoicePrefix', 'LF-CUSYY-XXXXX');
   }
 
   /**
-   * Numbers and freezes the invoice of a payment that is being settled. Idempotent on
-   * `paymentId`. Numbering counts the year's invoices: two concurrent settlements may
-   * draw the same number, the unique index refuses the second, its transaction rolls
-   * back with the payment, and Stripe's webhook retry settles it again with the next one.
+   * Numbers and freezes the invoice of a payment. Idempotent on `paymentId`. The invoice
+   * is dated and numbered the moment it is issued, never backdated: for a late one
+   * (`backfill`) the PDF shows today as the issue date and `paidAt` as the payment date.
+   * Numbering counts the year's invoices: two concurrent issues may draw the same number,
+   * the unique index refuses the second, and its transaction rolls back (with the payment,
+   * in the webhook, whose Stripe retry then settles it again with the next number).
    */
   async issue(
     tx: Prisma.TransactionClient,
@@ -102,16 +109,16 @@ export class PaymentInvoicesService {
     });
     const { booking } = payment;
 
-    const year = invoiceYear(paidAt);
-    const yearPrefix = `${this.prefix}-${year}-`;
+    const issuedAt = new Date();
+    const year = invoiceYear(issuedAt);
     const issuedThisYear = await tx.paymentInvoice.count({
-      where: { invoiceNumber: { startsWith: yearPrefix } },
+      where: { invoiceNumber: { startsWith: invoiceNumberPrefix(this.template, year) } },
     });
-    const invoiceNumber = formatInvoiceNumber(this.prefix, year, issuedThisYear + 1);
+    const invoiceNumber = formatInvoiceNumber(this.template, year, issuedThisYear + 1);
 
     const snapshot: PaymentInvoiceSnapshot = {
       invoiceNumber,
-      issuedAt: paidAt.toISOString(),
+      issuedAt: issuedAt.toISOString(),
       paidAt: paidAt.toISOString(),
       currency: payment.currency,
       amountTtcCents: payment.amountTtc,
@@ -154,13 +161,69 @@ export class PaymentInvoicesService {
         clientId: booking.client.id,
         chefProfileId: booking.chefProfile.id,
         invoiceNumber,
-        issuedAt: paidAt,
+        issuedAt,
         amountTtcCents: payment.amountTtc,
         currency: payment.currency,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
       },
       select: { id: true, invoiceNumber: true },
     });
+  }
+
+  /**
+   * Catch-up for card payments settled without an invoice: those paid before invoice A
+   * existed. Oldest payment first, so the sequence follows the order they came in; each
+   * is issued today (see `issue`). One transaction per payment: one that cannot be
+   * invoiced is reported and skipped, and a second run picks up whatever is left. A run
+   * racing a live settlement may lose a number to the unique index (`P2002`): run again.
+   */
+  async backfill(dryRun: boolean): Promise<PaymentInvoiceBackfillResultDto> {
+    const payments = await this.prisma.payment.findMany({
+      where: { method: 'cb', status: 'succeeded', paidAt: { not: null }, invoice: null },
+      orderBy: { paidAt: 'asc' },
+      select: { id: true, paidAt: true },
+    });
+    const result: PaymentInvoiceBackfillResultDto = {
+      dryRun,
+      pending: payments.length,
+      issued: [],
+      failed: [],
+    };
+    if (dryRun) return result;
+
+    for (const payment of payments) {
+      try {
+        const invoice = await this.prisma.$transaction((tx) =>
+          // `paidAt: { not: null }` above.
+          this.issue(tx, payment.id, payment.paidAt!),
+        );
+        await this.archive(invoice.id);
+        result.issued.push({
+          paymentId: payment.id,
+          invoiceNumber: invoice.invoiceNumber,
+        });
+        this.logger.log({
+          event: 'payment_invoice.backfilled',
+          paymentId: payment.id,
+          invoiceNumber: invoice.invoiceNumber,
+        });
+      } catch (error) {
+        const { response, code } = (error ?? {}) as {
+          response?: { code?: string };
+          code?: string;
+        };
+        result.failed.push({
+          paymentId: payment.id,
+          code: response?.code ?? code ?? 'UNKNOWN',
+        });
+        this.logger.error({
+          event: 'payment_invoice.backfill_failed',
+          paymentId: payment.id,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
+    return result;
   }
 
   /** Draws and stores the PDF. Best-effort: see the class comment. */

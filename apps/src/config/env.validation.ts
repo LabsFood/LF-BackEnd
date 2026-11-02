@@ -74,8 +74,14 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
   /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
   PAYMENTS_COMMISSION_INVOICE_PREFIX: Joi.string().max(16).default('LF-COM'),
-  /** Numbering prefix of facture A, the client's invoice (`LF-FAC-<year>-NNNN`). */
-  PAYMENTS_INVOICE_PREFIX: Joi.string().max(16).default('LF-FAC'),
+  /**
+   * Numbering template of facture A, the client's invoice: `YY` the year's last two
+   * digits, the trailing run of `X` the year's sequence (`LF-CUSYY-XXXXX` → `LF-CUS26-00001`).
+   */
+  PAYMENTS_INVOICE_PREFIX: Joi.string()
+    .pattern(/^[^X]*YY[^X]*X+$/)
+    .max(24)
+    .default('LF-CUSYY-XXXXX'),
 
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),

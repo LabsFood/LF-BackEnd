@@ -88,7 +88,7 @@ function setup(booking: object = DONE_BOOKING) {
     {
       issue: jest
         .fn()
-        .mockResolvedValue({ id: 'inv-1', invoiceNumber: 'LF-FAC-2026-0001' }),
+        .mockResolvedValue({ id: 'inv-1', invoiceNumber: 'LF-CUS26-00001' }),
       archive: jest.fn(),
     } as unknown as PaymentInvoicesService,
   );

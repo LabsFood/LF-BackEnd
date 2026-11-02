@@ -427,7 +427,7 @@ comment in each migration for the full rationale.
 |------------|-------------|
 | No PDF attestation | `GET …/fiscal-attestations` returns JSON only |
 | No PDF or archive of facture B | Commission invoices are numbered receivables served as JSON |
-| Invoice A on card payments only | Numbered (`LF-FAC-<year>-NNNN`) in the `payment_intent.succeeded` transaction once the commission is `collected`, PDF in the private `SUPABASE_INVOICES_BUCKET`, read through `GET /me/payment-invoices` and `/:id/download-url`. The card charge carries `on_behalf_of`. CESU and URSSAF payments get no invoice A yet |
+| Invoice A on card payments only | Numbered (`PAYMENTS_INVOICE_PREFIX`, `LF-CUS26-00001`) in the `payment_intent.succeeded` transaction once the commission is `collected`, PDF in the private `SUPABASE_INVOICES_BUCKET`, read through `GET /me/payment-invoices` and `/:id/download-url`. Card payments settled earlier get theirs from `POST /admin/payment-invoices/backfill`, dated the day of the catch-up. The card charge carries `on_behalf_of`. CESU and URSSAF payments get no invoice A yet |
 | No refund endpoint | Refunds happen in the Stripe Dashboard; the webhook records them, the commission is not clawed back |
 | Immediate advance is simulated | Only `URSSAF_GATEWAY=simulated` exists: an admin answers in URSSAF's place |
 | No scheduler for `monthly_batch` | `POST /admin/commission-invoices/run-due` is the trigger |

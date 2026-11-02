@@ -48,7 +48,7 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` | Payments — **live**. Without the key `/payments/*` answers `503`; without the Connect secret `account.updated` is rejected and chefs stay `chargesEnabled=false` |
 | `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). Fallback until an admin saves the rate from the console (`PATCH /admin/settings/commission`) |
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
-| `PAYMENTS_INVOICE_PREFIX` | Numbering of the client's invoice, facture A (default `LF-FAC`, giving `LF-FAC-<year>-NNNN`) |
+| `PAYMENTS_INVOICE_PREFIX` | Numbering template of the client's invoice, facture A (default `LF-CUSYY-XXXXX`: `YY` the year's last two digits, the Xs the year's sequence, giving `LF-CUS26-00001`). Refused at startup without `YY` and a trailing run of `X` |
 | `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
@@ -73,6 +73,12 @@ Supabase Storage, **private**, with no policy for `anon` or `authenticated`: onl
 secret key reads and writes it, and a client gets a 5-minute signed link per download.
 A PDF whose upload fails stays `storagePath = null`; the next download request redraws it
 from the invoice's frozen snapshot and stores it, so no job has to run.
+
+Card payments settled before invoices existed have none. Once the bucket exists, an admin
+issues them with `POST /admin/payment-invoices/backfill`: the body `{}` is a dry run that
+counts them, and `{ "dryRun": false }` issues them, oldest payment first. Each one is dated
+the day of the catch-up and numbered in that year's sequence, with the real payment date
+printed on it. Running it again issues only what is still missing.
 
 ### KYC bucket (chef onboarding)
 

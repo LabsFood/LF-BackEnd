@@ -6,7 +6,7 @@ import {
 } from './payment-invoice-document';
 
 const SNAPSHOT: PaymentInvoiceSnapshot = {
-  invoiceNumber: 'LF-FAC-2026-0007',
+  invoiceNumber: 'LF-CUS26-00007',
   issuedAt: '2026-11-02T10:00:00.000Z',
   paidAt: '2026-11-02T10:00:00.000Z',
   currency: 'EUR',
@@ -43,7 +43,7 @@ describe('renderPaymentInvoicePdf', () => {
 
     expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     for (const fact of [
-      'LF-FAC-2026-0007',
+      'LF-CUS26-00007',
       'Chef Amina',
       'SAP123456789',
       'Marie Dupont',
@@ -67,7 +67,7 @@ describe('renderPaymentInvoicePdf', () => {
       }),
     );
 
-    expect(text).toContain('LF-FAC-2026-0007');
+    expect(text).toContain('LF-CUS26-00007');
     expect(text).not.toContain('SAP');
   });
 });

@@ -20,9 +20,32 @@ export interface InvoiceLine {
   amountCents: number;
 }
 
-/** `<prefix>-<year>-NNNN`; past 9999 the number simply gets longer. */
+/**
+ * Numbers follow a template: `YY` is the year's last two digits, the trailing run of `X`
+ * the year's sequence, zero-padded to its width. `LF-CUSYY-XXXXX` gives `LF-CUS26-00001`.
+ */
+const TEMPLATE = /^([^X]*)YY([^X]*?)(X+)$/;
+
+function parseTemplate(template: string): { head: string; tail: string; width: number } {
+  const match = TEMPLATE.exec(template);
+  if (!match) {
+    throw new UnprocessableEntityException({
+      code: 'INVOICE_TEMPLATE_INVALID',
+      message: `Invoice template must hold YY and end with a run of X, got ${template}.`,
+    });
+  }
+  return { head: match[1], tail: match[2], width: match[3].length };
+}
+
+/** What every number of that year starts with: `LF-CUS26-`. */
+export function invoiceNumberPrefix(template: string, year: number): string {
+  const { head, tail } = parseTemplate(template);
+  return `${head}${String(year % 100).padStart(2, '0')}${tail}`;
+}
+
+/** Past the width of the Xs the number simply gets longer. */
 export function formatInvoiceNumber(
-  prefix: string,
+  template: string,
   year: number,
   sequence: number,
 ): string {
@@ -32,7 +55,8 @@ export function formatInvoiceNumber(
       message: `Invoice sequence must be a positive integer, got ${sequence}.`,
     });
   }
-  return `${prefix}-${year}-${String(sequence).padStart(4, '0')}`;
+  const { width } = parseTemplate(template);
+  return `${invoiceNumberPrefix(template, year)}${String(sequence).padStart(width, '0')}`;
 }
 
 /** The calendar year in Paris: an invoice paid at 00:30 on 1 January belongs to the new year. */

@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsOptional } from 'class-validator';
 
 /**
  * **Facture A** — the invoice the client receives for a card payment, issued in the
@@ -9,14 +10,20 @@ export class PaymentInvoiceDto {
   @ApiProperty({ example: '0b6c2f3e-8d41-4a7a-9c15-2e7f4d1a6b90', format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ example: 'LF-FAC-2026-0007', description: '`<prefix>-<year>-NNNN`.' })
+  @ApiProperty({
+    example: 'LF-CUS26-00007',
+    description:
+      '`PAYMENTS_INVOICE_PREFIX` filled in: `YY` the year, the run of `X` the sequence.',
+  })
   invoiceNumber!: string;
 
   @ApiProperty({
     example: '2026-11-02T10:00:00.000Z',
     type: String,
     format: 'date-time',
-    description: 'The payment date: the invoice is issued when the card is charged.',
+    description:
+      'When the invoice was issued: the payment date for an invoice issued when the card ' +
+      'was charged, the catch-up date for a payment settled before invoices existed.',
   })
   issuedAt!: Date;
 
@@ -51,7 +58,7 @@ export class PaymentInvoiceDto {
 export class DocumentLinkDto {
   @ApiProperty({
     example:
-      'https://<project>.supabase.co/storage/v1/object/sign/labsfood-invoices/clients/…/LF-FAC-2026-0007.pdf?token=eyJhbGciOi…&download=facture-LF-FAC-2026-0007.pdf',
+      'https://<project>.supabase.co/storage/v1/object/sign/labsfood-invoices/clients/…/LF-CUS26-00007.pdf?token=eyJhbGciOi…&download=facture-LF-CUS26-00007.pdf',
   })
   url!: string;
 
@@ -62,4 +69,47 @@ export class DocumentLinkDto {
     description: 'The link stops working after this instant (5 minutes).',
   })
   expiresAt!: Date;
+}
+
+export class BackfillPaymentInvoicesDto {
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Report what would be invoiced without issuing. Pass `false` to issue.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
+class BackfilledInvoiceDto {
+  @ApiProperty({ format: 'uuid' })
+  paymentId!: string;
+
+  @ApiProperty({ example: 'LF-CUS26-00001' })
+  invoiceNumber!: string;
+}
+
+class BackfillFailureDto {
+  @ApiProperty({ format: 'uuid' })
+  paymentId!: string;
+
+  @ApiProperty({
+    example: 'INVOICE_AMOUNT_INVALID',
+    description: 'Error code, or `P2002`.',
+  })
+  code!: string;
+}
+
+export class PaymentInvoiceBackfillResultDto {
+  @ApiProperty()
+  dryRun!: boolean;
+
+  @ApiProperty({ example: 12, description: 'Settled card payments that had no invoice.' })
+  pending!: number;
+
+  @ApiProperty({ type: BackfilledInvoiceDto, isArray: true })
+  issued!: BackfilledInvoiceDto[];
+
+  @ApiProperty({ type: BackfillFailureDto, isArray: true })
+  failed!: BackfillFailureDto[];
 }
