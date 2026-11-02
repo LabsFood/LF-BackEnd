@@ -19,7 +19,7 @@ import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { shoppingByClient, shoppingListFrozen } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
-import { Line, scale } from './domain/recipes.rules';
+import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
 
 type Role = 'chef' | 'admin' | 'client';
 
@@ -135,9 +135,10 @@ export class MissionsService {
       },
       portions: servings,
       recipe: {
-        ingredients: scale(recipe.ingredients, recipe.portions, servings),
-        steps: recipe.steps,
-        reheating: recipe.reheating,
+        ingredients: roundLines(scale(recipe.ingredients, recipe.portions, servings)),
+        steps: readSteps(recipe.steps),
+        // Not part of a version (Recettes §4.6): the advice as it stands today.
+        reheating: meal.reheating,
         storage: recipe.storage,
       },
       version: {

@@ -178,15 +178,7 @@ export class MenusService {
 
     const problems = menuPublishProblems(
       menu,
-      menu.dishes.map(({ meal }) => ({
-        id: meal.id,
-        name: meal.name,
-        status: meal.status,
-        country: meal.country,
-        portions: meal.portions,
-        allergens: meal.allergens,
-        allergensNone: meal.allergensNone,
-      })),
+      menu.dishes.map(({ meal }) => meal),
     );
     if (hasMenuProblems(problems)) throw menuNotPublishable(problems);
 

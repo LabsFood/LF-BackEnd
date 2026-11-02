@@ -12,9 +12,24 @@ export const RECIPE_EXAMPLE = {
     { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' },
   ],
   steps: [
-    'Préchauffer le four à 200 °C.',
-    "Glisser le beurre, l'ail écrasé et les herbes sous la peau du poulet.",
-    'Enfourner 55 min en arrosant deux fois avec le jus.',
+    {
+      order: 1,
+      text: 'Préchauffer le four à 200 °C.',
+      type: 'preparation',
+      durationMinutes: 10,
+    },
+    {
+      order: 2,
+      text: "Glisser le beurre, l'ail écrasé et les herbes sous la peau du poulet.",
+      type: 'preparation',
+      durationMinutes: 10,
+    },
+    {
+      order: 3,
+      text: 'Enfourner 55 min en arrosant deux fois avec le jus.',
+      type: 'cuisson',
+      durationMinutes: 55,
+    },
   ],
   reheating: { mode: 'oven', temperature: 160, minutes: 15, note: 'Couvrir.' },
   storage: { method: 'fridge', days: 3, container: 'Boîte hermétique' },
@@ -63,15 +78,18 @@ export const DISH_EXAMPLE = {
 
 /** `POST /me/dishes/{id}/publish` → 422. */
 export const PUBLISH_REFUSED_EXAMPLE = {
-  code: 'ALLERGENS_REQUIRED',
-  message: 'This dish cannot be published yet.',
+  code: 'RECIPE_NOT_READY',
+  message: 'This recipe is not ready to publish.',
   problems: [
     {
-      code: 'ALLERGENS_REQUIRED',
+      code: 'STEP_TYPE_MISSING',
+      field: 'recipe.steps[0]',
+      message: 'Say what this step is: preparation, cooking, cooling or packing.',
+    },
+    {
+      code: 'ALLERGENS_UNVERIFIED',
       field: 'allergens',
-      message:
-        'Declare the allergens: list them, or confirm the dish contains none of the 14 ' +
-        'regulated allergens (`allergensNone: true`).',
+      message: 'Confirm the allergens: the ingredients changed since they were verified.',
     },
   ],
 };

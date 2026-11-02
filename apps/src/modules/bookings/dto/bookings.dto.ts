@@ -8,6 +8,7 @@ import {
   IsDate,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -72,10 +73,17 @@ export class BookingMealDto {
   @IsUUID()
   mealId!: string;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 50, default: 4, example: 4 })
+  @ApiPropertyOptional({
+    minimum: 0.5,
+    maximum: 50,
+    description:
+      'Portions of this dish. Without it, the client’s household: adults plus half ' +
+      'a portion per child (Recettes BLK-27).',
+    example: 2.5,
+  })
   @IsOptional()
-  @IsInt()
-  @Min(1)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0.5)
   @Max(50)
   portions?: number;
 }

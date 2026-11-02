@@ -24,10 +24,16 @@ const client = (over: Partial<ClientAllergies> = {}): ClientAllergies => ({
   ...over,
 });
 
-const dish = (id: string, allergens: string[], allergensNone = false): DishAllergens => ({
+const dish = (
+  id: string,
+  allergens: string[],
+  allergensNone = false,
+  allergensVerifiedAt: Date | null = NOW,
+): DishAllergens => ({
   id,
   allergens,
   allergensNone,
+  allergensVerifiedAt,
 });
 
 const body = (error: HttpException | null) =>
@@ -56,6 +62,10 @@ describe('unverifiedDishes and conflicts', () => {
 
   it('a dish with neither allergens nor "none" cannot be checked', () => {
     expect(unverifiedDishes(dishes)).toEqual(['c']);
+  });
+
+  it('nor one whose allergens the chef has not verified since its ingredients changed', () => {
+    expect(unverifiedDishes([dish('d', ['milk'], false, null)])).toEqual(['d']);
   });
 
   it('lists, per dish, the declared allergens it contains', () => {

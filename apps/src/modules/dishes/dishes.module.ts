@@ -11,6 +11,7 @@ import { ChefContentService } from './chef-content.service';
 import { ContentPhotosService } from './content-photos.service';
 import { DishesMailer } from './dishes.mailer';
 import { DishesService } from './dishes.service';
+import { DuplicationService } from './duplication.service';
 import { LabsFoodContentService } from './labs-food-content.service';
 import { MeContentController } from './me-content.controller';
 import { MenusService } from './menus.service';
@@ -42,6 +43,7 @@ import { VitrineService } from './vitrine.service';
     ContentPhotosService,
     DishesService,
     DishesMailer,
+    DuplicationService,
     LabsFoodContentService,
     MenusService,
     MissionsService,

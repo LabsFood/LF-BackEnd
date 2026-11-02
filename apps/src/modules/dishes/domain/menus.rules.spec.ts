@@ -1,13 +1,22 @@
 import { hasMenuProblems, isMonday, menuPublishProblems } from './menus.rules';
 
+/** A draft dish that passes the Recettes §4.11 check. */
 const dish = (overrides: Record<string, unknown> = {}) => ({
   id: 'd1',
   name: 'Pho Bo',
   status: 'draft',
-  country: 'VN',
+  category: 'main',
   portions: 4,
+  cookTime: 180,
+  description: 'Bouillon de bœuf parfumé.',
+  imageUrl: null,
+  ingredients: [{ name: 'Bœuf', qty: 1, unit: 'kg', aisle: 'boucherie' }],
+  steps: [{ text: 'Mijoter', type: 'cuisson' }],
+  storage: { method: 'fridge', days: 3 },
+  reheating: { modes: ['saucepan'] },
   allergens: ['soy'],
   allergensNone: false,
+  allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
   ...overrides,
 });
 
@@ -34,7 +43,7 @@ describe('menuPublishProblems (§3.4)', () => {
     expect(problems.menu.map((p) => p.field)).toEqual(['title', 'dishIds']);
   });
 
-  it('checks a draft dish as if it were published on its own', () => {
+  it('checks a draft dish as if it were published on its own (Recettes §4.11)', () => {
     const problems = menuPublishProblems({ title: 'Semaine' }, [dish({ allergens: [] })]);
     expect(problems.dishes).toEqual([
       expect.objectContaining({

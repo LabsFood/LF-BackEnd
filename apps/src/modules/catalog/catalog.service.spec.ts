@@ -60,7 +60,14 @@ describe('CatalogService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         CatalogService,
-        { provide: PrismaService, useValue: { meal, menuWeek } },
+        {
+          provide: PrismaService,
+          useValue: {
+            meal,
+            menuWeek,
+            platformSetting: { findUnique: jest.fn(async () => null) },
+          },
+        },
         { provide: SuggestionsService, useValue: suggestions },
       ],
     }).compile();
@@ -80,7 +87,7 @@ describe('CatalogService', () => {
           portions: 6,
           calories: 620,
           difficulty: MealDifficulty.medium,
-          steps: ['Marinate', 'Sear'],
+          steps: [{ text: 'Marinate', type: 'preparation' }, { text: 'Sear' }],
           isFeatured: true,
           status: MealStatus.published,
         },
@@ -96,7 +103,10 @@ describe('CatalogService', () => {
           portions: 6,
           calories: 620,
           difficulty: MealDifficulty.medium,
-          steps: ['Marinate', 'Sear'],
+          steps: [
+            { order: 1, text: 'Marinate', type: 'preparation', durationMinutes: null },
+            { order: 2, text: 'Sear', type: null, durationMinutes: null },
+          ],
           isFeatured: true,
           status: MealStatus.published,
         }),
@@ -156,7 +166,7 @@ describe('CatalogService', () => {
       expect(meal.update).not.toHaveBeenCalled();
     });
 
-    it('stores ingredients as plain { name, qty, unit, aisle } lines', async () => {
+    it('stores ingredients as plain lines, the optional fields with their defaults', async () => {
       await service.createMeal(
         {
           name: 'Mafé',
@@ -167,8 +177,28 @@ describe('CatalogService', () => {
       );
 
       expect(meal.create.mock.calls[0][0].data.ingredients).toEqual([
-        { name: 'Arachide', qty: 200, unit: 'g', aisle: 'epicerie' },
+        {
+          name: 'Arachide',
+          qty: 200,
+          unit: 'g',
+          aisle: 'epicerie',
+          link: null,
+          toVerify: false,
+          fixedQuantity: false,
+          catalogIngredientId: null,
+        },
       ]);
+    });
+
+    it('refuses a recipe beyond a cap with 422 LIMIT_REACHED', async () => {
+      await expect(
+        service.updateMeal(
+          'meal-1',
+          { steps: Array(41).fill({ text: 'Mélanger' }) },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'LIMIT_REACHED', limit: 'steps' } });
+      expect(meal.update).not.toHaveBeenCalled();
     });
   });
 
@@ -189,11 +219,52 @@ describe('CatalogService', () => {
   });
 
   it('makes a new recipe version when the recipe changes, not otherwise', async () => {
-    await service.updateMeal('meal-1', { steps: ['Mariner'] }, ADMIN_ID);
+    await service.updateMeal('meal-1', { steps: [{ text: 'Mariner' }] }, ADMIN_ID);
     await service.updateMeal('meal-1', { description: 'Plus relevé.' }, ADMIN_ID);
 
     expect(meal.update.mock.calls[0][0].data.recipeVersion).toEqual({ increment: 1 });
     expect(meal.update.mock.calls[1][0].data).not.toHaveProperty('recipeVersion');
+  });
+
+  describe('allergen verification (Recettes §4.9)', () => {
+    it('counts the admin’s save as the check when the meal declares its allergens', async () => {
+      await service.createMeal(
+        { name: 'Mafé', prepTime: 90, allergens: ['peanuts'] },
+        ADMIN_ID,
+      );
+      await service.createMeal({ name: 'Riz', prepTime: 20 }, ADMIN_ID);
+
+      expect(meal.create.mock.calls[0][0].data.allergensVerifiedAt).toBeInstanceOf(Date);
+      expect(meal.create.mock.calls[1][0].data.allergensVerifiedAt).toBeNull();
+    });
+
+    it('checks again when the ingredients change, from the declaration as stored', async () => {
+      meal.findFirst.mockResolvedValueOnce({
+        allergens: [],
+        allergensNone: true,
+        customAllergens: [],
+        dietaryTags: [],
+        customDiets: [],
+        offeredToChefProfileId: null,
+      });
+
+      await service.updateMeal(
+        'meal-1',
+        { ingredients: [{ name: 'Riz', qty: 1, unit: 'kg', aisle: 'epicerie' }] },
+        ADMIN_ID,
+      );
+
+      expect(meal.update.mock.calls[0][0].data.allergensVerifiedAt).toBeInstanceOf(Date);
+    });
+  });
+
+  it('makes no version for a reheating change (Recettes §4.6)', async () => {
+    await service.updateMeal('meal-1', { reheating: { modes: ['oven'] } }, ADMIN_ID);
+
+    expect(meal.update.mock.calls[0][0].data.reheating).toMatchObject({
+      modes: ['oven'],
+    });
+    expect(meal.update.mock.calls[0][0].data).not.toHaveProperty('recipeVersion');
   });
 
   describe('source-changed (PRD)', () => {
