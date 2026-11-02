@@ -16,7 +16,11 @@ import {
   invoiceNumberPrefix,
   invoiceYear,
 } from './domain/payment-invoices.rules';
-import type { DocumentLinkDto, PaymentInvoiceDto } from './dto/payment-invoice.dto';
+import type {
+  DocumentLinkDto,
+  PaymentInvoiceBackfillResultDto,
+  PaymentInvoiceDto,
+} from './dto/payment-invoice.dto';
 import {
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
@@ -164,6 +168,62 @@ export class PaymentInvoicesService {
       },
       select: { id: true, invoiceNumber: true },
     });
+  }
+
+  /**
+   * Catch-up for card payments settled without an invoice: those paid before invoice A
+   * existed. Oldest payment first, so the sequence follows the order they came in; each
+   * is issued today (see `issue`). One transaction per payment: one that cannot be
+   * invoiced is reported and skipped, and a second run picks up whatever is left. A run
+   * racing a live settlement may lose a number to the unique index (`P2002`): run again.
+   */
+  async backfill(dryRun: boolean): Promise<PaymentInvoiceBackfillResultDto> {
+    const payments = await this.prisma.payment.findMany({
+      where: { method: 'cb', status: 'succeeded', paidAt: { not: null }, invoice: null },
+      orderBy: { paidAt: 'asc' },
+      select: { id: true, paidAt: true },
+    });
+    const result: PaymentInvoiceBackfillResultDto = {
+      dryRun,
+      pending: payments.length,
+      issued: [],
+      failed: [],
+    };
+    if (dryRun) return result;
+
+    for (const payment of payments) {
+      try {
+        const invoice = await this.prisma.$transaction((tx) =>
+          // `paidAt: { not: null }` above.
+          this.issue(tx, payment.id, payment.paidAt!),
+        );
+        await this.archive(invoice.id);
+        result.issued.push({
+          paymentId: payment.id,
+          invoiceNumber: invoice.invoiceNumber,
+        });
+        this.logger.log({
+          event: 'payment_invoice.backfilled',
+          paymentId: payment.id,
+          invoiceNumber: invoice.invoiceNumber,
+        });
+      } catch (error) {
+        const { response, code } = (error ?? {}) as {
+          response?: { code?: string };
+          code?: string;
+        };
+        result.failed.push({
+          paymentId: payment.id,
+          code: response?.code ?? code ?? 'UNKNOWN',
+        });
+        this.logger.error({
+          event: 'payment_invoice.backfill_failed',
+          paymentId: payment.id,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
+    return result;
   }
 
   /** Draws and stores the PDF. Best-effort: see the class comment. */

@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsOptional } from 'class-validator';
 
 /**
  * **Facture A** — the invoice the client receives for a card payment, issued in the
@@ -68,4 +69,47 @@ export class DocumentLinkDto {
     description: 'The link stops working after this instant (5 minutes).',
   })
   expiresAt!: Date;
+}
+
+export class BackfillPaymentInvoicesDto {
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Report what would be invoiced without issuing. Pass `false` to issue.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
+class BackfilledInvoiceDto {
+  @ApiProperty({ format: 'uuid' })
+  paymentId!: string;
+
+  @ApiProperty({ example: 'LF-CUS26-00001' })
+  invoiceNumber!: string;
+}
+
+class BackfillFailureDto {
+  @ApiProperty({ format: 'uuid' })
+  paymentId!: string;
+
+  @ApiProperty({
+    example: 'INVOICE_AMOUNT_INVALID',
+    description: 'Error code, or `P2002`.',
+  })
+  code!: string;
+}
+
+export class PaymentInvoiceBackfillResultDto {
+  @ApiProperty()
+  dryRun!: boolean;
+
+  @ApiProperty({ example: 12, description: 'Settled card payments that had no invoice.' })
+  pending!: number;
+
+  @ApiProperty({ type: BackfilledInvoiceDto, isArray: true })
+  issued!: BackfilledInvoiceDto[];
+
+  @ApiProperty({ type: BackfillFailureDto, isArray: true })
+  failed!: BackfillFailureDto[];
 }

@@ -74,6 +74,12 @@ secret key reads and writes it, and a client gets a 5-minute signed link per dow
 A PDF whose upload fails stays `storagePath = null`; the next download request redraws it
 from the invoice's frozen snapshot and stores it, so no job has to run.
 
+Card payments settled before invoices existed have none. Once the bucket exists, an admin
+issues them with `POST /admin/payment-invoices/backfill`: the body `{}` is a dry run that
+counts them, and `{ "dryRun": false }` issues them, oldest payment first. Each one is dated
+the day of the catch-up and numbered in that year's sequence, with the real payment date
+printed on it. Running it again issues only what is still missing.
+
 ### KYC bucket (chef onboarding)
 
 Create the bucket named by `SUPABASE_KYC_BUCKET` in Supabase Storage and leave
