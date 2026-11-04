@@ -8,6 +8,7 @@ import {
 import { MealStatus, Prisma } from '../../generated/prisma/client';
 import { CHEF, codeOf, dishRow, harness, readyDishRow } from './dishes.test-helpers';
 import { DishesService } from './dishes.service';
+import { readiness } from './domain/dishes.rules';
 
 describe('DishesService', () => {
   describe('create', () => {
@@ -339,45 +340,24 @@ describe('DishesService', () => {
 
     it('makes no version when nothing of the recipe changes', async () => {
       const h = harness();
-      // The write path does not store the computed fields yet: compare like with like.
-      stored(
-        h,
-        readyDishRow({
-          ingredients: [
-            {
-              name: 'Ail',
-              qty: 4,
-              unit: 'clove',
-              aisle: 'fruits-legumes',
-              catalogIngredientId: 'cat-ail',
-            },
-          ],
-          storage: { method: 'fridge', days: 3 },
-        }),
-      );
-      h.catalogIngredient.count.mockResolvedValueOnce(1);
+      // A ready dish, so `update` reaches `cutVersion`, which must decline: no change
+      // is pending since the last version.
+      const row = readyDishRow({ versionPending: false });
+      expect(readiness(row).ready).toBe(true);
+      stored(h, row);
 
-      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
-        description: 'Plus de thym.',
-        recipe: {
-          ingredients: [
-            {
-              name: 'Ail',
-              qty: 4,
-              unit: 'clove',
-              aisle: 'fruits-legumes',
-              catalogIngredientId: 'cat-ail',
-            },
-          ],
-          steps: [{ text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 }],
-          reheating: { modes: ['microwave'] },
-          storage: { method: 'fridge', days: 3 },
-        },
-      });
+      const view = await new DishesService(h.prisma, h.access).update(
+        'clerk_1',
+        'dish-1',
+        { description: 'Plus de thym.' },
+      );
 
       expect(h.meal.update).toHaveBeenCalledTimes(1);
       expect(h.meal.update.mock.calls[0][0].data).not.toHaveProperty('versionPending');
+      expect(h.mealRecipeVersion.findUnique).not.toHaveBeenCalled();
       expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+      expect(view.recipeVersion).toBe(2);
+      expect(view.readiness.ready).toBe(true);
     });
 
     it('keeps the pending changes in a version when the allergens are confirmed', async () => {

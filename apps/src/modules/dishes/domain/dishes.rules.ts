@@ -200,8 +200,8 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * Recettes §4.11, computed and never stored. `problems` keep the recipe from being
- * "Prête"; `toPublish` adds what publishing needs on top; `warnings` block nothing:
- * a recipe a client can read and a real photo (BLK-32); `warnings` are alerts. Origin and
+ * "Prête"; `toPublish` adds what publishing needs (description, a visible ingredient,
+ * the photo); `warnings` block nothing. Origin and
  * equipment are never asked. Every point at once, each naming its field.
  */
 export function readiness(dish: ReadinessDish) {
