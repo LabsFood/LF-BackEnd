@@ -33,4 +33,26 @@ describe('classify (Recettes §4.8)', () => {
   it('counts the lines still to link', () => {
     expect(unlinkedLines([line('t'), line(null), { name: 'y' }])).toBe(2);
   });
+
+  it('ignores optional lines for the seasons, not for the diets', () => {
+    const basilic = { id: 'b', diets: ['vegan'], seasonMonths: [5, 6] };
+    const cat = new Map([tomate, basilic].map((i) => [i.id, i]));
+    const result = classify([line('t'), { ...line('b'), optional: true }], cat);
+    expect(result?.seasonMonths).toEqual([6, 7, 8, 9]);
+    expect(result?.diets).toEqual(['vegan']);
+  });
+
+  it('removes gluten-free once gluten is among the allergens', () => {
+    const pain = { id: 'p', diets: ['gluten-free', 'vegan'], seasonMonths: [] };
+    const cat = new Map([[pain.id, pain]]);
+    expect(classify([line('p')], cat)?.diets).toEqual(['gluten-free', 'vegan']);
+    expect(classify([line('p')], cat, ['gluten'])?.diets).toEqual(['vegan']);
+    expect(classify([line('p')], cat, ['milk'])?.diets).toEqual(['gluten-free', 'vegan']);
+  });
+
+  it('gives no season month when the seasonal ingredients share none', () => {
+    const hiver = { id: 'h', diets: [], seasonMonths: [12, 1] };
+    const cat = new Map([tomate, hiver].map((i) => [i.id, i]));
+    expect(classify([line('t'), line('h')], cat)?.seasonMonths).toEqual([]);
+  });
 });

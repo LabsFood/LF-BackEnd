@@ -48,7 +48,14 @@ export const linkedIds = (ingredients: unknown): string[] => [
 export const unlinkedLines = (ingredients: unknown): number =>
   (Array.isArray(ingredients) ? ingredients : []).filter((l) => !linkOf(l)).length;
 
+const isOptional = (line: unknown) =>
+  (line as { optional?: unknown } | null)?.optional === true;
+
 /**
+ * `allergens` are the dish's (computed or added): `gluten-free` goes as soon as
+ * `gluten` is among them. Optional lines count for the diets but not the seasons
+ * (§4.8).
+ *
  * `null` ("non calculé") while a line is not linked, or links an entry no longer
  * in the list, or there is no line at all: a partial answer would claim a diet
  * an unlinked ingredient may break.
@@ -56,6 +63,7 @@ export const unlinkedLines = (ingredients: unknown): number =>
 export function classify(
   ingredients: unknown,
   catalog: Map<string, CatalogEntry>,
+  allergens: string[] = [],
 ): Classification | null {
   const lines = Array.isArray(ingredients) ? ingredients : [];
   const entries = lines.map((line) => catalog.get(linkOf(line) ?? ''));
@@ -64,8 +72,11 @@ export function classify(
 
   const diets = [...new Set(all.flatMap((e) => e.diets))]
     .filter((diet) => all.every((e) => e.diets.includes(diet)))
+    .filter((diet) => !(diet === 'gluten-free' && allergens.includes('gluten')))
     .sort();
-  const seasonal = all.filter((e) => e.seasonMonths.length > 0);
+  const seasonal = all.filter(
+    (e, i) => e.seasonMonths.length > 0 && !isOptional(lines[i]),
+  );
   const seasonMonths = seasonal.length
     ? ALL_YEAR.filter((m) => seasonal.every((e) => e.seasonMonths.includes(m)))
     : ALL_YEAR;
