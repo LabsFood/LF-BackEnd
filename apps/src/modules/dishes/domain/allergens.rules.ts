@@ -26,15 +26,18 @@ const inAnnexOrder = (codes: Iterable<string>): string[] => {
 };
 
 /**
- * Recettes §6.1 to §6.3. A line that is unlinked, or linked to an `incomplete`
- * ingredient, brings nothing and makes the state incomplete.
+ * Recettes §6.1 to §6.3. An unlinked line brings nothing and makes the state
+ * incomplete. A line linked to an `incomplete` ingredient also makes it incomplete
+ * but still brings the allergens it carries: an ingredient is incomplete for other
+ * reasons too (e.g. a missing aisle), and dropping known allergens would show a
+ * dish with fewer allergens than it has.
  */
 export function allergenStateOf(
   lines: StoredLine[],
   added: string[],
   custom: string[],
 ): AllergenState {
-  const known = lines.filter((l) => l.catalogIngredientId && !l.incomplete);
+  const known = lines.filter((l) => l.catalogIngredientId);
   const sources: Record<string, string[]> = {};
   const fromRequired = new Set<string>();
   const all = new Set<string>();
@@ -57,7 +60,8 @@ export function allergenStateOf(
   for (const code of inAnnexOrder(Object.keys(sources))) {
     orderedSources[code] = sources[code];
   }
-  const complete = lines.length > 0 && known.length === lines.length;
+  const complete =
+    lines.length > 0 && lines.every((l) => l.catalogIngredientId && !l.incomplete);
 
   return {
     allergens,

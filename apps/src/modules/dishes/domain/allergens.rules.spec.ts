@@ -90,16 +90,23 @@ describe('allergenStateOf (Recettes §4.9)', () => {
     expect(allergenStateOf(lines, ['milk'], []).allergensNone).toBe(false);
   });
 
-  it('is incomplete with an unlinked or incomplete line, still counting the others', () => {
-    for (const bad of [
-      line('Mystère', [], { catalogIngredientId: null }),
-      line('Mystère', ['eggs'], { incomplete: true }),
-    ]) {
-      const s = allergenStateOf([line('Beurre', ['milk']), bad], [], []);
-      expect(s.complete).toBe(false);
-      expect(s.allergensNone).toBe(false);
-      expect(s.allergens).toEqual(['milk']);
-    }
+  it('is incomplete with an unlinked line, still counting the others', () => {
+    const s = allergenStateOf(
+      [line('Beurre', ['milk']), line('Mystère', [], { catalogIngredientId: null })],
+      [],
+      [],
+    );
+    expect(s.complete).toBe(false);
+    expect(s.allergensNone).toBe(false);
+    expect(s.allergens).toEqual(['milk']);
+  });
+
+  it('keeps the known allergens of an incomplete ingredient, but is incomplete', () => {
+    const s = allergenStateOf([line('Beurre', ['milk'], { incomplete: true })], [], []);
+    expect(s.allergens).toContain('milk');
+    expect(s.sources.milk).toContain('Beurre');
+    expect(s.complete).toBe(false);
+    expect(s.allergensNone).toBe(false);
   });
 
   it('brings nothing from an unlinked line that carries allergens', () => {
