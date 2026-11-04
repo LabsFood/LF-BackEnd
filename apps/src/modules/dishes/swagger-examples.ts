@@ -7,9 +7,21 @@ export const DISH_ID = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
 
 export const RECIPE_EXAMPLE = {
   ingredients: [
-    { name: 'Poulet fermier entier', qty: 1.4, unit: 'kg', aisle: 'boucherie' },
+    {
+      name: 'Poulet fermier entier',
+      qty: 1.4,
+      unit: 'kg',
+      aisle: 'boucherie',
+      precision: 'fermier',
+      preparation: null,
+      group: null,
+      optional: false,
+      hiddenFromClient: false,
+      rawText: null,
+    },
     { name: 'Pommes de terre grenaille', qty: 800, unit: 'g', aisle: 'fruits-legumes' },
-    { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' },
+    { name: 'Ail', qty: 4, unit: 'clove', aisle: 'fruits-legumes' },
+    { name: 'Sel', qty: null, unit: 'to_taste', aisle: 'epicerie' },
   ],
   steps: [
     {
@@ -32,7 +44,14 @@ export const RECIPE_EXAMPLE = {
     },
   ],
   reheating: { mode: 'oven', temperature: 160, minutes: 15, note: 'Couvrir.' },
-  storage: { method: 'fridge', days: 3, container: 'Boîte hermétique' },
+  storage: {
+    method: 'fridge',
+    days: 3,
+    container: 'Boîte hermétique',
+    freezable: true,
+    freezerMonths: 3,
+    thawing: 'Une nuit au réfrigérateur.',
+  },
 };
 
 export const PUBLIC_DISH_EXAMPLE = {
@@ -49,6 +68,7 @@ export const PUBLIC_DISH_EXAMPLE = {
   customDiets: [],
   allergens: ['celery'],
   allergensNone: false,
+  conditionalAllergens: [],
   customAllergens: ['sarrasin'],
 };
 
@@ -64,6 +84,9 @@ export const DISH_SUMMARY_EXAMPLE = {
 export const DISH_EXAMPLE = {
   ...DISH_SUMMARY_EXAMPLE,
   recipe: RECIPE_EXAMPLE,
+  addedAllergens: [],
+  allergenSources: { celery: ['Céleri-rave'] },
+  lockVersion: 4,
   recipeComplete: true,
   recipeVersion: 3,
   isFeatured: false,

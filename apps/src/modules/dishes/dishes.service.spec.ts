@@ -19,9 +19,9 @@ describe('DishesService', () => {
       await service.create('clerk_1', {
         name: 'Poulet rôti aux herbes',
         prepMinutes: 20,
-        allergens: ['celery'],
+        addedAllergens: ['celery'],
         recipe: {
-          ingredients: [{ name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' }],
+          ingredients: [{ name: 'Ail', qty: 4, unit: 'clove', aisle: 'fruits-legumes' }],
           steps: [{ text: 'Éplucher', type: 'preparation', durationMinutes: 10 }],
         },
       });
@@ -32,7 +32,7 @@ describe('DishesService', () => {
         createdByUserId: CHEF.userId,
         status: MealStatus.draft,
         prepTime: 20,
-        ingredients: [{ name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' }],
+        ingredients: [{ name: 'Ail', qty: 4, unit: 'clove', aisle: 'fruits-legumes' }],
         steps: [{ order: 1, text: 'Éplucher', type: 'preparation', durationMinutes: 10 }],
       });
       expect(data.reheating).toBe(Prisma.DbNull);
@@ -51,14 +51,28 @@ describe('DishesService', () => {
             {
               name: 'Sel',
               qty: 1,
-              unit: 'pincée',
+              unit: 'pinch',
               aisle: 'epicerie',
               link: 'https://example.com/sel',
               toVerify: true,
               fixedQuantity: true,
+              optional: true,
+              precision: 'fin',
+              preparation: 'moulu',
+              group: 'Sauce',
+              hiddenFromClient: true,
+              rawText: 'une pincée de sel',
             },
+            { name: 'Eau', qty: null, unit: null },
           ],
           steps: [{ text: 'Mijoter' }],
+          storage: {
+            method: 'fridge',
+            days: 3,
+            freezable: true,
+            freezerMonths: 3,
+            thawing: 'Au frigo',
+          },
         },
       });
 
@@ -74,18 +88,39 @@ describe('DishesService', () => {
           toVerify: false,
           fixedQuantity: false,
           catalogIngredientId: null,
+          optional: false,
+          precision: null,
+          preparation: null,
+          group: null,
+          hiddenFromClient: false,
+          rawText: null,
         },
         {
           name: 'Sel',
           qty: 1,
-          unit: 'pincée',
+          unit: 'pinch',
           aisle: 'epicerie',
           link: 'https://example.com/sel',
           toVerify: true,
           fixedQuantity: true,
           catalogIngredientId: null,
+          optional: true,
+          precision: 'fin',
+          preparation: 'moulu',
+          group: 'Sauce',
+          hiddenFromClient: true,
+          rawText: 'une pincée de sel',
         },
+        expect.objectContaining({ name: 'Eau', qty: null, unit: null, aisle: null }),
       ]);
+      expect(data.storage).toEqual({
+        method: 'fridge',
+        days: 3,
+        container: null,
+        freezable: true,
+        freezerMonths: 3,
+        thawing: 'Au frigo',
+      });
     });
 
     it('stores the reheating modes of the list in force, and refuses one outside it', async () => {
@@ -239,18 +274,6 @@ describe('DishesService', () => {
 
       expect(error).toBeInstanceOf(ForbiddenException);
       expect(codeOf(error).code).toBe('CHEF_NOT_VERIFIED');
-    });
-
-    it('refuses "none of the 14" next to a listed allergen', async () => {
-      const { access, prisma } = harness();
-      await expect(
-        new DishesService(prisma, access).create('clerk_1', {
-          name: 'x',
-          prepMinutes: 1,
-          allergens: ['milk'],
-          allergensNone: true,
-        }),
-      ).rejects.toBeInstanceOf(UnprocessableEntityException);
     });
 
     it('answers 404 for an account with no chef profile', async () => {
@@ -482,17 +505,6 @@ describe('DishesService', () => {
 
       expect(meal.update).toHaveBeenCalled();
     });
-
-    it('checks the declaration as it will be after the change', async () => {
-      const { meal, access, prisma } = harness();
-      meal.findUnique.mockResolvedValue(dishRow({ allergens: ['milk'] }));
-
-      await expect(
-        new DishesService(prisma, access).update('clerk_1', 'dish-1', {
-          allergensNone: true,
-        }),
-      ).rejects.toBeInstanceOf(UnprocessableEntityException);
-    });
   });
 
   describe('publish (§3.3)', () => {
@@ -587,7 +599,7 @@ describe('DishesService', () => {
       );
 
       await new DishesService(prisma, access).update('clerk_1', 'dish-1', {
-        allergens: ['celery', 'milk'],
+        addedAllergens: ['celery', 'milk'],
       });
 
       expect(meal.update.mock.calls[0][0].data.reviewReason).toBe('edited-after-review');
@@ -600,7 +612,7 @@ describe('DishesService', () => {
       );
 
       await new DishesService(prisma, access).update('clerk_1', 'dish-1', {
-        allergens: ['celery', 'milk'],
+        addedAllergens: ['celery', 'milk'],
       });
 
       expect(meal.update.mock.calls[0][0].data.reviewReason).toBe('edited-after-review');

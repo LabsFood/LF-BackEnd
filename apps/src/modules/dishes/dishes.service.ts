@@ -391,8 +391,10 @@ export function assertPublishable(dish: PublishableDish): void {
 /** The declaration as it will be once `payload` is applied to `current`. */
 function declarationOf(current: Meal | null, payload: UpdateDishDto) {
   return {
-    allergens: payload.allergens ?? current?.allergens ?? [],
-    allergensNone: payload.allergensNone ?? current?.allergensNone ?? false,
+    // R2 glue (Task 9 replaces it): the allergens are no longer sent; the row's own
+    // values stand until the save composes them from the lines.
+    allergens: current?.allergens ?? [],
+    allergensNone: current?.allergensNone ?? false,
     customAllergens: payload.customAllergens ?? current?.customAllergens ?? [],
     diets: payload.diets ?? current?.dietaryTags ?? [],
     customDiets: payload.customDiets ?? current?.customDiets ?? [],
@@ -414,8 +416,7 @@ export const SAFETY_FIELDS = [
 
 const touchesSafety = (payload: UpdateDishDto) =>
   [
-    payload.allergens,
-    payload.allergensNone,
+    payload.addedAllergens,
     payload.customAllergens,
     payload.diets,
     payload.customDiets,
@@ -491,8 +492,7 @@ type MealColumns = Partial<
     | 'difficulty'
     | 'dietaryTags'
     | 'customDiets'
-    | 'allergens'
-    | 'allergensNone'
+    | 'addedAllergens'
     | 'customAllergens'
     | 'ingredients'
     | 'steps'
@@ -527,8 +527,7 @@ function toMealWrite(payload: UpdateDishDto): MealColumns {
   if (payload.prepMinutes != null) data.prepTime = payload.prepMinutes;
   if (payload.diets != null) data.dietaryTags = payload.diets;
   if (payload.customDiets != null) data.customDiets = payload.customDiets;
-  if (payload.allergens != null) data.allergens = payload.allergens;
-  if (payload.allergensNone != null) data.allergensNone = payload.allergensNone;
+  if (payload.addedAllergens != null) data.addedAllergens = payload.addedAllergens;
   if (payload.customAllergens != null) data.customAllergens = payload.customAllergens;
   if (payload.equipment != null) data.equipment = payload.equipment;
   if (payload.declaredDiets != null) data.declaredDiets = payload.declaredDiets;
@@ -557,18 +556,22 @@ function toRecipeWrite(recipe: RecipeDto) {
  */
 
 export const toIngredientsJson = (ingredients: IngredientDto[]) =>
-  ingredients.map(
-    ({ name, qty, unit, aisle, link, toVerify, fixedQuantity, catalogIngredientId }) => ({
-      name,
-      qty,
-      unit,
-      aisle,
-      link: link ?? null,
-      toVerify: toVerify ?? false,
-      fixedQuantity: fixedQuantity ?? false,
-      catalogIngredientId: catalogIngredientId ?? null,
-    }),
-  );
+  ingredients.map((line) => ({
+    name: line.name,
+    qty: line.qty ?? null,
+    unit: line.unit ?? null,
+    aisle: line.aisle ?? null,
+    link: line.link ?? null,
+    toVerify: line.toVerify ?? false,
+    fixedQuantity: line.fixedQuantity ?? false,
+    catalogIngredientId: line.catalogIngredientId ?? null,
+    optional: line.optional ?? false,
+    precision: line.precision ?? null,
+    preparation: line.preparation ?? null,
+    group: line.group ?? null,
+    hiddenFromClient: line.hiddenFromClient ?? false,
+    rawText: line.rawText ?? null,
+  }));
 
 /** Recettes §4.10: a line may only point to an entry of the common list. */
 export async function assertCatalogIngredients(
@@ -610,5 +613,8 @@ export const toStorageJson = (storage?: StorageDto | null) =>
         method: storage.method,
         days: storage.days,
         container: storage.container ?? null,
+        freezable: storage.freezable ?? false,
+        freezerMonths: storage.freezerMonths ?? null,
+        thawing: storage.thawing ?? null,
       }
     : Prisma.DbNull;

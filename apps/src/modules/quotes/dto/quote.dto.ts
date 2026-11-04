@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { oneLine, text } from '../../../common/dto/clean-text';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -30,24 +31,6 @@ import {
 } from '../domain/quote.rules';
 
 export { QUOTE_STATUSES, QUOTE_STATUS_HELP };
-
-/**
- * Nothing a person types is trusted: every text is cleaned before it is checked,
- * and checked before it is stored. The browser's own checks are a courtesy.
- */
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
-
-/** A one-line field: no control character, no line break, spaces collapsed. */
-const oneLine = ({ value }: { value: unknown }) =>
-  typeof value === 'string'
-    ? value.replace(CONTROL, '').replace(/\s+/g, ' ').trim()
-    : value;
-
-/** A free text: line breaks kept, control characters and trailing blanks removed. */
-const text = ({ value }: { value: unknown }) =>
-  typeof value === 'string'
-    ? value.replace(CONTROL, '').replace(/\r\n?/g, '\n').trim()
-    : value;
 
 /** A list of labels: each one cleaned, empty ones dropped, doubles removed. */
 const labels = ({ value }: { value: unknown }) => {

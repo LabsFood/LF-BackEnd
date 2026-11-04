@@ -186,6 +186,12 @@ describe('CatalogService', () => {
           toVerify: false,
           fixedQuantity: false,
           catalogIngredientId: null,
+          optional: false,
+          precision: null,
+          preparation: null,
+          group: null,
+          hiddenFromClient: false,
+          rawText: null,
         },
       ]);
     });

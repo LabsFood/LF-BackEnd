@@ -66,7 +66,7 @@ const MEAL = {
   customAllergens: [],
   category: 'main',
   cookTime: 40,
-  ingredients: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
+  ingredients: [{ name: 'Cuisses de poulet', qty: 8, unit: 'piece', aisle: 'boucherie' }],
   steps: [
     { order: 1, text: 'Mariner le poulet', type: 'preparation', durationMinutes: 60 },
     { order: 2, text: 'Faire revenir les oignons', type: 'cuisson', durationMinutes: 10 },

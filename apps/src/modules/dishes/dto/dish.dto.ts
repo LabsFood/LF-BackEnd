@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
@@ -9,6 +10,7 @@ import {
   IsISO31661Alpha2,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUrl,
   IsUUID,
@@ -19,6 +21,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { oneLine } from '../../../common/dto/clean-text';
+import { UNIT_CODES } from '../domain/units.rules';
 import { ALLERGEN_CODES, DIET_CODES, DISH_CATEGORY_CODES } from '../domain/dishes.rules';
 import { DECLARED_DIET_CODES } from '../domain/classification.rules';
 import { STEP_TYPE_CODES } from '../domain/recipes.rules';
@@ -31,37 +35,48 @@ const DIFFICULTIES = ['easy', 'medium', 'hard'];
  */
 export class IngredientDto {
   @ApiProperty({ maxLength: 120, example: 'Poulet fermier entier' })
+  @Transform(oneLine)
   @IsString()
   @Length(1, 120)
   name!: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     minimum: 0,
-    description: 'Quantity for the dish’s portions.',
+    maximum: 100000,
+    nullable: true,
+    description:
+      'Quantity for the dish’s portions, strictly above 0, at most 3 decimals. `null` only ' +
+      'with `to_taste` or on a line to verify.',
     example: 1.4,
   })
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 })
-  @Min(0)
+  @IsPositive()
   @Max(100000)
-  qty!: number;
+  qty?: number | null;
 
-  @ApiProperty({
-    maxLength: 32,
-    description: 'Free text: `g`, `kg`, `gousse`…',
+  @ApiPropertyOptional({
+    enum: UNIT_CODES,
+    nullable: true,
+    description:
+      'One of the 14 fixed units (`GET /referentials/units`). `null` only on a line ' +
+      'to verify.',
     example: 'kg',
   })
-  @IsString()
-  @Length(1, 32)
-  unit!: string;
+  @IsOptional()
+  @IsIn(UNIT_CODES)
+  unit?: string | null;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     maxLength: 60,
-    description: 'Shop aisle, used to group the shopping list.',
+    description:
+      'Shop aisle. Ignored on a linked line: the API takes the ingredient’s own.',
     example: 'boucherie',
   })
+  @IsOptional()
   @IsString()
   @Length(1, 60)
-  aisle!: string;
+  aisle?: string;
 
   @ApiPropertyOptional({
     maxLength: 512,
@@ -104,6 +119,61 @@ export class IngredientDto {
   @IsOptional()
   @IsUUID()
   catalogIngredientId?: string | null;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'The line may be left out: its allergens are then only conditional on the dish.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  optional?: boolean;
+
+  @ApiPropertyOptional({ maxLength: 60, nullable: true, example: 'bio' })
+  @IsOptional()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(60)
+  precision?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 120, nullable: true, example: 'en dés' })
+  @IsOptional()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(120)
+  preparation?: string | null;
+
+  @ApiPropertyOptional({
+    maxLength: 60,
+    nullable: true,
+    description: 'The sub-recipe the line belongs to, e.g. "Sauce".',
+    example: 'Sauce',
+  })
+  @IsOptional()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(60)
+  group?: string | null;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Kept on the chef’s fiche, left off the client’s.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  hiddenFromClient?: boolean;
+
+  @ApiPropertyOptional({
+    maxLength: 200,
+    nullable: true,
+    description: 'The original text of a line to verify.',
+    example: '2 gousses d’ail',
+  })
+  @IsOptional()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(200)
+  rawText?: string | null;
 }
 
 /**
@@ -223,6 +293,29 @@ export class StorageDto {
   @IsString()
   @MaxLength(120)
   container?: string;
+
+  @ApiPropertyOptional({ default: false, description: 'It can go in the freezer.' })
+  @IsOptional()
+  @IsBoolean()
+  freezable?: boolean;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 24, nullable: true, example: 3 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  freezerMonths?: number | null;
+
+  @ApiPropertyOptional({
+    maxLength: 300,
+    nullable: true,
+    description: 'How to thaw it.',
+    example: 'Une nuit au réfrigérateur.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  thawing?: string | null;
 }
 
 /**
@@ -356,27 +449,19 @@ export class CreateDishDto {
   @ApiPropertyOptional({
     enum: ALLERGEN_CODES,
     isArray: true,
+    maxItems: 14,
     description:
-      'Which of the 14 regulated allergens the dish contains. Labels in ' +
+      'Regulated allergens the chef adds on top of the computed ones (the recipe ' +
+      'lines bring the rest; read them in `allergens`). Labels in ' +
       '`GET /referentials/allergens`.',
     example: ['celery'],
   })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(14)
+  @ArrayUnique()
   @IsIn(ALLERGEN_CODES, FREE_TEXT)
-  allergens?: string[];
-
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      '`true` to declare that the dish contains **none** of the 14 regulated ' +
-      'allergens. An empty `allergens` list alone does not say that, and cannot be ' +
-      'published.',
-    example: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  allergensNone?: boolean;
+  addedAllergens?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -468,4 +553,16 @@ export class CreateDishDto {
   recipe?: RecipeDto;
 }
 
-export class UpdateDishDto extends PartialType(CreateDishDto) {}
+export class UpdateDishDto extends PartialType(CreateDishDto) {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish as you read it. A save over a newer one is ' +
+      'refused, so two screens never overwrite each other.',
+    example: 4,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}

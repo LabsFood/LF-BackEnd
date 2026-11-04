@@ -140,7 +140,7 @@ export class MeContentController {
       'It cannot be combined with a listed allergen.\n' +
       '- `recipe` stays private: the public site never shows it.\n\n' +
       'Example: `{ "name": "Poulet rôti aux herbes", "prepMinutes": 20, "country": "FR", ' +
-      '"allergens": ["celery"] }`.',
+      '"addedAllergens": ["celery"] }`.',
   })
   @ApiCreatedResponse({
     description: 'The new draft.',

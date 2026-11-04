@@ -14,7 +14,7 @@ describe('CreateMealDto', () => {
       await errorsFor({
         ...base,
         ingredients: [
-          { name: 'Oignons', qty: 4, unit: 'pièce', aisle: 'fruits-legumes' },
+          { name: 'Oignons', qty: 4, unit: 'piece', aisle: 'fruits-legumes' },
         ],
       }),
     ).toEqual([]);
@@ -24,7 +24,7 @@ describe('CreateMealDto', () => {
     expect(await errorsFor({ ...base, ingredients: { oignons: 4 } })).toContain(
       'ingredients',
     );
-    expect(await errorsFor({ ...base, ingredients: [{ name: 'Oignons' }] })).toContain(
+    expect(await errorsFor({ ...base, ingredients: [{ qty: 4 }] })).toContain(
       'ingredients',
     );
   });

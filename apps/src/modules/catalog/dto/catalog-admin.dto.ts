@@ -461,7 +461,7 @@ export class MealResponseDto {
       'The ingredients, as stored: a list of `{ name, qty, unit, aisle }`. Meals ' +
       'written before this was checked may hold something else, which shopping lists ' +
       'ignore.',
-    example: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
+    example: [{ name: 'Cuisses de poulet', qty: 8, unit: 'piece', aisle: 'boucherie' }],
   })
   ingredients!: unknown;
 
