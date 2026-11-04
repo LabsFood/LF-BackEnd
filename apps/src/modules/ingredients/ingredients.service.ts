@@ -4,7 +4,8 @@ import { AuditService } from '../../common/audit/audit.service';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { classify, linkedIds } from '../dishes/domain/classification.rules';
+import { toLineInput } from '../dishes/domain/recipe-lines.rules';
+import { compositionOf } from './composition';
 import {
   CatalogIngredientDto,
   ListCatalogIngredientsQueryDto,
@@ -19,14 +20,12 @@ export async function classificationOf(
   db: Pick<PrismaService, 'catalogIngredient'>,
   ingredients: unknown,
 ) {
-  const ids = linkedIds(ingredients);
-  const entries = ids.length
-    ? await db.catalogIngredient.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, diets: true, seasonMonths: true },
-      })
-    : [];
-  return classify(ingredients, new Map(entries.map((e) => [e.id, e]))) ?? Prisma.DbNull;
+  const lines = (Array.isArray(ingredients) ? ingredients : []).map(toLineInput);
+  const { classification } = await compositionOf(db, lines, {
+    addedAllergens: [],
+    customAllergens: [],
+  });
+  return classification ?? Prisma.DbNull;
 }
 
 /** A search shows a short list to pick from, never the whole table (every list has a cap). */

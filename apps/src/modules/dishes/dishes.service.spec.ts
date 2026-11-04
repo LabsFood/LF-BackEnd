@@ -157,7 +157,19 @@ describe('DishesService', () => {
       const id = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
       catalogIngredient.count.mockResolvedValue(1);
       catalogIngredient.findMany.mockResolvedValue([
-        { id, diets: ['vegan', 'vegetarian'], seasonMonths: [6, 7] },
+        {
+          id,
+          diets: ['vegan', 'vegetarian'],
+          seasonMonths: [6, 7],
+          allergens: [],
+          allergensNone: true,
+          aisle: 'fruits_legumes',
+          isBasic: false,
+          name: 'Tomate',
+          status: 'active',
+          chefProfileId: null,
+          mergedIntoId: null,
+        },
       ]);
 
       await new DishesService(prisma, access).create('clerk_1', {

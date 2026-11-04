@@ -10,6 +10,13 @@ const TOMATE = {
   aliases: ['pomme d’amour'],
   diets: ['vegan', 'vegetarian'],
   seasonMonths: [6, 7, 8, 9],
+  aisle: 'fruits_legumes',
+  allergens: [],
+  allergensNone: true,
+  isBasic: false,
+  status: 'active',
+  chefProfileId: null,
+  mergedIntoId: null,
   createdAt: new Date('2026-11-02T09:00:00.000Z'),
   updatedAt: new Date('2026-11-02T09:00:00.000Z'),
 };
@@ -95,7 +102,19 @@ describe('IngredientsService (Recettes §4.10)', () => {
       { id: 'dish-1', ingredients: [{ name: 'Tomate', catalogIngredientId: 'ing-1' }] },
     ]);
     catalogIngredient.findMany.mockResolvedValue([
-      { id: 'ing-1', diets: ['vegan'], seasonMonths: [] },
+      {
+        id: 'ing-1',
+        diets: ['vegan'],
+        seasonMonths: [],
+        allergens: [],
+        allergensNone: true,
+        aisle: 'fruits_legumes',
+        isBasic: false,
+        name: 'Tomate',
+        status: 'active',
+        chefProfileId: null,
+        mergedIntoId: null,
+      },
     ]);
 
     await service.update('ing-1', { diets: ['vegan'] }, 'admin-1');
