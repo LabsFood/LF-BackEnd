@@ -1,6 +1,8 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   UnprocessableEntityException,
 } from '@nestjs/common';
 
@@ -151,3 +153,39 @@ export const tierCannotPublish = (tier: string): ForbiddenException =>
     message: 'This tier cannot publish.',
     tier,
   });
+
+/** The recipe changed since the chef opened it; `lockVersion` is the one to reload. */
+export const recipeConflict = (lockVersion: number): ConflictException =>
+  new ConflictException({
+    code: 'RECIPE_CONFLICT',
+    message: 'The recipe was changed since you opened it.',
+    lockVersion,
+  });
+
+/** Lines of a recipe that name the same ingredient: each inner list is one group (R10). */
+export const duplicateIngredientLine = (
+  lines: number[][],
+): UnprocessableEntityException =>
+  new UnprocessableEntityException({
+    code: 'DUPLICATE_INGREDIENT_LINE',
+    message: 'The same ingredient appears on several lines.',
+    lines,
+  });
+
+/** Lines that still point at no entry of the common ingredient list. */
+export const ingredientNotLinked = (lines: number[]): UnprocessableEntityException =>
+  new UnprocessableEntityException({
+    code: 'INGREDIENT_NOT_LINKED',
+    message: 'Some ingredients are not linked to the common list.',
+    lines,
+  });
+
+/** The chef created too many ingredients in a short time. */
+export const ingredientCapReached = (): HttpException =>
+  new HttpException(
+    {
+      code: 'INGREDIENT_CAP_REACHED',
+      message: 'Too many ingredients created: try again later.',
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );

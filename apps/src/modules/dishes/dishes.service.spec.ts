@@ -339,12 +339,36 @@ describe('DishesService', () => {
 
     it('makes no version when nothing of the recipe changes', async () => {
       const h = harness();
-      stored(h, readyDishRow());
+      // The write path does not store the computed fields yet: compare like with like.
+      stored(
+        h,
+        readyDishRow({
+          ingredients: [
+            {
+              name: 'Ail',
+              qty: 4,
+              unit: 'clove',
+              aisle: 'fruits-legumes',
+              catalogIngredientId: 'cat-ail',
+            },
+          ],
+          storage: { method: 'fridge', days: 3 },
+        }),
+      );
+      h.catalogIngredient.count.mockResolvedValueOnce(1);
 
       await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
         description: 'Plus de thym.',
         recipe: {
-          ingredients: [{ name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' }],
+          ingredients: [
+            {
+              name: 'Ail',
+              qty: 4,
+              unit: 'clove',
+              aisle: 'fruits-legumes',
+              catalogIngredientId: 'cat-ail',
+            },
+          ],
           steps: [{ text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 }],
           reheating: { modes: ['microwave'] },
           storage: { method: 'fridge', days: 3 },
@@ -449,7 +473,7 @@ describe('DishesService', () => {
       meal.findUnique.mockResolvedValue(dishRow({ status: MealStatus.published }));
       const service = new DishesService(prisma, access);
 
-      for (const edit of [{ name: ' ' }, { allergens: [] }]) {
+      for (const edit of [{ name: ' ' }, { portions: 0 }]) {
         await expect(service.update('clerk_1', 'dish-1', edit)).rejects.toBeInstanceOf(
           UnprocessableEntityException,
         );
@@ -492,7 +516,7 @@ describe('DishesService', () => {
     it('refuses a recipe that is not ready with 422 RECIPE_NOT_READY, every point listed', async () => {
       const { meal, access, prisma } = harness();
       meal.findUnique.mockResolvedValue(
-        readyDishRow({ allergens: [], description: null }),
+        readyDishRow({ description: null, imageUrl: null }),
       );
 
       const error = await new DishesService(prisma, access)
@@ -503,20 +527,26 @@ describe('DishesService', () => {
       expect(codeOf(error)).toMatchObject({
         code: 'RECIPE_NOT_READY',
         problems: [
-          expect.objectContaining({ code: 'ALLERGENS_REQUIRED', field: 'allergens' }),
           expect.objectContaining({ field: 'description' }),
+          expect.objectContaining({ code: 'PHOTO_MISSING', field: 'imageUrl' }),
         ],
       });
       expect(meal.update).not.toHaveBeenCalled();
     });
 
-    it('publishes without a photo: a real one is required, but not blocking yet', async () => {
+    it('refuses to publish without a photo: PHOTO_MISSING is now a point to publish', async () => {
       const { meal, access, prisma } = harness();
       meal.findUnique.mockResolvedValue(readyDishRow({ imageUrl: null }));
 
-      await new DishesService(prisma, access).publish('clerk_1', 'dish-1');
+      const error = await new DishesService(prisma, access)
+        .publish('clerk_1', 'dish-1')
+        .catch((e: unknown) => e);
 
-      expect(meal.update.mock.calls[0][0].data.status).toBe(MealStatus.published);
+      expect(codeOf(error)).toMatchObject({
+        code: 'RECIPE_NOT_READY',
+        problems: [expect.objectContaining({ code: 'PHOTO_MISSING' })],
+      });
+      expect(meal.update).not.toHaveBeenCalled();
     });
 
     it('publishes, stamps publishedAt and queues it for a first review', async () => {

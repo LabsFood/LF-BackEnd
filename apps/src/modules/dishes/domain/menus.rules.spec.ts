@@ -9,13 +9,26 @@ const dish = (overrides: Record<string, unknown> = {}) => ({
   portions: 4,
   cookTime: 180,
   description: 'Bouillon de bœuf parfumé.',
-  imageUrl: null,
-  ingredients: [{ name: 'Bœuf', qty: 1, unit: 'kg', aisle: 'boucherie' }],
+  imageUrl: 'https://photos.example.com/pho.jpg',
+  ingredients: [
+    {
+      name: 'Bœuf',
+      qty: 1,
+      unit: 'kg',
+      aisle: 'boucherie',
+      catalogIngredientId: 'cat-1',
+      allergens: [],
+      incomplete: false,
+    },
+  ],
   steps: [{ text: 'Mijoter', type: 'cuisson' }],
-  storage: { method: 'fridge', days: 3 },
-  reheating: { modes: ['saucepan'] },
+  storage: { method: 'fridge', days: 3, freezable: false },
+  reheating: { modes: ['saucepan'], note: 'Porter à ébullition.' },
   allergens: ['soy'],
   allergensNone: false,
+  declaredDiets: [] as string[],
+  classification: { diets: ['no-pork'], seasonMonths: [1, 2] },
+  seasonsOverride: [] as number[],
   allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
   ...overrides,
 });
@@ -44,11 +57,13 @@ describe('menuPublishProblems (§3.4)', () => {
   });
 
   it('checks a draft dish as if it were published on its own (Recettes §4.11)', () => {
-    const problems = menuPublishProblems({ title: 'Semaine' }, [dish({ allergens: [] })]);
+    const problems = menuPublishProblems({ title: 'Semaine' }, [
+      dish({ allergensVerifiedAt: null }),
+    ]);
     expect(problems.dishes).toEqual([
       expect.objectContaining({
         dishId: 'd1',
-        problems: [expect.objectContaining({ code: 'ALLERGENS_REQUIRED' })],
+        problems: [expect.objectContaining({ code: 'ALLERGENS_UNVERIFIED' })],
       }),
     ]);
   });
@@ -62,7 +77,7 @@ describe('menuPublishProblems (§3.4)', () => {
 
   it('does not re-check a dish that is already published', () => {
     const problems = menuPublishProblems({ title: 'Semaine' }, [
-      dish({ status: 'published', allergens: [] }),
+      dish({ status: 'published', allergensVerifiedAt: null }),
     ]);
     expect(hasMenuProblems(problems)).toBe(false);
   });

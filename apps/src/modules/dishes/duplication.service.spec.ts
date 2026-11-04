@@ -34,6 +34,8 @@ describe('DuplicationService (Recettes §5.4)', () => {
         sourceMealId: 'suggestion-1',
         recipeVersion: 4,
         imageUrl: null,
+        allergens: ['celery'],
+        allergensNone: false,
       }),
     );
     h.meal.create.mockImplementation(async ({ data }: { data: object }) =>

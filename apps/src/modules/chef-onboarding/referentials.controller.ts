@@ -103,8 +103,9 @@ export class ReferentialsController {
     schema: {
       example: {
         categories: [
+          { code: 'main', label: 'Plat complet' },
           { code: 'starter', label: 'Entrée' },
-          { code: 'main', label: 'Plat' },
+          { code: 'soup', label: 'Soupe' },
         ],
       },
     },
