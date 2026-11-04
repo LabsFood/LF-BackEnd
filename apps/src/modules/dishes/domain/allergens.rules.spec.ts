@@ -103,8 +103,32 @@ describe('allergenStateOf (Recettes §4.9)', () => {
 
   it('keeps the known allergens of an incomplete ingredient, but is incomplete', () => {
     const s = allergenStateOf([line('Beurre', ['milk'], { incomplete: true })], [], []);
-    expect(s.allergens).toContain('milk');
-    expect(s.sources.milk).toContain('Beurre');
+    expect(s.allergens).toEqual(['milk']);
+    expect(s.sources).toEqual({ milk: ['Beurre'] });
+    expect(s.complete).toBe(false);
+    expect(s.allergensNone).toBe(false);
+  });
+
+  it('keeps an unknown code after the annex ones and is incomplete', () => {
+    const s = allergenStateOf([line('Beurre', ['milk', 'Lait'])], [], []);
+    expect(s.allergens).toEqual(['milk', 'Lait']);
+    expect(s.sources).toEqual({ milk: ['Beurre'], Lait: ['Beurre'] });
+    expect(s.complete).toBe(false);
+    expect(s.allergensNone).toBe(false);
+  });
+
+  it('keeps an unknown chef-added code and is incomplete', () => {
+    const s = allergenStateOf([line('Sel', [])], ['dairy', 'gluten'], []);
+    expect(s.allergens).toEqual(['gluten', 'dairy']);
+    expect(s.complete).toBe(false);
+    expect(s.allergensNone).toBe(false);
+  });
+
+  it('treats a linked legacy line without `allergens` as incomplete, not none', () => {
+    const legacy = { ...line('Sel', []) } as Partial<StoredLine>;
+    delete legacy.allergens;
+    const s = allergenStateOf([legacy as StoredLine], [], []);
+    expect(s.allergens).toEqual([]);
     expect(s.complete).toBe(false);
     expect(s.allergensNone).toBe(false);
   });

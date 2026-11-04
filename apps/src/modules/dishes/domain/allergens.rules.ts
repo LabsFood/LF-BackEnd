@@ -20,9 +20,14 @@ export interface AllergenState {
   complete: boolean;
 }
 
+/**
+ * Annex-ordered codes first, then any unknown code in first-seen order: an unknown
+ * or legacy code must never make an allergen disappear.
+ */
 const inAnnexOrder = (codes: Iterable<string>): string[] => {
   const set = new Set(codes);
-  return ALLERGEN_CODES.filter((code) => set.has(code));
+  const unknown = [...set].filter((code) => !ALLERGEN_CODES.includes(code));
+  return [...ALLERGEN_CODES.filter((code) => set.has(code)), ...unknown];
 };
 
 /**
@@ -30,7 +35,9 @@ const inAnnexOrder = (codes: Iterable<string>): string[] => {
  * incomplete. A line linked to an `incomplete` ingredient also makes it incomplete
  * but still brings the allergens it carries: an ingredient is incomplete for other
  * reasons too (e.g. a missing aisle), and dropping known allergens would show a
- * dish with fewer allergens than it has.
+ * dish with fewer allergens than it has. An unknown allergen code (legacy, renamed)
+ * is kept after the annex ones and makes the state incomplete; so does a linked
+ * line with no `allergens` field (legacy: unknown, not "none").
  */
 export function allergenStateOf(
   lines: StoredLine[],
@@ -43,7 +50,7 @@ export function allergenStateOf(
   const all = new Set<string>();
 
   for (const line of known) {
-    for (const code of line.allergens) {
+    for (const code of line.allergens ?? []) {
       all.add(code);
       if (!line.optional) fromRequired.add(code);
       const names = (sources[code] ??= []);
@@ -61,7 +68,11 @@ export function allergenStateOf(
     orderedSources[code] = sources[code];
   }
   const complete =
-    lines.length > 0 && lines.every((l) => l.catalogIngredientId && !l.incomplete);
+    lines.length > 0 &&
+    lines.every(
+      (l) => l.catalogIngredientId && !l.incomplete && Array.isArray(l.allergens),
+    ) &&
+    allergens.every((code) => ALLERGEN_CODES.includes(code));
 
   return {
     allergens,
