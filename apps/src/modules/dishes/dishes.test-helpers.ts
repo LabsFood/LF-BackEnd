@@ -29,11 +29,12 @@ export function dishRow(overrides: Record<string, unknown> = {}) {
     cookTime: 55,
     dietaryTags: [],
     customDiets: [],
+    // No line yet: the chef's own `celery` is the whole computed list (Recettes §6.1).
     allergens: ['celery'],
     allergensNone: false,
     allergensVerifiedAt: null as Date | null,
     customAllergens: [],
-    addedAllergens: [] as string[],
+    addedAllergens: ['celery'] as string[],
     conditionalAllergens: [] as string[],
     lockVersion: 0,
     category: null as string | null,
@@ -58,7 +59,49 @@ export function dishRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** A dish that passes the Recettes §4.11 check, at version 2 with nothing pending. */
+/** An entry of the common ingredient list, as `ingredients/composition.ts` reads it. */
+export function entryRow(overrides: { id: string } & Record<string, unknown>) {
+  return {
+    name: 'Tomate',
+    aisle: 'fruits-legumes',
+    allergens: [] as string[],
+    allergensNone: true,
+    isBasic: false,
+    diets: ['vegetarian', 'no-pork'],
+    seasonMonths: [1, 2, 3],
+    status: 'active',
+    chefProfileId: null as string | null,
+    mergedIntoId: null as string | null,
+    ...overrides,
+  };
+}
+
+/** The entries `readyDishRow`'s lines link, stamped as they are on those lines. */
+export const READY_ENTRIES = [
+  entryRow({ id: 'cat-ail', name: 'Ail' }),
+  entryRow({
+    id: 'cat-celeri',
+    name: 'Céleri-rave',
+    allergens: ['celery'],
+    allergensNone: false,
+  }),
+];
+
+/** `readyDishRow`'s recipe as the chef's screen sends it back, unchanged. */
+export const READY_RECIPE = {
+  ingredients: [
+    { name: 'Ail', qty: 4, unit: 'clove', catalogIngredientId: 'cat-ail' },
+    { name: 'Céleri-rave', qty: 300, unit: 'g', catalogIngredientId: 'cat-celeri' },
+  ],
+  steps: [{ text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 }],
+  storage: { method: 'fridge', days: 3, freezable: false },
+  reheating: { modes: ['oven'], minutes: 15, note: 'Couvrir de papier alu.' },
+};
+
+/**
+ * A dish that passes the Recettes §4.11 check, at version 2 with nothing pending.
+ * Its allergens are the ones its lines bring (§6.1), as a save computes them.
+ */
 export function readyDishRow(overrides: Record<string, unknown> = {}) {
   return dishRow({
     category: 'main',
@@ -74,14 +117,32 @@ export function readyDishRow(overrides: Record<string, unknown> = {}) {
         allergens: [],
         incomplete: false,
       },
+      {
+        name: 'Céleri-rave',
+        qty: 300,
+        unit: 'g',
+        aisle: 'fruits-legumes',
+        catalogIngredientId: 'cat-celeri',
+        allergens: ['celery'],
+        incomplete: false,
+      },
     ],
-    allergens: [],
-    allergensNone: true,
+    addedAllergens: [],
+    allergens: ['celery'],
+    allergensNone: false,
+    conditionalAllergens: [],
     classification: { diets: ['vegetarian', 'no-pork'], seasonMonths: [1, 2, 3] },
     steps: [
       { order: 1, text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 },
     ],
-    storage: { method: 'fridge', days: 3, container: null, freezable: false },
+    storage: {
+      method: 'fridge',
+      days: 3,
+      container: null,
+      freezable: false,
+      freezerMonths: null,
+      thawing: null,
+    },
     reheating: {
       modes: ['oven'],
       mode: 'oven',
@@ -226,6 +287,20 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     contentSuspended: jest.Mock;
   };
   return { ...client, $transaction, access, prisma, audit, mailer };
+}
+
+/**
+ * `catalogIngredient.findMany` answering from `entries` by id, as the database
+ * would: the access check and the stamping both read the list this way.
+ */
+export function withEntries(
+  h: ReturnType<typeof harness>,
+  entries: ReturnType<typeof entryRow>[],
+) {
+  h.catalogIngredient.findMany.mockImplementation(async (args?: unknown) => {
+    const { in: ids } = (args as { where: { id: { in: string[] } } }).where.id;
+    return entries.filter((entry) => ids.includes(entry.id));
+  });
 }
 
 export const codeOf = (error: unknown) =>

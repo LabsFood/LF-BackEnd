@@ -60,6 +60,43 @@ describe('SuggestionsService', () => {
       );
     });
 
+    it('copies the computed allergens, the added ones and the stamped lines as they are', async () => {
+      const h = harness();
+      const lines = [
+        {
+          name: 'Beurre',
+          qty: 30,
+          unit: 'g',
+          aisle: 'cremerie',
+          catalogIngredientId: 'cat-beurre',
+          optional: true,
+          allergens: ['milk'],
+          incomplete: false,
+        },
+      ];
+      h.meal.findFirst.mockResolvedValue(
+        suggestion({
+          ingredients: lines,
+          addedAllergens: ['celery'],
+          allergens: ['milk', 'celery'],
+          conditionalAllergens: ['milk'],
+          lockVersion: 3,
+        }),
+      );
+      h.meal.findUnique.mockResolvedValue(null);
+
+      await service(h).adopt('clerk_1', 'sugg-1', true);
+
+      const { data } = h.meal.create.mock.calls[0][0];
+      expect(data).toMatchObject({
+        ingredients: lines,
+        allergens: ['milk', 'celery'],
+        addedAllergens: ['celery'],
+        conditionalAllergens: ['milk'],
+      });
+      expect(data.lockVersion).toBeUndefined();
+    });
+
     it('gives back the copy already made on a second adoption', async () => {
       const h = harness();
       h.meal.findFirst.mockResolvedValue(suggestion());

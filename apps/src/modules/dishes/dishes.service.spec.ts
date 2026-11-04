@@ -6,9 +6,36 @@ import {
 } from '@nestjs/common';
 
 import { MealStatus, Prisma } from '../../generated/prisma/client';
-import { CHEF, codeOf, dishRow, harness, readyDishRow } from './dishes.test-helpers';
+import {
+  CHEF,
+  codeOf,
+  dishRow,
+  entryRow,
+  harness,
+  READY_ENTRIES,
+  READY_RECIPE,
+  readyDishRow,
+  withEntries,
+} from './dishes.test-helpers';
 import { DishesService } from './dishes.service';
 import { readiness } from './domain/dishes.rules';
+
+/** A dish row the writes really change, as the database would. */
+const stored = (h: ReturnType<typeof harness>, row: ReturnType<typeof dishRow>) => {
+  let state = row;
+  h.meal.findUnique.mockImplementation(async () => state);
+  h.meal.update.mockImplementation(async ({ data }: { data: object }) => {
+    state = { ...state, ...data };
+    return state;
+  });
+};
+
+/** What Prisma throws when a write's `where` matches no row. */
+const noRowMatched = () =>
+  new Prisma.PrismaClientKnownRequestError('No record was found for an update.', {
+    code: 'P2025',
+    clientVersion: 't',
+  });
 
 describe('DishesService', () => {
   describe('create', () => {
@@ -63,7 +90,7 @@ describe('DishesService', () => {
               hiddenFromClient: true,
               rawText: 'une pincée de sel',
             },
-            { name: 'Eau', qty: null, unit: null },
+            { name: 'Eau', qty: null, unit: null, toVerify: true },
           ],
           steps: [{ text: 'Mijoter' }],
           storage: {
@@ -94,6 +121,9 @@ describe('DishesService', () => {
           group: null,
           hiddenFromClient: false,
           rawText: null,
+          // Written by the API: an unlinked line brings nothing yet (Recettes §6.1).
+          allergens: [],
+          incomplete: false,
         },
         {
           name: 'Sel',
@@ -110,6 +140,8 @@ describe('DishesService', () => {
           group: 'Sauce',
           hiddenFromClient: true,
           rawText: 'une pincée de sel',
+          allergens: [],
+          incomplete: false,
         },
         expect.objectContaining({ name: 'Eau', qty: null, unit: null, aisle: null }),
       ]);
@@ -160,37 +192,79 @@ describe('DishesService', () => {
     });
 
     it('links a line to the common ingredient list, and refuses an unknown one', async () => {
-      const { meal, catalogIngredient, access, prisma } = harness();
-      const service = new DishesService(prisma, access);
-      const line = { name: 'Tomate', qty: 2, unit: 'pièce', aisle: 'fruits-legumes' };
+      const h = harness();
+      const service = new DishesService(h.prisma, h.access);
       const id = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
+      const recipe = {
+        ingredients: [
+          { name: 'tomates', qty: 2, unit: 'piece', catalogIngredientId: id },
+        ],
+        steps: [],
+      };
 
-      catalogIngredient.count.mockResolvedValueOnce(1);
-      await service.create('clerk_1', {
-        name: 'Salade',
-        prepMinutes: 5,
-        recipe: { ingredients: [{ ...line, catalogIngredientId: id }], steps: [] },
-      });
-      const lines = meal.create.mock.calls[0][0].data.ingredients as {
-        catalogIngredientId: string;
-      }[];
-      expect(lines[0].catalogIngredientId).toBe(id);
+      withEntries(h, [entryRow({ id, name: 'Tomate' })]);
+      await service.create('clerk_1', { name: 'Salade', prepMinutes: 5, recipe });
+      expect(h.meal.create.mock.calls[0][0].data.ingredients).toEqual([
+        expect.objectContaining({ catalogIngredientId: id, name: 'Tomate' }),
+      ]);
 
-      catalogIngredient.count.mockResolvedValueOnce(0);
+      withEntries(h, []);
       const error = await service
+        .create('clerk_1', { name: 'Salade', prepMinutes: 5, recipe })
+        .catch((e: unknown) => e);
+      expect(codeOf(error)).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        errors: [expect.objectContaining({ field: 'recipe.ingredients[0]' })],
+      });
+      expect(h.meal.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses an inactive entry: a new dish has no line to keep it for (§8.1)', async () => {
+      const h = harness();
+      withEntries(h, [entryRow({ id: 'cat-old', status: 'inactive' })]);
+
+      const error = await new DishesService(h.prisma, h.access)
         .create('clerk_1', {
           name: 'Salade',
           prepMinutes: 5,
-          recipe: { ingredients: [{ ...line, catalogIngredientId: id }], steps: [] },
+          recipe: {
+            ingredients: [
+              { name: 'Tomate', qty: 2, unit: 'piece', catalogIngredientId: 'cat-old' },
+            ],
+            steps: [],
+          },
         })
         .catch((e: unknown) => e);
+
       expect(codeOf(error).code).toBe('VALIDATION_FAILED');
+      expect(h.meal.create).not.toHaveBeenCalled();
+    });
+
+    it('computes the allergens of a new recipe, its lock version left to the default', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+
+      await new DishesService(h.prisma, h.access).create('clerk_1', {
+        name: 'Poulet rôti aux herbes',
+        prepMinutes: 20,
+        addedAllergens: ['mustard'],
+        recipe: READY_RECIPE,
+      });
+
+      const { data } = h.meal.create.mock.calls[0][0];
+      expect(data).toMatchObject({
+        allergens: ['celery', 'mustard'],
+        conditionalAllergens: [],
+        allergensNone: false,
+        addedAllergens: ['mustard'],
+        customAllergens: [],
+      });
+      expect(data).not.toHaveProperty('lockVersion');
     });
 
     it('computes the diets and seasons of a recipe linked to the common list (§4.8)', async () => {
       const { meal, catalogIngredient, access, prisma } = harness();
       const id = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
-      catalogIngredient.count.mockResolvedValue(1);
       catalogIngredient.findMany.mockResolvedValue([
         {
           id,
@@ -218,7 +292,7 @@ describe('DishesService', () => {
             {
               name: 'Tomate',
               qty: 2,
-              unit: 'pièce',
+              unit: 'piece',
               aisle: 'fruits-legumes',
               catalogIngredientId: id,
             },
@@ -314,16 +388,6 @@ describe('DishesService', () => {
   });
 
   describe('readiness and versions (Recettes §4.11, R6)', () => {
-    /** A dish row the writes really change, as the database would. */
-    const stored = (h: ReturnType<typeof harness>, row: ReturnType<typeof dishRow>) => {
-      let state = row;
-      h.meal.findUnique.mockImplementation(async () => state);
-      h.meal.update.mockImplementation(async ({ data }: { data: object }) => {
-        state = { ...state, ...data };
-        return state;
-      });
-    };
-
     it('says what is missing to be ready', async () => {
       const { access, prisma } = harness();
 
@@ -425,8 +489,9 @@ describe('DishesService', () => {
   });
 
   describe('allergen verification (Recettes §4.9)', () => {
-    it('records when the chef confirms the allergens', async () => {
+    it('records when the chef confirms the allergens, without moving the lock version', async () => {
       const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(readyDishRow({ allergensVerifiedAt: null }));
 
       await new DishesService(prisma, access).confirmAllergens('clerk_1', 'dish-1');
 
@@ -436,21 +501,78 @@ describe('DishesService', () => {
       });
     });
 
-    it('refuses to confirm a dish that declares nothing, with 422 ALLERGENS_REQUIRED', async () => {
+    it('refuses to confirm a recipe without ingredients, with 422 VALIDATION_FAILED', async () => {
       const { meal, access, prisma } = harness();
-      meal.findUnique.mockResolvedValue(dishRow({ allergens: [], allergensNone: false }));
+      meal.findUnique.mockResolvedValue(dishRow({ ingredients: [] }));
 
       const error = await new DishesService(prisma, access)
         .confirmAllergens('clerk_1', 'dish-1')
         .catch((e: unknown) => e);
 
-      expect(codeOf(error).code).toBe('ALLERGENS_REQUIRED');
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      expect(codeOf(error).code).toBe('VALIDATION_FAILED');
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to confirm while a line is not linked, with 422 INGREDIENT_NOT_LINKED', async () => {
+      const { meal, access, prisma } = harness();
+      const [ail] = readyDishRow().ingredients;
+      meal.findUnique.mockResolvedValue(
+        readyDishRow({
+          ingredients: [
+            ail,
+            { name: 'Sel', qty: 1, unit: 'pinch', catalogIngredientId: null },
+          ],
+        }),
+      );
+
+      const error = await new DishesService(prisma, access)
+        .confirmAllergens('clerk_1', 'dish-1')
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({ code: 'INGREDIENT_NOT_LINKED', lines: [1] });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to confirm a line whose ingredient is still to complete', async () => {
+      const { meal, access, prisma } = harness();
+      const [ail, celeri] = readyDishRow().ingredients as object[];
+      meal.findUnique.mockResolvedValue(
+        readyDishRow({ ingredients: [{ ...ail, incomplete: true }, celeri] }),
+      );
+
+      const error = await new DishesService(prisma, access)
+        .confirmAllergens('clerk_1', 'dish-1')
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({ code: 'INGREDIENT_NOT_LINKED', lines: [0] });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to confirm an allergen code outside the 14 (ruling R5)', async () => {
+      const { meal, access, prisma } = harness();
+      const [ail, celeri] = readyDishRow().ingredients as object[];
+      meal.findUnique.mockResolvedValue(
+        readyDishRow({
+          ingredients: [{ ...ail, allergens: ['egg'] }, celeri],
+          allergens: ['celery', 'egg'],
+        }),
+      );
+
+      const error = await new DishesService(prisma, access)
+        .confirmAllergens('clerk_1', 'dish-1')
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        allergens: ['egg'],
+      });
       expect(meal.update).not.toHaveBeenCalled();
     });
 
     it('clears it when an ingredient changes, not when a quantity does', async () => {
       const { meal, access, prisma } = harness();
-      const ail = { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' };
+      const ail = { name: 'Ail', qty: 4, unit: 'clove', aisle: 'fruits-legumes' };
       meal.findUnique.mockResolvedValue(
         dishRow({ ingredients: [ail], allergensVerifiedAt: new Date() }),
       );
@@ -478,8 +600,8 @@ describe('DishesService', () => {
       });
 
       expect(meal.update).toHaveBeenCalledWith({
-        where: { id: 'dish-1', chefProfileId: CHEF.id },
-        data: { description: 'Plus de thym.' },
+        where: { id: 'dish-1', chefProfileId: CHEF.id, lockVersion: 0 },
+        data: { description: 'Plus de thym.', lockVersion: { increment: 1 } },
       });
     });
 
@@ -504,6 +626,513 @@ describe('DishesService', () => {
       });
 
       expect(meal.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('two saves of the same recipe (Recettes §8.1, lockVersion)', () => {
+    it('refuses a stale lockVersion with 409 RECIPE_CONFLICT and writes nothing (Review Focus 1)', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(dishRow({ lockVersion: 4 }));
+
+      const error = await new DishesService(h.prisma, h.access)
+        .update('clerk_1', 'dish-1', { lockVersion: 3, description: 'Plus de thym.' })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(codeOf(error)).toMatchObject({ code: 'RECIPE_CONFLICT', lockVersion: 4 });
+      expect(h.meal.update).not.toHaveBeenCalled();
+    });
+
+    it('saves over the version the screen read, and moves it on', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(dishRow({ lockVersion: 4 }));
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        lockVersion: 4,
+        description: 'Plus de thym.',
+      });
+
+      expect(h.meal.update.mock.calls[0][0]).toMatchObject({
+        where: { id: 'dish-1', chefProfileId: CHEF.id, lockVersion: 4 },
+        data: { lockVersion: { increment: 1 } },
+      });
+    });
+
+    it('answers 409 with the version read again when another save won the race, and makes no version', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      h.meal.findUnique
+        .mockResolvedValueOnce(readyDishRow({ lockVersion: 4 }))
+        .mockResolvedValueOnce(readyDishRow({ lockVersion: 5 }));
+      h.meal.update.mockRejectedValueOnce(noRowMatched());
+
+      const error = await new DishesService(h.prisma, h.access)
+        .update('clerk_1', 'dish-1', { portions: 6 })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(codeOf(error)).toMatchObject({ code: 'RECIPE_CONFLICT', lockVersion: 5 });
+      expect(h.meal.update).toHaveBeenCalledTimes(1);
+      expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the dish was deleted between the read and the write', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValueOnce(dishRow()).mockResolvedValueOnce(null);
+      h.meal.update.mockRejectedValueOnce(noRowMatched());
+
+      await expect(
+        new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+          portions: 6,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('refuses a screen opened before the common list changed the dish (Review Focus 2)', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      // The §7.3 propagation moved the dish on: allergens recomputed, verification gone.
+      h.meal.findUnique.mockResolvedValue(
+        readyDishRow({
+          lockVersion: 5,
+          allergens: ['milk', 'celery'],
+          allergensVerifiedAt: null,
+        }),
+      );
+
+      const error = await new DishesService(h.prisma, h.access)
+        .update('clerk_1', 'dish-1', { lockVersion: 4, recipe: READY_RECIPE })
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({ code: 'RECIPE_CONFLICT', lockVersion: 5 });
+      expect(h.meal.update).not.toHaveBeenCalled();
+      expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('saving a recipe (Recettes §5.2, §6.1)', () => {
+    const FARINE = entryRow({
+      id: 'cat-farine',
+      name: 'Farine de blé',
+      aisle: 'epicerie-sucree',
+      allergens: ['gluten'],
+      allergensNone: false,
+      diets: ['vegan', 'vegetarian'],
+      seasonMonths: [],
+    });
+    const LAIT = entryRow({
+      id: 'cat-lait',
+      name: 'Lait entier',
+      aisle: 'cremerie',
+      allergens: ['milk'],
+      allergensNone: false,
+      diets: ['vegetarian'],
+      seasonMonths: [],
+    });
+
+    it('writes the stamped lines, the computed allergens and the classification under the lock', async () => {
+      const h = harness();
+      withEntries(h, [FARINE, LAIT]);
+      h.meal.findUnique.mockResolvedValue(
+        dishRow({ lockVersion: 2, addedAllergens: [], allergens: [] }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ingredients: [
+            { name: 'farine', qty: 250, unit: 'g', catalogIngredientId: 'cat-farine' },
+            {
+              name: 'lait',
+              qty: 20,
+              unit: 'cl',
+              catalogIngredientId: 'cat-lait',
+              optional: true,
+            },
+          ],
+          steps: [],
+        },
+      });
+
+      const { where, data } = h.meal.update.mock.calls[0][0];
+      expect(where).toEqual({ id: 'dish-1', chefProfileId: CHEF.id, lockVersion: 2 });
+      expect(data).toMatchObject({
+        ingredients: [
+          expect.objectContaining({
+            name: 'Farine de blé',
+            aisle: 'epicerie-sucree',
+            allergens: ['gluten'],
+            incomplete: false,
+          }),
+          expect.objectContaining({
+            name: 'Lait entier',
+            aisle: 'cremerie',
+            allergens: ['milk'],
+            optional: true,
+          }),
+        ],
+        allergens: ['gluten', 'milk'],
+        // Only the optional milk brings milk: shown "if used", still checked (§6.1).
+        conditionalAllergens: ['milk'],
+        allergensNone: false,
+        classification: {
+          diets: ['vegetarian'],
+          seasonMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        },
+        addedAllergens: [],
+        customAllergens: [],
+        lockVersion: { increment: 1 },
+      });
+    });
+
+    it('says "none of the 14" only when every line is known and brings none', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      h.meal.findUnique.mockResolvedValue(dishRow({ addedAllergens: [], allergens: [] }));
+      const service = new DishesService(h.prisma, h.access);
+      const ail = { name: 'Ail', qty: 4, unit: 'clove', catalogIngredientId: 'cat-ail' };
+
+      await service.update('clerk_1', 'dish-1', {
+        recipe: { ingredients: [ail], steps: [] },
+      });
+      await service.update('clerk_1', 'dish-1', {
+        recipe: { ingredients: [ail, { name: 'Sel', qty: 1, unit: 'pinch' }], steps: [] },
+      });
+
+      expect(h.meal.update.mock.calls[0][0].data).toMatchObject({
+        allergens: [],
+        allergensNone: true,
+      });
+      // An unlinked line is unknown, never "no allergen".
+      expect(h.meal.update.mock.calls[1][0].data).toMatchObject({
+        allergens: [],
+        allergensNone: false,
+        classification: Prisma.DbNull,
+      });
+    });
+
+    it('keeps the chef’s own quantity, unit, precision, option and group on a linked line', async () => {
+      const h = harness();
+      withEntries(h, [
+        entryRow({
+          id: 'cat-moutarde',
+          name: 'Moutarde de Dijon',
+          aisle: 'epicerie-salee',
+          allergens: ['mustard'],
+          allergensNone: false,
+        }),
+      ]);
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ingredients: [
+            {
+              name: 'moutarde',
+              qty: 1.5,
+              unit: 'tbsp',
+              aisle: 'mon-rayon',
+              precision: 'à l’ancienne',
+              optional: true,
+              group: 'Sauce',
+              catalogIngredientId: 'cat-moutarde',
+            },
+          ],
+          steps: [],
+        },
+      });
+
+      expect(h.meal.update.mock.calls[0][0].data.ingredients).toEqual([
+        expect.objectContaining({
+          qty: 1.5,
+          unit: 'tbsp',
+          precision: 'à l’ancienne',
+          optional: true,
+          group: 'Sauce',
+          name: 'Moutarde de Dijon',
+          aisle: 'epicerie-salee',
+          allergens: ['mustard'],
+        }),
+      ]);
+    });
+
+    it('adds the chef’s gluten to a gluten-free recipe and drops the gluten-free diet', async () => {
+      const h = harness();
+      const riz = entryRow({
+        id: 'cat-riz',
+        name: 'Riz',
+        aisle: 'epicerie-salee',
+        diets: ['gluten-free', 'vegan', 'vegetarian'],
+        seasonMonths: [],
+      });
+      withEntries(h, [riz]);
+      h.meal.findUnique.mockResolvedValue(
+        dishRow({
+          addedAllergens: [],
+          allergens: [],
+          allergensNone: true,
+          ingredients: [
+            {
+              name: 'Riz',
+              qty: 200,
+              unit: 'g',
+              aisle: 'epicerie-salee',
+              catalogIngredientId: 'cat-riz',
+              allergens: [],
+              incomplete: false,
+            },
+          ],
+        }),
+      );
+
+      // Sent alone, the chef's allergens are applied to the lines as stored.
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: ['gluten'],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.allergens).toEqual(['gluten']);
+      expect(data.allergensNone).toBe(false);
+      expect(data.addedAllergens).toEqual(['gluten']);
+      expect(data.ingredients).toEqual([
+        expect.objectContaining({ name: 'Riz', catalogIngredientId: 'cat-riz' }),
+      ]);
+      expect(data.classification).toEqual({
+        diets: ['vegan', 'vegetarian'],
+        seasonMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      });
+    });
+
+    it('refuses two lines of the same ingredient with 422 DUPLICATE_INGREDIENT_LINE', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      const ail = { name: 'Ail', qty: 4, unit: 'clove', catalogIngredientId: 'cat-ail' };
+
+      const error = await new DishesService(h.prisma, h.access)
+        .update('clerk_1', 'dish-1', {
+          recipe: { ingredients: [ail, { ...ail, qty: 2 }], steps: [] },
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      expect(codeOf(error)).toMatchObject({
+        code: 'DUPLICATE_INGREDIENT_LINE',
+        lines: [[0, 1]],
+      });
+      expect(h.meal.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a line without a quantity in grams with 422 VALIDATION_FAILED', async () => {
+      const h = harness();
+
+      const error = await new DishesService(h.prisma, h.access)
+        .update('clerk_1', 'dish-1', {
+          recipe: { ingredients: [{ name: 'Farine', qty: null, unit: 'g' }], steps: [] },
+        })
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        errors: [expect.objectContaining({ field: 'recipe.ingredients[0].qty' })],
+      });
+      expect(h.meal.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps an inactive entry the dish already had, refuses a newly chosen one', async () => {
+      const h = harness();
+      withEntries(h, [
+        entryRow({ id: 'cat-old', name: 'Ancien', status: 'inactive' }),
+        entryRow({ id: 'cat-gone', name: 'Retiré', status: 'inactive' }),
+      ]);
+      const old = {
+        name: 'Ancien',
+        qty: 1,
+        unit: 'piece',
+        catalogIngredientId: 'cat-old',
+      };
+      h.meal.findUnique.mockResolvedValue(
+        dishRow({ ingredients: [{ ...old, allergens: [], incomplete: false }] }),
+      );
+      const service = new DishesService(h.prisma, h.access);
+
+      await service.update('clerk_1', 'dish-1', {
+        recipe: { ingredients: [{ ...old, qty: 2 }], steps: [] },
+      });
+      const error = await service
+        .update('clerk_1', 'dish-1', {
+          recipe: {
+            ingredients: [
+              old,
+              { ...old, name: 'Retiré', catalogIngredientId: 'cat-gone' },
+            ],
+            steps: [],
+          },
+        })
+        .catch((e: unknown) => e);
+
+      expect(h.meal.update).toHaveBeenCalledTimes(1);
+      expect(codeOf(error)).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        errors: [expect.objectContaining({ field: 'recipe.ingredients[1]' })],
+      });
+    });
+
+    it('keeps a published dish published when its recipe becomes incomplete, with no new version', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      stored(h, readyDishRow({ status: MealStatus.published }));
+
+      const view = await new DishesService(h.prisma, h.access).update(
+        'clerk_1',
+        'dish-1',
+        {
+          recipe: {
+            ...READY_RECIPE,
+            ingredients: [
+              ...READY_RECIPE.ingredients,
+              { name: 'Sel', qty: 1, unit: 'pinch' },
+            ],
+          },
+        },
+      );
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('status');
+      expect(data).toMatchObject({ versionPending: true, allergensVerifiedAt: null });
+      expect(h.meal.update).toHaveBeenCalledTimes(1);
+      expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+      expect(view.status).toBe(MealStatus.published);
+    });
+  });
+
+  describe('re-verification of the allergens (Recettes §6.5)', () => {
+    const THYM = entryRow({ id: 'cat-thym', name: 'Thym' });
+
+    it('clears it when a line is added', async () => {
+      const h = harness();
+      withEntries(h, [...READY_ENTRIES, THYM]);
+      stored(h, readyDishRow());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ...READY_RECIPE,
+          ingredients: [
+            ...READY_RECIPE.ingredients,
+            { name: 'Thym', qty: 2, unit: 'bunch', catalogIngredientId: 'cat-thym' },
+          ],
+        },
+      });
+
+      expect(h.meal.update.mock.calls[0][0].data.allergensVerifiedAt).toBeNull();
+    });
+
+    it('clears it when the chef adds an allergen', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      stored(h, readyDishRow());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: ['mustard'],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.allergensVerifiedAt).toBeNull();
+      expect(data.allergens).toEqual(['celery', 'mustard']);
+    });
+
+    it('keeps it when only a quantity changes', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      stored(h, readyDishRow());
+      const [ail, celeri] = READY_RECIPE.ingredients;
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: { ...READY_RECIPE, ingredients: [{ ...ail, qty: 6 }, celeri] },
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('allergensVerifiedAt');
+      expect(data.versionPending).toBe(true);
+    });
+
+    it('keeps it, with nothing pending, when the stored recipe is sent back as it is', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      stored(h, readyDishRow());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        lockVersion: 0,
+        recipe: READY_RECIPE,
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('allergensVerifiedAt');
+      expect(data).not.toHaveProperty('versionPending');
+      expect(data).not.toHaveProperty('reviewReason');
+      expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('moderation of a recipe change (§3.2)', () => {
+    const published = () =>
+      readyDishRow({ status: MealStatus.published, reviewedAt: new Date('2026-09-20') });
+
+    it('sends a reviewed dish back to the queue when its computed allergens change', async () => {
+      const h = harness();
+      withEntries(h, [
+        ...READY_ENTRIES,
+        entryRow({
+          id: 'cat-beurre',
+          name: 'Beurre',
+          aisle: 'cremerie',
+          allergens: ['milk'],
+          allergensNone: false,
+        }),
+      ]);
+      stored(h, published());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ...READY_RECIPE,
+          ingredients: [
+            ...READY_RECIPE.ingredients,
+            { name: 'Beurre', qty: 30, unit: 'g', catalogIngredientId: 'cat-beurre' },
+          ],
+        },
+      });
+
+      expect(h.meal.update.mock.calls[0][0].data).toMatchObject({
+        // In the order of the annex.
+        allergens: ['milk', 'celery'],
+        sourceChangedAt: null,
+        reviewReason: 'edited-after-review',
+      });
+    });
+
+    it('does the same for a change of country', async () => {
+      const h = harness();
+      stored(h, published());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        country: 'SN',
+      });
+
+      expect(h.meal.update.mock.calls[0][0].data.reviewReason).toBe(
+        'edited-after-review',
+      );
+    });
+
+    it('leaves the queue alone when the allergens stay the same', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      stored(h, published());
+      const [ail, celeri] = READY_RECIPE.ingredients;
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: { ...READY_RECIPE, ingredients: [{ ...ail, qty: 6 }, celeri] },
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data).not.toHaveProperty('reviewReason');
+      expect(data).not.toHaveProperty('sourceChangedAt');
     });
   });
 

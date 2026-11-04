@@ -117,6 +117,27 @@ export const PUBLISH_REFUSED_EXAMPLE = {
   ],
 };
 
+/** `PATCH /me/dishes/{id}` with an outdated `lockVersion` → 409. */
+export const RECIPE_CONFLICT_EXAMPLE = {
+  code: 'RECIPE_CONFLICT',
+  message: 'The recipe was changed since you opened it.',
+  lockVersion: 5,
+};
+
+/** `POST` or `PATCH /me/dishes` with the same ingredient on lines 0 and 2 → 422. */
+export const DUPLICATE_INGREDIENT_LINE_EXAMPLE = {
+  code: 'DUPLICATE_INGREDIENT_LINE',
+  message: 'The same ingredient appears on several lines.',
+  lines: [[0, 2]],
+};
+
+/** `POST /me/dishes/{id}/allergens/confirm` with line 1 not linked → 422. */
+export const INGREDIENT_NOT_LINKED_EXAMPLE = {
+  code: 'INGREDIENT_NOT_LINKED',
+  message: 'Some ingredients are not linked to the common list.',
+  lines: [1],
+};
+
 export const CHEF_NOT_VERIFIED_EXAMPLE = {
   code: 'CHEF_NOT_VERIFIED',
   message: 'Your candidature must be approved before you can write dishes or menus.',
@@ -157,11 +178,10 @@ export const MENU_NOT_PUBLISHABLE_EXAMPLE = {
         name: 'Poulet rôti aux herbes',
         problems: [
           {
-            code: 'ALLERGENS_REQUIRED',
+            code: 'ALLERGENS_UNVERIFIED',
             field: 'allergens',
             message:
-              'Declare the allergens: list them, or confirm the dish contains none of ' +
-              'the 14 regulated allergens (`allergensNone: true`).',
+              'Confirm the allergens: the ingredients changed since they were verified.',
           },
         ],
       },
