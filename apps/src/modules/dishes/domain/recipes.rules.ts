@@ -226,23 +226,6 @@ export function readSteps(raw: unknown): Step[] {
   return steps.map((step, i) => ({ order: i + 1, ...step }));
 }
 
-/**
- * Recettes §4.9, R17: an ingredient added, removed or renamed, which asks the chef
- * to verify the allergens again. Quantities, units and aisles never change what a
- * dish contains, so they do not count.
- */
-export function ingredientsChanged(before: unknown, after: unknown): boolean {
-  const names = (raw: unknown) =>
-    new Set(
-      (Array.isArray(raw) ? raw : [])
-        .map((item) => fold(String((item as { name?: unknown } | null)?.name ?? '')))
-        .filter(Boolean),
-    );
-  const a = names(before);
-  const b = names(after);
-  return a.size !== b.size || [...a].some((name) => !b.has(name));
-}
-
 /** Keys sorted at every level: the database gives JSON back in its own key order. */
 const canonical = (value: unknown): unknown =>
   Array.isArray(value)

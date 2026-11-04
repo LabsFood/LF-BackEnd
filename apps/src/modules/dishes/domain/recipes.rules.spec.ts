@@ -4,7 +4,6 @@ import {
   diffCorrections,
   groupByAisle,
   householdPortions,
-  ingredientsChanged,
   readSteps,
   recipeLimitBreach,
   roundLines,
@@ -171,26 +170,6 @@ describe('readSteps (§4.5)', () => {
       { order: 1, text: 'Dresser', type: null, durationMinutes: null },
     ]);
     expect(readSteps(null)).toEqual([]);
-  });
-});
-
-describe('ingredientsChanged (Recettes §4.9, R17)', () => {
-  it('ignores quantities, units, aisles, order, case and accents', () => {
-    expect(
-      ingredientsChanged(
-        [ail, poulet],
-        [
-          { ...poulet, qty: 2 },
-          { ...ail, name: 'AÏL', unit: 'g', aisle: 'epicerie' },
-        ],
-      ),
-    ).toBe(false);
-  });
-
-  it('sees an ingredient added, removed or renamed', () => {
-    expect(ingredientsChanged([ail], [ail, poulet])).toBe(true);
-    expect(ingredientsChanged([ail, poulet], [ail])).toBe(true);
-    expect(ingredientsChanged([ail], [{ ...ail, name: 'Échalote' }])).toBe(true);
   });
 });
 

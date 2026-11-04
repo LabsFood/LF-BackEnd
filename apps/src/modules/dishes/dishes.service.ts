@@ -29,12 +29,8 @@ import {
   readiness,
 } from './domain/dishes.rules';
 import { publicationProblems } from './domain/menus.rules';
-import {
-  ingredientsChanged,
-  readSteps,
-  recipeLimitBreach,
-  sameContent,
-} from './domain/recipes.rules';
+import { compositionChanged } from './domain/recipe-lines.rules';
+import { readSteps, recipeLimitBreach, sameContent } from './domain/recipes.rules';
 import {
   CreateDishDto,
   IngredientDto,
@@ -138,7 +134,7 @@ export class DishesService {
     const reverify =
       !!payload.recipe &&
       current.allergensVerifiedAt !== null &&
-      ingredientsChanged(current.ingredients, payload.recipe.ingredients);
+      compositionChanged(current.ingredients, payload.recipe.ingredients);
 
     const write = toMealWrite(payload);
     // R6: saving never makes a version by itself (a draft is saved as it is typed);
