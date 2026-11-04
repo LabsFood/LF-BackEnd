@@ -247,6 +247,20 @@ describe('readiness (Recettes §4.11)', () => {
       ]);
     });
 
+    it('refuses kosher too, and reports halal plus kosher once', () => {
+      const noPork = { diets: ['vegetarian'], seasonMonths: [1] };
+      for (const declaredDiets of [['kosher'], ['halal', 'kosher']]) {
+        const result = readiness({ ...DISH, declaredDiets, classification: noPork });
+        expect(result.problems).toEqual([
+          expect.objectContaining({
+            code: 'DECLARED_DIET_NOT_ALLOWED',
+            field: 'declaredDiets',
+          }),
+        ]);
+      }
+      expect(readiness({ ...DISH, declaredDiets: ['kosher'] }).problems).toEqual([]);
+    });
+
     it('accepts halal with no-pork', () => {
       expect(readiness({ ...DISH, declaredDiets: ['halal'] }).problems).toEqual([]);
     });

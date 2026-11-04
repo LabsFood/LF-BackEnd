@@ -283,16 +283,19 @@ export function readiness(dish: ReadinessDish) {
     missing('recipe.reheating.note', 'Add a reheating note.');
   }
 
-  // Halal cannot be computed, but it cannot contradict the ingredients: no pork.
+  // Halal and kosher cannot be computed, but it cannot contradict the ingredients: no pork.
   const computedDiets =
     isObject(dish.classification) && Array.isArray(dish.classification.diets)
       ? dish.classification.diets
       : [];
-  if (dish.declaredDiets.includes('halal') && !computedDiets.includes('no-pork')) {
+  if (
+    dish.declaredDiets.some((diet) => diet === 'halal' || diet === 'kosher') &&
+    !computedDiets.includes('no-pork')
+  ) {
     problems.push({
       code: 'DECLARED_DIET_NOT_ALLOWED',
       field: 'declaredDiets',
-      message: 'Halal needs ingredients without pork.',
+      message: 'Halal or kosher needs ingredients without pork.',
     });
   }
 
