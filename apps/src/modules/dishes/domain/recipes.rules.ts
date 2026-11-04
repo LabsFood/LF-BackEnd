@@ -5,6 +5,7 @@
  */
 
 import type { ReferenceItem } from './dishes.rules';
+import { roundForDisplay, unitFromText } from './units.rules';
 
 export interface Line {
   name: string;
@@ -17,9 +18,6 @@ export interface Line {
 export interface Correction extends Line {
   removed: boolean;
 }
-
-/** Two decimals; EPSILON so 1.005 rounds to 1.01, not 1. */
-const round = (qty: number) => Math.round((qty + Number.EPSILON) * 100) / 100;
 
 /** An ingredient's name, or a unit, whatever the case or accents. */
 const fold = (name: string) =>
@@ -34,12 +32,15 @@ export function toLine(raw: unknown): Line | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
   const name = String(value.name ?? '').trim();
-  const qty = Number(value.qty ?? value.amount);
+  const unit = String(value.unit ?? '').trim();
+  const rawQty = value.qty ?? value.amount;
+  // Recettes §4.12: "selon le goût" has no number, so it reads as zero.
+  const qty = rawQty == null && unit === 'to_taste' ? 0 : Number(rawQty);
   if (!name || !Number.isFinite(qty)) return null;
   return {
     name,
     qty,
-    unit: String(value.unit ?? '').trim(),
+    unit,
     aisle: String(value.aisle ?? '').trim() || 'autre',
   };
 }
@@ -59,17 +60,14 @@ export function scale(ingredients: unknown, from: number, to: number): Line[] {
   });
 }
 
-/** Units counted in whole pieces, folded like ingredient names. */
-const PIECES = new Set(['', 'piece', 'pieces', 'pc', 'pcs', 'u', 'unite', 'unites']);
-
 /**
- * Recettes §4.12: rounded once, for display and at the end of the shopping list.
- * Two decimals; a count of pieces goes up to the next whole one.
+ * Recettes §4.12: rounded once, for display and at the end of the shopping list,
+ * by the rule of its unit. A legacy free-text unit is read as its unit code first.
  */
 export function roundLines<T extends Line>(lines: T[]): T[] {
   return lines.map((line) => ({
     ...line,
-    qty: PIECES.has(fold(line.unit)) ? Math.ceil(line.qty - 1e-9) : round(line.qty),
+    qty: roundForDisplay(line.qty, unitFromText(line.unit) ?? line.unit),
   }));
 }
 

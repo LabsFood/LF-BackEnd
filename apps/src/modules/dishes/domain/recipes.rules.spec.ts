@@ -52,8 +52,10 @@ describe('portions (Recettes §4.12)', () => {
     expect(roundLines(aggregate([third, third, third]))).toEqual([{ ...ail, qty: 1 }]);
   });
 
-  it('rounds half-hundredths up, and a count of pieces to the next whole one', () => {
-    expect(roundLines([{ ...ail, unit: 'g', qty: 1.005 }])[0].qty).toBe(1.01);
+  it('rounds each unit its own way, and a count of pieces to the next whole one', () => {
+    expect(roundLines([{ ...ail, unit: 'kg', qty: 1.005 }])[0].qty).toBe(1.01);
+    expect(roundLines([{ ...ail, unit: 'g', qty: 133 }])[0].qty).toBe(135);
+    expect(roundLines([{ ...ail, unit: 'inconnue', qty: 1.234 }])[0].qty).toBe(1.23);
     expect(
       roundLines([
         { name: 'Citron', qty: 1.2, unit: 'pièce', aisle: 'fruits-legumes' },
@@ -66,6 +68,13 @@ describe('portions (Recettes §4.12)', () => {
     expect(householdPortions(1, 0)).toBe(1);
     expect(householdPortions(0, 0)).toBe(1);
   });
+});
+
+it('keeps a to_taste line with no quantity', () => {
+  expect(scale([{ name: 'Sel', unit: 'to_taste' }], 1, 2)).toEqual([
+    { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'autre' },
+  ]);
+  expect(scale([{ name: 'Sel', unit: 'g' }], 1, 2)).toEqual([]);
 });
 
 describe('aggregate', () => {
