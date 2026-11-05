@@ -331,16 +331,124 @@ describe('runReprise (Recettes §9)', () => {
     expect(dish.status).toBe(MealStatus.published);
     expect(dish.publishedAt).toEqual(PUBLISHED_AT);
     expect(dish.recipeVersion).toBe(2);
-    expect(dish.versionPending).toBe(false);
     expect(h.meal.update).toHaveBeenCalledTimes(5);
     for (const [{ data }] of h.meal.update.mock.calls) {
       expect(data).not.toHaveProperty('status');
       expect(data).not.toHaveProperty('publishedAt');
       expect(data).not.toHaveProperty('recipeVersion');
-      expect(data).not.toHaveProperty('versionPending');
     }
     // The double has no versions nor bookings: any use of them would fail a dish.
     expect(report.failed).toEqual([]);
+  });
+
+  it('marks a dish whose lines changed as waiting for a new version, in the same write (R18)', async () => {
+    const h = database();
+    await run(h);
+
+    for (const id of ['dish-1', 'dish-2', 'dish-3', 'lf-1', 'offer-1']) {
+      expect(h.meals.get(id)!.versionPending).toBe(true);
+    }
+    // One write per dish, guarded by the lockVersion read, carries the flag.
+    expect(h.meal.update).toHaveBeenCalledTimes(5);
+    expect(h.meal.update).toHaveBeenCalledWith({
+      where: { id: 'dish-1', lockVersion: 3 },
+      data: expect.objectContaining({
+        versionPending: true,
+        lockVersion: { increment: 1 },
+      }),
+    });
+    // Only the flag: the version number and the kept versions stay as they were.
+    expect(h.meals.get('dish-1')!.recipeVersion).toBe(2);
+  });
+
+  it('marks a dish whose storage alone changed as waiting for a new version', async () => {
+    const h = database({ meals: [MEALS()[0]] });
+    await run(h);
+    // A version cut since, then the storage put back as it was before the socle.
+    const dish = h.meals.get('dish-1')!;
+    dish.versionPending = false;
+    dish.storage = { method: 'freezer', days: 60 };
+    const lines = structuredClone(dish.ingredients);
+    h.meal.update.mockClear();
+
+    await run(h);
+
+    expect(h.meal.update).toHaveBeenCalledTimes(1);
+    expect(h.meals.get('dish-1')!.ingredients).toEqual(lines);
+    expect(h.meals.get('dish-1')!.storage).toEqual({
+      method: 'freezer',
+      days: 60,
+      freezable: true,
+    });
+    expect(h.meals.get('dish-1')!.versionPending).toBe(true);
+  });
+
+  it('leaves versionPending alone when only the allergen columns change', async () => {
+    const h = database({ meals: [MEALS()[0]] });
+    await run(h);
+    const dish = h.meals.get('dish-1')!;
+    dish.versionPending = false;
+    // The hand-declared gluten no longer listed as added: R7 carries it back.
+    dish.addedAllergens = [];
+    h.meal.update.mockClear();
+
+    await run(h);
+
+    expect(h.meal.update).toHaveBeenCalledTimes(1);
+    expect(h.meal.update.mock.calls[0][0].data).not.toHaveProperty('versionPending');
+    expect(h.meals.get('dish-1')!.addedAllergens).toEqual(['gluten']);
+    expect(h.meals.get('dish-1')!.versionPending).toBe(false);
+  });
+
+  it('never sets versionPending again on a rerun that changes nothing', async () => {
+    const h = database();
+    await run(h);
+    // The chefs' next "Prête" saves cut the versions: nothing is pending any more.
+    for (const dish of h.meals.values()) dish.versionPending = false;
+    h.meal.update.mockClear();
+
+    const again = await run(h);
+
+    expect(again.changed).toBe(0);
+    expect(h.meal.update).not.toHaveBeenCalled();
+    for (const dish of h.meals.values()) expect(dish.versionPending).toBe(false);
+  });
+
+  it('hides a basic from the client unless the line said otherwise (§5.2)', async () => {
+    const entries = [
+      ...ENTRIES(),
+      entry({ id: 'cat-sel', name: 'Sel', normalizedName: 'sel', isBasic: true }),
+    ];
+    const meals = [
+      legacy({
+        id: 'dish-basics',
+        ingredients: [
+          { name: 'Sel', qty: 1, unit: 'pincée' },
+          { name: 'Sel', qty: 2, unit: 'pinch', hiddenFromClient: false },
+          { name: 'Tomates', qty: 3, unit: '' },
+          { name: 'Ail', qty: 1, unit: 'gousse', hiddenFromClient: true },
+          { name: 'Basilic', qty: 1, unit: 'poignée' },
+        ],
+      }),
+    ];
+    const h = database({ entries, meals });
+    await run(h);
+
+    const lines = h.meals.get('dish-basics')!.ingredients as {
+      hiddenFromClient: boolean;
+    }[];
+    expect(lines.map((l) => l.hiddenFromClient)).toEqual([
+      true,
+      false,
+      false,
+      true,
+      false,
+    ]);
+
+    // Written explicitly, it stays as it is on a rerun.
+    h.meal.update.mockClear();
+    await run(h);
+    expect(h.meal.update).not.toHaveBeenCalled();
   });
 
   it('never loses an allergen, on any dish (Review Focus 3)', async () => {

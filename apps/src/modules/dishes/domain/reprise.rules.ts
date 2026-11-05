@@ -69,17 +69,32 @@ function originalText(raw: Record<string, unknown>, name: string): string {
 }
 
 /**
+ * A reprised line, ready to stamp. `hiddenFromClient` is undefined when the stored
+ * line never said: stamping then takes the linked entry's `is_basic` (§5.2), as a
+ * save does for a line sent without it (`LineToStamp`).
+ */
+export type RepriseLine = Omit<LineInput, 'hiddenFromClient'> & {
+  hiddenFromClient?: boolean;
+};
+
+/**
  * Recettes §9, one line. A line already linked is kept as it is. An unlinked one is
  * linked when its match key names exactly one common entry, never by approximation;
  * otherwise it goes to verification with its original words in `rawText`. The unit
  * is converted either way, and a unit that cannot be converted sends the line to
- * verification (`toLineInput`).
+ * verification (`toLineInput`). Only an explicit `hiddenFromClient` is kept (§5.2):
+ * without one, salt or oil end up hidden from the client by their entry.
  */
-export function repriseLine(raw: unknown, index: Map<string, string>): LineInput {
-  const line = toLineInput(raw);
+export function repriseLine(raw: unknown, index: Map<string, string>): RepriseLine {
+  const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  // Kept local: `toLineInput` reads an absent value as false for its other callers.
+  const line: RepriseLine = {
+    ...toLineInput(raw),
+    hiddenFromClient:
+      typeof value.hiddenFromClient === 'boolean' ? value.hiddenFromClient : undefined,
+  };
   if (line.catalogIngredientId) return line;
 
-  const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const kept =
     typeof value.rawText === 'string' && value.rawText.trim() ? line.rawText : null;
   const id = index.get(matchKey(line.name));
@@ -128,7 +143,7 @@ export function repriseDish(
   meal: RepriseMeal,
   index: Map<string, string>,
 ): {
-  lines: LineInput[];
+  lines: RepriseLine[];
   addedAllergens: string[];
   storage: unknown;
   linesToVerify: number;

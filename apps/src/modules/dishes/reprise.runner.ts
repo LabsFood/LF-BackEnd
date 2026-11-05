@@ -20,10 +20,12 @@ import {
  * its hand-declared allergens kept as added, and its lines stamped, as a save
  * composes them (shared helpers of `dishes.service.ts`, ruling R7 included).
  *
- * It never loses an allergen, never touches a status, a publication date, a version
- * or a booking, and a second run changes nothing: a meal that already stores what
- * the reprise composes is not written, so nobody is told twice. A dry run reads
- * the same rows and reports the same figures, but writes and sends nothing.
+ * It never loses an allergen, never touches a status, a publication date, a kept
+ * version or a booking, and a second run changes nothing: a meal that already stores
+ * what the reprise composes is not written, so nobody is told twice. A meal whose
+ * lines or storage it changes waits for a new version (`versionPending`, R18), cut
+ * at its next "Prête" save or allergen confirmation. A dry run reads the same rows
+ * and reports the same figures, but writes and sends nothing.
  */
 
 /** What the reprise reads and writes. A plain Prisma client fits. */
@@ -201,9 +203,10 @@ async function fillNormalizedNames(
 
 /**
  * Recettes §9, one meal: its current content reprised and composed, then written in
- * one go with `lockVersion` +1, guarded by the `lockVersion` read. A meal that
- * already stores the result is left alone (replay-safe). Notifications are written
- * in the same transaction: they exist exactly when the change they report does.
+ * one go with `lockVersion` +1 (and `versionPending` when its recipe content changed),
+ * guarded by the `lockVersion` read. A meal that already stores the result is left
+ * alone (replay-safe). Notifications are written in the same transaction: they exist
+ * exactly when the change they report does.
  */
 async function repriseMeal(
   tx: Tx,
@@ -251,13 +254,22 @@ async function repriseMeal(
   const appeared = missingAllergens(composed.state.allergens, row.allergens);
   const unverified = appeared.length > 0 && row.allergensVerifiedAt !== null;
   const owner = row.chefProfile;
+  const columns = compositionColumns(composed);
+  // R18: the recipe a version keeps changed (its lines as stored, or its storage), so
+  // the next "Prête" save or confirmation cuts a version of it; until then bookings
+  // pin the last one, legacy units and unlinked lines included. Compared as stored, not as `readLines`
+  // reads them: the reprise exists to get the new format into a version. A write of
+  // the allergen columns alone leaves the flag as it is.
+  const contentChanged =
+    storageChanged || !sameContent(row.ingredients, columns.ingredients);
   if (!dryRun) {
     await tx.meal.update({
       // Matches nothing once a save has moved the dish on since the read.
       where: { id, lockVersion: row.lockVersion },
       data: {
-        ...compositionColumns(composed),
+        ...columns,
         ...(storageChanged && { storage: reprised.storage as Prisma.InputJsonValue }),
+        ...(contentChanged && { versionPending: true }),
         lockVersion: { increment: 1 },
         // Still published, no longer bookable until the chef confirms again. Cleared
         // whatever was read: a confirmation never moves `lockVersion`, so one landing

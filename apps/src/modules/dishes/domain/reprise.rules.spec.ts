@@ -40,6 +40,8 @@ const ENTRIES = [
   entry('cat-oeuf', 'Œuf', ['eggs']),
   entry('cat-saumon', 'Saumon', ['fish']),
   entry('cat-noix', 'Noix', ['nuts']),
+  // A basic (§5.2): hidden from the client unless the line says otherwise.
+  { ...entry('cat-sel', 'Sel'), isBasic: true },
 ];
 const INDEX = matchIndex(ENTRIES);
 /** The entries by id, as `entriesFor` would read them from the database. */
@@ -79,6 +81,7 @@ describe('repriseLine (Recettes §9)', () => {
     expect(repriseLine({ name: 'Tomates', qty: 4, unit: 'pièces' }, INDEX)).toEqual({
       ...toLineInput({ name: 'Tomates', qty: 4, unit: 'piece' }),
       catalogIngredientId: 'cat-tomate',
+      hiddenFromClient: undefined,
     });
   });
 
@@ -103,7 +106,41 @@ describe('repriseLine (Recettes §9)', () => {
       optional: true,
       precision: 'bio',
     };
-    expect(repriseLine(raw, INDEX)).toEqual(toLineInput(raw));
+    // Only what the line never said is left for its entry to decide (§5.2).
+    expect(repriseLine(raw, INDEX)).toEqual({
+      ...toLineInput(raw),
+      hiddenFromClient: undefined,
+    });
+    expect(repriseLine({ ...raw, hiddenFromClient: true }, INDEX)).toEqual(
+      toLineInput({ ...raw, hiddenFromClient: true }),
+    );
+  });
+
+  it('leaves an absent hiddenFromClient undefined, for the linked entry to decide', () => {
+    const line = repriseLine({ name: 'Sel', qty: 1, unit: 'pincée' }, INDEX);
+    expect(line.catalogIngredientId).toBe('cat-sel');
+    expect(line).toHaveProperty('hiddenFromClient', undefined);
+    expect(repriseLine({ name: 'Inconnu', qty: 1, unit: 'g' }, INDEX)).toHaveProperty(
+      'hiddenFromClient',
+      undefined,
+    );
+    // Not a boolean: nothing explicit either.
+    expect(
+      repriseLine({ name: 'Sel', qty: 1, unit: 'pinch', hiddenFromClient: null }, INDEX),
+    ).toHaveProperty('hiddenFromClient', undefined);
+  });
+
+  it('keeps an explicit hiddenFromClient, false included', () => {
+    expect(
+      repriseLine({ name: 'Sel', qty: 1, unit: 'pinch', hiddenFromClient: false }, INDEX)
+        .hiddenFromClient,
+    ).toBe(false);
+    expect(
+      repriseLine(
+        { name: 'Tomates', qty: 1, unit: 'piece', hiddenFromClient: true },
+        INDEX,
+      ).hiddenFromClient,
+    ).toBe(true);
   });
 
   it('converts « gousse » to clove', () => {
@@ -226,6 +263,28 @@ describe('repriseDish (Recettes §9)', () => {
     expect(result.linesToVerify).toBe(2);
   });
 
+  it('hides a basic from the client unless the line said otherwise (§5.2, is_basic)', () => {
+    const result = repriseDish(
+      dish({
+        ingredients: [
+          { name: 'Sel', qty: 1, unit: 'pincée' },
+          { name: 'sel', qty: 2, unit: 'pinch', hiddenFromClient: false },
+          { name: 'Tomates', qty: 3, unit: '' },
+          { name: 'Tomate', qty: 1, unit: 'piece', hiddenFromClient: true },
+          { name: 'Inconnu', qty: 1, unit: 'g' },
+        ],
+      }),
+      INDEX,
+    );
+    expect(stampLines(result.lines, BY_ID).map((l) => l.hiddenFromClient)).toEqual([
+      true,
+      false,
+      false,
+      true,
+      false,
+    ]);
+  });
+
   it('gives the same result when run again on what it produced', () => {
     const legacy = dish({
       ingredients: [
@@ -233,6 +292,7 @@ describe('repriseDish (Recettes §9)', () => {
         { name: 'Basilic', qty: 1, unit: 'poignée' },
         { name: 'Lardons', qty: 150, unit: 'gr' },
         { name: 'Beurre doux', qty: 20, unit: 'grammes' },
+        { name: 'Sel', qty: 1, unit: 'pincée' },
       ],
       allergens: ['milk', 'sesame'],
       storage: { method: 'freezer', days: 60 },
