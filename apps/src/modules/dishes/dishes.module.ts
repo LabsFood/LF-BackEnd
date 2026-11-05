@@ -54,6 +54,7 @@ import { VitrineService } from './vitrine.service';
     VitrineService,
   ],
   // The legacy /admin/meals routes flag adopted copies when a suggestion changes.
-  exports: [SuggestionsService, ChefContentService],
+  // Recettes §7.3: the common-list propagation e-mails the chefs it concerns.
+  exports: [SuggestionsService, ChefContentService, DishesMailer],
 })
 export class DishesModule {}

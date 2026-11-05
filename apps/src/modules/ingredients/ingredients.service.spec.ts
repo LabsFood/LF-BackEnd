@@ -7,6 +7,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IngredientPropagationService } from './ingredient-propagation.service';
 import { IngredientsService } from './ingredients.service';
 
 const TOMATE = {
@@ -42,11 +43,20 @@ function harness() {
   };
   const platformSetting = { findUnique: jest.fn(async (_args?: unknown) => null) };
   const audit = { record: jest.fn(async (_entry: object) => undefined) };
+  const propagation = {
+    propagate: jest.fn(async (..._args: unknown[]) => ({
+      dishes: 2,
+      reverified: 1,
+      chefs: 1,
+      skipped: 0,
+    })),
+  };
   const service = new IngredientsService(
     { catalogIngredient, meal, platformSetting } as unknown as PrismaService,
     audit as unknown as AuditService,
+    propagation as unknown as IngredientPropagationService,
   );
-  return { catalogIngredient, meal, audit, service };
+  return { catalogIngredient, meal, audit, propagation, service };
 }
 
 describe('IngredientsService (Recettes §4.10)', () => {
@@ -92,38 +102,83 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.create).not.toHaveBeenCalled();
   });
 
-  it('classifies again the dishes that link a changed ingredient', async () => {
-    const { catalogIngredient, meal, service } = harness();
+  // Recettes §7.3: what a recipe line copies or computes from the entry.
+  it.each([
+    ['name', { name: 'Tomate cerise' }],
+    ['aisle', { aisle: 'cremerie' }],
+    ['allergens', { allergens: ['gluten'] }],
+    ['allergensNone', { allergensNone: false }],
+    ['diets', { diets: ['vegetarian'] }],
+    ['seasonMonths', { seasonMonths: [1] }],
+  ])('carries a change of %s into the recipes', async (_field, payload) => {
+    const { audit, meal, propagation, service } = harness();
+
+    await service.update('ing-1', payload, 'admin-1');
+
+    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], 'admin-1');
+    // The propagation writes the dishes, never this service.
+    expect(meal.update).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'catalog_ingredient.updated',
+        subjectId: 'ing-1',
+      }),
+    );
+  });
+
+  it.each([
+    ['the same values again', { name: 'Tomate', seasonMonths: [9, 8, 7, 6] }],
+    ['other names', { aliases: ['tomates'] }],
+    ['the basic flag', { isBasic: true }],
+    // Recettes §5.1: an inactive entry stays valid on the lines that have it.
+    ['a deactivation', { status: 'inactive' as const }],
+  ])('carries nothing for %s', async (_case, payload) => {
+    const { propagation, service } = harness();
+
+    await service.update('ing-1', payload, 'admin-1');
+
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for an unknown ingredient and carries nothing', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.update('nope', { name: 'Tomate cerise' }, 'admin-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(catalogIngredient.update).not.toHaveBeenCalled();
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  // Recettes §7.2: what a change would touch, before the admin saves it.
+  it('counts the dishes, chefs and verified dishes linking an ingredient', async () => {
+    const { meal, service } = harness();
     meal.findMany.mockResolvedValue([
-      { id: 'dish-1', ingredients: [{ name: 'Tomate', catalogIngredientId: 'ing-1' }] },
-    ]);
-    catalogIngredient.findMany.mockResolvedValue([
-      {
-        id: 'ing-1',
-        diets: ['vegan'],
-        seasonMonths: [],
-        allergens: [],
-        allergensNone: true,
-        aisle: 'fruits-legumes',
-        isBasic: false,
-        name: 'Tomate',
-        status: 'active',
-        chefProfileId: null,
-        mergedIntoId: null,
-      },
+      { chefProfileId: 'chef-1', allergensVerifiedAt: new Date() },
+      { chefProfileId: 'chef-1', allergensVerifiedAt: null },
+      { chefProfileId: 'chef-2', allergensVerifiedAt: new Date() },
+      // A Lab's Food recipe: a dish, no chef.
+      { chefProfileId: null, allergensVerifiedAt: new Date() },
     ]);
 
-    await service.update('ing-1', { diets: ['vegan'] }, 'admin-1');
+    const impact = await service.impact('ing-1');
 
-    expect(meal.update).toHaveBeenCalledWith({
-      where: { id: 'dish-1' },
-      data: {
-        classification: {
-          diets: ['vegan'],
-          seasonMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-        },
+    expect(impact).toEqual({ dishes: 4, chefs: 2, verifiedDishes: 3 });
+    expect(meal.findMany).toHaveBeenCalledWith({
+      where: {
+        OR: [{ ingredients: { array_contains: [{ catalogIngredientId: 'ing-1' }] } }],
       },
+      select: { chefProfileId: true, allergensVerifiedAt: true },
     });
+  });
+
+  it('answers 404 for the impact of an unknown ingredient', async () => {
+    const { catalogIngredient, meal, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(null);
+
+    await expect(service.impact('nope')).rejects.toBeInstanceOf(NotFoundException);
+    expect(meal.findMany).not.toHaveBeenCalled();
   });
 
   it('lists the whole list by page for the console', async () => {

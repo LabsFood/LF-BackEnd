@@ -9,34 +9,36 @@ import { AuditService } from '../../common/audit/audit.service';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { toLineInput } from '../dishes/domain/recipe-lines.rules';
 import { aislesInForce } from '../platform-settings/recipe-lists';
-import { compositionOf } from './composition';
 import { normalizeName, withImpliedDiets } from './domain/ingredient.rules';
 import {
   CatalogIngredientDto,
   ListCatalogIngredientsQueryDto,
   UpdateCatalogIngredientDto,
 } from './dto/ingredient.dto';
-
-/**
- * Recettes §4.8: a recipe's diets and seasons from the entries it links, as the
- * `classification` column stores them (DbNull: "non calculé").
- */
-export async function classificationOf(
-  db: Pick<PrismaService, 'catalogIngredient'>,
-  ingredients: unknown,
-) {
-  const lines = (Array.isArray(ingredients) ? ingredients : []).map(toLineInput);
-  const { classification } = await compositionOf(db, lines, {
-    addedAllergens: [],
-    customAllergens: [],
-  });
-  return classification ?? Prisma.DbNull;
-}
+import {
+  dishesLinking,
+  IngredientPropagationService,
+} from './ingredient-propagation.service';
 
 /** A search shows a short list to pick from, never the whole table (every list has a cap). */
 const SEARCH_LIMIT = 20;
+
+/**
+ * Recettes §7.3: what a recipe line copies from its entry (name, aisle, allergens)
+ * or computes from it (diets, months). A change to one is carried into the recipes.
+ * The status is not among them: an inactive entry stays valid on its lines (§5.1).
+ */
+const CARRIED = {
+  name: true,
+  aisle: true,
+  allergens: true,
+  allergensNone: true,
+  diets: true,
+  seasonMonths: true,
+} as const;
+
+type Carried = Prisma.CatalogIngredientGetPayload<{ select: typeof CARRIED }>;
 
 /**
  * Recettes §4.10 / §5.1: the common ingredient list. The Lab's Food admin fills it
@@ -48,6 +50,7 @@ export class IngredientsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly propagation: IngredientPropagationService,
   ) {}
 
   /** For the console: the list by page, every entry (private ones too), filtered. */
@@ -124,8 +127,17 @@ export class IngredientsService {
     return row;
   }
 
+  /**
+   * Recettes §7.3: a change to what recipe lines copy or compute from the entry is
+   * carried into every recipe linking it, after the entry is saved and journaled.
+   */
   async update(id: string, payload: UpdateCatalogIngredientDto, adminUserId: string) {
-    if (payload.status !== undefined) await this.assertCommon(id);
+    const before = (await this.prisma.catalogIngredient.findUnique({
+      where: { id },
+      select: { ...CARRIED, chefProfileId: true, status: true },
+    })) as (Carried & { chefProfileId: string | null; status: string }) | null;
+    if (!before) throw new NotFoundException('Ingredient not found.');
+    if (payload.status !== undefined) assertCommon(before);
     const data = await this.toWrite(payload);
     if (payload.status !== undefined) data.status = payload.status;
     const normalized = data.normalizedName as string | undefined;
@@ -136,19 +148,41 @@ export class IngredientsService {
         if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
         return this.nameTaken(error, normalized, id);
       });
-    const reclassified =
-      data.diets !== undefined || data.seasonMonths !== undefined
-        ? await this.reclassify(id)
-        : 0;
+    const carried = carriedChanged(before, row);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: adminUserId,
       action: 'catalog_ingredient.updated',
       subjectType: 'catalog_ingredient',
       subjectId: id,
-      metadata: { fields: Object.keys(data), reclassified },
+      metadata: { fields: Object.keys(data), propagated: carried },
     });
+    // Records its own audit entry, with its figures.
+    if (carried) await this.propagation.propagate([id], adminUserId);
     return row;
+  }
+
+  /**
+   * Recettes §7.2: before a change is saved, what it would touch. The dishes linking
+   * the entry, their chefs, and the verified ones, which lose their verification
+   * if the allergens change.
+   */
+  async impact(id: string) {
+    const entry = await this.prisma.catalogIngredient.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!entry) throw new NotFoundException('Ingredient not found.');
+    const dishes = await this.prisma.meal.findMany({
+      where: dishesLinking([id]),
+      select: { chefProfileId: true, allergensVerifiedAt: true },
+    });
+    return {
+      dishes: dishes.length,
+      // Lab's Food recipes count as dishes, with no chef.
+      chefs: new Set(dishes.flatMap((dish) => dish.chefProfileId ?? [])).size,
+      verifiedDishes: dishes.filter((dish) => dish.allergensVerifiedAt !== null).length,
+    };
   }
 
   /** Recettes §5.1: the admin has checked the entry's aisle and allergens. */
@@ -170,43 +204,6 @@ export class IngredientsService {
       subjectId: id,
     });
     return row;
-  }
-
-  /** A status is the admin's to change on a common entry; a private one follows its chef. */
-  private async assertCommon(id: string) {
-    const row = (await this.prisma.catalogIngredient.findUnique({
-      where: { id },
-      select: { chefProfileId: true, status: true },
-    })) as { chefProfileId: string | null; status: string } | null;
-    if (!row) throw new NotFoundException('Ingredient not found.');
-    if (row.chefProfileId !== null) {
-      throw new UnprocessableEntityException({
-        code: 'INGREDIENT_PRIVATE',
-        message: 'The status of a chef’s private ingredient cannot be changed here.',
-      });
-    }
-    // merged and pending are the system's states: only active and inactive swap here.
-    if (row.status !== 'active' && row.status !== 'inactive') {
-      throw new UnprocessableEntityException({
-        code: 'INGREDIENT_STATUS_LOCKED',
-        message: 'A merged or pending ingredient never changes status here.',
-      });
-    }
-  }
-
-  /** The dishes linking this entry, classified again: the stored result never goes stale. */
-  private async reclassify(id: string): Promise<number> {
-    const meals = await this.prisma.meal.findMany({
-      where: { ingredients: { array_contains: [{ catalogIngredientId: id }] } },
-      select: { id: true, ingredients: true },
-    });
-    for (const meal of meals) {
-      await this.prisma.meal.update({
-        where: { id: meal.id },
-        data: { classification: await classificationOf(this.prisma, meal.ingredients) },
-      });
-    }
-    return meals.length;
   }
 
   /** The same name twice, in another case or accents, would split the computed diets. */
@@ -307,6 +304,40 @@ export class IngredientsService {
 
 const isNotFound = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
+
+/** A status is the admin's to change on a common entry; a private one follows its chef. */
+function assertCommon(row: { chefProfileId: string | null; status: string }) {
+  if (row.chefProfileId !== null) {
+    throw new UnprocessableEntityException({
+      code: 'INGREDIENT_PRIVATE',
+      message: 'The status of a chef’s private ingredient cannot be changed here.',
+    });
+  }
+  // merged and pending are the system's states: only active and inactive swap here.
+  if (row.status !== 'active' && row.status !== 'inactive') {
+    throw new UnprocessableEntityException({
+      code: 'INGREDIENT_STATUS_LOCKED',
+      message: 'A merged or pending ingredient never changes status here.',
+    });
+  }
+}
+
+/**
+ * Recettes §7.3: whether the save changed what recipe lines copy or compute. Lists
+ * are compared as sets: their order never changes a recipe.
+ */
+function carriedChanged(before: Carried, after: Carried): boolean {
+  const sameSet = (a: readonly unknown[], b: readonly unknown[]) =>
+    new Set(a).size === new Set(b).size && a.every((x) => b.includes(x));
+  return (
+    before.name !== after.name ||
+    before.aisle !== after.aisle ||
+    before.allergensNone !== after.allergensNone ||
+    !sameSet(before.allergens, after.allergens) ||
+    !sameSet(before.diets, after.diets) ||
+    !sameSet(before.seasonMonths, after.seasonMonths)
+  );
+}
 
 /** Name, normalized name (accents never defeat a search) or another name. */
 const matching = (term: string): Prisma.CatalogIngredientWhereInput => ({

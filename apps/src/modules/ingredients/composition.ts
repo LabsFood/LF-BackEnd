@@ -43,9 +43,11 @@ const ENTRY_SELECT = {
 
 /**
  * Recettes §4.10: the entries behind some ids. The key is the id asked for; the
- * value is the entry that replaces it when it was merged (one hop, to a common
- * active entry). A merged entry without a live target, or an unknown id, has no
- * key. At most two queries: the ids, then the merge targets.
+ * value is the entry that replaces it when it was merged (one hop). The hop is
+ * followed whatever the target's status: Recettes §7.3, an entry deactivated since
+ * stays valid on the lines that have it, so its allergens must never drop. A merged
+ * entry whose target row is gone, or an unknown id, has no key. At most two
+ * queries: the ids, then the merge targets.
  */
 export async function entriesFor(db: Db, ids: string[]): Promise<Map<string, EntryRow>> {
   const wanted = [...new Set(ids)];
@@ -67,7 +69,7 @@ export async function entriesFor(db: Db, ids: string[]): Promise<Map<string, Ent
   const targets = new Map<string, EntryRow>();
   if (targetIds.length) {
     const found = (await db.catalogIngredient.findMany({
-      where: { id: { in: targetIds }, status: 'active', chefProfileId: null },
+      where: { id: { in: targetIds } },
       select: ENTRY_SELECT,
     })) as EntryRow[];
     for (const row of found) targets.set(row.id, row);
@@ -78,10 +80,7 @@ export async function entriesFor(db: Db, ids: string[]): Promise<Map<string, Ent
       result.set(row.id, row);
     } else {
       const target = row.mergedIntoId ? targets.get(row.mergedIntoId) : undefined;
-      // The query filters, the test double may not: check again.
-      if (target && target.status === 'active' && target.chefProfileId === null) {
-        result.set(row.id, target);
-      }
+      if (target) result.set(row.id, target);
     }
   }
   return result;

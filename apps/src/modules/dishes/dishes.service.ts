@@ -717,9 +717,10 @@ export const compositionColumns = (composed: Composition) => ({
 /**
  * Ruling R10: the row already stores exactly what a fresh composition writes. The
  * lines are compared as stored, not as `readLines` reads them: a line never stamped
- * lacks `allergens`, which must count as a difference, never as "none".
+ * lacks `allergens`, which must count as a difference, never as "none". Shared with
+ * the Recettes §7.3 propagation, which writes nothing when it holds.
  */
-function storesComposition(meal: Meal, composed: Composition): boolean {
+export function storesComposition(meal: Meal, composed: Composition): boolean {
   const fresh = compositionColumns(composed);
   return (
     sameContent(meal.ingredients, fresh.ingredients) &&

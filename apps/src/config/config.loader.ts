@@ -103,6 +103,8 @@ export interface AppConfig {
       chefSuspended?: number;
       sourceChanged?: number;
       contentSuspended?: number;
+      recipeAllergensChanged?: number;
+      recipesMigrated?: number;
       newMessage?: number;
       contactReceivedAdmin?: number;
       contactReply?: number;
@@ -244,6 +246,10 @@ export const configLoader = (): AppConfig => ({
       chefSuspended: optionalNumber(process.env.BREVO_TPL_CHEF_SUSPENDED),
       sourceChanged: optionalNumber(process.env.BREVO_TPL_SOURCE_CHANGED),
       contentSuspended: optionalNumber(process.env.BREVO_TPL_CONTENT_SUSPENDED),
+      recipeAllergensChanged: optionalNumber(
+        process.env.BREVO_TPL_RECIPE_ALLERGENS_CHANGED,
+      ),
+      recipesMigrated: optionalNumber(process.env.BREVO_TPL_RECIPES_MIGRATED),
       newMessage: optionalNumber(process.env.BREVO_TPL_NEW_MESSAGE),
       contactReceivedAdmin: optionalNumber(process.env.BREVO_TPL_CONTACT_RECEIVED_ADMIN),
       contactReply: optionalNumber(process.env.BREVO_TPL_CONTACT_REPLY),

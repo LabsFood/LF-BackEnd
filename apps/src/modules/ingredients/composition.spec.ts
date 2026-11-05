@@ -147,6 +147,36 @@ describe('entriesFor', () => {
     ]);
     expect((await entriesFor(prisma, ['old'])).has('old')).toBe(false);
   });
+
+  // Recettes §7.3: a deactivated entry stays valid on the lines that have it, so a
+  // line merged into it before must keep its allergens, never drop them.
+  it('follows a merge into a target deactivated since, whatever its status', async () => {
+    const { db: prisma, findMany } = db([
+      entry({ id: 'old', status: 'merged', mergedIntoId: 'target' }),
+      entry({
+        id: 'target',
+        name: 'Beurre',
+        status: 'inactive',
+        allergens: ['milk'],
+        allergensNone: false,
+      }),
+    ]);
+
+    const result = await compositionOf(prisma, [line({ catalogIngredientId: 'old' })], {
+      addedAllergens: [],
+      customAllergens: [],
+    });
+
+    expect(findMany.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ where: { id: { in: ['target'] } } }),
+    );
+    expect(result.ingredients[0]).toMatchObject({
+      catalogIngredientId: 'target',
+      name: 'Beurre',
+      allergens: ['milk'],
+    });
+    expect(result.state.allergens).toEqual(['milk']);
+  });
 });
 
 describe('compositionOf', () => {

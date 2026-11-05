@@ -146,8 +146,12 @@ export class IngredientsController {
     summary: 'Change an ingredient of the common list',
     description:
       'Only the fields sent change. `status` is `active` or `inactive`, for a common ' +
-      'entry only (`422` on a chef’s private one). The dishes that link it are ' +
-      'classified again. Recorded in the audit log.',
+      'entry only (`422` on a chef’s private one). Recettes §7.3: a change to the name, ' +
+      'aisle, allergens, `allergensNone`, diets or months is carried into every recipe ' +
+      'linking it (lines re-stamped, allergens and classification recomputed). A ' +
+      'verified dish whose allergens change loses its verification: it stays published ' +
+      'but cannot be booked, and its chef is notified and e-mailed. See ' +
+      '`GET /admin/ingredients/:id/impact` first. Recorded in the audit log.',
   })
   @ApiOkResponse({ description: 'The ingredient.', example: INGREDIENT_EXAMPLE })
   @ApiNotFoundResponse({ description: 'No such ingredient.' })
@@ -163,6 +167,28 @@ export class IngredientsController {
     @Body() body: UpdateCatalogIngredientDto,
   ) {
     return this.ingredients.update(id, body, await this.adminId(user));
+  }
+
+  @Get('admin/ingredients/:id/impact')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'See what a change to an ingredient would touch',
+    description:
+      'Recettes §7.2: before saving a change to allergens, diets or months, the number ' +
+      'of dishes linking the ingredient (Lab’s Food recipes included), of chefs owning ' +
+      'them, and of verified dishes, which lose their verification if the allergens ' +
+      'change. Reads only.',
+  })
+  @ApiOkResponse({
+    description: 'The counts.',
+    example: { dishes: 12, chefs: 5, verifiedDishes: 9 },
+  })
+  @ApiNotFoundResponse({ description: 'No such ingredient.' })
+  @ApiAdminAuthResponses()
+  impact(@Param('id', ParseUUIDPipe) id: string) {
+    return this.ingredients.impact(id);
   }
 
   @Post('admin/ingredients/:id/review')
