@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { ApiValidationPipe } from '../../../common/validation.pipe';
-import { CreateDishDto, UpdateDishDto } from './dish.dto';
+import { ConfirmAllergensDto, CreateDishDto, UpdateDishDto } from './dish.dto';
 
 const pipe = new ApiValidationPipe({
   whitelist: true,
@@ -131,5 +131,24 @@ describe('dish wire format', () => {
     expect(first.precision).toBe('Bio');
     expect(first.name).toBe('Poulet');
     expect(first.group).toBe('Base');
+  });
+});
+
+describe('allergen confirmation body (ruling R8)', () => {
+  it('is optional: no body, an empty one or a lockVersion', async () => {
+    await expect(check(undefined, ConfirmAllergensDto)).resolves.toEqual({});
+    await expect(check({}, ConfirmAllergensDto)).resolves.toBeDefined();
+    await expect(check({ lockVersion: 0 }, ConfirmAllergensDto)).resolves.toEqual({
+      lockVersion: 0,
+    });
+  });
+
+  it.each([
+    ['a negative lockVersion', { lockVersion: -1 }, 'lockVersion'],
+    ['a decimal lockVersion', { lockVersion: 1.5 }, 'lockVersion'],
+    ['a lockVersion as text', { lockVersion: '4' }, 'lockVersion'],
+    ['an unknown field', { allergens: ['milk'] }, 'allergens'],
+  ])('refuses %s', async (_case, body, field) => {
+    expect(await refusal(body, ConfirmAllergensDto)).toContain(field);
   });
 });

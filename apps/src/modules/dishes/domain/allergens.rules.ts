@@ -5,7 +5,7 @@
  */
 
 import { ALLERGEN_CODES } from './dishes.rules';
-import type { StoredLine } from './recipe-lines.rules';
+import { readLines, type StoredLine } from './recipe-lines.rules';
 
 export interface AllergenState {
   /** Every allergen of the linked lines (optional ones too) plus the chef's, in annex order. */
@@ -24,7 +24,7 @@ export interface AllergenState {
  * Annex-ordered codes first, then any unknown code in first-seen order: an unknown
  * or legacy code must never make an allergen disappear.
  */
-const inAnnexOrder = (codes: Iterable<string>): string[] => {
+export const inAnnexOrder = (codes: Iterable<string>): string[] => {
   const set = new Set(codes);
   const unknown = [...set].filter((code) => !ALLERGEN_CODES.includes(code));
   return [...ALLERGEN_CODES.filter((code) => set.has(code)), ...unknown];
@@ -81,6 +81,26 @@ export function allergenStateOf(
     sources: orderedSources,
     complete,
   };
+}
+
+/**
+ * Ruling R7, Recettes §9: allergens a row lists that neither its stored lines nor
+ * the chef's additions bring, i.e. declared by hand before allergens were computed.
+ * A save carries them into `addedAllergens`, as the reprise does, so none is ever
+ * lost; once carried the difference is empty, and the chef can remove one like any
+ * allergen they added. Annex order, unknown codes kept after.
+ */
+export function legacyDeclaredAllergens(row: {
+  allergens: string[];
+  ingredients: unknown;
+  addedAllergens: string[];
+  customAllergens: string[];
+}): string[] {
+  const explained = new Set(
+    allergenStateOf(readLines(row.ingredients), row.addedAllergens, row.customAllergens)
+      .allergens,
+  );
+  return inAnnexOrder(row.allergens.filter((code) => !explained.has(code)));
 }
 
 const sameList = (a: string[], b: string[]) =>

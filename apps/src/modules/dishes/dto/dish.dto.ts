@@ -553,6 +553,22 @@ export class CreateDishDto {
   recipe?: RecipeDto;
 }
 
+/** `POST /me/dishes/{id}/allergens/confirm`: an optional body (ruling R8). */
+export class ConfirmAllergensDto {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish whose allergens the batch cooker read. If the ' +
+      'dish changed since, the confirmation is refused, so allergens nobody saw are ' +
+      'never confirmed.',
+    example: 4,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}
+
 export class UpdateDishDto extends PartialType(CreateDishDto) {
   @ApiPropertyOptional({
     minimum: 0,

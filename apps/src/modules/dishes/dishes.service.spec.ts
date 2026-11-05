@@ -501,6 +501,54 @@ describe('DishesService', () => {
       });
     });
 
+    it('refuses a confirmation sent with an outdated lockVersion with 409, writing nothing (R8)', async () => {
+      const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(
+        readyDishRow({ lockVersion: 5, allergensVerifiedAt: null }),
+      );
+
+      const error = await new DishesService(prisma, access)
+        .confirmAllergens('clerk_1', 'dish-1', 4)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(codeOf(error)).toMatchObject({ code: 'RECIPE_CONFLICT', lockVersion: 5 });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('confirms on the lockVersion read, the write guarded by it and not moving it (R8)', async () => {
+      const { meal, access, prisma } = harness();
+      meal.findUnique.mockResolvedValue(
+        readyDishRow({ lockVersion: 5, allergensVerifiedAt: null }),
+      );
+
+      await new DishesService(prisma, access).confirmAllergens('clerk_1', 'dish-1', 5);
+
+      expect(meal.update).toHaveBeenCalledWith({
+        where: { id: 'dish-1', chefProfileId: CHEF.id, lockVersion: 5 },
+        data: { allergensVerifiedAt: expect.any(Date) },
+      });
+    });
+
+    it('answers 409 when the dish moved on between the read and the confirmation (R8)', async () => {
+      const h = harness();
+      h.meal.findUnique
+        .mockResolvedValueOnce(
+          readyDishRow({ lockVersion: 5, allergensVerifiedAt: null }),
+        )
+        .mockResolvedValueOnce(
+          readyDishRow({ lockVersion: 6, allergensVerifiedAt: null }),
+        );
+      h.meal.update.mockRejectedValueOnce(noRowMatched());
+
+      const error = await new DishesService(h.prisma, h.access)
+        .confirmAllergens('clerk_1', 'dish-1', 5)
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error)).toMatchObject({ code: 'RECIPE_CONFLICT', lockVersion: 6 });
+      expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+    });
+
     it('refuses to confirm a recipe without ingredients, with 422 VALIDATION_FAILED', async () => {
       const { meal, access, prisma } = harness();
       meal.findUnique.mockResolvedValue(dishRow({ ingredients: [] }));
@@ -1133,6 +1181,132 @@ describe('DishesService', () => {
       const { data } = h.meal.update.mock.calls[0][0];
       expect(data).not.toHaveProperty('reviewReason');
       expect(data).not.toHaveProperty('sourceChangedAt');
+    });
+  });
+
+  describe('hand-declared allergens are never lost (ruling R7)', () => {
+    const BEURRE = entryRow({
+      id: 'cat-beurre',
+      name: 'Beurre',
+      aisle: 'cremerie',
+      allergens: ['milk'],
+      allergensNone: false,
+    });
+    /** Declared by hand before the socle: listed, but no line or addition explains it. */
+    const legacy = (overrides: Record<string, unknown> = {}) =>
+      dishRow({
+        allergens: ['milk'],
+        addedAllergens: [],
+        ingredients: [{ name: 'Beurre', qty: 30, unit: 'g', aisle: 'cremerie' }],
+        ...overrides,
+      });
+
+    it('carries a legacy declared allergen into addedAllergens on a save', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(legacy());
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ingredients: [
+            { name: 'Beurre', qty: 40, unit: 'g' },
+            { name: 'Farine', qty: 200, unit: 'g' },
+          ],
+          steps: [],
+        },
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.allergens).toContain('milk');
+      expect(data.addedAllergens).toEqual(['milk']);
+    });
+
+    it('keeps the verification and the queue of a legacy dish saved unchanged', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(
+        legacy({
+          allergensVerifiedAt: new Date('2026-10-01'),
+          status: MealStatus.published,
+          reviewedAt: new Date('2026-10-02'),
+        }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: { ingredients: [{ name: 'Beurre', qty: 30, unit: 'g' }], steps: [] },
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data).toMatchObject({ allergens: ['milk'], addedAllergens: ['milk'] });
+      // Moving "declared" to "added" is what the reprise does (§9): nothing new to verify.
+      expect(data).not.toHaveProperty('allergensVerifiedAt');
+      expect(data).not.toHaveProperty('reviewReason');
+    });
+
+    it('unions the legacy ones with the allergens the chef sends, in annex order', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(
+        legacy({ allergens: ['milk', 'celery'], addedAllergens: ['celery'] }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: ['mustard'],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      // celery was the chef's own: sending without it removes it.
+      expect(data.addedAllergens).toEqual(['milk', 'mustard']);
+      expect(data.allergens).toEqual(['milk', 'mustard']);
+    });
+
+    it('drops milk with the butter line once it was computed (not carried)', async () => {
+      const h = harness();
+      withEntries(h, [...READY_ENTRIES, BEURRE]);
+      const [ail] = readyDishRow().ingredients;
+      h.meal.findUnique.mockResolvedValue(
+        dishRow({
+          allergens: ['milk'],
+          addedAllergens: [],
+          ingredients: [
+            ail,
+            {
+              name: 'Beurre',
+              qty: 30,
+              unit: 'g',
+              aisle: 'cremerie',
+              catalogIngredientId: 'cat-beurre',
+              allergens: ['milk'],
+              incomplete: false,
+            },
+          ],
+        }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        recipe: {
+          ingredients: [
+            { name: 'Ail', qty: 4, unit: 'clove', catalogIngredientId: 'cat-ail' },
+          ],
+          steps: [],
+        },
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.allergens).toEqual([]);
+      expect(data.addedAllergens).toEqual([]);
+    });
+
+    it('lets the chef remove an allergen they added', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(
+        dishRow({ allergens: ['milk'], addedAllergens: ['milk'] }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: [],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.allergens).toEqual([]);
+      expect(data.addedAllergens).toEqual([]);
     });
   });
 

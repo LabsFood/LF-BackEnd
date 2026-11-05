@@ -20,7 +20,12 @@ import {
 import { ChefContentService } from './chef-content.service';
 import { toDishView } from './dishes.views';
 import { recipeDocumentOf, recipeFilename, renderRecipePdf } from './recipe-document';
-import { allergenStateOf, sameAllergenState } from './domain/allergens.rules';
+import {
+  allergenStateOf,
+  inAnnexOrder,
+  legacyDeclaredAllergens,
+  sameAllergenState,
+} from './domain/allergens.rules';
 import { linkedIds } from './domain/classification.rules';
 import {
   duplicateIngredientLine,
@@ -175,16 +180,19 @@ export class DishesService {
       ...toMealWrite(payload),
       ...(composed && compositionColumns(composed)),
     };
+    // Compared as the reprise reads it (§9, R7): hand-declared allergens count as added,
+    // so carrying them over is no change by itself.
+    const before = withLegacyAdded(current);
     // Recettes §6.5: a change to what the dish contains, or to its allergens, asks the
     // chef to verify them again. Until then the dish stays published but cannot be booked.
     const reverify =
       !!composed &&
       current.allergensVerifiedAt !== null &&
-      reverifyNeeded(storedSnapshot(current), composedSnapshot(composed));
+      reverifyNeeded(storedSnapshot(before), composedSnapshot(composed));
     // §3.2: computed allergens that change are as review-worthy as the ones sent.
     const safety =
       touchesSafety(payload) ||
-      (!!composed && !sameAllergenState(storedState(current), composed.state));
+      (!!composed && !sameAllergenState(storedState(before), composed.state));
     // R6: saving never makes a version by itself (a draft is saved as it is typed);
     // the change waits until the recipe is "Prête" again, see `cutVersion`.
     const changed = versionContentChanged(current, write);
@@ -222,12 +230,18 @@ export class DishesService {
   /**
    * Recettes §4.9: the chef confirms the allergens computed from the ingredients,
    * plus the ones they added, are right. Needed to be "Prête", and for a dish to be
-   * booked. Not a change to the recipe: `lockVersion` stays.
+   * booked. Not a change to the recipe: `lockVersion` stays. Ruling R8: sent with
+   * the `lockVersion` the chef read, it confirms only that version of the dish.
    */
-  async confirmAllergens(clerkUserId: string, id: string) {
+  async confirmAllergens(clerkUserId: string, id: string, lockVersion?: number | null) {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
     const dish = await this.access.writableDish(chef, id);
+    const guarded = lockVersion != null;
+    // Allergens changed since the chef read them (a second tab, the §7.3 propagation).
+    if (guarded && lockVersion !== dish.lockVersion) {
+      throw recipeConflict(dish.lockVersion);
+    }
     assertConfirmable(dish);
     // The changes the chef just verified become a version even if the recipe is not
     // "Prête" yet: a booking must never cook ingredients other than the ones whose
@@ -235,12 +249,17 @@ export class DishesService {
     const confirmed = await this.prisma
       .$transaction(async (tx) => {
         const row = await tx.meal.update({
-          where: { id, chefProfileId: chef.id },
+          where: {
+            id,
+            chefProfileId: chef.id,
+            // Matches nothing if the dish moved on between the read and this write.
+            ...(guarded && { lockVersion: dish.lockVersion }),
+          },
           data: { allergensVerifiedAt: new Date() },
         });
         return this.cutVersion(tx, row);
       })
-      .catch(goneMeanwhile('Dish'));
+      .catch(guarded ? savedMeanwhile(this.prisma, chef.id, id) : goneMeanwhile('Dish'));
     this.logger.log({ event: 'dish.allergens_confirmed', dishId: id });
     return toDishView(confirmed);
   }
@@ -620,7 +639,11 @@ async function composedSave(
   if (!lines && payload.addedAllergens == null && payload.customAllergens == null) {
     return null;
   }
-  const addedAllergens = payload.addedAllergens ?? current?.addedAllergens ?? [];
+  // Ruling R7: what the chef declared by hand before the socle stays, as added.
+  const addedAllergens = inAnnexOrder([
+    ...(payload.addedAllergens ?? current?.addedAllergens ?? []),
+    ...(current ? legacyDeclaredAllergens(current) : []),
+  ]);
   const customAllergens = payload.customAllergens ?? current?.customAllergens ?? [];
   const composed = await compositionOf(db, lines ?? readLines(current?.ingredients), {
     addedAllergens,
@@ -657,6 +680,15 @@ const composedSnapshot = (composed: Composition): SafetySnapshot => ({
   customAllergens: composed.customAllergens,
   allergens: composed.state.allergens,
   conditionalAllergens: composed.state.conditionalAllergens,
+});
+
+/** The row with its hand-declared allergens counted as added (ruling R7). */
+const withLegacyAdded = (meal: Meal): Meal => ({
+  ...meal,
+  addedAllergens: inAnnexOrder([
+    ...meal.addedAllergens,
+    ...legacyDeclaredAllergens(meal),
+  ]),
 });
 
 /** The allergen state the stored lines give, as the dish view shows it. */

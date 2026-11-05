@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -37,7 +38,7 @@ import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { DishesService } from './dishes.service';
 import { DuplicationService } from './duplication.service';
-import { CreateDishDto, UpdateDishDto } from './dto/dish.dto';
+import { ConfirmAllergensDto, CreateDishDto, UpdateDishDto } from './dto/dish.dto';
 import {
   CreateMenuDto,
   PutShowcaseWeeksDto,
@@ -196,7 +197,9 @@ export class MeContentController {
       '`409 RECIPE_CONFLICT` with the current `lockVersion`, and nothing is written. ' +
       'Each save moves it on by one.\n' +
       '- `allergens`, `conditionalAllergens` and `allergensNone` are computed again ' +
-      'from the lines and `addedAllergens`. A line added, removed, relinked or made ' +
+      'from the lines and `addedAllergens`. An allergen declared by hand before they ' +
+      'were computed is never dropped: it is kept in `addedAllergens`, from where the ' +
+      'batch cooker may remove it. A line added, removed, relinked or made ' +
       'optional, or a change to the allergens, clears `allergensVerifiedAt`: confirm ' +
       'them again (`POST /me/dishes/{id}/allergens/confirm`). A quantity does not.\n' +
       '- A published dish stays published, even if the recipe is no longer "Prête"; it ' +
@@ -348,14 +351,25 @@ export class MeContentController {
       'needed for the dish to be ready and to be booked. Adding, removing or changing ' +
       'an ingredient, or a change to the allergens, clears it again; a quantity does ' +
       'not. `lockVersion` does not move.\n\n' +
+      '- The body is optional. Send `{ "lockVersion": 4 }`, the one the allergens were ' +
+      'read with: if the dish changed since (another screen, Lab’s Food correcting an ' +
+      'ingredient), the answer is `409 RECIPE_CONFLICT` with the current `lockVersion` ' +
+      'and nothing is confirmed. Without it, the dish as it stands is confirmed.\n' +
       '- `422 VALIDATION_FAILED` while the recipe has no ingredient.\n' +
       '- `422 INGREDIENT_NOT_LINKED` while a line is not linked to the common list, or ' +
       'links an ingredient still to complete: `lines` gives their indexes.',
   })
   @ApiDishIdParam()
+  @ApiBody({ type: ConfirmAllergensDto, required: false })
   @ApiOkResponse({
     description: 'The dish, with `allergensVerifiedAt`.',
     example: DISH_EXAMPLE,
+  })
+  @ApiConflictResponse({
+    description:
+      '`RECIPE_CONFLICT`: the dish changed since the `lockVersion` sent was read. ' +
+      'Reload it and check the allergens again.',
+    example: RECIPE_CONFLICT_EXAMPLE,
   })
   @ApiUnprocessableEntityResponse({
     description:
@@ -369,8 +383,10 @@ export class MeContentController {
   confirmDishAllergens(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: ConfirmAllergensDto,
   ) {
-    return this.dishes.confirmAllergens(user.userId, id);
+    // No body reaches here as `{}` (the validation pipe), so `lockVersion` is optional.
+    return this.dishes.confirmAllergens(user.userId, id, payload?.lockVersion);
   }
 
   @Post('dishes/:id/unpublish')

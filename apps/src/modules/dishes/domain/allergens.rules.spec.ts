@@ -1,4 +1,8 @@
-import { allergenStateOf, sameAllergenState } from './allergens.rules';
+import {
+  allergenStateOf,
+  legacyDeclaredAllergens,
+  sameAllergenState,
+} from './allergens.rules';
 import type { StoredLine } from './recipe-lines.rules';
 
 const line = (
@@ -162,5 +166,44 @@ describe('sameAllergenState', () => {
       false,
     );
     expect(sameAllergenState(a, { ...a, complete: false })).toBe(false);
+  });
+});
+
+describe('legacyDeclaredAllergens (ruling R7)', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    allergens: [] as string[],
+    ingredients: [] as unknown,
+    addedAllergens: [] as string[],
+    customAllergens: [] as string[],
+    ...over,
+  });
+
+  it('finds what a row lists that neither its lines nor the chef’s additions bring', () => {
+    const legacy = row({
+      allergens: ['milk'],
+      ingredients: [{ name: 'Beurre', qty: 30, unit: 'g' }],
+    });
+    expect(legacyDeclaredAllergens(legacy)).toEqual(['milk']);
+  });
+
+  it('is empty once a stamped line or an added allergen explains it', () => {
+    expect(
+      legacyDeclaredAllergens(
+        row({ allergens: ['milk'], ingredients: [line('Beurre', ['milk'])] }),
+      ),
+    ).toEqual([]);
+    expect(
+      legacyDeclaredAllergens(row({ allergens: ['milk'], addedAllergens: ['milk'] })),
+    ).toEqual([]);
+  });
+
+  it('keeps an unknown code, after the annex ones', () => {
+    expect(
+      legacyDeclaredAllergens(row({ allergens: ['lactose', 'sesame', 'gluten'] })),
+    ).toEqual(['gluten', 'sesame', 'lactose']);
+  });
+
+  it('is empty for a row that lists nothing', () => {
+    expect(legacyDeclaredAllergens(row())).toEqual([]);
   });
 });
