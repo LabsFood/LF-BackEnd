@@ -11,10 +11,13 @@ import {
 import { validationFailed } from '../dishes/domain/content.errors';
 import { CHEF_TIERS_KEY, chefTierLabels } from './chef-tiers';
 import {
+  aislesInForce,
+  DEFAULT_RECIPE_AISLES,
   DEFAULT_RECIPE_PROFILES,
   DEFAULT_REHEAT_MODES,
   ListItem,
   listInForce,
+  RECIPE_AISLES_KEY,
   RECIPE_PROFILES_KEY,
   recipeProfilesInForce,
   REHEAT_MODES_KEY,
@@ -208,6 +211,32 @@ export class PlatformSettingsService {
       requestId,
     );
     return { profiles: saved.value, updatedAt: saved.updatedAt };
+  }
+
+  async aisles() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: RECIPE_AISLES_KEY },
+    });
+    return {
+      aisles: await aislesInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Recettes §5.4. The whole list, in store order: the shopping list groups by it.
+   * An ingredient keeps an aisle code that leaves the list.
+   */
+  async setAisles(aisles: ListItem[], adminUserId: string, requestId?: string) {
+    const saved = await this.setList(
+      RECIPE_AISLES_KEY,
+      DEFAULT_RECIPE_AISLES,
+      aisles,
+      'settings.recipe_aisles_changed',
+      adminUserId,
+      requestId,
+    );
+    return { aisles: saved.value, updatedAt: saved.updatedAt };
   }
 
   /** An editable list: each code once, saved whole, journalled before and after. */

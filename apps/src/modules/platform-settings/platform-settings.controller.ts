@@ -182,6 +182,27 @@ class RecipeProfilesDto {
   profiles!: ListItemDto[];
 }
 
+class AislesDto {
+  @ApiProperty({
+    type: [ListItemDto],
+    description: 'The whole list in store order, 1 to 30 aisles.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  aisles!: ListItemDto[];
+}
+
+const AISLES_EXAMPLE = {
+  aisles: [
+    { code: 'fruits-legumes', label: 'Fruits et légumes (y compris herbes fraîches)' },
+    { code: 'boulangerie', label: 'Boulangerie' },
+  ],
+  updatedAt: '2026-11-04T09:00:00.000Z',
+};
+
 const RECIPE_PROFILES_EXAMPLE = {
   profiles: [
     { code: 'kids', label: 'Adapté aux enfants' },
@@ -457,5 +478,57 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setRecipeProfiles(body.profiles, admin.id, reqId(req));
+  }
+
+  @Get('referentials/aisles')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the shop aisles',
+    description:
+      'What an ingredient of the common list takes as its aisle (Recettes §5.4), in ' +
+      'store order: the shopping list groups by it. The list is edited in the ' +
+      'console. Public.',
+  })
+  @ApiOkResponse({ description: 'The aisles, in store order.', example: AISLES_EXAMPLE })
+  aisles() {
+    return this.settings.aisles();
+  }
+
+  @Get('admin/settings/aisles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the shop aisles',
+    description: '`updatedAt: null`: never changed, the 13 default aisles apply.',
+  })
+  @ApiOkResponse({ description: 'The aisles.', example: AISLES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminAisles() {
+    return this.settings.aisles();
+  }
+
+  @Put('admin/settings/aisles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the shop aisles',
+    description:
+      'The whole list in store order, every time, each code once (else 422 ' +
+      '`VALIDATION_FAILED`). An ingredient keeps a code removed from the list. ' +
+      'Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: AISLES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setAisles(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: AislesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setAisles(body.aisles, admin.id, reqId(req));
   }
 }

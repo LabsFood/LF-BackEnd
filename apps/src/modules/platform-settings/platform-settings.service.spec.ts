@@ -89,6 +89,61 @@ describe('PlatformSettingsService', () => {
     });
   });
 
+  describe('aisles (Recettes §5.4)', () => {
+    it('lists the 13 default aisles in store order until an admin changes them', async () => {
+      const { aisles, updatedAt } = await harness().service.aisles();
+
+      expect(aisles.map((a) => a.code)).toEqual([
+        'fruits-legumes',
+        'boulangerie',
+        'boucherie',
+        'poissonnerie',
+        'cremerie',
+        'fromages',
+        'epicerie-salee',
+        'conserves',
+        'epices',
+        'epicerie-sucree',
+        'boissons',
+        'non-alimentaire',
+        'surgeles',
+      ]);
+      expect(aisles[0].label).toBe('Fruits et légumes (y compris herbes fraîches)');
+      expect(updatedAt).toBeNull();
+    });
+
+    it('saves the list and journals before and after', async () => {
+      const { service, prisma, audit } = harness();
+      const aisles = [{ code: 'boulangerie', label: 'Boulangerie' }];
+
+      expect(await service.setAisles(aisles, 'admin-1', 'req-1')).toEqual({
+        aisles,
+        updatedAt: UPDATED_AT,
+      });
+      expect(prisma.platformSetting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { key: 'recipe_aisles' } }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'settings.recipe_aisles_changed' }),
+      );
+    });
+
+    it('refuses the same code twice', async () => {
+      const { service, prisma } = harness();
+
+      await expect(
+        service.setAisles(
+          [
+            { code: 'epices', label: 'Épices' },
+            { code: 'epices', label: 'Condiments' },
+          ],
+          'admin-1',
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(prisma.platformSetting.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('chef tiers (Recettes R34)', () => {
     it('names the four tiers neutrally until an admin renames them', async () => {
       const { service } = harness();
