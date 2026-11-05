@@ -21,7 +21,11 @@ import {
 } from '../dishes/dishes.service';
 import { sameAllergenState } from '../dishes/domain/allergens.rules';
 import { linkedIds } from '../dishes/domain/classification.rules';
-import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
+import {
+  contentNotOwned,
+  offerPending,
+  recipeConflict,
+} from '../dishes/domain/content.errors';
 import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
@@ -153,20 +157,26 @@ export class CatalogService {
     const composed = recomposes
       ? await composedSave(this.prisma, current, payload, lines)
       : null;
+    // Recettes §7.3, ruling R12: a write of the composition lands only on the
+    // `lockVersion` read, and moves it on, as a chef's save does. A propagation and
+    // this save then never overwrite each other's lines (`current` is always read
+    // when the meal recomposes).
+    const guard = composed && current ? { lockVersion: current.lockVersion } : {};
     let updated: Meal;
     try {
       updated = await this.prisma.meal.update({
-        where: { id, ...LABS_FOOD },
+        where: { id, ...LABS_FOOD, ...guard },
         data: {
           ...CatalogService.toMealUpdateData(payload),
           ...(composed && {
             ...compositionColumns(composed),
             allergensVerifiedAt: composed.state.complete ? new Date() : null,
+            lockVersion: { increment: 1 },
           }),
         },
       });
     } catch (error) {
-      if (isNotFound(error)) return this.explainMissing(id);
+      if (isNotFound(error)) return this.explainMissing(id, 'lockVersion' in guard);
       throw error;
     }
     // Chefs who adopted this suggestion hear about a safety change (§6, PRD), and
@@ -181,12 +191,20 @@ export class CatalogService {
     return updated;
   }
 
-  /** A write matched nothing: the meal is gone, or it belongs to a batch cooker. */
-  private async explainMissing(id: string): Promise<never> {
+  /**
+   * A write matched nothing: the meal is gone, or it belongs to a batch cooker. A
+   * guarded write (`guarded`) that missed a Lab's Food meal still there lost to a
+   * save in between, the §7.3 propagation typically: 409 `RECIPE_CONFLICT` with the
+   * `lockVersion` to reload, the answer a chef's save gives (Recettes §8.1).
+   */
+  private async explainMissing(id: string, guarded = false): Promise<never> {
     const row = await this.prisma.meal.findUnique({
       where: { id },
-      select: { chefProfileId: true },
+      select: { chefProfileId: true, lockVersion: true },
     });
+    if (row && guarded && row.chefProfileId === null) {
+      throw recipeConflict(row.lockVersion);
+    }
     if (row) throw contentNotOwned(NOT_LABS_FOOD);
     throw new NotFoundException('Meal not found.');
   }

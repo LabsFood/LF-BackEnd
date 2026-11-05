@@ -9,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { inAnnexOrder } from '../dishes/domain/allergens.rules';
 import { aislesInForce } from '../platform-settings/recipe-lists';
 import { normalizeName, withImpliedDiets } from './domain/ingredient.rules';
 import {
@@ -19,6 +20,7 @@ import {
 import {
   dishesLinking,
   IngredientPropagationService,
+  mergedInto,
 } from './ingredient-propagation.service';
 
 /** A search shows a short list to pick from, never the whole table (every list has a cap). */
@@ -180,8 +182,9 @@ export class IngredientsService {
 
   /**
    * Recettes §7.2: before a change is saved, what it would touch. The dishes linking
-   * the entry, their chefs, and the verified ones, which lose their verification
-   * if the allergens change.
+   * the entry (or an entry merged into it, as the propagation finds them), their
+   * chefs, and the verified ones, which lose their verification if the allergens
+   * change.
    */
   async impact(id: string) {
     const entry = await this.prisma.catalogIngredient.findUnique({
@@ -190,7 +193,7 @@ export class IngredientsService {
     });
     if (!entry) throw new NotFoundException('Ingredient not found.');
     const dishes = await this.prisma.meal.findMany({
-      where: dishesLinking([id]),
+      where: dishesLinking([id, ...(await mergedInto(this.prisma, [id]))]),
       select: { chefProfileId: true, allergensVerifiedAt: true },
     });
     return {
@@ -304,7 +307,10 @@ export class IngredientsService {
       });
     }
     if (payload.allergens !== undefined) {
-      data.allergens = [...new Set(payload.allergens)];
+      // Annex order, once each: a line copies this list as stored (Recettes §5.2), so
+      // one order keeps every stamp equal to a fresh composition, and a reorder is no
+      // change.
+      data.allergens = inAnnexOrder(payload.allergens);
       if (payload.allergens.length > 0 && payload.allergensNone === undefined) {
         data.allergensNone = false;
       }

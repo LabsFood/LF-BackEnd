@@ -204,8 +204,10 @@ export class IngredientsController {
       'recipe linking it, for a run cut short or dishes that `failed`. Idempotent: a ' +
       'dish already stamped from the ingredient as it stands is not written again, and ' +
       'no chef is notified or e-mailed twice. Answers the figures of this run: dishes ' +
-      'rewritten, verifications cleared, chefs told, dishes `skipped` because their ' +
-      'chef saved them meanwhile, and dishes `failed`. Recorded in the audit log.',
+      'rewritten, verifications cleared, chefs told, dishes `skipped` because a save ' +
+      'in between already composed them from the ingredient as it stands, and dishes ' +
+      '`failed`: an error, or saves in between that left them stale. Replay again for ' +
+      'those. Recorded in the audit log.',
   })
   @ApiOkResponse({
     description: 'The figures of this run.',

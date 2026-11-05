@@ -180,7 +180,9 @@ describe('IngredientsService (Recettes §4.10)', () => {
 
   // Recettes §7.2: what a change would touch, before the admin saves it.
   it('counts the dishes, chefs and verified dishes linking an ingredient', async () => {
-    const { meal, service } = harness();
+    const { catalogIngredient, meal, service } = harness();
+    // An entry merged into this one: its lines may still link it.
+    catalogIngredient.findMany.mockResolvedValue([{ id: 'ing-old' }]);
     meal.findMany.mockResolvedValue([
       { chefProfileId: 'chef-1', allergensVerifiedAt: new Date() },
       { chefProfileId: 'chef-1', allergensVerifiedAt: null },
@@ -192,9 +194,16 @@ describe('IngredientsService (Recettes §4.10)', () => {
     const impact = await service.impact('ing-1');
 
     expect(impact).toEqual({ dishes: 4, chefs: 2, verifiedDishes: 3 });
+    expect(catalogIngredient.findMany).toHaveBeenCalledWith({
+      where: { mergedIntoId: { in: ['ing-1'] } },
+      select: { id: true },
+    });
     expect(meal.findMany).toHaveBeenCalledWith({
       where: {
-        OR: [{ ingredients: { array_contains: [{ catalogIngredientId: 'ing-1' }] } }],
+        OR: [
+          { ingredients: { array_contains: [{ catalogIngredientId: 'ing-1' }] } },
+          { ingredients: { array_contains: [{ catalogIngredientId: 'ing-old' }] } },
+        ],
       },
       select: { chefProfileId: true, allergensVerifiedAt: true },
     });
@@ -281,6 +290,30 @@ describe('IngredientsService (Recettes §4.10)', () => {
       where: { id: 'ing-1' },
       data: { allergens: [], allergensNone: true },
     });
+  });
+
+  // A stamp copies the entry's list as stored: one order only, so a fresh
+  // composition always matches it, and a reorder is no change.
+  it('stores the allergens in annex order, and carries nothing for a reorder', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    await service.update('ing-1', { allergens: ['milk', 'gluten', 'milk'] }, 'a');
+    expect(catalogIngredient.update).toHaveBeenLastCalledWith({
+      where: { id: 'ing-1' },
+      data: { allergens: ['gluten', 'milk'], allergensNone: false },
+    });
+
+    propagation.propagate.mockClear();
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...TOMATE,
+      allergens: ['gluten', 'milk'],
+      allergensNone: false,
+    });
+    await service.update('ing-1', { allergens: ['milk', 'gluten'] }, 'a');
+    expect(catalogIngredient.update).toHaveBeenLastCalledWith({
+      where: { id: 'ing-1' },
+      data: { allergens: ['gluten', 'milk'], allergensNone: false },
+    });
+    expect(propagation.propagate).not.toHaveBeenCalled();
   });
 
   it('refuses a status change on a private entry, allows it on a common one', async () => {

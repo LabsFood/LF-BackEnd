@@ -224,7 +224,10 @@ export class CatalogController {
   @ApiNotFoundResponse({ description: 'No meal with this id.' })
   @ApiConflictResponse({
     description:
-      '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first.',
+      '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first. ' +
+      '`RECIPE_CONFLICT` (with `lockVersion`): the ingredients or allergens changed ' +
+      'since the meal was read, typically a change to the common ingredient list ' +
+      'carried into it (Recettes §7.3); nothing was saved, reload and send again.',
   })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()

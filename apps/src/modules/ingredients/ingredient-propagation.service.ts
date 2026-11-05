@@ -24,13 +24,17 @@ export interface PropagationResult {
   /** Chefs told about those dishes, one e-mail each. */
   chefs: number;
   /**
-   * Ruling R12: dishes a chef saved twice while this ran. Their own save composed
-   * them from the entry as it now stands, so nothing is left stale.
+   * Rulings R12/R12b: dishes saved twice by someone else while this ran, and found
+   * fresh when read and composed once more: a save in between composed them from
+   * the entry as it now stands.
    */
   skipped: number;
   /**
-   * Ruling R14: dishes whose write failed for another reason. Left as they were, so
-   * a replay (`POST /admin/ingredients/:id/propagate`) finds them still to carry.
+   * Ruling R14: dishes left as they were, so a replay
+   * (`POST /admin/ingredients/:id/propagate`) finds them still to carry: their write
+   * failed (an error other than a conflict), or two saves in between left them
+   * stale (R12b: a name or description autosave moves `lockVersion` on without
+   * recomposing).
    */
   failed: number;
 }
@@ -60,6 +64,23 @@ export const dishesLinking = (ids: string[]): Prisma.MealWhereInput => ({
   })),
 });
 
+/**
+ * Recettes §7.3: the entries merged into these. A line merged before it was ever
+ * repointed still links the old id, and composes from the entry it was merged into
+ * (`entriesFor` follows the hop), so a change to that entry reaches it too.
+ */
+export async function mergedInto(
+  db: Pick<PrismaService, 'catalogIngredient'>,
+  ids: string[],
+): Promise<string[]> {
+  if (!ids.length) return [];
+  const rows = await db.catalogIngredient.findMany({
+    where: { mergedIntoId: { in: ids } },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id).filter((id) => !ids.includes(id));
+}
+
 /** Who owns a chef's dish: notified in the app, then by e-mail. */
 const OWNER = {
   select: { userId: true, user: { select: { email: true, fullName: true } } },
@@ -67,10 +88,17 @@ const OWNER = {
 
 type Owner = { userId: string; user: { email: string; fullName: string | null } };
 
-/** One dish carried: rewritten or not, and whether its verification was cleared. */
-type Carried = { written: boolean; unverified: boolean; owner: Owner | null };
+/**
+ * One dish carried: rewritten or not, and whether a verification it had was cleared.
+ * `skipped` and `failed` are ruling R12b's outcomes after two conflicts.
+ */
+type Carried =
+  { written: boolean; unverified: boolean; owner: Owner | null } | 'skipped' | 'failed';
 
 const UNCHANGED: Carried = { written: false, unverified: false, owner: null };
+
+/** E-mails sent at once: a large propagation never floods the provider. */
+const MAIL_BATCH = 10;
 
 /** A chef told once per propagation, however many of their dishes changed. */
 type Told = { email: string; name: string | null; dishCount: number };
@@ -99,11 +127,15 @@ export class IngredientPropagationService {
     actor: PropagationActor,
     remap?: Remap,
   ): Promise<PropagationResult> {
-    // A merge also reaches the lines still linking the entry it replaces.
-    const ids = [...new Set([...entryIds, ...(remap ? [remap.from] : [])])];
-    const meals = ids.length
+    const given = [...new Set(entryIds)];
+    // A merge also reaches the lines still linking the entry it replaces, and so
+    // does a change to an entry other entries were merged into before.
+    const ids = [...new Set([...given, ...(remap ? [remap.from] : [])])];
+    const merged = await mergedInto(this.prisma, ids);
+    const searched = [...ids, ...merged];
+    const meals = searched.length
       ? await this.prisma.meal.findMany({
-          where: dishesLinking(ids),
+          where: dishesLinking(searched),
           select: { id: true },
         })
       : [];
@@ -117,7 +149,7 @@ export class IngredientPropagationService {
     };
     const told = new Map<string, Told>();
     for (const { id } of meals) {
-      let carried: Carried | null;
+      let carried: Carried;
       try {
         carried = await this.carry(id, remap);
       } catch (error) {
@@ -131,8 +163,8 @@ export class IngredientPropagationService {
         });
         continue;
       }
-      if (!carried) {
-        result.skipped += 1;
+      if (carried === 'skipped' || carried === 'failed') {
+        result[carried] += 1;
         continue;
       }
       if (!carried.written) continue;
@@ -160,19 +192,31 @@ export class IngredientPropagationService {
       action: 'catalog_ingredient.propagated',
       subjectType: 'catalog_ingredient',
       subjectId: entryIds[0] ?? remap?.from ?? null,
-      metadata: { entryIds: ids, ...(remap && { remap }), ...result },
+      // The ids as given; a merge and the entries merged into them, apart.
+      metadata: {
+        entryIds: given,
+        ...(remap && { remap }),
+        ...(merged.length > 0 && { mergedIds: merged }),
+        ...result,
+      },
     });
-    this.logger.log({ event: 'catalog_ingredient.propagated', entryIds: ids, ...result });
+    this.logger.log({
+      event: 'catalog_ingredient.propagated',
+      entryIds: given,
+      ...result,
+    });
     return result;
   }
 
   /**
-   * Ruling R12: a chef's save between the read and the write moves `lockVersion` on
-   * and the write matches nothing (P2025). The dish is read again and tried once
-   * more; a second conflict skips it (null). Any other error is thrown, for the run
+   * Ruling R12: a save between the read and the write moves `lockVersion` on and
+   * the write matches nothing (P2025). The dish is read again and tried once more.
+   * Ruling R12b: after a second conflict it is read and composed once more. Fresh
+   * (a save in between recomposed it), it is `skipped`; still stale (saves that sent
+   * no recipe), it is `failed`, for a replay. Any other error is thrown, for the run
    * to count this dish as failed and go on (ruling R14).
    */
-  private async carry(id: string, remap?: Remap): Promise<Carried | null> {
+  private async carry(id: string, remap?: Remap): Promise<Carried> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await this.prisma.$transaction((tx) => this.carryInto(tx, id, remap));
@@ -180,8 +224,28 @@ export class IngredientPropagationService {
         if (!savedMeanwhile(error)) throw error;
       }
     }
-    this.logger.warn({ event: 'catalog_ingredient.propagation_skipped', dishId: id });
-    return null;
+    const fresh = await this.isFresh(id, remap);
+    this.logger.warn({
+      event: fresh
+        ? 'catalog_ingredient.propagation_skipped'
+        : 'catalog_ingredient.propagation_stale',
+      dishId: id,
+    });
+    return fresh ? 'skipped' : 'failed';
+  }
+
+  /** Ruling R12b: the dish stores what a composition from the list now gives. */
+  private async isFresh(id: string, remap?: Remap): Promise<boolean> {
+    const row = await this.prisma.meal.findUnique({ where: { id } });
+    // Deleted meanwhile: nothing left to carry.
+    if (!row) return true;
+    const composed = await composeLines(
+      this.prisma,
+      row,
+      {},
+      remapped(readLines(row.ingredients), remap),
+    );
+    return storesComposition(row, composed);
   }
 
   /**
@@ -202,29 +266,27 @@ export class IngredientPropagationService {
     if (!row) return UNCHANGED;
 
     const before = readLines(row.ingredients);
-    const lines = remap
-      ? before.map((line) =>
-          line.catalogIngredientId === remap.from
-            ? { ...line, catalogIngredientId: remap.to }
-            : line,
-        )
-      : before;
-    const composed = await composeLines(tx, row, {}, lines);
+    const composed = await composeLines(tx, row, {}, remapped(before, remap));
     // Ruling R10's equality: nothing moved, nothing is written (replay-safe).
     if (storesComposition(row, composed)) return UNCHANGED;
 
     // Compared as the reprise reads the row (ruling R7): legacy allergens count as added.
-    const unverified =
-      row.allergensVerifiedAt !== null &&
-      !sameAllergens(storedState(withLegacyAdded(row)), composed.state);
+    const allergensChanged = !sameAllergens(
+      storedState(withLegacyAdded(row)),
+      composed.state,
+    );
+    // Told and counted only for a verification the read saw.
+    const unverified = allergensChanged && row.allergensVerifiedAt !== null;
     await tx.meal.update({
-      // Matches nothing once a chef's save has moved the dish on since the read.
+      // Matches nothing once a save has moved the dish on since the read.
       where: { id, lockVersion: row.lockVersion },
       data: {
         ...compositionColumns(composed),
         lockVersion: { increment: 1 },
         // Step 4: still published, no longer bookable until the chef confirms again.
-        ...(unverified && { allergensVerifiedAt: null }),
+        // Cleared whatever was read: a confirmation never moves `lockVersion`, so one
+        // landing after the read would otherwise stand for allergens never seen.
+        ...(allergensChanged && { allergensVerifiedAt: null }),
         // Step 3: the next version takes the content as it now reads.
         ...(renamedOrRepointed(before, composed.ingredients) && { versionPending: true }),
       },
@@ -243,23 +305,26 @@ export class IngredientPropagationService {
 
   /**
    * Recettes §5.5: one e-mail per chef and per propagation, with the count of their
-   * dishes to verify again. Best effort: the dishes and notifications are written,
-   * and an e-mail provider failure never undoes them.
+   * dishes to verify again, `MAIL_BATCH` at a time. Best effort: the dishes and
+   * notifications are written, and an e-mail provider failure never undoes them.
    */
   private async tellChefs(told: Map<string, Told>): Promise<void> {
-    await Promise.all(
-      [...told].map(async ([userId, chef]) => {
-        try {
-          await this.mailer.recipeAllergensChanged(chef);
-        } catch (error) {
-          this.logger.error({
-            event: 'catalog_ingredient.propagation_email_failed',
-            userId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }),
-    );
+    const chefs = [...told];
+    for (let start = 0; start < chefs.length; start += MAIL_BATCH) {
+      await Promise.all(
+        chefs.slice(start, start + MAIL_BATCH).map(async ([userId, chef]) => {
+          try {
+            await this.mailer.recipeAllergensChanged(chef);
+          } catch (error) {
+            this.logger.error({
+              event: 'catalog_ingredient.propagation_email_failed',
+              userId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }),
+      );
+    }
   }
 }
 
@@ -267,7 +332,9 @@ const savedMeanwhile = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
 
 /**
- * Recettes §7.3 step 4: whether the dish's allergens changed. Who brings each one
+ * Recettes §7.3 step 4: whether the dish's allergens changed. Rulings R13/R13b: the
+ * allergens and conditional allergens, plus `allergensNone` and `complete` (a safer
+ * superset: an entry turning incomplete re-verifies too). Who brings each one
  * (`sources`) is left out: a renamed entry renames its source, the allergens stay,
  * and §6.5 keeps a verification across a rename of a linked line.
  */
@@ -284,3 +351,13 @@ const renamedOrRepointed = (before: StoredLine[], after: StoredLine[]) =>
       line.catalogIngredientId !== before[i].catalogIngredientId ||
       (line.catalogIngredientId !== null && line.name !== before[i].name),
   );
+
+/** A merge (Recettes §7.2, step 1): the lines linking `from` link `to` instead. */
+const remapped = (lines: StoredLine[], remap?: Remap): StoredLine[] =>
+  remap
+    ? lines.map((line) =>
+        line.catalogIngredientId === remap.from
+          ? { ...line, catalogIngredientId: remap.to }
+          : line,
+      )
+    : lines;

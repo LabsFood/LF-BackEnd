@@ -5,6 +5,7 @@ import { MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DishesMailer } from '../dishes/dishes.mailer';
 import { composeLines, compositionColumns } from '../dishes/dishes.service';
+import { readLines } from '../dishes/domain/recipe-lines.rules';
 import { dishRow, entryRow } from '../dishes/dishes.test-helpers';
 import { NotificationsService } from '../notifications/notifications.service';
 import { LineToStamp } from './composition';
@@ -64,10 +65,22 @@ const BUTTER_AND_CELERY = [
   line('Céleri-rave', 'cat-celeri'),
 ];
 
-/** Answers by id, as `entriesFor` reads the list. */
+/**
+ * Answers by id, as `entriesFor` reads the list, or by merge target, as the
+ * propagation looks for entries merged into the ones it carries.
+ */
 const findEntries = (entries: () => Entry[]) =>
-  jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
-    entries().filter((entry) => where.id.in.includes(entry.id)),
+  jest.fn(
+    async ({
+      where,
+    }: {
+      where: { id?: { in: string[] }; mergedIntoId?: { in: string[] } };
+    }) =>
+      entries().filter((entry) =>
+        where.id
+          ? where.id.in.includes(entry.id)
+          : !!entry.mergedIntoId && !!where.mergedIntoId?.in.includes(entry.mergedIntoId),
+      ),
   );
 
 /**
@@ -187,11 +200,43 @@ function harness(entries: Entry[], dishes: Dish[]) {
   const change = (id: string, over: Partial<Entry>) => {
     list = list.map((entry) => (entry.id === id ? { ...entry, ...over } : entry));
   };
-  /** A chef's save lands between the propagation's read and its write. */
+  /**
+   * A save lands between the propagation's read and its write. A name or
+   * description autosave sends no recipe: it moves `lockVersion` on without
+   * recomposing, so the dish stays stale.
+   */
   const chefSavesMeanwhile = () =>
     meal.findUnique.mockImplementationOnce(async ({ where }) => {
       const row = rows.get(where.id)!;
       rows.set(row.id, { ...row, lockVersion: row.lockVersion + 1 });
+      return row;
+    });
+  /** A save that sends the recipe recomposes the dish from the entry as it stands. */
+  const savedFreshMeanwhile = () =>
+    meal.findUnique.mockImplementationOnce(async ({ where }) => {
+      const row = rows.get(where.id)!;
+      const composed = await composeLines(
+        prisma,
+        row as never,
+        {},
+        readLines(row.ingredients),
+      );
+      rows.set(row.id, {
+        ...row,
+        ...compositionColumns(composed),
+        classification: composed.classification,
+        lockVersion: row.lockVersion + 1,
+      } as Dish);
+      return row;
+    });
+  /**
+   * The chef confirms the allergens between the propagation's read and its write.
+   * A confirmation never moves `lockVersion` (Recettes §4.9), so the guard misses it.
+   */
+  const chefConfirmsMeanwhile = () =>
+    meal.findUnique.mockImplementationOnce(async ({ where }) => {
+      const row = rows.get(where.id)!;
+      rows.set(row.id, { ...row, allergensVerifiedAt: new Date() });
       return row;
     });
   return {
@@ -205,6 +250,8 @@ function harness(entries: Entry[], dishes: Dish[]) {
     service,
     change,
     chefSavesMeanwhile,
+    savedFreshMeanwhile,
+    chefConfirmsMeanwhile,
   };
 }
 
@@ -524,24 +571,241 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
   });
 
-  it('skips a dish saved meanwhile twice in a row, and counts it', async () => {
+  // Ruling R12b: after a second conflict the dish is read and composed once more.
+  it('skips a dish saved twice meanwhile when the second save left it fresh', async () => {
     const h = harness(
       [BUTTER, CELERY],
       [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
     );
     h.change('cat-beurre', WITH_MILK);
     h.chefSavesMeanwhile();
-    h.chefSavesMeanwhile();
+    h.savedFreshMeanwhile();
 
     const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).toHaveBeenCalledTimes(2);
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
     expect(h.notifications.notify).not.toHaveBeenCalled();
     expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
     expect(result).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 1, failed: 0 });
     expect(h.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ skipped: 1 }) }),
     );
+  });
+
+  it('counts as failed a dish two saves without a recipe left stale, for a replay', async () => {
+    const h = harness(
+      [BUTTER, CELERY],
+      [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
+    );
+    h.change('cat-beurre', WITH_MILK);
+    // Two name autosaves: `lockVersion` moves, the allergens stay as they were.
+    h.chefSavesMeanwhile();
+    h.chefSavesMeanwhile();
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(result).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 0, failed: 1 });
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['celery']);
+
+    // The admin's replay picks it up.
+    const replay = await h.service.propagate(['cat-beurre'], ADMIN);
+    expect(replay).toMatchObject({ dishes: 1, reverified: 1, failed: 0 });
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
+  });
+
+  // Critical: a confirmation never moves `lockVersion`, so the guard cannot see it.
+  it('clears a verification confirmed between its read and its write', async () => {
+    const dish = await saved([BUTTER, CELERY], BUTTER_AND_CELERY, {
+      allergensVerifiedAt: null,
+    });
+    const h = harness([BUTTER, CELERY], [dish]);
+    h.change('cat-beurre', WITH_MILK);
+    h.chefConfirmsMeanwhile();
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.meal.update).toHaveBeenCalledTimes(1);
+    expect(h.meal.update.mock.calls[0][0].data).toMatchObject({
+      allergensVerifiedAt: null,
+    });
+    // Never verified for allergens the chef did not see.
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['milk', 'celery'],
+      allergensVerifiedAt: null,
+    });
+    // The read saw no verification: nothing to tell, nothing counted.
+    expect(result).toEqual({ dishes: 1, reverified: 0, chefs: 0, skipped: 0, failed: 0 });
+  });
+
+  // A line merged into the changed entry, never repointed since.
+  it('also finds the lines still linking an entry merged into the changed one', async () => {
+    const homemade = entryRow({
+      id: 'cat-maison',
+      name: 'Beurre maison',
+      chefProfileId: 'chef-1',
+      status: 'pending',
+    });
+    const dish = await saved(
+      [homemade, CELERY],
+      [line('Beurre maison', 'cat-maison'), line('Céleri-rave', 'cat-celeri')],
+    );
+    const merged = { ...homemade, status: 'merged', mergedIntoId: 'cat-beurre' };
+    const h = harness([{ ...BUTTER, ...WITH_MILK }, merged, CELERY], [dish]);
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.meal.findMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { ingredients: { array_contains: [{ catalogIngredientId: 'cat-beurre' }] } },
+          { ingredients: { array_contains: [{ catalogIngredientId: 'cat-maison' }] } },
+        ],
+      },
+      select: { id: true },
+    });
+    const after = h.rows.get('dish-1')!;
+    expect((after.ingredients as StoredLineJson[])[0]).toMatchObject({
+      catalogIngredientId: 'cat-beurre',
+      name: 'Beurre',
+    });
+    expect(after).toMatchObject({
+      allergens: ['milk', 'celery'],
+      allergensVerifiedAt: null,
+      versionPending: true,
+    });
+    expect(result).toMatchObject({ dishes: 1, reverified: 1 });
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          entryIds: ['cat-beurre'],
+          mergedIds: ['cat-maison'],
+        }),
+      }),
+    );
+  });
+
+  it('keeps a merge apart from the ids carried in the audit entry', async () => {
+    const h = harness([{ ...BUTTER, ...WITH_MILK }], []);
+
+    await h.service.propagate(['cat-beurre'], ADMIN, {
+      from: 'cat-maison',
+      to: 'cat-beurre',
+    });
+
+    const { metadata } = h.audit.record.mock.calls[0][0] as {
+      metadata: Record<string, unknown>;
+    };
+    expect(metadata.entryIds).toEqual(['cat-beurre']);
+    expect(metadata.remap).toEqual({ from: 'cat-maison', to: 'cat-beurre' });
+  });
+
+  // Ruling R7: a row written before the socle, its allergens declared by hand.
+  it('keeps the hand-declared allergens of a legacy row, as added', async () => {
+    const tomato = entryRow({ id: 'cat-tomate', name: 'Tomate' });
+    const legacy = {
+      chefProfile: MARIE,
+      ...dishRow({
+        // Never stamped: no `allergens` on the line, milk declared by hand.
+        ingredients: [
+          { name: 'tomates', qty: 2, unit: 'kg', catalogIngredientId: 'cat-tomate' },
+        ],
+        allergens: ['milk'],
+        allergensNone: false,
+        addedAllergens: [],
+        status: MealStatus.published,
+        allergensVerifiedAt: VERIFIED_AT,
+        lockVersion: 4,
+      }),
+    } as Dish;
+    const h = harness([tomato], [legacy]);
+
+    await h.service.propagate(['cat-tomate'], ADMIN);
+
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['milk'],
+      addedAllergens: ['milk'],
+      allergensVerifiedAt: VERIFIED_AT,
+      ingredients: [
+        expect.objectContaining({ name: 'Tomate', allergens: [], incomplete: false }),
+      ],
+    });
+    expect(h.notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it('drops an allergen the entry no longer has, and asks the chef to verify again', async () => {
+    const butter = { ...BUTTER, ...WITH_MILK };
+    const h = harness(
+      [butter, CELERY],
+      [await saved([butter, CELERY], BUTTER_AND_CELERY)],
+    );
+    h.change('cat-beurre', { allergens: [], allergensNone: true });
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['celery'],
+      allergensVerifiedAt: null,
+    });
+    expect(h.notifications.notify).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ dishes: 1, reverified: 1, chefs: 1 });
+  });
+
+  // Lab's Food writes move `lockVersion` too, so the guard sees them.
+  it("reads a Lab's Food recipe again when an admin saved it meanwhile, then writes", async () => {
+    const recipe = await saved([BUTTER, CELERY], BUTTER_AND_CELERY, {
+      chefProfileId: null,
+      chefProfile: null,
+    });
+    const h = harness([BUTTER, CELERY], [recipe]);
+    h.change('cat-beurre', WITH_MILK);
+    h.chefSavesMeanwhile();
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.meal.update).toHaveBeenCalledTimes(2);
+    expect(h.meal.update.mock.calls[1][0].where).toEqual({
+      id: 'dish-1',
+      lockVersion: 5,
+    });
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['milk', 'celery'],
+      lockVersion: 6,
+    });
+    expect(result).toMatchObject({ dishes: 1, skipped: 0, failed: 0 });
+  });
+
+  it('sends at most ten e-mails at a time', async () => {
+    const owners = Array.from({ length: 23 }, (_, i) => ({
+      userId: `user-${i}`,
+      user: { email: `chef-${i}@example.com`, fullName: null },
+    }));
+    const dishes = await Promise.all(
+      owners.map((owner, i) =>
+        saved([BUTTER, CELERY], BUTTER_AND_CELERY, {
+          id: `dish-${i}`,
+          chefProfileId: `chef-${i}`,
+          chefProfile: owner,
+        }),
+      ),
+    );
+    const h = harness([BUTTER, CELERY], dishes);
+    h.change('cat-beurre', WITH_MILK);
+    let inFlight = 0;
+    let most = 0;
+    h.mailer.recipeAllergensChanged.mockImplementation(async () => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      return { sent: true };
+    });
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(result.chefs).toBe(23);
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(23);
+    expect(most).toBe(10);
   });
 
   // Ruling R14: no dish is left with stale allergens because another one failed.

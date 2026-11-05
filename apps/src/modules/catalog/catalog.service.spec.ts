@@ -37,6 +37,7 @@ const storedMeal = (overrides: Record<string, unknown> = {}) => ({
   customDiets: [] as string[],
   country: 'SN' as string | null,
   offeredToChefProfileId: null as string | null,
+  lockVersion: 3,
   ...overrides,
 });
 
@@ -400,6 +401,51 @@ describe('CatalogService', () => {
       ]) {
         expect(data).not.toHaveProperty(key);
       }
+    });
+
+    // Recettes §7.3, ruling R12: the propagation's guard sees a Lab's Food save too.
+    it('writes a recomposed meal on the lockVersion read, and moves it on', async () => {
+      meal.findFirst.mockResolvedValueOnce(storedMeal());
+
+      await service.updateMeal('meal-1', { ingredients: [RICE_LINE] }, ADMIN_ID);
+
+      const { where, data } = meal.update.mock.calls[0][0];
+      expect(where).toEqual({ id: 'meal-1', chefProfileId: null, lockVersion: 3 });
+      expect(data.lockVersion).toEqual({ increment: 1 });
+    });
+
+    it('answers 409 RECIPE_CONFLICT, writing nothing, when a propagation landed meanwhile', async () => {
+      const read = storedMeal({
+        ingredients: [
+          { ...RICE_LINE, hiddenFromClient: false, allergens: [], incomplete: false },
+        ],
+      });
+      // The propagation wrote between the admin's read and write: lockVersion 3 → 4.
+      let row = { ...read, lockVersion: 4 };
+      meal.findFirst.mockResolvedValueOnce(read);
+      meal.update.mockImplementationOnce(
+        async ({ where, data }: { where: { lockVersion?: number }; data: object }) => {
+          if (where.lockVersion !== row.lockVersion) throw knownRequestError('P2025');
+          row = { ...row, ...data };
+          return row;
+        },
+      );
+      meal.findUnique.mockImplementationOnce(async () => ({
+        chefProfileId: row.chefProfileId,
+        lockVersion: row.lockVersion,
+      }));
+
+      const error = await service
+        .updateMeal('meal-1', { ingredients: [MILK_LINE] }, ADMIN_ID)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        code: 'RECIPE_CONFLICT',
+        lockVersion: 4,
+      });
+      expect(row.ingredients).toEqual(read.ingredients);
+      expect(suggestions.flagCopies).not.toHaveBeenCalled();
     });
 
     it('keeps a hand-declared allergen of an existing row, as added (R7)', async () => {
