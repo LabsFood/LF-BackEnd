@@ -95,18 +95,18 @@ export interface PublishProblem {
   message: string;
 }
 
-/** The fields a public dish can never lose. */
+/**
+ * The fields a public dish can never lose. Allergens are not among them: they are
+ * computed from the lines (Recettes §6.1).
+ */
 export interface PublishableDish {
   name: string;
   portions: number;
-  allergens: string[];
-  allergensNone: boolean;
 }
 
 /**
- * What a published dish must keep through an edit: a name and portions. Allergens
- * are computed from the lines, so they are no longer asked here. Publishing itself
- * asks for more, see `readiness`.
+ * What a published dish must keep through an edit: a name and portions. Publishing
+ * itself asks for more, see `readiness`.
  */
 export function publishProblems(dish: PublishableDish): PublishProblem[] {
   const problems: PublishProblem[] = [];

@@ -13,8 +13,6 @@ const READY = {
   name: 'Poulet rôti aux herbes',
   country: 'FR',
   portions: 3,
-  allergens: ['celery'],
-  allergensNone: false,
 };
 
 describe('publishProblems (FLOW-02 §3.3)', () => {
@@ -22,20 +20,14 @@ describe('publishProblems (FLOW-02 §3.3)', () => {
     expect(publishProblems(READY)).toEqual([]);
   });
 
-  it('accepts an explicit "none of the 14" instead of a list', () => {
-    expect(publishProblems({ ...READY, allergens: [], allergensNone: true })).toEqual([]);
-  });
-
-  it('no longer asks for an allergen declaration: allergens are computed', () => {
-    expect(publishProblems({ ...READY, allergens: [] })).toEqual([]);
+  it('asks only for a name and portions: allergens are computed', () => {
+    expect(publishProblems({ name: 'Poulet', portions: 1 })).toEqual([]);
   });
 
   it('reports every problem at once, not the first one', () => {
     const problems = publishProblems({
       name: '  ',
       portions: 0,
-      allergens: [],
-      allergensNone: false,
     });
     expect(problems.map((p) => p.field)).toEqual(['name', 'portions']);
   });
@@ -82,8 +74,6 @@ describe('readiness (Recettes §4.11)', () => {
     steps: [step],
     storage: { method: 'fridge', days: 3, freezable: false },
     reheating: { modes: ['oven'], note: 'Couvrir de papier alu.' },
-    allergens: [],
-    allergensNone: false,
     allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
     declaredDiets: [],
     classification: { diets: ['no-pork'], seasonMonths: [1, 2, 3] },
@@ -126,8 +116,8 @@ describe('readiness (Recettes §4.11)', () => {
   });
 
   it('never asks the chef to declare allergens: they are computed', () => {
-    expect(readiness({ ...DISH, allergens: [], allergensNone: false }).problems).toEqual(
-      [],
+    expect(readiness(DISH).problems.map((p) => p.code)).not.toContain(
+      'ALLERGENS_REQUIRED',
     );
   });
 

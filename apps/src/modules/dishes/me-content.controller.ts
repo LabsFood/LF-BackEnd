@@ -199,8 +199,9 @@ export class MeContentController {
       '- `allergens`, `conditionalAllergens` and `allergensNone` are computed again ' +
       'from the lines and `addedAllergens`. An allergen declared by hand before they ' +
       'were computed is never dropped: it is kept in `addedAllergens`, from where the ' +
-      'batch cooker may remove it. A line added, removed, relinked or made ' +
-      'optional, or a change to the allergens, clears `allergensVerifiedAt`: confirm ' +
+      'batch cooker may remove it. A line added, removed or relinked, a line that ' +
+      'becomes optional or stops being so, or a change to the allergens, clears ' +
+      '`allergensVerifiedAt`, even one confirmed after this dish was read: confirm ' +
       'them again (`POST /me/dishes/{id}/allergens/confirm`). A quantity does not.\n' +
       '- A published dish stays published, even if the recipe is no longer "Prête"; it ' +
       'cannot be booked until its allergens are confirmed.',
@@ -350,14 +351,22 @@ export class MeContentController {
       'ingredients, plus the ones they added, are right. Sets `allergensVerifiedAt`, ' +
       'needed for the dish to be ready and to be booked. Adding, removing or changing ' +
       'an ingredient, or a change to the allergens, clears it again; a quantity does ' +
-      'not. `lockVersion` does not move.\n\n' +
+      'not. A confirmation never moves `lockVersion`.\n\n' +
+      '- The allergens are computed again from the common ingredient list as it is ' +
+      'now. If that gives something other than what the dish shows (lines never ' +
+      'computed, an ingredient corrected since), the new result is saved unconfirmed, ' +
+      '`lockVersion` moves on, and the answer is `409 RECIPE_CONFLICT` with it: reload ' +
+      'the dish, check the allergens and confirm again.\n' +
       '- The body is optional. Send `{ "lockVersion": 4 }`, the one the allergens were ' +
       'read with: if the dish changed since (another screen, Lab’s Food correcting an ' +
       'ingredient), the answer is `409 RECIPE_CONFLICT` with the current `lockVersion` ' +
-      'and nothing is confirmed. Without it, the dish as it stands is confirmed.\n' +
+      'and nothing is confirmed. With or without it, a change landing during the ' +
+      'confirmation answers the same 409.\n' +
       '- `422 VALIDATION_FAILED` while the recipe has no ingredient.\n' +
       '- `422 INGREDIENT_NOT_LINKED` while a line is not linked to the common list, or ' +
-      'links an ingredient still to complete: `lines` gives their indexes.',
+      'links an ingredient still to complete: `lines` gives their indexes.\n' +
+      '- `422 VALIDATION_FAILED` with `allergens` while an allergen code is not one of ' +
+      'the 14 regulated ones (a legacy or renamed code): it must be corrected first.',
   })
   @ApiDishIdParam()
   @ApiBody({ type: ConfirmAllergensDto, required: false })
@@ -367,14 +376,16 @@ export class MeContentController {
   })
   @ApiConflictResponse({
     description:
-      '`RECIPE_CONFLICT`: the dish changed since the `lockVersion` sent was read. ' +
-      'Reload it and check the allergens again.',
+      '`RECIPE_CONFLICT` with the current `lockVersion`: the dish changed since it was ' +
+      'read, or its allergens were just computed again and differ. Nothing is ' +
+      'confirmed: reload it and check the allergens again.',
     example: RECIPE_CONFLICT_EXAMPLE,
   })
   @ApiUnprocessableEntityResponse({
     description:
-      'The allergens cannot be known yet: no ingredient (`VALIDATION_FAILED`), or a ' +
-      'line not linked or incomplete (`INGREDIENT_NOT_LINKED`).',
+      'The allergens cannot be confirmed yet: no ingredient (`VALIDATION_FAILED`), a ' +
+      'line not linked or incomplete (`INGREDIENT_NOT_LINKED`, with `lines`), or a code ' +
+      'outside the 14 (`VALIDATION_FAILED`, with `allergens`).',
     example: INGREDIENT_NOT_LINKED_EXAMPLE,
   })
   @ApiForbiddenResponse(NOT_OWNED)
@@ -385,7 +396,7 @@ export class MeContentController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: ConfirmAllergensDto,
   ) {
-    // No body reaches here as `{}` (the validation pipe), so `lockVersion` is optional.
+    // A missing body arrives as `{}` (the validation pipe): `lockVersion` is optional.
     return this.dishes.confirmAllergens(user.userId, id, payload?.lockVersion);
   }
 

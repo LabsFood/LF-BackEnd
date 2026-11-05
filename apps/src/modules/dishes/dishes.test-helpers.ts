@@ -63,7 +63,7 @@ export function dishRow(overrides: Record<string, unknown> = {}) {
 export function entryRow(overrides: { id: string } & Record<string, unknown>) {
   return {
     name: 'Tomate',
-    aisle: 'fruits-legumes',
+    aisle: 'fruits-legumes' as string | null,
     allergens: [] as string[],
     allergensNone: true,
     isBasic: false,
@@ -99,6 +99,31 @@ export const READY_RECIPE = {
 };
 
 /**
+ * A line as a save stores it: every field written, stamped from its entry
+ * (Recettes §5.2). A confirmation recomposing it finds nothing to change.
+ */
+export function stampedLine(overrides: Record<string, unknown> & { name: string }) {
+  return {
+    qty: 1,
+    unit: 'piece',
+    aisle: null as string | null,
+    link: null,
+    toVerify: false,
+    fixedQuantity: false,
+    catalogIngredientId: null as string | null,
+    optional: false,
+    precision: null,
+    preparation: null,
+    group: null,
+    hiddenFromClient: false,
+    rawText: null,
+    allergens: [] as string[],
+    incomplete: false,
+    ...overrides,
+  };
+}
+
+/**
  * A dish that passes the Recettes §4.11 check, at version 2 with nothing pending.
  * Its allergens are the ones its lines bring (§6.1), as a save computes them.
  */
@@ -108,30 +133,27 @@ export function readyDishRow(overrides: Record<string, unknown> = {}) {
     description: 'Poulet fermier rôti, thym et romarin.',
     imageUrl: 'https://photos.example.com/poulet.jpg',
     ingredients: [
-      {
+      stampedLine({
         name: 'Ail',
         qty: 4,
         unit: 'clove',
         aisle: 'fruits-legumes',
         catalogIngredientId: 'cat-ail',
-        allergens: [],
-        incomplete: false,
-      },
-      {
+      }),
+      stampedLine({
         name: 'Céleri-rave',
         qty: 300,
         unit: 'g',
         aisle: 'fruits-legumes',
         catalogIngredientId: 'cat-celeri',
         allergens: ['celery'],
-        incomplete: false,
-      },
+      }),
     ],
     addedAllergens: [],
     allergens: ['celery'],
     allergensNone: false,
     conditionalAllergens: [],
-    classification: { diets: ['vegetarian', 'no-pork'], seasonMonths: [1, 2, 3] },
+    classification: { diets: ['no-pork', 'vegetarian'], seasonMonths: [1, 2, 3] },
     steps: [
       { order: 1, text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 },
     ],

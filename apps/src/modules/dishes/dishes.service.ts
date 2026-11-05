@@ -55,6 +55,7 @@ import {
   readLines,
   reverifyNeeded,
   SafetySnapshot,
+  StoredLine,
 } from './domain/recipe-lines.rules';
 import { readSteps, recipeLimitBreach, sameContent } from './domain/recipes.rules';
 import {
@@ -170,8 +171,6 @@ export class DishesService {
       assertPublishable({
         name: payload.name ?? current.name,
         portions: payload.portions ?? current.portions,
-        allergens: current.allergens,
-        allergensNone: current.allergensNone,
       });
     }
 
@@ -185,10 +184,10 @@ export class DishesService {
     const before = withLegacyAdded(current);
     // Recettes §6.5: a change to what the dish contains, or to its allergens, asks the
     // chef to verify them again. Until then the dish stays published but cannot be booked.
+    // Cleared whatever was read: a confirmation made since the read does not move
+    // `lockVersion`, so it never stops this write (race A).
     const reverify =
-      !!composed &&
-      current.allergensVerifiedAt !== null &&
-      reverifyNeeded(storedSnapshot(before), composedSnapshot(composed));
+      !!composed && reverifyNeeded(storedSnapshot(before), composedSnapshot(composed));
     // §3.2: computed allergens that change are as review-worthy as the ones sent.
     const safety =
       touchesSafety(payload) ||
@@ -221,7 +220,7 @@ export class DishesService {
         return readiness(row).ready ? this.cutVersion(tx, row) : row;
       })
       .catch(savedMeanwhile(this.prisma, chef.id, id));
-    if (reverify) {
+    if (reverify && current.allergensVerifiedAt !== null) {
       this.logger.log({ event: 'dish.allergens_verification_cleared', dishId: id });
     }
     return toDishView(dish);
@@ -232,34 +231,61 @@ export class DishesService {
    * plus the ones they added, are right. Needed to be "Prête", and for a dish to be
    * booked. Not a change to the recipe: `lockVersion` stays. Ruling R8: sent with
    * the `lockVersion` the chef read, it confirms only that version of the dish.
+   *
+   * Ruling R10: what is confirmed is always computed afresh from the common list.
+   * If that differs from what the dish stores (lines never stamped, an entry changed
+   * since), the fresh result is saved instead, unconfirmed, and the answer is 409
+   * with the new `lockVersion`: the chef reloads, sees it, and confirms again.
    */
   async confirmAllergens(clerkUserId: string, id: string, lockVersion?: number | null) {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
     const dish = await this.access.writableDish(chef, id);
-    const guarded = lockVersion != null;
     // Allergens changed since the chef read them (a second tab, the §7.3 propagation).
-    if (guarded && lockVersion !== dish.lockVersion) {
+    if (lockVersion != null && lockVersion !== dish.lockVersion) {
       throw recipeConflict(dish.lockVersion);
     }
-    assertConfirmable(dish);
+    const composed = await composeLines(
+      this.prisma,
+      dish,
+      {},
+      readLines(dish.ingredients),
+    );
+    assertConfirmable(composed);
+    // Every write here matches only the version read: an update landing in between
+    // answers 409 rather than having its changes confirmed unseen (race B).
+    const asRead = { id, chefProfileId: chef.id, lockVersion: dish.lockVersion };
+
+    if (!storesComposition(dish, composed)) {
+      const columns = compositionColumns(composed);
+      // Saved first, then refused: the 409 must not undo the fresh stamps.
+      const row = await this.prisma.meal
+        .update({
+          where: asRead,
+          data: {
+            ...columns,
+            lockVersion: { increment: 1 },
+            allergensVerifiedAt: null,
+            ...(versionContentChanged(dish, columns) && { versionPending: true }),
+          },
+        })
+        .catch(savedMeanwhile(this.prisma, chef.id, id));
+      this.logger.log({ event: 'dish.allergens_recomputed', dishId: id });
+      throw recipeConflict(row.lockVersion);
+    }
+
     // The changes the chef just verified become a version even if the recipe is not
     // "Prête" yet: a booking must never cook ingredients other than the ones whose
     // allergens were confirmed.
     const confirmed = await this.prisma
       .$transaction(async (tx) => {
         const row = await tx.meal.update({
-          where: {
-            id,
-            chefProfileId: chef.id,
-            // Matches nothing if the dish moved on between the read and this write.
-            ...(guarded && { lockVersion: dish.lockVersion }),
-          },
+          where: asRead,
           data: { allergensVerifiedAt: new Date() },
         });
         return this.cutVersion(tx, row);
       })
-      .catch(guarded ? savedMeanwhile(this.prisma, chef.id, id) : goneMeanwhile('Dish'));
+      .catch(savedMeanwhile(this.prisma, chef.id, id));
     this.logger.log({ event: 'dish.allergens_confirmed', dishId: id });
     return toDishView(confirmed);
   }
@@ -639,16 +665,23 @@ async function composedSave(
   if (!lines && payload.addedAllergens == null && payload.customAllergens == null) {
     return null;
   }
+  return composeLines(db, current, payload, lines ?? readLines(current?.ingredients));
+}
+
+/** The composition of `lines`, with the chef's allergens as `payload` leaves them. */
+async function composeLines(
+  db: Pick<PrismaService, 'catalogIngredient'>,
+  current: Meal | null,
+  payload: UpdateDishDto,
+  lines: LineToStamp[],
+): Promise<Composition> {
   // Ruling R7: what the chef declared by hand before the socle stays, as added.
   const addedAllergens = inAnnexOrder([
     ...(payload.addedAllergens ?? current?.addedAllergens ?? []),
     ...(current ? legacyDeclaredAllergens(current) : []),
   ]);
   const customAllergens = payload.customAllergens ?? current?.customAllergens ?? [];
-  const composed = await compositionOf(db, lines ?? readLines(current?.ingredients), {
-    addedAllergens,
-    customAllergens,
-  });
+  const composed = await compositionOf(db, lines, { addedAllergens, customAllergens });
   return { ...composed, addedAllergens, customAllergens };
 }
 
@@ -663,6 +696,24 @@ const compositionColumns = (composed: Composition) => ({
   addedAllergens: composed.addedAllergens,
   customAllergens: composed.customAllergens,
 });
+
+/**
+ * Ruling R10: the row already stores exactly what a fresh composition writes. The
+ * lines are compared as stored, not as `readLines` reads them: a line never stamped
+ * lacks `allergens`, which must count as a difference, never as "none".
+ */
+function storesComposition(meal: Meal, composed: Composition): boolean {
+  const fresh = compositionColumns(composed);
+  return (
+    sameContent(meal.ingredients, fresh.ingredients) &&
+    sameContent(meal.allergens, fresh.allergens) &&
+    sameContent(meal.conditionalAllergens, fresh.conditionalAllergens) &&
+    meal.allergensNone === fresh.allergensNone &&
+    sameContent(meal.classification, composed.classification) &&
+    sameContent(meal.addedAllergens, fresh.addedAllergens) &&
+    sameContent(meal.customAllergens, fresh.customAllergens)
+  );
+}
 
 /** Recettes §6.5: what the re-verification compares, as stored before the save… */
 const storedSnapshot = (meal: Meal): SafetySnapshot => ({
@@ -747,22 +798,25 @@ export const toIngredientsJson = (ingredients: IngredientDto[]) =>
   }));
 
 /**
- * Recettes §6.1: allergens are confirmed only once every line brings its own. 422
- * `VALIDATION_FAILED` without a line; 422 `INGREDIENT_NOT_LINKED` with the indexes
- * of the lines not linked, or linked to an ingredient still to complete; 422
- * `VALIDATION_FAILED` for an allergen code outside the 14 (ruling R5).
+ * Recettes §6.1: allergens are confirmed only once every line brings its own, as a
+ * fresh composition stamps them (ruling R10). 422 `VALIDATION_FAILED` without a
+ * line; 422 `INGREDIENT_NOT_LINKED` with the indexes of the lines not linked, or
+ * linked to an ingredient still to complete; 422 `VALIDATION_FAILED` for an
+ * allergen code outside the 14 (ruling R5).
  */
-export function assertConfirmable(
-  dish: Pick<Meal, 'ingredients' | 'addedAllergens' | 'customAllergens'>,
-): void {
-  const lines = readLines(dish.ingredients);
+export function assertConfirmable(composed: {
+  ingredients: StoredLine[];
+  state: { allergens: string[] };
+}): void {
+  const lines = composed.ingredients;
   if (lines.length === 0) throw validationFailed('Add at least one ingredient first.');
   const unlinked = lines.flatMap((line, i) =>
     line.catalogIngredientId && !line.incomplete ? [] : [i],
   );
   if (unlinked.length) throw ingredientNotLinked(unlinked);
-  const { allergens } = allergenStateOf(lines, dish.addedAllergens, dish.customAllergens);
-  const unknown = allergens.filter((code) => !ALLERGEN_CODES.includes(code));
+  const unknown = composed.state.allergens.filter(
+    (code) => !ALLERGEN_CODES.includes(code),
+  );
   if (unknown.length) {
     // Legacy or renamed codes: kept so no allergen is lost, but nothing to confirm yet.
     throw validationFailed(
