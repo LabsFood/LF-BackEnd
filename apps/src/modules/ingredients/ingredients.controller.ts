@@ -151,7 +151,8 @@ export class IngredientsController {
       'linking it (lines re-stamped, allergens and classification recomputed). A ' +
       'verified dish whose allergens change loses its verification: it stays published ' +
       'but cannot be booked, and its chef is notified and e-mailed. See ' +
-      '`GET /admin/ingredients/:id/impact` first. Recorded in the audit log.',
+      '`GET /admin/ingredients/:id/impact` first; `POST /admin/ingredients/:id/propagate` ' +
+      'replays the propagation. Recorded in the audit log.',
   })
   @ApiOkResponse({ description: 'The ingredient.', example: INGREDIENT_EXAMPLE })
   @ApiNotFoundResponse({ description: 'No such ingredient.' })
@@ -189,6 +190,34 @@ export class IngredientsController {
   @ApiAdminAuthResponses()
   impact(@Param('id', ParseUUIDPipe) id: string) {
     return this.ingredients.impact(id);
+  }
+
+  @Post('admin/ingredients/:id/propagate')
+  @HttpCode(200)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Carry an ingredient into its recipes again',
+    description:
+      'Recettes §7.3, ruling R14: replays what a change to the ingredient does to every ' +
+      'recipe linking it, for a run cut short or dishes that `failed`. Idempotent: a ' +
+      'dish already stamped from the ingredient as it stands is not written again, and ' +
+      'no chef is notified or e-mailed twice. Answers the figures of this run: dishes ' +
+      'rewritten, verifications cleared, chefs told, dishes `skipped` because their ' +
+      'chef saved them meanwhile, and dishes `failed`. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The figures of this run.',
+    example: { dishes: 3, reverified: 2, chefs: 1, skipped: 0, failed: 0 },
+  })
+  @ApiNotFoundResponse({ description: 'No such ingredient.' })
+  @ApiAdminAuthResponses()
+  async propagate(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ingredients.propagate(id, await this.adminId(user));
   }
 
   @Post('admin/ingredients/:id/review')

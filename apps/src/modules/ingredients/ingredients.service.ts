@@ -158,8 +158,24 @@ export class IngredientsService {
       metadata: { fields: Object.keys(data), propagated: carried },
     });
     // Records its own audit entry, with its figures.
-    if (carried) await this.propagation.propagate([id], adminUserId);
+    if (carried) {
+      await this.propagation.propagate([id], { type: 'admin', userId: adminUserId });
+    }
     return row;
+  }
+
+  /**
+   * Ruling R14: the admin replays the Recettes §7.3 propagation of an entry, when a
+   * run was cut short or some dishes failed. Idempotent: dishes already stamped from
+   * the entry as it stands are not written again, and nobody is told twice.
+   */
+  async propagate(id: string, adminUserId: string) {
+    const entry = await this.prisma.catalogIngredient.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!entry) throw new NotFoundException('Ingredient not found.');
+    return this.propagation.propagate([id], { type: 'admin', userId: adminUserId });
   }
 
   /**

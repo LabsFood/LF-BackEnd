@@ -1,3 +1,5 @@
+import { NotFoundException } from '@nestjs/common';
+
 import { AuditService } from '../../common/audit/audit.service';
 import { MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,6 +9,7 @@ import { dishRow, entryRow } from '../dishes/dishes.test-helpers';
 import { NotificationsService } from '../notifications/notifications.service';
 import { LineToStamp } from './composition';
 import { IngredientPropagationService } from './ingredient-propagation.service';
+import { IngredientsService } from './ingredients.service';
 
 type Entry = ReturnType<typeof entryRow>;
 type Owner = { userId: string; user: { email: string; fullName: string | null } };
@@ -14,6 +17,7 @@ type Dish = ReturnType<typeof dishRow> & { chefProfile: Owner | null };
 type StoredLineJson = { name: string; aisle: string | null; catalogIngredientId: string };
 
 const VERIFIED_AT = new Date('2026-11-01T09:00:00.000Z');
+const ADMIN = { type: 'admin' as const, userId: 'admin-1' };
 
 const BUTTER = entryRow({ id: 'cat-beurre', name: 'Beurre', aisle: 'cremerie' });
 const CELERY = entryRow({
@@ -157,17 +161,25 @@ function harness(entries: Entry[], dishes: Dish[]) {
       },
     ),
   };
-  const client = { meal, catalogIngredient: { findMany: findEntries(() => list) } };
+  const catalogIngredient = {
+    findMany: findEntries(() => list),
+    findUnique: jest.fn(
+      async ({ where }: { where: { id: string } }) =>
+        list.find((entry) => entry.id === where.id) ?? null,
+    ),
+  };
+  const client = { meal, catalogIngredient };
   const $transaction = jest.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
     work(client),
   );
+  const prisma = { ...client, $transaction } as unknown as PrismaService;
   const notifications = { notify: jest.fn(async (..._args: unknown[]) => ({})) };
   const mailer = {
     recipeAllergensChanged: jest.fn(async (_input: object) => ({ sent: true })),
   };
   const audit = { record: jest.fn(async (_entry: object) => undefined) };
   const service = new IngredientPropagationService(
-    { ...client, $transaction } as unknown as PrismaService,
+    prisma,
     notifications as unknown as NotificationsService,
     mailer as unknown as DishesMailer,
     audit as unknown as AuditService,
@@ -183,6 +195,7 @@ function harness(entries: Entry[], dishes: Dish[]) {
       return row;
     });
   return {
+    prisma,
     rows,
     meal,
     client,
@@ -199,7 +212,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
   it('finds the dishes with the array_contains query, one condition per entry', async () => {
     const h = harness([BUTTER], []);
 
-    await h.service.propagate(['cat-beurre', 'cat-celeri'], 'admin-1');
+    await h.service.propagate(['cat-beurre', 'cat-celeri'], ADMIN);
 
     expect(h.meal.findMany).toHaveBeenCalledWith({
       where: {
@@ -218,7 +231,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     const h = harness([BUTTER, CELERY], [dish]);
     h.change('cat-beurre', WITH_MILK);
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).toHaveBeenCalledTimes(1);
     const { where, data } = h.meal.update.mock.calls[0][0];
@@ -254,7 +267,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
       name: 'Marie Dupont',
       dishCount: 1,
     });
-    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
   });
 
   it('notifies once per dish but e-mails once per chef', async () => {
@@ -271,7 +284,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     const h = harness([BUTTER, CELERY], dishes);
     h.change('cat-beurre', WITH_MILK);
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.notifications.notify).toHaveBeenCalledTimes(4);
     expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(2);
@@ -285,7 +298,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
       name: null,
       dishCount: 1,
     });
-    expect(result).toEqual({ dishes: 4, reverified: 4, chefs: 2, skipped: 0 });
+    expect(result).toEqual({ dishes: 4, reverified: 4, chefs: 2, skipped: 0, failed: 0 });
   });
 
   it('carries a new aisle onto the lines and keeps the verification, telling nobody', async () => {
@@ -295,7 +308,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     );
     h.change('cat-beurre', { aisle: 'epicerie-salee' });
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     const after = h.rows.get('dish-1')!;
     expect((after.ingredients as StoredLineJson[])[0].aisle).toBe('epicerie-salee');
@@ -306,7 +319,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     });
     expect(h.notifications.notify).not.toHaveBeenCalled();
     expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
-    expect(result).toEqual({ dishes: 1, reverified: 0, chefs: 0, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 0, chefs: 0, skipped: 0, failed: 0 });
   });
 
   it('carries a new name, marks a version pending and keeps the verification', async () => {
@@ -318,7 +331,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     );
     h.change('cat-beurre', { name: 'Beurre doux' });
 
-    await h.service.propagate(['cat-beurre'], 'admin-1');
+    await h.service.propagate(['cat-beurre'], ADMIN);
 
     const after = h.rows.get('dish-1')!;
     expect((after.ingredients as StoredLineJson[])[0].name).toBe('Beurre doux');
@@ -347,7 +360,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     );
     const h = harness([butter, homemade, CELERY], [dish]);
 
-    const result = await h.service.propagate(['cat-maison'], 'admin-1', {
+    const result = await h.service.propagate(['cat-maison'], ADMIN, {
       from: 'cat-maison',
       to: 'cat-beurre',
     });
@@ -370,7 +383,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     const dish = await saved([homemade], [line('Beurre maison', 'cat-maison')]);
     const h = harness([{ ...BUTTER, ...WITH_MILK }, homemade], [dish]);
 
-    await h.service.propagate(['cat-beurre'], 'admin-1', {
+    await h.service.propagate(['cat-beurre'], ADMIN, {
       from: 'cat-maison',
       to: 'cat-beurre',
     });
@@ -388,7 +401,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     const h = harness([BUTTER, CELERY], [recipe]);
     h.change('cat-beurre', WITH_MILK);
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.rows.get('dish-1')).toMatchObject({
       allergens: ['milk', 'celery'],
@@ -397,7 +410,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     });
     expect(h.notifications.notify).not.toHaveBeenCalled();
     expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
-    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 0, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 0, skipped: 0, failed: 0 });
   });
 
   it('recomputes a dish that was not verified without telling its chef', async () => {
@@ -407,12 +420,12 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     const h = harness([BUTTER, CELERY], [dish]);
     h.change('cat-beurre', WITH_MILK);
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
     expect(h.notifications.notify).not.toHaveBeenCalled();
     expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
-    expect(result).toEqual({ dishes: 1, reverified: 0, chefs: 0, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 0, chefs: 0, skipped: 0, failed: 0 });
   });
 
   it('changes nothing more when replayed', async () => {
@@ -421,16 +434,16 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
       [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
     );
     h.change('cat-beurre', WITH_MILK);
-    await h.service.propagate(['cat-beurre'], 'admin-1');
+    await h.service.propagate(['cat-beurre'], ADMIN);
     const once = h.rows.get('dish-1');
 
-    const again = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const again = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).toHaveBeenCalledTimes(1);
     expect(h.notifications.notify).toHaveBeenCalledTimes(1);
     expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(1);
     expect(h.rows.get('dish-1')).toBe(once);
-    expect(again).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 0 });
+    expect(again).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 0, failed: 0 });
   });
 
   it('writes nothing for a dish already stamped from the entry as it is', async () => {
@@ -439,7 +452,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
       [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
     );
 
-    await h.service.propagate(['cat-beurre'], 'admin-1');
+    await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).not.toHaveBeenCalled();
   });
@@ -451,7 +464,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     );
     h.change('cat-beurre', WITH_MILK);
 
-    await h.service.propagate(['cat-beurre'], 'admin-1');
+    await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.audit.record).toHaveBeenCalledTimes(1);
     expect(h.audit.record).toHaveBeenCalledWith({
@@ -466,6 +479,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
         reverified: 1,
         chefs: 1,
         skipped: 0,
+        failed: 0,
       },
     });
   });
@@ -478,9 +492,9 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     h.change('cat-beurre', WITH_MILK);
     h.mailer.recipeAllergensChanged.mockRejectedValue(new Error('Brevo is down'));
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
-    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
     expect(h.rows.get('dish-1')!.allergensVerifiedAt).toBeNull();
     expect(h.notifications.notify).toHaveBeenCalledTimes(1);
     expect(h.audit.record).toHaveBeenCalledTimes(1);
@@ -495,7 +509,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     h.change('cat-beurre', WITH_MILK);
     h.chefSavesMeanwhile();
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).toHaveBeenCalledTimes(2);
     expect(h.meal.update.mock.calls[1][0].where).toEqual({
@@ -507,7 +521,7 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
       allergensVerifiedAt: null,
     });
     expect(h.notifications.notify).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0 });
+    expect(result).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
   });
 
   it('skips a dish saved meanwhile twice in a row, and counts it', async () => {
@@ -519,28 +533,101 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     h.chefSavesMeanwhile();
     h.chefSavesMeanwhile();
 
-    const result = await h.service.propagate(['cat-beurre'], 'admin-1');
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
 
     expect(h.meal.update).toHaveBeenCalledTimes(2);
     expect(h.notifications.notify).not.toHaveBeenCalled();
     expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
-    expect(result).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 1 });
+    expect(result).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 1, failed: 0 });
     expect(h.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ skipped: 1 }) }),
     );
   });
 
-  it('lets any other error through', async () => {
+  // Ruling R14: no dish is left with stale allergens because another one failed.
+  it('carries on past a dish that fails, counts it, and still e-mails for the others', async () => {
+    const dishes = await Promise.all(
+      ['dish-1', 'dish-2', 'dish-3'].map((id) =>
+        saved([BUTTER, CELERY], BUTTER_AND_CELERY, { id }),
+      ),
+    );
+    const h = harness([BUTTER, CELERY], dishes);
+    h.change('cat-beurre', WITH_MILK);
+    const write = h.meal.update.getMockImplementation()!;
+    h.meal.update.mockImplementation(async (args) => {
+      if (args.where.id === 'dish-2') throw new Error('deadlock detected');
+      return write(args);
+    });
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(result).toEqual({ dishes: 2, reverified: 2, chefs: 1, skipped: 0, failed: 1 });
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
+    expect(h.rows.get('dish-3')!.allergens).toEqual(['milk', 'celery']);
+    // The failed one is as it was: a replay finds it still to carry.
+    expect(h.rows.get('dish-2')).toMatchObject({
+      allergens: ['celery'],
+      allergensVerifiedAt: VERIFIED_AT,
+      lockVersion: 4,
+    });
+    expect(h.notifications.notify).toHaveBeenCalledTimes(2);
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledWith({
+      email: 'marie@example.com',
+      name: 'Marie Dupont',
+      dishCount: 2,
+    });
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ failed: 1 }) }),
+    );
+  });
+
+  it('records the actor as given', async () => {
     const h = harness(
       [BUTTER, CELERY],
       [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
     );
     h.change('cat-beurre', WITH_MILK);
-    h.meal.update.mockRejectedValueOnce(new Error('connection lost'));
 
-    await expect(h.service.propagate(['cat-beurre'], 'admin-1')).rejects.toThrow(
-      'connection lost',
+    await h.service.propagate(['cat-beurre'], { type: 'chef', userId: 'user-1' });
+
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: 'chef', actorUserId: 'user-1' }),
     );
+  });
+});
+
+describe('IngredientsService.propagate, the admin replay (ruling R14)', () => {
+  const ingredients = (h: ReturnType<typeof harness>) =>
+    new IngredientsService(h.prisma, h.audit as unknown as AuditService, h.service);
+
+  it('carries the entry into the recipes again, and a second replay writes nothing', async () => {
+    const h = harness(
+      [BUTTER, CELERY],
+      [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
+    );
+    // A run cut short: the entry changed, the dish was never carried.
+    h.change('cat-beurre', WITH_MILK);
+
+    const first = await ingredients(h).propagate('cat-beurre', 'admin-1');
+    const second = await ingredients(h).propagate('cat-beurre', 'admin-1');
+
+    expect(first).toEqual({ dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
+    expect(second).toEqual({ dishes: 0, reverified: 0, chefs: 0, skipped: 0, failed: 0 });
     expect(h.meal.update).toHaveBeenCalledTimes(1);
+    expect(h.notifications.notify).toHaveBeenCalledTimes(1);
+    expect(h.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: 'admin', actorUserId: 'admin-1' }),
+    );
+  });
+
+  it('answers 404 for an unknown ingredient and carries nothing', async () => {
+    const h = harness([BUTTER], []);
+
+    await expect(ingredients(h).propagate('nope', 'admin-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(h.meal.findMany).not.toHaveBeenCalled();
+    expect(h.audit.record).not.toHaveBeenCalled();
   });
 });

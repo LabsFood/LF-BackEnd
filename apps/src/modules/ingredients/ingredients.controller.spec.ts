@@ -8,15 +8,19 @@ import { UsersService } from '../users/users.service';
 import { IngredientsController } from './ingredients.controller';
 import { IngredientsService } from './ingredients.service';
 
+const FIGURES = { dishes: 2, reverified: 1, chefs: 1, skipped: 0, failed: 0 };
+
 function harness(chefProfileId: string | null) {
   const ingredients = {
     search: jest.fn(async (..._a: unknown[]) => []),
     impact: jest.fn(async (_id: string) => ({ dishes: 3, chefs: 2, verifiedDishes: 1 })),
+    propagate: jest.fn(async (_id: string, _adminId: string) => FIGURES),
   };
+  const users = { findByClerkId: jest.fn(async (_id: string) => ({ id: 'admin-1' })) };
   const chefs = { chefProfileIdOf: jest.fn(async (_id: string) => chefProfileId) };
   const controller = new IngredientsController(
     ingredients as unknown as IngredientsService,
-    {} as UsersService,
+    users as unknown as UsersService,
     chefs as unknown as ChefContentService,
   );
   return { ingredients, chefs, controller };
@@ -67,5 +71,28 @@ describe('IngredientsController impact (Recettes §7.2)', () => {
     await expect(
       new ParseUUIDPipe().transform('1 OR 1=1', { type: 'param', data: 'id' }),
     ).rejects.toThrow();
+  });
+});
+
+describe('IngredientsController propagate (ruling R14)', () => {
+  it('replays the propagation as the calling admin and answers its figures', async () => {
+    const { ingredients, controller } = harness(null);
+    await expect(
+      controller.propagate({ userId: 'clerk-admin' } as never, 'ing-1'),
+    ).resolves.toEqual(FIGURES);
+    expect(ingredients.propagate).toHaveBeenCalledWith('ing-1', 'admin-1');
+  });
+
+  it('is for admins only, and takes a UUID only', () => {
+    expect(
+      Reflect.getMetadata(GUARDS_METADATA, IngredientsController.prototype.propagate),
+    ).toEqual([ClerkAuthGuard, AdminGuard]);
+    const args = Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      IngredientsController,
+      'propagate',
+    ) as Record<string, { data?: string; pipes: unknown[] }>;
+    const id = Object.values(args).find((arg) => arg.data === 'id');
+    expect(id?.pipes).toEqual([ParseUUIDPipe]);
   });
 });

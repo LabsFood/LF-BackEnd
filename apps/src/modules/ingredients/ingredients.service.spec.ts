@@ -49,6 +49,7 @@ function harness() {
       reverified: 1,
       chefs: 1,
       skipped: 0,
+      failed: 0,
     })),
   };
   const service = new IngredientsService(
@@ -115,7 +116,10 @@ describe('IngredientsService (Recettes §4.10)', () => {
 
     await service.update('ing-1', payload, 'admin-1');
 
-    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], 'admin-1');
+    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
+      type: 'admin',
+      userId: 'admin-1',
+    });
     // The propagation writes the dishes, never this service.
     expect(meal.update).not.toHaveBeenCalled();
     expect(audit.record).toHaveBeenCalledWith(
@@ -148,6 +152,29 @@ describe('IngredientsService (Recettes §4.10)', () => {
       service.update('nope', { name: 'Tomate cerise' }, 'admin-1'),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(catalogIngredient.update).not.toHaveBeenCalled();
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  // Ruling R14: a run cut short is replayed by an admin.
+  it('replays the propagation of an entry as the admin, and answers its figures', async () => {
+    const { propagation, service } = harness();
+
+    const result = await service.propagate('ing-1', 'admin-1');
+
+    expect(result).toEqual({ dishes: 2, reverified: 1, chefs: 1, skipped: 0, failed: 0 });
+    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
+      type: 'admin',
+      userId: 'admin-1',
+    });
+  });
+
+  it('answers 404 when replaying an unknown ingredient', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(null);
+
+    await expect(service.propagate('nope', 'admin-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(propagation.propagate).not.toHaveBeenCalled();
   });
 

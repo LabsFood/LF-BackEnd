@@ -28,6 +28,20 @@ export interface PropagationResult {
    * them from the entry as it now stands, so nothing is left stale.
    */
   skipped: number;
+  /**
+   * Ruling R14: dishes whose write failed for another reason. Left as they were, so
+   * a replay (`POST /admin/ingredients/:id/propagate`) finds them still to carry.
+   */
+  failed: number;
+}
+
+/**
+ * Who changed the entry, as the audit log records them: Lab's Food, or the chef
+ * whose private entry it is (Recettes §7.1).
+ */
+export interface PropagationActor {
+  type: 'admin' | 'chef';
+  userId: string;
 }
 
 /** A merge (Recettes §7.2): the lines linking `from` link `to` instead. */
@@ -82,7 +96,7 @@ export class IngredientPropagationService {
 
   async propagate(
     entryIds: string[],
-    actorUserId: string,
+    actor: PropagationActor,
     remap?: Remap,
   ): Promise<PropagationResult> {
     // A merge also reaches the lines still linking the entry it replaces.
@@ -94,10 +108,29 @@ export class IngredientPropagationService {
         })
       : [];
 
-    const result: PropagationResult = { dishes: 0, reverified: 0, chefs: 0, skipped: 0 };
+    const result: PropagationResult = {
+      dishes: 0,
+      reverified: 0,
+      chefs: 0,
+      skipped: 0,
+      failed: 0,
+    };
     const told = new Map<string, Told>();
     for (const { id } of meals) {
-      const carried = await this.carry(id, remap);
+      let carried: Carried | null;
+      try {
+        carried = await this.carry(id, remap);
+      } catch (error) {
+        // Ruling R14: one dish failing never leaves the others with stale allergens.
+        // Its transaction rolled back (no write, no notification): a replay carries it.
+        result.failed += 1;
+        this.logger.error({
+          event: 'catalog_ingredient.propagation_failed',
+          dishId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
       if (!carried) {
         result.skipped += 1;
         continue;
@@ -122,8 +155,8 @@ export class IngredientPropagationService {
 
     await this.tellChefs(told);
     await this.audit.record({
-      actorType: 'admin',
-      actorUserId,
+      actorType: actor.type,
+      actorUserId: actor.userId,
       action: 'catalog_ingredient.propagated',
       subjectType: 'catalog_ingredient',
       subjectId: entryIds[0] ?? remap?.from ?? null,
@@ -136,7 +169,8 @@ export class IngredientPropagationService {
   /**
    * Ruling R12: a chef's save between the read and the write moves `lockVersion` on
    * and the write matches nothing (P2025). The dish is read again and tried once
-   * more; a second conflict skips it (null). Any other error stops the run.
+   * more; a second conflict skips it (null). Any other error is thrown, for the run
+   * to count this dish as failed and go on (ruling R14).
    */
   private async carry(id: string, remap?: Remap): Promise<Carried | null> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
