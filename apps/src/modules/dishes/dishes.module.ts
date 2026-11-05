@@ -54,6 +54,6 @@ import { VitrineService } from './vitrine.service';
     VitrineService,
   ],
   // The legacy /admin/meals routes flag adopted copies when a suggestion changes.
-  exports: [SuggestionsService],
+  exports: [SuggestionsService, ChefContentService],
 })
 export class DishesModule {}
