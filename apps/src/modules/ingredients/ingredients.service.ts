@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -51,6 +52,8 @@ export type Carried = Prisma.CatalogIngredientGetPayload<{ select: typeof CARRIE
  */
 @Injectable()
 export class IngredientsService {
+  private readonly logger = new Logger(IngredientsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -183,7 +186,9 @@ export class IngredientsService {
     await this.assertNameFree(normalized);
     const row = await this.prisma.catalogIngredient
       .update({
-        where: { id },
+        // The state read: a chef edit, a merge or a validation in between finds
+        // nothing to write.
+        where: { id, status: 'pending' },
         data: {
           chefProfileId: null,
           status: 'active',
@@ -192,7 +197,7 @@ export class IngredientsService {
         },
       })
       .catch((error: unknown) => {
-        if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
+        if (isNotFound(error)) throw notPending();
         return this.nameTaken(error, normalized, id);
       });
     await this.audit.record({
@@ -228,7 +233,7 @@ export class IngredientsService {
     }
     const row = await this.prisma.catalogIngredient
       .update({
-        where: { id },
+        where: { id, status: 'pending' },
         data: {
           status: 'merged',
           mergedIntoId: intoId,
@@ -237,7 +242,7 @@ export class IngredientsService {
         },
       })
       .catch((error: unknown) => {
-        if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
+        if (isNotFound(error)) throw notPending();
         throw error;
       });
     await this.audit.record({
@@ -336,18 +341,23 @@ export class IngredientsService {
       createdByUserId: string | null;
     } | null;
     if (!entry) throw new NotFoundException('Ingredient not found.');
-    if (entry.status !== 'pending') {
-      throw new UnprocessableEntityException({
-        code: 'INGREDIENT_NOT_PENDING',
-        message: 'Only a chef’s pending ingredient can be validated or merged.',
-      });
-    }
+    if (entry.status !== 'pending') throw notPending();
     return entry;
   }
 
   private async tellAuthor(userId: string | null, type: string, id: string) {
     if (!userId) return;
-    await this.notifications.notify(userId, type, { type: 'catalog_ingredient', id });
+    // Best effort: the ruling is committed, a failed notice never turns it into a 500.
+    try {
+      await this.notifications.notify(userId, type, { type: 'catalog_ingredient', id });
+    } catch (error) {
+      this.logger.error({
+        event: 'catalog_ingredient.notification_failed',
+        type,
+        ingredientId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** The same name twice, in another case or accents, would split the computed diets. */
@@ -448,6 +458,13 @@ export class IngredientsService {
     return data;
   }
 }
+
+/** The entry is no longer a chef's pending one: ruled on, or changed, meanwhile. */
+export const notPending = () =>
+  new UnprocessableEntityException({
+    code: 'INGREDIENT_NOT_PENDING',
+    message: 'Only a chef’s pending ingredient can be validated, merged or changed.',
+  });
 
 export const isNotFound = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';

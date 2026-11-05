@@ -19,7 +19,55 @@ import {
   carriedChanged,
   IngredientsService,
   isNotFound,
+  notPending,
 } from './ingredients.service';
+
+/** "Not filled in" is no answer for an allergen: list them, or declare none. */
+const allergensRequired = (
+  Exception: typeof BadRequestException | typeof UnprocessableEntityException,
+) =>
+  new Exception({
+    code: 'ALLERGENS_REQUIRED',
+    message: 'List the allergens of this ingredient, or declare that it has none.',
+  });
+
+/**
+ * What a chef sees of an ingredient (the Swagger example): never the author's or
+ * reviewer's user ids, the owner profile or the search key.
+ */
+function toPublic(row: {
+  id: string;
+  name: string;
+  aliases: string[];
+  diets: string[];
+  seasonMonths: number[];
+  aisle: string | null;
+  allergens: string[];
+  allergensNone: boolean;
+  isBasic: boolean;
+  status: string;
+  reviewedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  mergedInto?: { id: string; name: string } | null;
+}) {
+  return {
+    id: row.id,
+    name: row.name,
+    aliases: row.aliases,
+    diets: row.diets,
+    seasonMonths: row.seasonMonths,
+    aisle: row.aisle,
+    allergens: row.allergens,
+    allergensNone: row.allergensNone,
+    isBasic: row.isBasic,
+    status: row.status,
+    mergedInto: row.mergedInto ?? null,
+    reviewedAt: row.reviewedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 /** Recettes §7.1: creations per chef over a sliding 24 hours. */
 const DAILY_CAP = 50;
@@ -44,10 +92,7 @@ export class ChefIngredientsService {
     this.chefs.assertVerified(chef);
     // "Not filled in" is no answer for an allergen: the chef lists them or says none.
     if (!payload.allergens?.length && payload.allergensNone !== true) {
-      throw new BadRequestException({
-        code: 'ALLERGENS_REQUIRED',
-        message: 'List the allergens of this ingredient, or declare that it has none.',
-      });
+      throw allergensRequired(BadRequestException);
     }
     const data = (await this.ingredients.toWrite(
       payload,
@@ -55,7 +100,8 @@ export class ChefIngredientsService {
     const normalized = data.normalizedName as string;
     await this.assertNameAvailable(chef.id, data.name, normalized);
 
-    // Counted by author, so a chef cannot flood the list (and Lab's Food's review queue).
+    // Counted by author, so a chef cannot flood the list (and Lab's Food's review
+    // queue). Count then create: concurrent creates can exceed the cap by a few.
     const recent = await this.prisma.catalogIngredient.count({
       where: {
         createdByUserId: chef.userId,
@@ -64,7 +110,7 @@ export class ChefIngredientsService {
     });
     if (recent >= DAILY_CAP) throw ingredientCapReached();
 
-    return this.prisma.catalogIngredient
+    const row = await this.prisma.catalogIngredient
       .create({
         data: {
           ...data,
@@ -74,6 +120,7 @@ export class ChefIngredientsService {
         },
       })
       .catch((error: unknown) => this.raced(error, chef.id, normalized));
+    return toPublic(row);
   }
 
   /** Everything the chef created, whatever its status; a merged one names its target. */
@@ -84,7 +131,7 @@ export class ChefIngredientsService {
       orderBy: { createdAt: 'desc' },
       include: { mergedInto: { select: { id: true, name: true } } },
     });
-    return rows.map((row) => ({ ...row, mergedInto: row.mergedInto ?? null }));
+    return rows.map((row) => toPublic(row));
   }
 
   /**
@@ -110,28 +157,30 @@ export class ChefIngredientsService {
     if (!before || !own) throw new NotFoundException('Ingredient not found.');
     // A validated entry is Lab's Food's now; a merged one is gone.
     if (before.status !== 'pending' || before.chefProfileId !== chef.id) {
-      throw new UnprocessableEntityException({
-        code: 'INGREDIENT_NOT_PENDING',
-        message: 'Only a pending ingredient can still be changed.',
-      });
+      throw notPending();
     }
 
     const data = await this.ingredients.toWrite(payload);
+    // The saved state must stay complete: allergens listed, or "none" (as on create).
+    const allergens = (data.allergens as string[] | undefined) ?? before.allergens;
+    const none = (data.allergensNone as boolean | undefined) ?? before.allergensNone;
+    if (!allergens.length && !none) throw allergensRequired(UnprocessableEntityException);
     const normalized = data.normalizedName as string | undefined;
     if (normalized) {
       await this.assertNameAvailable(chef.id, data.name as string, normalized, id);
     }
     const row = await this.prisma.catalogIngredient
-      .update({ where: { id }, data })
+      // The state read: validated or merged by Lab's Food since, the write finds nothing.
+      .update({ where: { id, chefProfileId: chef.id, status: 'pending' }, data })
       .catch((error: unknown) => {
-        if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
+        if (isNotFound(error)) throw notPending();
         return this.raced(error, chef.id, normalized, id);
       });
     // Records its own audit entry, with its figures.
     if (carriedChanged(before, row)) {
       await this.propagation.propagate([id], { type: 'chef', userId: chef.userId });
     }
-    return row;
+    return toPublic(row);
   }
 
   /**

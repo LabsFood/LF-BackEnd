@@ -256,7 +256,11 @@ describe('assertIngredientAccess (Recettes §4.10)', () => {
 
   // Task 7 carry-over: the refusal never confirms that another chef's id exists.
   it('words an unknown id and another chef private id the same way', async () => {
-    const rows = [entry({ id: 'p', chefProfileId: 'chef-2' })];
+    const rows = [
+      entry({ id: 'p', chefProfileId: 'chef-2' }),
+      // Another chef's private entry, merged since: still not confirmed to exist.
+      entry({ id: 'm', chefProfileId: 'chef-2', status: 'merged', mergedIntoId: 'a' }),
+    ];
     const messageOf = async (id: string) => {
       const error = await check(rows, [id], scope('chef-1')).catch((e: unknown) => e);
       return (
@@ -268,6 +272,7 @@ describe('assertIngredientAccess (Recettes §4.10)', () => {
     const unknown = await messageOf('ghost');
 
     expect(other).toEqual(unknown);
+    expect(await messageOf('m')).toEqual(unknown);
     expect(other[0].field).toBe('recipe.ingredients[0]');
   });
 });

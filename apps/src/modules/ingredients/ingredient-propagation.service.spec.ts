@@ -694,6 +694,36 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     );
   });
 
+  // Merge recovery: a dish that `failed` during a merge still links the merged id.
+  // The replay on the target (no remap) finds it through `mergedInto` and repoints it,
+  // even when the two entries read exactly alike (the line's id alone differs).
+  it('repoints a dish a merge left on the merged id, replaying on the target alone', async () => {
+    const twin = {
+      ...BUTTER,
+      id: 'cat-maison',
+      chefProfileId: 'chef-1',
+      status: 'merged',
+      mergedIntoId: 'cat-beurre',
+    };
+    // Saved while the twin was pending: same name, aisle and allergens as the target.
+    const dish = await saved(
+      [{ ...twin, status: 'pending', mergedIntoId: null }],
+      [line('Beurre', 'cat-maison')],
+    );
+    const h = harness([BUTTER, twin], [dish]);
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(
+      (h.rows.get('dish-1')!.ingredients as StoredLineJson[])[0].catalogIngredientId,
+    ).toBe('cat-beurre');
+    expect(result).toMatchObject({ dishes: 1, failed: 0 });
+
+    // And the replay after it writes nothing more.
+    const again = await h.service.propagate(['cat-beurre'], ADMIN);
+    expect(again).toMatchObject({ dishes: 0, failed: 0 });
+  });
+
   it('keeps a merge apart from the ids carried in the audit entry', async () => {
     const h = harness([{ ...BUTTER, ...WITH_MILK }], []);
 

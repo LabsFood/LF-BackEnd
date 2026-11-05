@@ -98,7 +98,7 @@ describe('ChefIngredientsService.create (Recettes §7.1)', () => {
         createdByUserId: 'user-1',
       }),
     });
-    expect(row).toMatchObject({ status: 'pending', chefProfileId: 'chef-1' });
+    expect(row).toMatchObject({ status: 'pending', name: 'Harissa maison' });
   });
 
   it('needs a verified chef', async () => {
@@ -291,7 +291,7 @@ describe('ChefIngredientsService.update (Recettes §7.1)', () => {
     await service.update('clerk-1', 'ing-1', { allergens: ['mustard', 'gluten'] });
 
     expect(catalogIngredient.update).toHaveBeenCalledWith({
-      where: { id: 'ing-1' },
+      where: { id: 'ing-1', chefProfileId: 'chef-1', status: 'pending' },
       data: { allergens: ['gluten', 'mustard'], allergensNone: false },
     });
     expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
@@ -364,5 +364,116 @@ describe('ChefIngredientsService.update (Recettes §7.1)', () => {
     await expect(
       service.update('clerk-1', 'ing-1', { allergens: ['gluten'], allergensNone: true }),
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  // Recettes §7.1: an update never leaves "not filled in" behind.
+  it.each([
+    ['emptying the allergens', MINE, { allergens: [] }],
+    [
+      'withdrawing "none" with no allergen listed',
+      { ...MINE, allergens: [], allergensNone: true },
+      { allergensNone: false },
+    ],
+    ['both emptied', MINE, { allergens: [], allergensNone: false }],
+  ])('refuses %s with 422', async (_label, stored, payload) => {
+    const { catalogIngredient, propagation, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(stored);
+
+    const error = await service
+      .update('clerk-1', 'ing-1', payload)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(UnprocessableEntityException);
+    expect(response(error)).toMatchObject({ code: 'ALLERGENS_REQUIRED' });
+    expect(catalogIngredient.update).not.toHaveBeenCalled();
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a change that keeps the state complete', async () => {
+    const { catalogIngredient, service } = harness();
+    await service.update('clerk-1', 'ing-1', { allergens: ['gluten'] });
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...MINE,
+      allergens: [],
+      allergensNone: true,
+    });
+    await expect(
+      service.update('clerk-1', 'ing-1', { name: 'Harissa douce' }),
+    ).resolves.toBeDefined();
+  });
+
+  // A validation between the read and the write: the write finds nothing to change.
+  it('answers 422 when the entry was validated between the read and the write', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('gone', {
+        code: 'P2025',
+        clientVersion: 'x',
+      }),
+    );
+
+    const error = await service
+      .update('clerk-1', 'ing-1', { name: 'Harissa douce' })
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(UnprocessableEntityException);
+    expect(response(error)).toMatchObject({ code: 'INGREDIENT_NOT_PENDING' });
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChefIngredientsService answers a public shape (Recettes §7.1)', () => {
+  const PRIVATE_FIELDS = [
+    'reviewedByUserId',
+    'createdByUserId',
+    'chefProfileId',
+    'normalizedName',
+    'mergedIntoId',
+  ];
+  const stored = {
+    ...MINE,
+    reviewedAt: null,
+    reviewedByUserId: 'admin-9',
+    createdAt: new Date('2026-11-04T09:00:00.000Z'),
+    updatedAt: new Date('2026-11-04T09:00:00.000Z'),
+  };
+
+  it.each([
+    ['create', (s: ChefIngredientsService) => s.create('clerk-1', VALID)],
+    [
+      'update',
+      (s: ChefIngredientsService) => s.update('clerk-1', 'ing-1', { isBasic: true }),
+    ],
+  ])('%s leaves out the internal fields', async (_label, run) => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(stored);
+    catalogIngredient.create.mockImplementation(async ({ data }) => ({
+      ...stored,
+      ...data,
+    }));
+    catalogIngredient.update.mockImplementation(async ({ data }) => ({
+      ...stored,
+      ...data,
+    }));
+
+    const row = (await run(service)) as Record<string, unknown>;
+
+    for (const field of PRIVATE_FIELDS) expect(row).not.toHaveProperty(field);
+    expect(row).toMatchObject({
+      id: 'ing-1',
+      name: 'Harissa maison',
+      status: 'pending',
+      aisle: 'epices',
+      allergens: ['mustard'],
+      mergedInto: null,
+    });
+  });
+
+  it('listMine leaves them out too', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockResolvedValue([stored]);
+    const [row] = (await service.listMine('clerk-1')) as Record<string, unknown>[];
+    for (const field of PRIVATE_FIELDS) expect(row).not.toHaveProperty(field);
+    expect(row).toMatchObject({ id: 'ing-1', mergedInto: null });
   });
 });

@@ -570,8 +570,9 @@ describe('IngredientsService.validate (Recettes §7.2)', () => {
 
     const result = await service.validate('p-1', 'admin-1');
 
+    // Conditioned on the state read: a concurrent change finds nothing to write.
     expect(catalogIngredient.update).toHaveBeenCalledWith({
-      where: { id: 'p-1' },
+      where: { id: 'p-1', status: 'pending' },
       data: {
         chefProfileId: null,
         status: 'active',
@@ -649,6 +650,31 @@ describe('IngredientsService.validate (Recettes §7.2)', () => {
     },
   );
 
+  // The chef or another admin changed the entry between the read and the write.
+  it('answers 422 when the entry stopped being pending meanwhile', async () => {
+    const { catalogIngredient, notifications, service } = harness();
+    pending(catalogIngredient);
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('gone', {
+        code: 'P2025',
+        clientVersion: 'x',
+      }),
+    );
+    await expect(service.validate('p-1', 'admin-1')).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it('stays validated when the notification fails', async () => {
+    const { catalogIngredient, notifications, service } = harness();
+    pending(catalogIngredient);
+    notifications.notify.mockRejectedValue(new Error('db down'));
+    await expect(service.validate('p-1', 'admin-1')).resolves.toMatchObject({
+      ingredient: { status: 'active' },
+    });
+  });
+
   it('answers 404 for an unknown ingredient', async () => {
     const { catalogIngredient, service } = harness();
     catalogIngredient.findUnique.mockResolvedValue(null);
@@ -682,7 +708,7 @@ describe('IngredientsService.merge (Recettes §7.2)', () => {
     const result = await service.merge('p-1', 'ing-1', 'admin-1');
 
     expect(catalogIngredient.update).toHaveBeenCalledWith({
-      where: { id: 'p-1' },
+      where: { id: 'p-1', status: 'pending' },
       data: {
         status: 'merged',
         mergedIntoId: 'ing-1',
@@ -732,6 +758,32 @@ describe('IngredientsService.merge (Recettes §7.2)', () => {
     expect(catalogIngredient.update).not.toHaveBeenCalled();
     expect(propagation.propagate).not.toHaveBeenCalled();
     expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it('answers 422 and carries nothing when the source stopped being pending meanwhile', async () => {
+    const { catalogIngredient, notifications, propagation, service } = harness();
+    rows(catalogIngredient);
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('gone', {
+        code: 'P2025',
+        clientVersion: 'x',
+      }),
+    );
+    await expect(service.merge('p-1', 'ing-1', 'admin-1')).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(propagation.propagate).not.toHaveBeenCalled();
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it('stays merged, with its figures, when the notification fails', async () => {
+    const { catalogIngredient, notifications, service } = harness();
+    rows(catalogIngredient);
+    notifications.notify.mockRejectedValue(new Error('db down'));
+    await expect(service.merge('p-1', 'ing-1', 'admin-1')).resolves.toMatchObject({
+      ingredient: { status: 'merged' },
+      propagation: { dishes: 2 },
+    });
   });
 
   it.each([['active'], ['merged'], ['inactive']])(

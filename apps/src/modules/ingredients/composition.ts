@@ -218,11 +218,12 @@ function refusal(
   entry: EntryRow,
   scope: { chefProfileId: string | null; previousIds: Set<string> },
 ): string | null {
+  // Ownership first: another chef's entry, merged or not, never shows its state.
+  if (entry.chefProfileId !== null && entry.chefProfileId !== scope.chefProfileId) {
+    return NOT_AVAILABLE;
+  }
   if (entry.status === 'merged') return 'This ingredient was merged into another';
   if (entry.chefProfileId !== null) {
-    if (entry.chefProfileId !== scope.chefProfileId) {
-      return NOT_AVAILABLE;
-    }
     if (entry.status === 'active' || entry.status === 'pending') return null;
   } else if (entry.status === 'active') {
     return null;
