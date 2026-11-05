@@ -134,7 +134,7 @@ export class IngredientsService {
       .update({ where: { id }, data })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
-        return this.nameTaken(error, normalized);
+        return this.nameTaken(error, normalized, id);
       });
     const reclassified =
       data.diets !== undefined || data.seasonMonths !== undefined
@@ -176,13 +176,20 @@ export class IngredientsService {
   private async assertCommon(id: string) {
     const row = (await this.prisma.catalogIngredient.findUnique({
       where: { id },
-      select: { chefProfileId: true },
-    })) as { chefProfileId: string | null } | null;
+      select: { chefProfileId: true, status: true },
+    })) as { chefProfileId: string | null; status: string } | null;
     if (!row) throw new NotFoundException('Ingredient not found.');
     if (row.chefProfileId !== null) {
       throw new UnprocessableEntityException({
         code: 'INGREDIENT_PRIVATE',
         message: 'The status of a chef’s private ingredient cannot be changed here.',
+      });
+    }
+    // merged and pending are the system's states: only active and inactive swap here.
+    if (row.status !== 'active' && row.status !== 'inactive') {
+      throw new UnprocessableEntityException({
+        code: 'INGREDIENT_STATUS_LOCKED',
+        message: 'A merged or pending ingredient never changes status here.',
       });
     }
   }
@@ -217,11 +224,28 @@ export class IngredientsService {
   }
 
   /** The unique index answered first (a race): the same 409, with the entry that won. */
-  private async nameTaken(error: unknown, normalizedName?: string): Promise<never> {
+  private async nameTaken(
+    error: unknown,
+    normalizedName?: string,
+    id?: string,
+  ): Promise<never> {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      // An update without a name collides on the stored one.
+      if (!normalizedName && id) {
+        const stored = (await this.prisma.catalogIngredient.findUnique({
+          where: { id },
+          select: { name: true },
+        })) as { name: string } | null;
+        normalizedName = stored ? normalizeName(stored.name) : undefined;
+      }
       const existing = normalizedName
         ? await this.prisma.catalogIngredient.findFirst({
-            where: { normalizedName, chefProfileId: null, status: { not: 'merged' } },
+            where: {
+              normalizedName,
+              chefProfileId: null,
+              status: { not: 'merged' },
+              ...(id && { id: { not: id } }),
+            },
             select: { id: true, name: true },
           })
         : null;

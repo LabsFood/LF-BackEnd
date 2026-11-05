@@ -313,4 +313,79 @@ describe('IngredientsService (Recettes §4.10)', () => {
       NotFoundException,
     );
   });
+  it.each(['merged', 'pending'])(
+    'refuses a status change on a %s entry and writes nothing',
+    async (status) => {
+      const { catalogIngredient, audit, service } = harness();
+      catalogIngredient.findUnique.mockResolvedValue({ ...TOMATE, status });
+
+      await expect(
+        service.update('ing-1', { status: 'active' }, 'a'),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(catalogIngredient.update).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 409 with the entry that won when a renaming collides on the index', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('x', {
+        code: 'P2002',
+        clientVersion: '0',
+      }),
+    );
+    catalogIngredient.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'ing-9', name: 'Crème' });
+
+    const error = await service
+      .update('ing-1', { name: 'CRÈME' }, 'a')
+      .catch((e: unknown) => e);
+
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      code: 'INGREDIENT_ALREADY_LISTED',
+      ingredient: { id: 'ing-9', name: 'Crème' },
+    });
+  });
+
+  it('keeps the ingredient body on a P2002 when no name was sent', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('x', {
+        code: 'P2002',
+        clientVersion: '0',
+      }),
+    );
+    catalogIngredient.findFirst.mockResolvedValue({ id: 'ing-9', name: 'Tomate' });
+
+    const error = await service
+      .update('ing-1', { isBasic: true }, 'a')
+      .catch((e: unknown) => e);
+
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      ingredient: { id: 'ing-9', name: 'Tomate' },
+    });
+    expect(catalogIngredient.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ normalizedName: 'tomate' }),
+      }),
+    );
+  });
+
+  it('excludes the entry itself from the uniqueness check when renaming it', async () => {
+    const { catalogIngredient, service } = harness();
+
+    await service.update('ing-1', { name: 'TOMATE' }, 'a');
+
+    expect(catalogIngredient.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          normalizedName: 'tomate',
+          id: { not: 'ing-1' },
+        }),
+      }),
+    );
+    expect(catalogIngredient.update).toHaveBeenCalled();
+  });
 });
