@@ -28,6 +28,8 @@
     "db:sync:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-users-to-clerk.ts --dry-run",
     "db:backfill:clerk": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts",
     "db:backfill:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts --dry-run",
+    "db:recipes:reprise": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts",
+    "db:recipes:reprise:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts --dry-run",
     "db:studio": "prisma studio"
   },
   "keywords": [],
