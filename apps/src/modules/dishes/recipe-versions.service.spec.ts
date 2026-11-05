@@ -119,16 +119,23 @@ describe('RecipeVersionsService (Recettes §8.2)', () => {
 
       await service.restore('clerk_1', 'dish-1', 1, 5);
 
-      expect(update).toHaveBeenCalledWith('clerk_1', 'dish-1', {
-        portions: 4,
-        lockVersion: 5,
-        recipe: {
-          ingredients: [expect.objectContaining({ name: 'Sel', unit: 'pinch' })],
-          steps: [{ order: 1, text: 'Enfourner.', type: 'cuisson', durationMinutes: 55 }],
-          storage: { method: 'fridge', days: 2 },
-          reheating: { modes: ['oven'], minutes: 10 },
+      expect(update).toHaveBeenCalledWith(
+        'clerk_1',
+        'dish-1',
+        {
+          portions: 4,
+          lockVersion: 5,
+          recipe: {
+            ingredients: [expect.objectContaining({ name: 'Sel', unit: 'pinch' })],
+            steps: [
+              { order: 1, text: 'Enfourner.', type: 'cuisson', durationMinutes: 55 },
+            ],
+            storage: { method: 'fridge', days: 2 },
+            reheating: { modes: ['oven'], minutes: 10 },
+          },
         },
-      });
+        { allowedIds: [] },
+      );
     });
 
     it('answers 404 for a version of another chef or an unknown one, without saving', async () => {
@@ -217,6 +224,45 @@ describe('RecipeVersionsService (Recettes §8.2)', () => {
         rawText: '2 clove Ail',
       });
       expect(lines[1]).toMatchObject({ catalogIngredientId: null, toVerify: true });
+    });
+
+    it("keeps a common entry deactivated since the version, and still refuses another chef's private one", async () => {
+      const h = harness();
+      withEntries(h, [
+        entryRow({ id: 'cat-off', name: 'Sarriette', status: 'inactive' }),
+        entryRow({
+          id: 'cat-theirs',
+          name: 'Secret',
+          status: 'active',
+          chefProfileId: 'chef-2',
+        }),
+      ]);
+      h.meal.findUnique.mockResolvedValue(dishRow());
+      h.mealRecipeVersion.findUnique.mockResolvedValue(
+        version({
+          ingredients: [
+            { name: 'Sarriette', qty: 1, unit: 'g', catalogIngredientId: 'cat-off' },
+          ],
+        }),
+      );
+
+      await wire(h).restore('clerk_1', 'dish-1', 1);
+      expect(savedData(h).ingredients[0]).toMatchObject({
+        catalogIngredientId: 'cat-off',
+      });
+
+      h.meal.update.mockClear();
+      h.mealRecipeVersion.findUnique.mockResolvedValue(
+        version({
+          ingredients: [
+            { name: 'Secret', qty: 1, unit: 'g', catalogIngredientId: 'cat-theirs' },
+          ],
+        }),
+      );
+      await expect(wire(h).restore('clerk_1', 'dish-1', 1)).rejects.toMatchObject({
+        status: 422,
+      });
+      expect(h.meal.update).not.toHaveBeenCalled();
     });
 
     it('restores an old free-text unit "gousse" as clove', async () => {

@@ -147,7 +147,13 @@ export class DishesService {
    * (Recettes §6.5). Recettes §8.1: the write lands only on the `lockVersion` read,
    * so two screens, or a screen and the §7.3 propagation, never overwrite each other.
    */
-  async update(clerkUserId: string, id: string, payload: UpdateDishDto) {
+  async update(
+    clerkUserId: string,
+    id: string,
+    payload: UpdateDishDto,
+    // Internal callers only (Recettes §8.2 restore), never read from a request.
+    options?: { allowedIds?: Iterable<string> },
+  ) {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
     const current = await this.access.writableDish(chef, id);
@@ -163,7 +169,12 @@ export class DishesService {
       // An entry since deactivated stays on the lines that already had it (§8.1).
       await assertIngredientAccess(this.prisma, lines, {
         chefProfileId: chef.id,
-        previousIds: new Set(linkedIds(current.ingredients)),
+        // §8.2: a restore also keeps entries deactivated since its version was made.
+        // Merged and other chefs' private entries are refused before this set is read.
+        previousIds: new Set([
+          ...linkedIds(current.ingredients),
+          ...(options?.allowedIds ?? []),
+        ]),
       });
     }
     await assertProfiles(this.prisma, payload.profiles);

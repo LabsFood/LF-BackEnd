@@ -106,7 +106,9 @@ export class RecipeVersionsService {
       },
       ...(lockVersion !== undefined && { lockVersion }),
     } as unknown as UpdateDishDto;
-    return this.dishes.update(clerkUserId, dish.id, payload);
+    // §8.1: an entry deactivated since the version was made stays on its line.
+    const allowedIds = ingredients.flatMap((line) => line.catalogIngredientId ?? []);
+    return this.dishes.update(clerkUserId, dish.id, payload, { allowedIds });
   }
 
   private async read(mealId: string, version: number) {
