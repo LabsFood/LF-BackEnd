@@ -196,7 +196,7 @@ export async function assertIngredientAccess(
     const id = line.catalogIngredientId;
     if (!id) return;
     const entry = byId.get(id);
-    const reason = entry ? refusal(entry, scope) : 'This ingredient does not exist';
+    const reason = entry ? refusal(entry, scope) : NOT_AVAILABLE;
     if (reason) {
       problems.push({ field: `recipe.ingredients[${i}]`, message: reason });
     }
@@ -208,6 +208,12 @@ export async function assertIngredientAccess(
   }
 }
 
+/**
+ * One message for an unknown id and for another chef's private one (Recettes §7.1),
+ * so a refusal never confirms that someone else's ingredient exists.
+ */
+const NOT_AVAILABLE = 'This ingredient is not available to you';
+
 function refusal(
   entry: EntryRow,
   scope: { chefProfileId: string | null; previousIds: Set<string> },
@@ -215,7 +221,7 @@ function refusal(
   if (entry.status === 'merged') return 'This ingredient was merged into another';
   if (entry.chefProfileId !== null) {
     if (entry.chefProfileId !== scope.chefProfileId) {
-      return 'This ingredient belongs to another batch cooker';
+      return NOT_AVAILABLE;
     }
     if (entry.status === 'active' || entry.status === 'pending') return null;
   } else if (entry.status === 'active') {

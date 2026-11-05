@@ -15,6 +15,14 @@ function harness(chefProfileId: string | null) {
     search: jest.fn(async (..._a: unknown[]) => []),
     impact: jest.fn(async (_id: string) => ({ dishes: 3, chefs: 2, verifiedDishes: 1 })),
     propagate: jest.fn(async (_id: string, _adminId: string) => FIGURES),
+    validate: jest.fn(async (..._a: unknown[]) => ({
+      ingredient: { id: 'p-1' },
+      propagation: null,
+    })),
+    merge: jest.fn(async (..._a: unknown[]) => ({
+      ingredient: { id: 'p-1' },
+      propagation: FIGURES,
+    })),
   };
   const users = { findByClerkId: jest.fn(async (_id: string) => ({ id: 'admin-1' })) };
   const chefs = { chefProfileIdOf: jest.fn(async (_id: string) => chefProfileId) };
@@ -95,4 +103,38 @@ describe('IngredientsController propagate (ruling R14)', () => {
     const id = Object.values(args).find((arg) => arg.data === 'id');
     expect(id?.pipes).toEqual([ParseUUIDPipe]);
   });
+});
+
+describe('IngredientsController validate and merge (Recettes §7.2)', () => {
+  it('validates as the calling admin and answers the entry with its propagation', async () => {
+    const { ingredients, controller } = harness(null);
+    await expect(
+      controller.validate({ userId: 'clerk-admin' } as never, 'p-1'),
+    ).resolves.toEqual({ ingredient: { id: 'p-1' }, propagation: null });
+    expect(ingredients.validate).toHaveBeenCalledWith('p-1', 'admin-1');
+  });
+
+  it('merges as the calling admin into the target of the body', async () => {
+    const { ingredients, controller } = harness(null);
+    await expect(
+      controller.merge({ userId: 'clerk-admin' } as never, 'p-1', { intoId: 'ing-1' }),
+    ).resolves.toEqual({ ingredient: { id: 'p-1' }, propagation: FIGURES });
+    expect(ingredients.merge).toHaveBeenCalledWith('p-1', 'ing-1', 'admin-1');
+  });
+
+  it.each(['validate', 'merge'] as const)(
+    '%s is for admins only, and takes a UUID only',
+    (route) => {
+      expect(
+        Reflect.getMetadata(GUARDS_METADATA, IngredientsController.prototype[route]),
+      ).toEqual([ClerkAuthGuard, AdminGuard]);
+      const args = Reflect.getMetadata(
+        ROUTE_ARGS_METADATA,
+        IngredientsController,
+        route,
+      ) as Record<string, { data?: string; pipes: unknown[] }>;
+      const id = Object.values(args).find((arg) => arg.data === 'id');
+      expect(id?.pipes).toEqual([ParseUUIDPipe]);
+    },
+  );
 });

@@ -253,4 +253,21 @@ describe('assertIngredientAccess (Recettes §4.10)', () => {
       status: 422,
     });
   });
+
+  // Task 7 carry-over: the refusal never confirms that another chef's id exists.
+  it('words an unknown id and another chef private id the same way', async () => {
+    const rows = [entry({ id: 'p', chefProfileId: 'chef-2' })];
+    const messageOf = async (id: string) => {
+      const error = await check(rows, [id], scope('chef-1')).catch((e: unknown) => e);
+      return (
+        error as { getResponse: () => { errors: { field: string; message: string }[] } }
+      ).getResponse().errors;
+    };
+
+    const other = await messageOf('p');
+    const unknown = await messageOf('ghost');
+
+    expect(other).toEqual(unknown);
+    expect(other[0].field).toBe('recipe.ingredients[0]');
+  });
 });

@@ -7,6 +7,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { IngredientPropagationService } from './ingredient-propagation.service';
 import { IngredientsService } from './ingredients.service';
 
@@ -52,12 +53,14 @@ function harness() {
       failed: 0,
     })),
   };
+  const notifications = { notify: jest.fn(async (..._args: unknown[]) => ({})) };
   const service = new IngredientsService(
     { catalogIngredient, meal, platformSetting } as unknown as PrismaService,
     audit as unknown as AuditService,
     propagation as unknown as IngredientPropagationService,
+    notifications as unknown as NotificationsService,
   );
-  return { catalogIngredient, meal, audit, propagation, service };
+  return { catalogIngredient, meal, audit, propagation, notifications, service };
 }
 
 describe('IngredientsService (Recettes §4.10)', () => {
@@ -195,7 +198,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
 
     expect(impact).toEqual({ dishes: 4, chefs: 2, verifiedDishes: 3 });
     expect(catalogIngredient.findMany).toHaveBeenCalledWith({
-      where: { mergedIntoId: { in: ['ing-1'] } },
+      where: { mergedIntoId: { in: ['ing-1'] }, status: 'merged' },
       select: { id: true },
     });
     expect(meal.findMany).toHaveBeenCalledWith({
@@ -502,5 +505,295 @@ describe('IngredientsService (Recettes §4.10)', () => {
       }),
     );
     expect(catalogIngredient.update).toHaveBeenCalled();
+  });
+});
+
+// Task 14 carry-over: the console warns about dishes that `failed` and offers a replay.
+describe('IngredientsService.update answers the propagation (Recettes §7.3)', () => {
+  it('answers the entry with the figures of what was carried', async () => {
+    const { propagation, service } = harness();
+
+    const result = await service.update('ing-1', { name: 'Tomate cerise' }, 'admin-1');
+
+    expect(result.ingredient).toMatchObject({ id: 'ing-1', name: 'Tomate cerise' });
+    expect(result.propagation).toEqual(await propagation.propagate.mock.results[0].value);
+  });
+
+  it('answers a null propagation when nothing was carried', async () => {
+    const { service } = harness();
+    const result = await service.update('ing-1', { isBasic: true }, 'admin-1');
+    expect(result.propagation).toBeNull();
+  });
+
+  // Stored lists are canonical (annex order): a legacy order normalized by a save is
+  // a change the stamps must follow, unlike a mere reorder of diets or months.
+  it('carries a normalization of the allergens order into the stamps', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...TOMATE,
+      allergens: ['milk', 'gluten'],
+      allergensNone: false,
+    });
+    catalogIngredient.update.mockResolvedValue({
+      ...TOMATE,
+      allergens: ['gluten', 'milk'],
+      allergensNone: false,
+    } as never);
+
+    await service.update('ing-1', { allergens: ['milk', 'gluten'] }, 'admin-1');
+
+    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
+      type: 'admin',
+      userId: 'admin-1',
+    });
+  });
+});
+
+const PENDING = {
+  ...TOMATE,
+  id: 'p-1',
+  name: 'Harissa maison',
+  normalizedName: 'harissa maison',
+  status: 'pending',
+  chefProfileId: 'chef-1',
+  createdByUserId: 'user-1',
+  reviewedAt: null,
+};
+
+describe('IngredientsService.validate (Recettes §7.2)', () => {
+  const pending = (catalogIngredient: ReturnType<typeof harness>['catalogIngredient']) =>
+    catalogIngredient.findUnique.mockResolvedValue(PENDING);
+
+  it('makes a pending ingredient common, tells its author and journals it', async () => {
+    const { catalogIngredient, audit, notifications, propagation, service } = harness();
+    pending(catalogIngredient);
+
+    const result = await service.validate('p-1', 'admin-1');
+
+    expect(catalogIngredient.update).toHaveBeenCalledWith({
+      where: { id: 'p-1' },
+      data: {
+        chefProfileId: null,
+        status: 'active',
+        reviewedAt: expect.any(Date),
+        reviewedByUserId: 'admin-1',
+      },
+    });
+    expect(result.ingredient).toMatchObject({ chefProfileId: null, status: 'active' });
+    // Nothing a line copies changes: no propagation.
+    expect(result.propagation).toBeNull();
+    expect(propagation.propagate).not.toHaveBeenCalled();
+    expect(notifications.notify).toHaveBeenCalledWith('user-1', 'ingredient_validated', {
+      type: 'catalog_ingredient',
+      id: 'p-1',
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorType: 'admin',
+        actorUserId: 'admin-1',
+        action: 'catalog_ingredient.validated',
+        subjectId: 'p-1',
+      }),
+    );
+  });
+
+  it('answers 409 with the common entry to merge into when one has the name', async () => {
+    const { catalogIngredient, notifications, service } = harness();
+    pending(catalogIngredient);
+    catalogIngredient.findFirst.mockResolvedValue({ id: 'c-1', name: 'Harissa' });
+
+    const error = await service.validate('p-1', 'admin-1').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      code: 'INGREDIENT_ALREADY_LISTED',
+      ingredient: { id: 'c-1', name: 'Harissa' },
+    });
+    expect(catalogIngredient.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          normalizedName: 'harissa maison',
+          chefProfileId: null,
+          status: { not: 'merged' },
+        }),
+      }),
+    );
+    expect(catalogIngredient.update).not.toHaveBeenCalled();
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 when the unique index answered first (a race)', async () => {
+    const { catalogIngredient, service } = harness();
+    pending(catalogIngredient);
+    catalogIngredient.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('dup', {
+        code: 'P2002',
+        clientVersion: 'x',
+      }),
+    );
+    await expect(service.validate('p-1', 'admin-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it.each([['active'], ['inactive'], ['merged']])(
+    'answers 422 for an entry that is %s',
+    async (status) => {
+      const { catalogIngredient, notifications, service } = harness();
+      catalogIngredient.findUnique.mockResolvedValue({ ...PENDING, status });
+      await expect(service.validate('p-1', 'admin-1')).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(catalogIngredient.update).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 404 for an unknown ingredient', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(null);
+    await expect(service.validate('nope', 'admin-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('tells nobody when the entry has no author', async () => {
+    const { catalogIngredient, notifications, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue({ ...PENDING, createdByUserId: null });
+    await service.validate('p-1', 'admin-1');
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+});
+
+describe('IngredientsService.merge (Recettes §7.2)', () => {
+  const rows = (
+    catalogIngredient: ReturnType<typeof harness>['catalogIngredient'],
+    target: object | null = TOMATE,
+  ) =>
+    catalogIngredient.findUnique.mockImplementation(async (args) => {
+      const id = (args as { where: { id: string } }).where.id;
+      return id === 'p-1' ? PENDING : id === 'ing-1' ? target : null;
+    });
+
+  it('merges a pending ingredient into a common one and carries it into the recipes', async () => {
+    const { catalogIngredient, audit, notifications, propagation, service } = harness();
+    rows(catalogIngredient);
+
+    const result = await service.merge('p-1', 'ing-1', 'admin-1');
+
+    expect(catalogIngredient.update).toHaveBeenCalledWith({
+      where: { id: 'p-1' },
+      data: {
+        status: 'merged',
+        mergedIntoId: 'ing-1',
+        reviewedAt: expect.any(Date),
+        reviewedByUserId: 'admin-1',
+      },
+    });
+    expect(result.ingredient).toMatchObject({ status: 'merged', mergedIntoId: 'ing-1' });
+    expect(propagation.propagate).toHaveBeenCalledWith(
+      ['ing-1'],
+      { type: 'admin', userId: 'admin-1' },
+      { from: 'p-1', to: 'ing-1' },
+    );
+    expect(result.propagation).toEqual({
+      dishes: 2,
+      reverified: 1,
+      chefs: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(notifications.notify).toHaveBeenCalledWith('user-1', 'ingredient_merged', {
+      type: 'catalog_ingredient',
+      id: 'p-1',
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'catalog_ingredient.merged',
+        subjectId: 'p-1',
+        metadata: expect.objectContaining({ intoId: 'ing-1' }),
+      }),
+    );
+  });
+
+  it.each([
+    ['an inactive common entry', { status: 'inactive' }],
+    ['a merged entry', { status: 'merged' }],
+    ['a pending entry', { status: 'pending' }],
+    ['a chef private entry', { chefProfileId: 'chef-2' }],
+    ['an unknown entry', null],
+  ])('answers 422 when the target is %s', async (_label, over) => {
+    const { catalogIngredient, notifications, propagation, service } = harness();
+    rows(catalogIngredient, over && { ...TOMATE, ...over });
+
+    await expect(service.merge('p-1', 'ing-1', 'admin-1')).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(catalogIngredient.update).not.toHaveBeenCalled();
+    expect(propagation.propagate).not.toHaveBeenCalled();
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it.each([['active'], ['merged'], ['inactive']])(
+    'answers 422 when the source is %s',
+    async (status) => {
+      const { catalogIngredient, propagation, service } = harness();
+      catalogIngredient.findUnique.mockImplementation(async (args) =>
+        (args as { where: { id: string } }).where.id === 'p-1'
+          ? { ...PENDING, status }
+          : TOMATE,
+      );
+      await expect(service.merge('p-1', 'ing-1', 'admin-1')).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(propagation.propagate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 404 for an unknown source, and 422 for a merge into itself', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue(null);
+    await expect(service.merge('nope', 'ing-1', 'admin-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    rows(catalogIngredient);
+    await expect(service.merge('p-1', 'p-1', 'admin-1')).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+});
+
+// Recettes §4.10 / Review Focus: a private ingredient is its chef's alone.
+describe('IngredientsService.search keeps private ingredients private', () => {
+  it("never shows a chef another chef's pending ingredient", async () => {
+    const { catalogIngredient, service } = harness();
+    const table = [
+      TOMATE,
+      { ...TOMATE, id: 'mine', chefProfileId: 'chef-1', status: 'pending' },
+      { ...TOMATE, id: 'theirs', chefProfileId: 'chef-2', status: 'pending' },
+      { ...TOMATE, id: 'old', chefProfileId: 'chef-2', status: 'merged' },
+    ];
+    // Applies the visibility clause of the query to the table, as the database would.
+    catalogIngredient.findMany.mockImplementation(async (args) => {
+      const visible = (
+        args as {
+          where: {
+            AND: [{ OR: { chefProfileId: string | null; status: string }[] }];
+          };
+        }
+      ).where.AND[0].OR;
+      return table.filter((row) =>
+        visible.some(
+          (v) => v.chefProfileId === row.chefProfileId && v.status === row.status,
+        ),
+      );
+    });
+
+    const ids = async (chefProfileId: string | null) =>
+      (await service.search('tom', chefProfileId)).map((row) => row.id);
+
+    expect(await ids('chef-1')).toEqual(['ing-1', 'mine']);
+    expect(await ids('chef-2')).toEqual(['ing-1', 'theirs']);
+    expect(await ids(null)).toEqual(['ing-1']);
   });
 });

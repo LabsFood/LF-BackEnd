@@ -37,6 +37,7 @@ import {
   SearchIngredientsQueryDto,
   UpdateCatalogIngredientDto,
 } from './dto/ingredient.dto';
+import { MergeIngredientDto } from './dto/merge-ingredient.dto';
 import { IngredientsService } from './ingredients.service';
 
 const INGREDIENT_EXAMPLE = {
@@ -55,6 +56,8 @@ const INGREDIENT_EXAMPLE = {
   createdAt: '2026-11-02T09:00:00.000Z',
   updatedAt: '2026-11-02T09:00:00.000Z',
 };
+
+const PROPAGATION_EXAMPLE = { dishes: 3, reverified: 2, chefs: 1, skipped: 0, failed: 0 };
 
 @Controller()
 export class IngredientsController {
@@ -154,7 +157,13 @@ export class IngredientsController {
       '`GET /admin/ingredients/:id/impact` first; `POST /admin/ingredients/:id/propagate` ' +
       'replays the propagation. Recorded in the audit log.',
   })
-  @ApiOkResponse({ description: 'The ingredient.', example: INGREDIENT_EXAMPLE })
+  @ApiOkResponse({
+    description:
+      '`{ ingredient, propagation }`: `propagation` holds the figures of what was ' +
+      'carried (`failed` dishes can be replayed with `POST ' +
+      '/admin/ingredients/:id/propagate`), and is null when nothing was carried.',
+    example: { ingredient: INGREDIENT_EXAMPLE, propagation: PROPAGATION_EXAMPLE },
+  })
   @ApiNotFoundResponse({ description: 'No such ingredient.' })
   @ApiConflictResponse({ description: 'The new name is already in the list.' })
   @ApiUnprocessableEntityResponse({
@@ -241,6 +250,87 @@ export class IngredientsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.ingredients.review(id, await this.adminId(user));
+  }
+
+  @Post('admin/ingredients/:id/validate')
+  @HttpCode(200)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Validate a chef’s ingredient',
+    description:
+      'Recettes §7.2: a `pending` ingredient joins the common list (`status: active`, ' +
+      'no longer private, `reviewedAt` set). Correct it first with `PATCH ' +
+      '/admin/ingredients/:id` if needed. Its author is notified ' +
+      '(`ingredient_validated`). Nothing a recipe copies changes, so `propagation` is ' +
+      'null. `409 INGREDIENT_ALREADY_LISTED` (with the existing `{ id, name }`) when a ' +
+      'common ingredient already has the name: merge instead. `422` when it is not ' +
+      'pending. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: '`{ ingredient, propagation }`.',
+    example: {
+      ingredient: { ...INGREDIENT_EXAMPLE, reviewedAt: '2026-11-04T09:00:00.000Z' },
+      propagation: null,
+    },
+  })
+  @ApiNotFoundResponse({ description: 'No such ingredient.' })
+  @ApiConflictResponse({
+    description: 'A common ingredient already has this name.',
+    example: {
+      code: 'INGREDIENT_ALREADY_LISTED',
+      message: 'An ingredient of this name is already in the list.',
+      ingredient: { id: INGREDIENT_EXAMPLE.id, name: 'Tomate' },
+    },
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`INGREDIENT_NOT_PENDING`: only a chef’s pending ingredient.',
+  })
+  @ApiAdminAuthResponses()
+  async validate(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ingredients.validate(id, await this.adminId(user));
+  }
+
+  @Post('admin/ingredients/:id/merge')
+  @HttpCode(200)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Merge a chef’s ingredient into a common one',
+    description:
+      'Recettes §7.2: a `pending` ingredient becomes `merged` into the common, active ' +
+      'ingredient `intoId`. Recipe lines linking it link the target instead, ' +
+      're-stamped like any propagation (§7.3). Its author is notified ' +
+      '(`ingredient_merged`). `422` when the source is not pending, or the target is ' +
+      'not a common active ingredient. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description:
+      '`{ ingredient, propagation }`: the figures of the carry; replay `failed` dishes ' +
+      'with `POST /admin/ingredients/:id/propagate` on the target.',
+    example: {
+      ingredient: { ...INGREDIENT_EXAMPLE, status: 'merged' },
+      propagation: PROPAGATION_EXAMPLE,
+    },
+  })
+  @ApiNotFoundResponse({ description: 'No such ingredient.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`INGREDIENT_NOT_PENDING`, or `INGREDIENT_MERGE_TARGET_INVALID`: the target is ' +
+      'unknown, private, inactive, merged or pending.',
+  })
+  @ApiAdminAuthResponses()
+  async merge(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: MergeIngredientDto,
+  ) {
+    return this.ingredients.merge(id, body.intoId, await this.adminId(user));
   }
 
   /** The admin's Postgres id: the audit log records a person. */

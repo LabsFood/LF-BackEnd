@@ -75,7 +75,7 @@ export async function mergedInto(
 ): Promise<string[]> {
   if (!ids.length) return [];
   const rows = await db.catalogIngredient.findMany({
-    where: { mergedIntoId: { in: ids } },
+    where: { mergedIntoId: { in: ids }, status: 'merged' },
     select: { id: true },
   });
   return rows.map((row) => row.id).filter((id) => !ids.includes(id));

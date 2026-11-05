@@ -9,7 +9,10 @@ import { readLines } from '../dishes/domain/recipe-lines.rules';
 import { dishRow, entryRow } from '../dishes/dishes.test-helpers';
 import { NotificationsService } from '../notifications/notifications.service';
 import { LineToStamp } from './composition';
-import { IngredientPropagationService } from './ingredient-propagation.service';
+import {
+  IngredientPropagationService,
+  mergedInto,
+} from './ingredient-propagation.service';
 import { IngredientsService } from './ingredients.service';
 
 type Entry = ReturnType<typeof entryRow>;
@@ -74,12 +77,18 @@ const findEntries = (entries: () => Entry[]) =>
     async ({
       where,
     }: {
-      where: { id?: { in: string[] }; mergedIntoId?: { in: string[] } };
+      where: {
+        id?: { in: string[] };
+        mergedIntoId?: { in: string[] };
+        status?: string;
+      };
     }) =>
       entries().filter((entry) =>
         where.id
           ? where.id.in.includes(entry.id)
-          : !!entry.mergedIntoId && !!where.mergedIntoId?.in.includes(entry.mergedIntoId),
+          : !!entry.mergedIntoId &&
+            !!where.mergedIntoId?.in.includes(entry.mergedIntoId) &&
+            (!where.status || entry.status === where.status),
       ),
   );
 
@@ -862,7 +871,9 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
 
 describe('IngredientsService.propagate, the admin replay (ruling R14)', () => {
   const ingredients = (h: ReturnType<typeof harness>) =>
-    new IngredientsService(h.prisma, h.audit as unknown as AuditService, h.service);
+    new IngredientsService(h.prisma, h.audit as unknown as AuditService, h.service, {
+      notify: jest.fn(),
+    } as unknown as NotificationsService);
 
   it('carries the entry into the recipes again, and a second replay writes nothing', async () => {
     const h = harness(
@@ -893,5 +904,20 @@ describe('IngredientsService.propagate, the admin replay (ruling R14)', () => {
     );
     expect(h.meal.findMany).not.toHaveBeenCalled();
     expect(h.audit.record).not.toHaveBeenCalled();
+  });
+});
+
+// Task 14 carry-over: the hop `entriesFor` follows needs a merged status too.
+describe('mergedInto (Recettes §7.3)', () => {
+  it('finds the entries merged into the ids, by status and target', async () => {
+    const findMany = jest.fn(async (_args: unknown) => [{ id: 'old' }, { id: 'cat-1' }]);
+    const db = { catalogIngredient: { findMany } } as unknown as PrismaService;
+
+    await expect(mergedInto(db, ['cat-1'])).resolves.toEqual(['old']);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { mergedIntoId: { in: ['cat-1'] }, status: 'merged' },
+      select: { id: true },
+    });
   });
 });

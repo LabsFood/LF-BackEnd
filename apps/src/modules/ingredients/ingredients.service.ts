@@ -10,6 +10,7 @@ import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/paginat
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { inAnnexOrder } from '../dishes/domain/allergens.rules';
+import { NotificationsService } from '../notifications/notifications.service';
 import { aislesInForce } from '../platform-settings/recipe-lists';
 import { normalizeName, withImpliedDiets } from './domain/ingredient.rules';
 import {
@@ -21,6 +22,7 @@ import {
   dishesLinking,
   IngredientPropagationService,
   mergedInto,
+  PropagationResult,
 } from './ingredient-propagation.service';
 
 /** A search shows a short list to pick from, never the whole table (every list has a cap). */
@@ -31,7 +33,7 @@ const SEARCH_LIMIT = 20;
  * or computes from it (diets, months). A change to one is carried into the recipes.
  * The status is not among them: an inactive entry stays valid on its lines (§5.1).
  */
-const CARRIED = {
+export const CARRIED = {
   name: true,
   aisle: true,
   allergens: true,
@@ -40,7 +42,7 @@ const CARRIED = {
   seasonMonths: true,
 } as const;
 
-type Carried = Prisma.CatalogIngredientGetPayload<{ select: typeof CARRIED }>;
+export type Carried = Prisma.CatalogIngredientGetPayload<{ select: typeof CARRIED }>;
 
 /**
  * Recettes §4.10 / §5.1: the common ingredient list. The Lab's Food admin fills it
@@ -53,6 +55,7 @@ export class IngredientsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly propagation: IngredientPropagationService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** For the console: the list by page, every entry (private ones too), filtered. */
@@ -132,6 +135,8 @@ export class IngredientsService {
   /**
    * Recettes §7.3: a change to what recipe lines copy or compute from the entry is
    * carried into every recipe linking it, after the entry is saved and journaled.
+   * Answers the entry with the figures of that propagation (null when nothing was
+   * carried), so the console can warn about `failed` dishes and offer the replay.
    */
   async update(id: string, payload: UpdateCatalogIngredientDto, adminUserId: string) {
     const before = (await this.prisma.catalogIngredient.findUnique({
@@ -160,10 +165,97 @@ export class IngredientsService {
       metadata: { fields: Object.keys(data), propagated: carried },
     });
     // Records its own audit entry, with its figures.
-    if (carried) {
-      await this.propagation.propagate([id], { type: 'admin', userId: adminUserId });
+    const propagation = carried
+      ? await this.propagation.propagate([id], { type: 'admin', userId: adminUserId })
+      : null;
+    return { ingredient: row, propagation };
+  }
+
+  /**
+   * Recettes §7.2: Lab's Food keeps a chef's pending ingredient as a common one. It
+   * leaves its chef (anyone may link it now), the author is told. Nothing a line
+   * copies changes, so no recipe is carried. A common entry already holding the name
+   * answers 409: the admin merges instead.
+   */
+  async validate(id: string, adminUserId: string) {
+    const entry = await this.pendingEntry(id);
+    const normalized = entry.normalizedName ?? normalizeName(entry.name);
+    await this.assertNameFree(normalized);
+    const row = await this.prisma.catalogIngredient
+      .update({
+        where: { id },
+        data: {
+          chefProfileId: null,
+          status: 'active',
+          reviewedAt: new Date(),
+          reviewedByUserId: adminUserId,
+        },
+      })
+      .catch((error: unknown) => {
+        if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
+        return this.nameTaken(error, normalized, id);
+      });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'catalog_ingredient.validated',
+      subjectType: 'catalog_ingredient',
+      subjectId: id,
+    });
+    await this.tellAuthor(entry.createdByUserId, 'ingredient_validated', id);
+    return { ingredient: row, propagation: null as PropagationResult | null };
+  }
+
+  /**
+   * Recettes §7.2: Lab's Food merges a chef's pending ingredient into a common active
+   * one. Recipe lines linking the old entry link the target instead (the
+   * propagation, §7.3), and the author is told.
+   */
+  async merge(id: string, intoId: string, adminUserId: string) {
+    const entry = await this.pendingEntry(id);
+    const target =
+      id === intoId
+        ? null
+        : ((await this.prisma.catalogIngredient.findUnique({
+            where: { id: intoId },
+            select: { id: true, status: true, chefProfileId: true },
+          })) as { id: string; status: string; chefProfileId: string | null } | null);
+    if (!target || target.chefProfileId !== null || target.status !== 'active') {
+      throw new UnprocessableEntityException({
+        code: 'INGREDIENT_MERGE_TARGET_INVALID',
+        message: 'An ingredient merges into a common, active ingredient.',
+      });
     }
-    return row;
+    const row = await this.prisma.catalogIngredient
+      .update({
+        where: { id },
+        data: {
+          status: 'merged',
+          mergedIntoId: intoId,
+          reviewedAt: new Date(),
+          reviewedByUserId: adminUserId,
+        },
+      })
+      .catch((error: unknown) => {
+        if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
+        throw error;
+      });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'catalog_ingredient.merged',
+      subjectType: 'catalog_ingredient',
+      subjectId: id,
+      metadata: { intoId },
+    });
+    // Records its own audit entry, with its figures.
+    const propagation = await this.propagation.propagate(
+      [intoId],
+      { type: 'admin', userId: adminUserId },
+      { from: id, to: intoId },
+    );
+    await this.tellAuthor(entry.createdByUserId, 'ingredient_merged', id);
+    return { ingredient: row, propagation };
   }
 
   /**
@@ -225,8 +317,41 @@ export class IngredientsService {
     return row;
   }
 
+  /** A chef's pending entry, for the admin to rule on: 404 unknown, 422 any other state. */
+  private async pendingEntry(id: string) {
+    const entry = (await this.prisma.catalogIngredient.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        normalizedName: true,
+        status: true,
+        createdByUserId: true,
+      },
+    })) as {
+      id: string;
+      name: string;
+      normalizedName: string | null;
+      status: string;
+      createdByUserId: string | null;
+    } | null;
+    if (!entry) throw new NotFoundException('Ingredient not found.');
+    if (entry.status !== 'pending') {
+      throw new UnprocessableEntityException({
+        code: 'INGREDIENT_NOT_PENDING',
+        message: 'Only a chef’s pending ingredient can be validated or merged.',
+      });
+    }
+    return entry;
+  }
+
+  private async tellAuthor(userId: string | null, type: string, id: string) {
+    if (!userId) return;
+    await this.notifications.notify(userId, type, { type: 'catalog_ingredient', id });
+  }
+
   /** The same name twice, in another case or accents, would split the computed diets. */
-  private async assertNameFree(normalizedName: string, except?: string) {
+  async assertNameFree(normalizedName: string, except?: string) {
     const taken = await this.prisma.catalogIngredient.findFirst({
       where: {
         normalizedName,
@@ -275,7 +400,7 @@ export class IngredientsService {
    * months sorted once each, the aisle checked against the list in force, and the
    * allergen state kept coherent (listed, or "none", never both).
    */
-  private async toWrite(payload: UpdateCatalogIngredientDto) {
+  async toWrite(payload: UpdateCatalogIngredientDto) {
     const data: Prisma.CatalogIngredientUpdateInput & { name?: string } = {};
     if (payload.name !== undefined) {
       data.name = payload.name.trim();
@@ -324,7 +449,7 @@ export class IngredientsService {
   }
 }
 
-const isNotFound = (error: unknown) =>
+export const isNotFound = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
 
 /** A status is the admin's to change on a common entry; a private one follows its chef. */
@@ -345,17 +470,20 @@ function assertCommon(row: { chefProfileId: string | null; status: string }) {
 }
 
 /**
- * Recettes §7.3: whether the save changed what recipe lines copy or compute. Lists
- * are compared as sets: their order never changes a recipe.
+ * Recettes §7.3: whether the save changed what recipe lines copy or compute. Diets
+ * and months are compared as sets: their order never changes a recipe. The allergens
+ * are compared in order: stored lists are canonical (annex order), so a legacy order
+ * normalized by this save is a change the stamps must follow.
  */
-function carriedChanged(before: Carried, after: Carried): boolean {
+export function carriedChanged(before: Carried, after: Carried): boolean {
   const sameSet = (a: readonly unknown[], b: readonly unknown[]) =>
     new Set(a).size === new Set(b).size && a.every((x) => b.includes(x));
   return (
     before.name !== after.name ||
     before.aisle !== after.aisle ||
     before.allergensNone !== after.allergensNone ||
-    !sameSet(before.allergens, after.allergens) ||
+    before.allergens.length !== after.allergens.length ||
+    before.allergens.some((code, i) => code !== after.allergens[i]) ||
     !sameSet(before.diets, after.diets) ||
     !sameSet(before.seasonMonths, after.seasonMonths)
   );
@@ -370,7 +498,7 @@ const matching = (term: string): Prisma.CatalogIngredientWhereInput => ({
   ],
 });
 
-const alreadyListed = (existing?: { id: string; name: string }) =>
+export const alreadyListed = (existing?: { id: string; name: string }) =>
   new ConflictException({
     code: 'INGREDIENT_ALREADY_LISTED',
     message: 'An ingredient of this name is already in the list.',
