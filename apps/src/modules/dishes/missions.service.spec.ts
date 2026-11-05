@@ -144,6 +144,30 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
     expect(sheet.version).toEqual({ pinned: 2, current: 3, newerAvailable: true });
   });
 
+  it('rounds each line by its unit (Recettes §4.12)', async () => {
+    const { service, lists } = missions('chef');
+    lists.pinRecipes.mockResolvedValue([
+      {
+        ...PINNED,
+        recipe: {
+          ...PINNED.recipe,
+          ingredients: [
+            { name: 'Ail', qty: 1, unit: 'clove', aisle: 'fruits-legumes' },
+            { name: 'Sel', qty: 2.5, unit: 'g', aisle: 'epices' },
+          ],
+        },
+      },
+    ]);
+
+    // 3 portions -> 4: 1.33 cloves go up to 2, 3.33 g keeps one decimal.
+    const sheet = await service.recipeSheet('clerk', 'b1', 'dish-1', 4);
+
+    expect(sheet.recipe.ingredients).toEqual([
+      expect.objectContaining({ name: 'Ail', qty: 2 }),
+      expect.objectContaining({ name: 'Sel', qty: 3.3 }),
+    ]);
+  });
+
   it('never hands a chef another chef’s recipe through a prestation', async () => {
     const { service, lists } = missions('chef');
     lists.pinRecipes.mockResolvedValue([

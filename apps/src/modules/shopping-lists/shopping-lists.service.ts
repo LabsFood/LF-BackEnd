@@ -11,6 +11,8 @@ import {
   ShoppingItem,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { aislesInForce } from '../platform-settings/recipe-lists';
+import { displayQuantity } from '../dishes/domain/units.rules';
 import {
   aggregate,
   applyCorrections,
@@ -38,7 +40,11 @@ export interface PinnedRecipe {
   recipe: MealRecipeVersion;
 }
 
-const formatQuantity = (line: Line) => `${line.qty} ${line.unit}`.trim();
+/** Recettes §4.12: a "to taste" line has no number, it reads "selon le goût". */
+const formatQuantity = (line: Line) =>
+  line.unit === 'to_taste'
+    ? displayQuantity(null, line.unit)
+    : `${line.qty} ${line.unit}`.trim();
 
 const toLine = (item: ShoppingItem): Line => ({
   name: item.name,
@@ -172,7 +178,10 @@ export class ShoppingListsService {
       version: list.version,
       sentAt: list.sentAt,
       finalReceivedAt: list.finalReceivedAt,
-      groups: groupByAisle(withMarks(linesOf(list.items), marks)),
+      groups: groupByAisle(
+        withMarks(linesOf(list.items), marks),
+        (await aislesInForce(this.prisma)).map((aisle) => aisle.code),
+      ),
     };
   }
 

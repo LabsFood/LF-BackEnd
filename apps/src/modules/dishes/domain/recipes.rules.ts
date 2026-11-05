@@ -145,14 +145,25 @@ export function diffCorrections(computed: Line[], wanted: Line[]): Correction[] 
   return corrections;
 }
 
-/** §7's shape: lines grouped by aisle, aisles in first-seen order. */
-export function groupByAisle<T extends Line>(lines: T[]) {
+/**
+ * §7's shape: lines grouped by aisle. Recettes §5.4: aisles come in store order
+ * (`order`, the codes of the aisle list in force); any other aisle (legacy free
+ * text, `autre`) follows, in first-seen order.
+ */
+export function groupByAisle<T extends Line>(lines: T[], order: string[]) {
   const groups = new Map<string, Omit<T, 'aisle'>[]>();
   for (const { aisle, ...rest } of lines) {
     if (!groups.has(aisle)) groups.set(aisle, []);
     groups.get(aisle)!.push(rest);
   }
-  return [...groups].map(([aisle, groupLines]) => ({ aisle, lines: groupLines }));
+  const rank = (aisle: string) => {
+    const at = order.indexOf(aisle);
+    return at === -1 ? order.length : at;
+  };
+  // Array.prototype.sort is stable: unknown aisles keep their first-seen order.
+  return [...groups]
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(([aisle, groupLines]) => ({ aisle, lines: groupLines }));
 }
 
 /** Recettes BLK-28: every list a chef fills gets a cap (decided 2026-11-02). */

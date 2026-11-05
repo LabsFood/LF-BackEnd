@@ -115,17 +115,48 @@ describe('corrections', () => {
   });
 });
 
-it('groups lines by aisle, in first-seen order', () => {
-  expect(groupByAisle([ail, poulet, { ...ail, name: 'Oignon' }])).toEqual([
-    {
-      aisle: 'fruits-legumes',
-      lines: [
-        { name: 'Ail', qty: 4, unit: 'gousse' },
-        { name: 'Oignon', qty: 4, unit: 'gousse' },
+describe('groupByAisle (Recettes §5.4)', () => {
+  const ORDER = ['boucherie', 'fruits-legumes'];
+
+  it('puts the aisles in store order, whatever the order of the lines', () => {
+    expect(groupByAisle([ail, poulet, { ...ail, name: 'Oignon' }], ORDER)).toEqual([
+      { aisle: 'boucherie', lines: [{ name: 'Poulet fermier', qty: 1.4, unit: 'kg' }] },
+      {
+        aisle: 'fruits-legumes',
+        lines: [
+          { name: 'Ail', qty: 4, unit: 'gousse' },
+          { name: 'Oignon', qty: 4, unit: 'gousse' },
+        ],
+      },
+    ]);
+  });
+
+  it('puts unknown aisles last, in first-seen order', () => {
+    const line = (name: string, aisle: string) => ({ name, qty: 1, unit: 'g', aisle });
+    const groups = groupByAisle(
+      [
+        line('A', 'Rayon libre'),
+        line('B', 'autre'),
+        line('C', 'boucherie'),
+        line('D', 'Rayon libre'),
       ],
-    },
-    { aisle: 'boucherie', lines: [{ name: 'Poulet fermier', qty: 1.4, unit: 'kg' }] },
-  ]);
+      ORDER,
+    );
+    expect(groups.map((g) => g.aisle)).toEqual(['boucherie', 'Rayon libre', 'autre']);
+    expect(groups[1].lines.map((l) => l.name)).toEqual(['A', 'D']);
+  });
+
+  it('keeps a to_taste line, without quantity, in its aisle', () => {
+    const salt = { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'epices' };
+    expect(groupByAisle([salt], ['epices'])).toEqual([
+      { aisle: 'epices', lines: [{ name: 'Sel', qty: 0, unit: 'to_taste' }] },
+    ]);
+  });
+});
+
+it('adds two to_taste lines of the same ingredient into one', () => {
+  const salt = { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'epices' };
+  expect(aggregate([salt, { ...salt, name: 'sel' }])).toEqual([salt]);
 });
 
 describe('recipeLimitBreach (BLK-28)', () => {

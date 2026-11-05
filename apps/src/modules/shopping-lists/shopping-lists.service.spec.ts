@@ -43,6 +43,8 @@ function lists(
       findMany: jest.fn(async () => [...kept.values()]),
     },
     bookingMeal: { update: jest.fn((args: unknown) => args) },
+    // No saved aisle list: the defaults, in store order.
+    platformSetting: { findUnique: jest.fn(async () => null) },
     shoppingList: {
       createMany: jest.fn(async () => ({ count: 0 })),
       update: jest.fn(async () => ({})),
@@ -125,6 +127,66 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
     });
     // Under a lock on the booking's list row, so two recalculations cannot interleave.
     expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('keeps a to_taste line in the list without quantity, merged across recipes (Recettes §4.12)', async () => {
+    const salt = { name: 'Sel', unit: 'to_taste', aisle: 'epices' };
+    const { prisma, service } = lists([
+      {
+        mealId: 'm1',
+        portions: 4,
+        recipeVersion: null,
+        meal: meal('m1', { ingredients: [garlic, salt] }),
+      },
+      {
+        mealId: 'm2',
+        portions: 2,
+        recipeVersion: null,
+        meal: meal('m2', { portions: 2, ingredients: [{ ...salt, qty: null }] }),
+      },
+    ]);
+
+    await service.regenerateForBooking('b1');
+
+    const [[{ data }]] = prisma.shoppingItem.createMany.mock.calls as unknown as [
+      [{ data: { name: string }[] }],
+    ];
+    expect(data.filter((item) => item.name === 'Sel')).toEqual([
+      expect.objectContaining({
+        name: 'Sel',
+        qty: 0,
+        unit: 'to_taste',
+        quantity: 'selon le goût',
+      }),
+    ]);
+  });
+
+  it('lists the aisles in store order, unknown ones last (Recettes §5.4)', async () => {
+    const item = (name: string, aisle: string) => ({
+      name,
+      qty: 1,
+      unit: 'g',
+      aisle,
+      quantity: '1 g',
+      edited: false,
+      removed: false,
+    });
+    const { service } = lists(
+      [],
+      [
+        item('Riz', 'epicerie-salee'),
+        item('Truc', 'Rayon libre'),
+        item('Ail', 'fruits-legumes'),
+      ],
+    );
+
+    const { groups } = await service.view('b1');
+
+    expect(groups.map((g) => g.aisle)).toEqual([
+      'fruits-legumes',
+      'epicerie-salee',
+      'Rayon libre',
+    ]);
   });
 
   it('shows corrections over the computed lines, grouped by aisle', async () => {

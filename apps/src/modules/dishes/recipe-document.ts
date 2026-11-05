@@ -13,7 +13,9 @@ import {
 } from '../../common/pdf/brand';
 import { ListItem } from '../platform-settings/recipe-lists';
 import { ALLERGENS, DISH_CATEGORIES } from './domain/dishes.rules';
+import { readLines } from './domain/recipe-lines.rules';
 import { readSteps, STEP_TYPES } from './domain/recipes.rules';
+import { displayQuantity } from './domain/units.rules';
 
 /**
  * The recipe sheet as a PDF (Recettes §7), for the batch cooker. Every page wears
@@ -27,7 +29,19 @@ export interface RecipeDocumentInput {
   prepMinutes: number;
   cookMinutes: number | null;
   version: number;
-  ingredients: { name: string; qty: number; unit: string; fixedQuantity: boolean }[];
+  ingredients: {
+    name: string;
+    /** Null with `to_taste`, or on a line still to verify. */
+    qty: number | null;
+    unit: string | null;
+    fixedQuantity: boolean;
+    optional: boolean;
+    precision: string | null;
+    preparation: string | null;
+    group: string | null;
+    /** The original text of a line still to verify. */
+    rawText?: string | null;
+  }[];
   steps: {
     order: number;
     text: string;
@@ -41,6 +55,46 @@ export interface RecipeDocumentInput {
 }
 
 const number = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+
+type Ingredient = RecipeDocumentInput['ingredients'][number];
+
+/** "2 gousses Ail, haché (bio) (facultatif) (quantité fixe)" (Recettes §7). */
+function ingredientLine(line: Ingredient): string {
+  // A line still to verify has no unit: its original words are all there is.
+  const base =
+    line.unit === null && line.rawText
+      ? line.rawText
+      : [line.unit === null ? null : displayQuantity(line.qty, line.unit), line.name]
+          .filter(Boolean)
+          .join(' ');
+  return (
+    base +
+    (line.preparation ? `, ${line.preparation}` : '') +
+    (line.precision ? ` (${line.precision})` : '') +
+    (line.optional ? ' (facultatif)' : '') +
+    (line.fixedQuantity ? ' (quantité fixe)' : '')
+  );
+}
+
+/** Lines without a group first, then each group under its label, in order of appearance. */
+function ingredientText(lines: Ingredient[]): string {
+  const groups = new Map<string, string[]>();
+  for (const line of lines) {
+    const key = line.group ?? '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(ingredientLine(line));
+  }
+  const ungrouped = groups.get('') ?? [];
+  groups.delete('');
+  return [
+    ...ungrouped,
+    ...[...groups].flatMap(([group, texts], i) => [
+      ...(i > 0 || ungrouped.length ? [''] : []),
+      group,
+      ...texts,
+    ]),
+  ].join('\n');
+}
 
 export function renderRecipePdf(input: RecipeDocumentInput): Promise<Buffer> {
   const doc = brandDocument({
@@ -85,17 +139,7 @@ export function renderRecipePdf(input: RecipeDocumentInput): Promise<Buffer> {
       : []),
   ]);
 
-  section(
-    doc,
-    'Ingrédients',
-    input.ingredients
-      .map(
-        (line) =>
-          `${number.format(line.qty)} ${line.unit} ${line.name}` +
-          (line.fixedQuantity ? ' (quantité fixe)' : ''),
-      )
-      .join('\n'),
-  );
+  section(doc, 'Ingrédients', ingredientText(input.ingredients));
 
   doc.y += 20;
   label(doc, 'Étapes', COLOR.terra);
@@ -178,15 +222,8 @@ export function recipeDocumentOf(
     prepMinutes: meal.prepTime,
     cookMinutes: meal.cookTime,
     version: meal.recipeVersion,
-    ingredients: (Array.isArray(meal.ingredients) ? meal.ingredients : []).map((raw) => {
-      const line = (raw ?? {}) as Record<string, unknown>;
-      return {
-        name: String(line.name ?? ''),
-        qty: Number(line.qty ?? 0),
-        unit: String(line.unit ?? ''),
-        fixedQuantity: line.fixedQuantity === true,
-      };
-    }),
+    // Recettes §5.2: legacy lines read as current ones.
+    ingredients: readLines(meal.ingredients),
     steps: readSteps(meal.steps).map((step) => ({
       ...step,
       type: step.type ? labelOf(STEP_TYPES, step.type) : null,
