@@ -1,7 +1,16 @@
 import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 
 import { MealStatus, Prisma } from '../../generated/prisma/client';
-import { CHEF, codeOf, dishRow, harness, menuRow } from './dishes.test-helpers';
+import { compositionOf } from '../ingredients/composition';
+import {
+  CHEF,
+  codeOf,
+  dishRow,
+  entryRow,
+  harness,
+  menuRow,
+  withEntries,
+} from './dishes.test-helpers';
 import { SuggestionsService } from './suggestions.service';
 
 const service = (h: ReturnType<typeof harness>) =>
@@ -95,6 +104,60 @@ describe('SuggestionsService', () => {
         conditionalAllergens: ['milk'],
       });
       expect(data.lockVersion).toBeUndefined();
+    });
+
+    it('hands a stamped Lab’s Food recipe on stamped: every linked line of the copy brings its allergens', async () => {
+      const h = harness();
+      withEntries(h, [
+        entryRow({
+          id: 'cat-lait',
+          name: 'Lait',
+          allergens: ['milk'],
+          allergensNone: false,
+        }),
+      ]);
+      // What a Lab's Food save writes (Recettes §6.1), read back as the suggestion.
+      const composed = await compositionOf(
+        h.prisma,
+        [
+          {
+            name: 'lait',
+            qty: 1,
+            unit: 'l',
+            aisle: null,
+            link: null,
+            toVerify: false,
+            fixedQuantity: false,
+            catalogIngredientId: 'cat-lait',
+            optional: false,
+            precision: null,
+            preparation: null,
+            group: null,
+            rawText: null,
+          },
+        ],
+        { addedAllergens: [], customAllergens: [] },
+      );
+      h.meal.findFirst.mockResolvedValue(
+        suggestion({
+          ingredients: composed.ingredients,
+          allergens: composed.state.allergens,
+          allergensNone: composed.state.allergensNone,
+        }),
+      );
+      h.meal.findUnique.mockResolvedValue(null);
+
+      await service(h).adopt('clerk_1', 'sugg-1', true);
+
+      const { data } = h.meal.create.mock.calls[0][0];
+      expect(data.ingredients).toEqual([
+        expect.objectContaining({
+          name: 'Lait',
+          catalogIngredientId: 'cat-lait',
+          allergens: ['milk'],
+        }),
+      ]);
+      expect(data.allergens).toEqual(['milk']);
     });
 
     it('gives back the copy already made on a second adoption', async () => {

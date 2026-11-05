@@ -646,7 +646,7 @@ function toRecipeWrite(recipe: RecipeDto) {
 }
 
 /** What a save composes (Recettes §6.1), with the chef's own allergens it used. */
-type Composition = Awaited<ReturnType<typeof compositionOf>> & {
+export type Composition = Awaited<ReturnType<typeof compositionOf>> & {
   addedAllergens: string[];
   customAllergens: string[];
 };
@@ -656,10 +656,10 @@ type Composition = Awaited<ReturnType<typeof compositionOf>> & {
  * from them, when the save sends a recipe or the chef's own allergens; null when it
  * sends neither. Sent alone, the chef's allergens apply to the lines as stored.
  */
-async function composedSave(
+export async function composedSave(
   db: Pick<PrismaService, 'catalogIngredient'>,
   current: Meal | null,
-  payload: UpdateDishDto,
+  payload: ChefAllergens,
   lines?: LineToStamp[],
 ): Promise<Composition | null> {
   if (!lines && payload.addedAllergens == null && payload.customAllergens == null) {
@@ -668,11 +668,17 @@ async function composedSave(
   return composeLines(db, current, payload, lines ?? readLines(current?.ingredients));
 }
 
-/** The composition of `lines`, with the chef's allergens as `payload` leaves them. */
-async function composeLines(
+/** The allergens a writer adds by hand; a chef's dish and a Lab's Food meal both send them. */
+type ChefAllergens = Pick<UpdateDishDto, 'addedAllergens' | 'customAllergens'>;
+
+/**
+ * The composition of `lines`, with the chef's allergens as `payload` leaves them.
+ * Shared with the Lab's Food admin routes, which compose the same way.
+ */
+export async function composeLines(
   db: Pick<PrismaService, 'catalogIngredient'>,
   current: Meal | null,
-  payload: UpdateDishDto,
+  payload: ChefAllergens,
   lines: LineToStamp[],
 ): Promise<Composition> {
   // Ruling R7: what the chef declared by hand before the socle stays, as added.
@@ -686,7 +692,7 @@ async function composeLines(
 }
 
 /** The columns a composition sets: always written together, so they never disagree. */
-const compositionColumns = (composed: Composition) => ({
+export const compositionColumns = (composed: Composition) => ({
   // Copied into plain objects, as a JSON column takes them.
   ingredients: composed.ingredients.map((line) => ({ ...line })),
   allergens: composed.state.allergens,
@@ -734,7 +740,7 @@ const composedSnapshot = (composed: Composition): SafetySnapshot => ({
 });
 
 /** The row with its hand-declared allergens counted as added (ruling R7). */
-const withLegacyAdded = (meal: Meal): Meal => ({
+export const withLegacyAdded = (meal: Meal): Meal => ({
   ...meal,
   addedAllergens: inAnnexOrder([
     ...meal.addedAllergens,
@@ -743,7 +749,7 @@ const withLegacyAdded = (meal: Meal): Meal => ({
 });
 
 /** The allergen state the stored lines give, as the dish view shows it. */
-const storedState = (meal: Meal) =>
+export const storedState = (meal: Meal) =>
   allergenStateOf(readLines(meal.ingredients), meal.addedAllergens, meal.customAllergens);
 
 /**
@@ -767,10 +773,9 @@ export function checkedLines(ingredients: IngredientDto[]): LineToStamp[] {
   return lines;
 }
 
-/*
- * Plain JSON, so nothing but the documented keys is ever stored. Shared with the
- * Lab's Food admin routes, which write the same columns.
- */
+/** Blank text is no text, as `readLines` reads it: what is saved is what is read back. */
+const text = (value?: string | null): string | null =>
+  value && value.trim() ? value.trim() : null;
 
 /** A line as sent, every field explicit but `hiddenFromClient`, which the entry may set. */
 const toLine = (line: IngredientDto): LineToStamp => ({
@@ -783,19 +788,12 @@ const toLine = (line: IngredientDto): LineToStamp => ({
   fixedQuantity: line.fixedQuantity ?? false,
   catalogIngredientId: line.catalogIngredientId ?? null,
   optional: line.optional ?? false,
-  precision: line.precision ?? null,
-  preparation: line.preparation ?? null,
-  group: line.group ?? null,
+  precision: text(line.precision),
+  preparation: text(line.preparation),
+  group: text(line.group),
   hiddenFromClient: line.hiddenFromClient ?? undefined,
-  rawText: line.rawText ?? null,
+  rawText: text(line.rawText),
 });
-
-/** The lines as sent, unstamped: the Lab's Food admin routes, until they compose too. */
-export const toIngredientsJson = (ingredients: IngredientDto[]) =>
-  ingredients.map((line) => ({
-    ...toLine(line),
-    hiddenFromClient: line.hiddenFromClient ?? false,
-  }));
 
 /**
  * Recettes §6.1: allergens are confirmed only once every line brings its own, as a
@@ -822,26 +820,6 @@ export function assertConfirmable(composed: {
     throw validationFailed(
       `Not one of the 14 regulated allergens: ${unknown.join(', ')}. Correct it first.`,
       { allergens: unknown },
-    );
-  }
-}
-
-/**
- * Recettes §4.10: a line may only point to an entry of the common list. The Lab's
- * Food admin routes; a chef's dish goes through `assertIngredientAccess`.
- */
-export async function assertCatalogIngredients(
-  db: Pick<PrismaService, 'catalogIngredient'>,
-  ingredients?: IngredientDto[] | null,
-): Promise<void> {
-  const ids = [
-    ...new Set((ingredients ?? []).flatMap((i) => i.catalogIngredientId ?? [])),
-  ];
-  if (ids.length === 0) return;
-  const found = await db.catalogIngredient.count({ where: { id: { in: ids } } });
-  if (found !== ids.length) {
-    throw validationFailed(
-      'A line points to an ingredient that is not in the common list. See GET /ingredients.',
     );
   }
 }

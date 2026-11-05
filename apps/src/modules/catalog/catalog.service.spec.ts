@@ -8,6 +8,7 @@ import {
   Prisma,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { entryRow } from '../dishes/dishes.test-helpers';
 import { SuggestionsService } from '../dishes/suggestions.service';
 import { CatalogService } from './catalog.service';
 
@@ -22,8 +23,42 @@ const knownRequestError = (code: string) =>
     clientVersion: 'test',
   });
 
+/** A Lab's Food row as stored once its lines compose (Recettes §6.1). */
+const storedMeal = (overrides: Record<string, unknown> = {}) => ({
+  id: 'meal-1',
+  chefProfileId: null,
+  allergens: [] as string[],
+  allergensNone: false,
+  addedAllergens: [] as string[],
+  conditionalAllergens: [] as string[],
+  customAllergens: [] as string[],
+  ingredients: [] as unknown[],
+  dietaryTags: [] as string[],
+  customDiets: [] as string[],
+  country: 'SN' as string | null,
+  offeredToChefProfileId: null as string | null,
+  ...overrides,
+});
+
+/** The common list as these specs read it: milk, rice, and one chef's private entry. */
+const ENTRIES = [
+  entryRow({ id: 'cat-milk', name: 'Lait', allergens: ['milk'], allergensNone: false }),
+  entryRow({ id: 'cat-rice', name: 'Riz', allergens: [], allergensNone: true }),
+  entryRow({ id: 'cat-private', name: 'Épice maison', chefProfileId: 'chef-9' }),
+];
+
+const MILK_LINE = { name: 'Lait', qty: 1, unit: 'l', catalogIngredientId: 'cat-milk' };
+const RICE_LINE = { name: 'Riz', qty: 1, unit: 'kg', catalogIngredientId: 'cat-rice' };
+const PRIVATE_LINE = {
+  name: 'Épice',
+  qty: 1,
+  unit: 'g',
+  catalogIngredientId: 'cat-private',
+};
+
 describe('CatalogService', () => {
   let service: CatalogService;
+  let catalogIngredient: { findMany: jest.Mock };
   let meal: {
     findMany: jest.Mock;
     findUnique: jest.Mock;
@@ -50,6 +85,11 @@ describe('CatalogService', () => {
       delete: jest.fn(async () => undefined),
     };
     suggestions = { flagCopies: jest.fn(async () => undefined) };
+    catalogIngredient = {
+      findMany: jest.fn(async (args: { where: { id: { in: string[] } } }) =>
+        ENTRIES.filter((entry) => args.where.id.in.includes(entry.id)),
+      ),
+    };
     menuWeek = {
       findFirst: jest.fn(async () => null),
       create: jest.fn(async (args: unknown) => args),
@@ -65,6 +105,7 @@ describe('CatalogService', () => {
           useValue: {
             meal,
             menuWeek,
+            catalogIngredient,
             platformSetting: { findUnique: jest.fn(async () => null) },
           },
         },
@@ -140,10 +181,10 @@ describe('CatalogService', () => {
   });
 
   describe('declaration', () => {
-    it('refuses "none of the 14" next to a listed allergen on create', async () => {
+    it('refuses a free-text allergen that is a regulated one on create', async () => {
       await expect(
         service.createMeal(
-          { name: 'Mafé', prepTime: 90, allergens: ['peanuts'], allergensNone: true },
+          { name: 'Mafé', prepTime: 90, customAllergens: ['peanuts'] },
           ADMIN_ID,
         ),
       ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
@@ -151,22 +192,40 @@ describe('CatalogService', () => {
     });
 
     it('checks an update against the meal as stored', async () => {
-      meal.findFirst.mockResolvedValueOnce({
-        allergens: ['peanuts'],
-        allergensNone: false,
-        customAllergens: [],
-        dietaryTags: [],
-        customDiets: [],
-      });
+      meal.findFirst.mockResolvedValueOnce(storedMeal({ customDiets: ['halal'] }));
 
       await expect(
-        service.updateMeal('meal-1', { allergensNone: true }, ADMIN_ID),
+        service.updateMeal('meal-1', { addedAllergens: ['celery'] }, ADMIN_ID),
       ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
       expect(meal.findFirst).toHaveBeenCalledWith({ where: LABS_FOOD_MEAL_1 });
       expect(meal.update).not.toHaveBeenCalled();
     });
 
-    it('stores ingredients as plain lines, the optional fields with their defaults', async () => {
+    it('refuses a line that breaks the rules with 422 VALIDATION_FAILED', async () => {
+      await expect(
+        service.createMeal(
+          {
+            name: 'Mafé',
+            prepTime: 90,
+            ingredients: [{ name: 'Arachide', qty: -2, unit: 'g' }],
+          },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(meal.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses two lines saying the same thing with 422 DUPLICATE_INGREDIENT_LINE', async () => {
+      await expect(
+        service.createMeal(
+          { name: 'Mafé', prepTime: 90, ingredients: [RICE_LINE, RICE_LINE] },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'DUPLICATE_INGREDIENT_LINE' } });
+      expect(meal.create).not.toHaveBeenCalled();
+    });
+
+    it('stores ingredients as stamped lines, the optional fields with their defaults', async () => {
       await service.createMeal(
         {
           name: 'Mafé',
@@ -192,6 +251,8 @@ describe('CatalogService', () => {
           group: null,
           hiddenFromClient: false,
           rawText: null,
+          allergens: [],
+          incomplete: false,
         },
       ]);
     });
@@ -209,14 +270,9 @@ describe('CatalogService', () => {
   });
 
   it('refuses to publish a meal still offered to a chef', async () => {
-    meal.findFirst.mockResolvedValueOnce({
-      allergens: [],
-      allergensNone: true,
-      customAllergens: [],
-      dietaryTags: [],
-      customDiets: [],
-      offeredToChefProfileId: 'chef-2',
-    });
+    meal.findFirst.mockResolvedValueOnce(
+      storedMeal({ allergensNone: true, offeredToChefProfileId: 'chef-2' }),
+    );
 
     await expect(
       service.updateMeal('meal-1', { status: MealStatus.published }, ADMIN_ID),
@@ -232,35 +288,134 @@ describe('CatalogService', () => {
     expect(meal.update.mock.calls[1][0].data).not.toHaveProperty('recipeVersion');
   });
 
-  describe('allergen verification (Recettes §4.9)', () => {
-    it('counts the admin’s save as the check when the meal declares its allergens', async () => {
+  describe('computed allergens (Recettes §6.1)', () => {
+    it('creates with the stamped lines and the allergens they bring', async () => {
       await service.createMeal(
-        { name: 'Mafé', prepTime: 90, allergens: ['peanuts'] },
+        {
+          name: 'Riz au lait',
+          prepTime: 30,
+          ingredients: [MILK_LINE, RICE_LINE],
+          addedAllergens: ['celery'],
+          customAllergens: ['kiwi'],
+        },
+        ADMIN_ID,
+      );
+
+      const { data } = meal.create.mock.calls[0][0];
+      expect(data).toMatchObject({
+        allergens: ['milk', 'celery'],
+        conditionalAllergens: [],
+        allergensNone: false,
+        addedAllergens: ['celery'],
+        customAllergens: ['kiwi'],
+      });
+      expect(data.classification).toBeDefined();
+      expect(data.ingredients).toEqual([
+        expect.objectContaining({ catalogIngredientId: 'cat-milk', allergens: ['milk'] }),
+        expect.objectContaining({ catalogIngredientId: 'cat-rice', allergens: [] }),
+      ]);
+    });
+
+    it('counts the admin’s save as the check when every line is known, not otherwise', async () => {
+      await service.createMeal(
+        { name: 'Riz au lait', prepTime: 30, ingredients: [MILK_LINE, RICE_LINE] },
+        ADMIN_ID,
+      );
+      await service.createMeal(
+        {
+          name: 'Mafé',
+          prepTime: 90,
+          ingredients: [{ name: 'Arachide', qty: 1, unit: 'kg' }],
+        },
         ADMIN_ID,
       );
       await service.createMeal({ name: 'Riz', prepTime: 20 }, ADMIN_ID);
 
       expect(meal.create.mock.calls[0][0].data.allergensVerifiedAt).toBeInstanceOf(Date);
       expect(meal.create.mock.calls[1][0].data.allergensVerifiedAt).toBeNull();
+      expect(meal.create.mock.calls[2][0].data.allergensVerifiedAt).toBeNull();
     });
 
-    it('checks again when the ingredients change, from the declaration as stored', async () => {
-      meal.findFirst.mockResolvedValueOnce({
-        allergens: [],
-        allergensNone: true,
-        customAllergens: [],
-        dietaryTags: [],
-        customDiets: [],
-        offeredToChefProfileId: null,
-      });
+    it('refuses a private ingredient in a Lab’s Food recipe with 422, writing nothing', async () => {
+      await expect(
+        service.createMeal(
+          { name: 'Mafé', prepTime: 90, ingredients: [PRIVATE_LINE] },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(meal.create).not.toHaveBeenCalled();
 
+      meal.findFirst.mockResolvedValueOnce(storedMeal());
+      await expect(
+        service.updateMeal('meal-1', { ingredients: [PRIVATE_LINE] }, ADMIN_ID),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('recomposes the stored lines when only the extras are sent', async () => {
+      meal.findFirst.mockResolvedValueOnce(
+        storedMeal({
+          ingredients: [
+            { ...RICE_LINE, hiddenFromClient: false, allergens: [], incomplete: false },
+          ],
+        }),
+      );
+
+      await service.updateMeal('meal-1', { addedAllergens: ['celery'] }, ADMIN_ID);
+
+      const { data } = meal.update.mock.calls[0][0];
+      expect(data).toMatchObject({ allergens: ['celery'], addedAllergens: ['celery'] });
+      expect(data.ingredients).toEqual([
+        expect.objectContaining({ catalogIngredientId: 'cat-rice', name: 'Riz' }),
+      ]);
+      expect(data.allergensVerifiedAt).toBeInstanceOf(Date);
+    });
+
+    it('checks again on every recomposition: now when complete, null otherwise', async () => {
+      meal.findFirst.mockResolvedValueOnce(storedMeal());
+      await service.updateMeal('meal-1', { ingredients: [RICE_LINE] }, ADMIN_ID);
+      meal.findFirst.mockResolvedValueOnce(
+        storedMeal({ allergensVerifiedAt: new Date() }),
+      );
       await service.updateMeal(
         'meal-1',
-        { ingredients: [{ name: 'Riz', qty: 1, unit: 'kg', aisle: 'epicerie' }] },
+        { ingredients: [{ name: 'Arachide', qty: 1, unit: 'kg' }] },
         ADMIN_ID,
       );
 
       expect(meal.update.mock.calls[0][0].data.allergensVerifiedAt).toBeInstanceOf(Date);
+      expect(meal.update.mock.calls[1][0].data.allergensVerifiedAt).toBeNull();
+    });
+
+    it('leaves the allergens and the verification alone when nothing recomposes', async () => {
+      await service.updateMeal('meal-1', { description: 'Plus relevé.' }, ADMIN_ID);
+
+      const { data } = meal.update.mock.calls[0][0];
+      for (const key of [
+        'ingredients',
+        'allergens',
+        'allergensNone',
+        'addedAllergens',
+        'allergensVerifiedAt',
+      ]) {
+        expect(data).not.toHaveProperty(key);
+      }
+    });
+
+    it('keeps a hand-declared allergen of an existing row, as added (R7)', async () => {
+      meal.findFirst.mockResolvedValueOnce(
+        storedMeal({
+          allergens: ['milk'],
+          ingredients: [{ name: 'Crème', qty: 1, unit: 'l', catalogIngredientId: null }],
+        }),
+      );
+
+      await service.updateMeal('meal-1', { ingredients: [RICE_LINE] }, ADMIN_ID);
+
+      expect(meal.update.mock.calls[0][0].data).toMatchObject({
+        allergens: ['milk'],
+        addedAllergens: ['milk'],
+      });
     });
   });
 
@@ -274,21 +429,20 @@ describe('CatalogService', () => {
   });
 
   describe('source-changed (PRD)', () => {
-    const stored = {
-      id: 'meal-1',
-      allergens: ['peanuts'],
-      allergensNone: false,
-      customAllergens: [],
-      dietaryTags: [],
-      customDiets: [],
-      country: 'SN',
+    const rice = {
+      ...RICE_LINE,
+      hiddenFromClient: false,
+      allergens: [] as string[],
+      incomplete: false,
     };
+    const stored = storedMeal({ ingredients: [rice], allergensNone: true });
 
-    it('flags the copies when a safety field really changes', async () => {
+    it('flags the copies when the computed allergens change', async () => {
       meal.findFirst.mockResolvedValueOnce(stored);
-      meal.update.mockResolvedValueOnce({ ...stored, allergens: ['peanuts', 'milk'] });
+      // The write answers the row as the database would; here it echoes the stored one.
+      meal.update.mockResolvedValueOnce(stored);
 
-      await service.updateMeal('meal-1', { allergens: ['peanuts', 'milk'] }, ADMIN_ID);
+      await service.updateMeal('meal-1', { ingredients: [rice, MILK_LINE] }, ADMIN_ID);
 
       expect(suggestions.flagCopies).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'meal-1' }),
@@ -296,18 +450,32 @@ describe('CatalogService', () => {
       );
     });
 
-    it('leaves copies alone when the same values are sent again, or comfort fields change', async () => {
+    it('flags the copies when a safety field really changes', async () => {
+      meal.findFirst.mockResolvedValueOnce(stored);
+      meal.update.mockResolvedValueOnce({ ...stored, country: 'FR' });
+
+      await service.updateMeal('meal-1', { country: 'FR' }, ADMIN_ID);
+
+      expect(suggestions.flagCopies).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves copies alone when the same lines are sent again, or comfort fields change', async () => {
       meal.findFirst.mockResolvedValueOnce(stored);
       meal.update.mockResolvedValueOnce(stored);
-      await service.updateMeal('meal-1', { allergens: ['peanuts'] }, ADMIN_ID);
-
-      const both = { ...stored, allergens: ['peanuts', 'milk'] };
-      meal.findFirst.mockResolvedValueOnce(both);
-      meal.update.mockResolvedValueOnce({ ...both, allergens: ['milk', 'peanuts'] });
-      await service.updateMeal('meal-1', { allergens: ['milk', 'peanuts'] }, ADMIN_ID);
+      await service.updateMeal('meal-1', { ingredients: [RICE_LINE] }, ADMIN_ID);
 
       meal.update.mockResolvedValueOnce(stored);
       await service.updateMeal('meal-1', { description: 'Plus relevé.' }, ADMIN_ID);
+
+      expect(suggestions.flagCopies).not.toHaveBeenCalled();
+    });
+
+    it('leaves copies alone when carrying a hand-declared allergen changes nothing', async () => {
+      const legacy = storedMeal({ allergens: ['milk'] });
+      meal.findFirst.mockResolvedValueOnce(legacy);
+      meal.update.mockResolvedValueOnce(legacy);
+
+      await service.updateMeal('meal-1', { addedAllergens: [] }, ADMIN_ID);
 
       expect(suggestions.flagCopies).not.toHaveBeenCalled();
     });

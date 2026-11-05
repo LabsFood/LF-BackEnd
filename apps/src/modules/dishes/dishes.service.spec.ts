@@ -529,6 +529,46 @@ describe('DishesService', () => {
       expect(view.allergensVerifiedAt).toBeInstanceOf(Date);
     });
 
+    it('confirms in one call a dish saved with blank optional line fields (no spurious 409)', async () => {
+      const h = harness();
+      withEntries(h, READY_ENTRIES);
+      const service = new DishesService(h.prisma, h.access);
+      await service.update('clerk_1', 'dish-1', {
+        recipe: {
+          ...READY_RECIPE,
+          ingredients: READY_RECIPE.ingredients.map((line) => ({
+            ...line,
+            precision: '',
+            preparation: ' ',
+            group: '',
+            rawText: '',
+          })),
+        },
+      });
+      const saved = h.meal.update.mock.calls[0][0].data;
+      // The same rule as `readLines`: blank means nothing, stored as null.
+      expect(saved.ingredients).toEqual([
+        expect.objectContaining({
+          precision: null,
+          preparation: null,
+          group: null,
+          rawText: null,
+        }),
+        expect.objectContaining({ precision: null }),
+      ]);
+
+      h.meal.update.mockClear();
+      h.meal.findUnique.mockResolvedValue(
+        readyDishRow({ ...saved, lockVersion: 1, allergensVerifiedAt: null }),
+      );
+      await service.confirmAllergens('clerk_1', 'dish-1', 1);
+
+      expect(h.meal.update).toHaveBeenCalledTimes(1);
+      expect(h.meal.update.mock.calls[0][0].data).toEqual({
+        allergensVerifiedAt: expect.any(Date),
+      });
+    });
+
     it('refuses a confirmation sent with an outdated lockVersion with 409, writing nothing (R8)', async () => {
       const { meal, access, prisma } = harness();
       meal.findUnique.mockResolvedValue(

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -99,26 +100,20 @@ export class CreateMealDto {
   @ApiPropertyOptional({
     enum: ALLERGEN_CODES,
     isArray: true,
+    maxItems: 14,
     description:
-      'Which of the 14 regulated allergens the meal contains, from ' +
-      '`GET /referentials/allergens`.',
-    example: ['milk'],
+      'Regulated allergens added on top of the computed ones (Recettes §6.1): the ' +
+      'recipe lines bring the rest, read them in `allergens`. Labels in ' +
+      '`GET /referentials/allergens`. The meal no longer takes `allergens` or ' +
+      '`allergensNone`: they are computed.',
+    example: ['celery'],
   })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(14)
+  @ArrayUnique()
   @IsIn(ALLERGEN_CODES, { each: true })
-  allergens?: string[];
-
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      '`true` when the meal contains none of the 14 regulated allergens. A batch ' +
-      'cooker who adopts this meal cannot publish it without this or `allergens`.',
-    example: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  allergensNone?: boolean;
+  addedAllergens?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -403,10 +398,28 @@ export class MealResponseDto {
   @ApiProperty({ type: [String], example: ['halal'] })
   dietaryTags!: string[];
 
-  @ApiProperty({ type: [String], example: ['milk'] })
+  @ApiProperty({
+    type: [String],
+    description:
+      'Computed from the recipe lines plus `addedAllergens` (Recettes §6.1); never written directly.',
+    example: ['milk'],
+  })
   allergens!: string[];
 
-  @ApiProperty({ example: false })
+  @ApiProperty({
+    type: [String],
+    description: 'Allergens only optional lines bring; still listed in `allergens`.',
+    example: [],
+  })
+  conditionalAllergens!: string[];
+
+  @ApiProperty({ type: [String], description: 'Allergens added by hand.', example: [] })
+  addedAllergens!: string[];
+
+  @ApiProperty({
+    example: false,
+    description: 'Computed: true only when every line is known and brings nothing.',
+  })
   allergensNone!: boolean;
 
   @ApiProperty({ type: [String], example: [] })
