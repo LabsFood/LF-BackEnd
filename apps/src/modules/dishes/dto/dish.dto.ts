@@ -582,3 +582,17 @@ export class UpdateDishDto extends PartialType(CreateDishDto) {
   @Min(0)
   lockVersion?: number;
 }
+
+/** Recettes §8.2: the body of `POST /me/dishes/{id}/versions/{version}/restore`. */
+export class RestoreVersionDto {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish as you read it. A restore over a newer one is refused.',
+    example: 4,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}

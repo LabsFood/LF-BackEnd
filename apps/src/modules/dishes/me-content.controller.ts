@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -38,7 +39,12 @@ import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { DishesService } from './dishes.service';
 import { DuplicationService } from './duplication.service';
-import { ConfirmAllergensDto, CreateDishDto, UpdateDishDto } from './dto/dish.dto';
+import {
+  ConfirmAllergensDto,
+  CreateDishDto,
+  RestoreVersionDto,
+  UpdateDishDto,
+} from './dto/dish.dto';
 import {
   CreateMenuDto,
   PutShowcaseWeeksDto,
@@ -54,6 +60,7 @@ import {
   photoStepsHelp,
 } from './dto/photo.dto';
 import { MenusService } from './menus.service';
+import { RecipeVersionsService } from './recipe-versions.service';
 import { SuggestionsService } from './suggestions.service';
 import {
   CHEF_NOT_VERIFIED_EXAMPLE,
@@ -113,6 +120,7 @@ export class MeContentController {
     private readonly suggestions: SuggestionsService,
     private readonly photos: ContentPhotosService,
     private readonly duplication: DuplicationService,
+    private readonly versions: RecipeVersionsService,
   ) {}
 
   @Get('dishes')
@@ -182,6 +190,91 @@ export class MeContentController {
   @ApiClerkAuthResponses()
   getDish(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.dishes.get(user.userId, id);
+  }
+
+  @Get('dishes/:id/versions')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'List the versions of one of my dishes',
+    description:
+      'Recettes §8.2: the frozen versions of the recipe, newest first. `bookings` counts ' +
+      'the bookings that pin each one; `current` marks the version the dish is at.',
+  })
+  @ApiDishIdParam()
+  @ApiOkResponse({
+    description: 'The versions.',
+    example: [
+      { version: 2, createdAt: '2026-11-01T09:00:00.000Z', bookings: 3, current: true },
+      { version: 1, createdAt: '2026-10-01T08:00:00.000Z', bookings: 0, current: false },
+    ],
+  })
+  @ApiNotFoundResponse({ description: 'No such dish among mine.' })
+  @ApiClerkAuthResponses()
+  listVersions(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.versions.list(user.userId, id);
+  }
+
+  @Get('dishes/:id/versions/:version')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Read one version of one of my dishes',
+    description:
+      'Recettes §8.2: its portions, ingredients, steps, reheating and storage.',
+  })
+  @ApiDishIdParam()
+  @ApiParam({ name: 'version', description: 'The version number.', example: 1 })
+  @ApiOkResponse({ description: 'The version.' })
+  @ApiNotFoundResponse({ description: 'No such dish among mine, or no such version.' })
+  @ApiClerkAuthResponses()
+  getVersion(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('version', ParseIntPipe) version: number,
+  ) {
+    return this.versions.get(user.userId, id, version);
+  }
+
+  @Post('dishes/:id/versions/:version/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Restore a version into one of my dishes',
+    description:
+      'Recettes §8.2: copies the version into the dish, then the rules of a normal save ' +
+      'apply (`PATCH /me/dishes/{id}`): allergens computed again, verification cleared ' +
+      'if they changed, `versionPending`, and a new version if the recipe is "Prête". ' +
+      'History is never erased. A line linked to an ingredient merged since then is ' +
+      'repointed to its replacement; one whose ingredient is gone becomes a line to ' +
+      'verify.',
+  })
+  @ApiDishIdParam()
+  @ApiParam({ name: 'version', description: 'The version number.', example: 1 })
+  @ApiBody({ type: RestoreVersionDto, required: false })
+  @ApiOkResponse({ description: 'The updated dish.', example: DISH_EXAMPLE })
+  @ApiConflictResponse({
+    description:
+      '`RECIPE_CONFLICT`: the dish changed since this `lockVersion` was read. Reload it.',
+    example: RECIPE_CONFLICT_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: the restored recipe breaks a rule of a save (`errors` names ' +
+      'the line), or a limit is reached.',
+    example: DUPLICATE_INGREDIENT_LINE_EXAMPLE,
+  })
+  @ApiForbiddenResponse(NOT_VERIFIED)
+  @ApiNotFoundResponse({ description: 'No such dish among mine, or no such version.' })
+  @ApiClerkAuthResponses()
+  restoreVersion(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('version', ParseIntPipe) version: number,
+    @Body() payload: RestoreVersionDto,
+  ) {
+    return this.versions.restore(user.userId, id, version, payload.lockVersion);
   }
 
   @Patch('dishes/:id')

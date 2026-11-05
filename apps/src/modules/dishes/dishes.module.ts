@@ -18,6 +18,7 @@ import { MenusService } from './menus.service';
 import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
 import { ModerationService } from './moderation.service';
+import { RecipeVersionsService } from './recipe-versions.service';
 import { PublicVitrineController } from './public-vitrine.controller';
 import { SuggestionsService } from './suggestions.service';
 import { VitrineService } from './vitrine.service';
@@ -48,6 +49,7 @@ import { VitrineService } from './vitrine.service';
     MenusService,
     MissionsService,
     ModerationService,
+    RecipeVersionsService,
     SuggestionsService,
     VitrineService,
   ],

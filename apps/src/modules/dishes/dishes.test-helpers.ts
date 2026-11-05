@@ -275,6 +275,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
   };
   const mealRecipeVersion = {
     findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
     create: jest.fn(async ({ data }: WriteArgs) => data),
   };
   const client = {
