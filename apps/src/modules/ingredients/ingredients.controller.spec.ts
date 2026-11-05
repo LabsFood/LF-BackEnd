@@ -5,6 +5,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
 import { ChefContentService } from '../dishes/chef-content.service';
 import { UsersService } from '../users/users.service';
+import { IngredientImportService } from './ingredient-import.service';
 import { IngredientsController } from './ingredients.controller';
 import { IngredientsService } from './ingredients.service';
 
@@ -26,12 +27,14 @@ function harness(chefProfileId: string | null) {
   };
   const users = { findByClerkId: jest.fn(async (_id: string) => ({ id: 'admin-1' })) };
   const chefs = { chefProfileIdOf: jest.fn(async (_id: string) => chefProfileId) };
+  const importer = { run: jest.fn(async (..._a: unknown[]) => ({ created: 1 })) };
   const controller = new IngredientsController(
     ingredients as unknown as IngredientsService,
     users as unknown as UsersService,
     chefs as unknown as ChefContentService,
+    importer as unknown as IngredientImportService,
   );
-  return { ingredients, chefs, controller };
+  return { ingredients, chefs, importer, controller };
 }
 
 describe('IngredientsController search (Recettes §4.10)', () => {
@@ -137,4 +140,23 @@ describe('IngredientsController validate and merge (Recettes §7.2)', () => {
       expect(id?.pipes).toEqual([ParseUUIDPipe]);
     },
   );
+});
+
+describe('IngredientsController import (Recettes §7.4)', () => {
+  it('simulates by default and passes the admin id', async () => {
+    const { importer, controller } = harness(null);
+    await controller.import({ userId: 'clerk-1' } as never, { csv: 'x' });
+    expect(importer.run).toHaveBeenCalledWith('x', { confirm: false }, 'admin-1');
+  });
+
+  it('writes with confirm: true, behind the admin guards', async () => {
+    const { importer, controller } = harness(null);
+    await controller.import({ userId: 'clerk-1' } as never, { csv: 'x', confirm: true });
+    expect(importer.run).toHaveBeenCalledWith('x', { confirm: true }, 'admin-1');
+    const guards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      IngredientsController.prototype.import,
+    );
+    expect(guards).toEqual([ClerkAuthGuard, AdminGuard]);
+  });
 });

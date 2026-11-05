@@ -37,7 +37,9 @@ import {
   SearchIngredientsQueryDto,
   UpdateCatalogIngredientDto,
 } from './dto/ingredient.dto';
+import { ImportIngredientsDto } from './dto/import-ingredients.dto';
 import { MergeIngredientDto } from './dto/merge-ingredient.dto';
+import { IngredientImportService } from './ingredient-import.service';
 import { IngredientsService } from './ingredients.service';
 
 const INGREDIENT_EXAMPLE = {
@@ -65,6 +67,7 @@ export class IngredientsController {
     private readonly ingredients: IngredientsService,
     private readonly users: UsersService,
     private readonly chefs: ChefContentService,
+    private readonly importer: IngredientImportService,
   ) {}
 
   @Get('ingredients')
@@ -109,6 +112,45 @@ export class IngredientsController {
   @ApiAdminAuthResponses()
   list(@Query() query: ListCatalogIngredientsQueryDto) {
     return this.ingredients.list(query);
+  }
+
+  @Post('admin/ingredients/import')
+  @HttpCode(200)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Import the common list from a CSV',
+    description:
+      'Recettes §7.4: `csv` (2 MB, 2,000 lines at most) with the header `nom;autres_noms;' +
+      'rayon;allergenes;aucun_allergene;regimes;mois;base;doute`, separator `;`, lists ' +
+      'separated by `|`, booleans `oui`/`non`, `doute` ignored. Without `confirm: true` ' +
+      'it only simulates: `created`, `updated`, `unchanged` and the `errors` per line ' +
+      '(`line` 1 is the header). It writes nothing while there is an error. Confirmed, ' +
+      'it matches each row by its normalized name: a new name is created (common, ' +
+      'active), a changed entry is updated and carried into the recipes (§7.3, the ' +
+      'figures summed in `propagation`; replay `failed` dishes with `POST ' +
+      '/admin/ingredients/:id/propagate`), an identical one is left. Row by row: if a ' +
+      'write fails the run stops with that error (`line: 0`), and the same file can be ' +
+      'sent again. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The report of the simulation or of the import.',
+    example: {
+      created: 280,
+      updated: 12,
+      unchanged: 8,
+      errors: [{ line: 14, message: 'rayon: « cave » n’est pas dans la liste.' }],
+      propagation: PROPAGATION_EXAMPLE,
+    },
+  })
+  @ApiAdminAuthResponses()
+  async import(@CurrentClerkUser() user: ClerkUser, @Body() body: ImportIngredientsDto) {
+    return this.importer.run(
+      body.csv,
+      { confirm: body.confirm === true },
+      await this.adminId(user),
+    );
   }
 
   @Post('admin/ingredients')
