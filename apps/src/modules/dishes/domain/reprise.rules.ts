@@ -80,7 +80,8 @@ export type RepriseLine = Omit<LineInput, 'hiddenFromClient'> & {
 /**
  * Recettes §9, one line. A line already linked is kept as it is. An unlinked one is
  * linked when its match key names exactly one common entry, never by approximation;
- * otherwise it goes to verification with its original words in `rawText`. The unit
+ * otherwise it goes to verification with its original words in `rawText`. So does a
+ * line, linked or not, whose quantity is no number ("1/2"). The unit
  * is converted either way, and a unit that cannot be converted sends the line to
  * verification (`toLineInput`). Only an explicit `hiddenFromClient` is kept (§5.2):
  * without one, salt or oil end up hidden from the client by their entry.
@@ -95,13 +96,27 @@ export function repriseLine(raw: unknown, index: Map<string, string>): RepriseLi
   };
   if (line.catalogIngredientId) return line;
 
-  const kept =
-    typeof value.rawText === 'string' && value.rawText.trim() ? line.rawText : null;
+  // The stored words, not the ones `toLineInput` rebuilt for an unknown unit.
+  const kept = typeof value.rawText === 'string' ? value.rawText.trim() || null : null;
   const id = index.get(matchKey(line.name));
   const linked = id ? { ...line, catalogIngredientId: id } : { ...line, toVerify: true };
-  return linked.toVerify
-    ? { ...linked, rawText: kept ?? originalText(value, line.name) }
+  // A quantity that is not a number ("1/2", "1,5") became null: linked or not, the
+  // line waits for the chef with the words as typed.
+  return linked.toVerify || unreadableQuantity(value, line.unit)
+    ? { ...linked, toVerify: true, rawText: kept ?? originalText(value, line.name) }
     : linked;
+}
+
+/** A legacy quantity that was typed but is no number, on a line that needs one. */
+function unreadableQuantity(raw: Record<string, unknown>, unit: string | null): boolean {
+  const qty = raw.qty ?? raw.amount;
+  return (
+    unit !== 'to_taste' &&
+    qty !== null &&
+    qty !== undefined &&
+    qty !== '' &&
+    !Number.isFinite(Number(qty))
+  );
 }
 
 /**
@@ -144,19 +159,18 @@ export function repriseDish(
   index: Map<string, string>,
 ): {
   lines: RepriseLine[];
+  /** The stored entries that are not lines, left out of the lines as they were. */
+  dropped: unknown[];
   addedAllergens: string[];
   storage: unknown;
   linesToVerify: number;
 } {
   const raw = Array.isArray(meal.ingredients) ? (meal.ingredients as unknown[]) : [];
-  const lines = raw
-    .filter(
-      (item) =>
-        !!item &&
-        typeof item === 'object' &&
-        String((item as Record<string, unknown>).name ?? '').trim() !== '',
-    )
-    .map((item) => repriseLine(item, index));
+  const isLine = (item: unknown) =>
+    !!item &&
+    typeof item === 'object' &&
+    String((item as Record<string, unknown>).name ?? '').trim() !== '';
+  const lines = raw.filter(isLine).map((item) => repriseLine(item, index));
   const added = meal.addedAllergens ?? [];
   const addedAllergens = inAnnexOrder([
     ...added,
@@ -169,6 +183,7 @@ export function repriseDish(
   ]);
   return {
     lines,
+    dropped: raw.filter((item) => !isLine(item)),
     addedAllergens,
     storage: repriseStorage(meal.storage),
     linesToVerify: lines.filter((line) => line.toVerify).length,
@@ -177,7 +192,9 @@ export function repriseDish(
 
 /**
  * The codes of `before` that `after` lacks, annex order. Review Focus point 3: the
- * reprise checks it is empty for every dish before writing.
+ * runner carries them into the added allergens and composes the dish again, then
+ * checks it is empty for the repaired composition: a dish that still lacks one fails
+ * and is not written.
  */
 export function missingAllergens(before: string[], after: string[]): string[] {
   return inAnnexOrder(before.filter((code) => !after.includes(code)));

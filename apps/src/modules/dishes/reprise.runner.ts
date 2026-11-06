@@ -79,7 +79,19 @@ export interface RepriseReport {
   unchanged: number;
   /** Saved by someone else between the read and the write: a rerun picks them up. */
   skipped: string[];
+  /** Deleted between the list and the read: nothing left to do. */
+  gone: number;
   failed: { id: string; error: string }[];
+  /**
+   * Stored entries that are not lines (not an object, no name, a legacy shape such as
+   * `{ oignons: 2 }`): dropped on write. Per meal, in total, and up to
+   * `DROPPED_SHOWN` examples (the JSON, truncated).
+   */
+  dropped: {
+    total: number;
+    meals: { id: string; count: number }[];
+    examples: { id: string; json: string }[];
+  };
   chefs: ChefTally[];
   /** The names still unlinked, by frequency, to complete the common list (top 50). */
   unmatched: { name: string; count: number }[];
@@ -92,11 +104,15 @@ export interface RepriseReport {
     allergensChanged: number;
     sent: number;
     notSent: number;
+    /** Who an e-mail did not reach (Brevo refused it or failed), to follow up. */
+    failures: { chefProfileId: string; email: string; kind: string }[];
   };
 }
 
 const LABS_FOOD = "Lab's Food (recipes and offers)";
 const UNMATCHED_SHOWN = 50;
+const DROPPED_SHOWN = 50;
+const DROPPED_JSON_MAX = 200;
 /** E-mails sent at once, as the §7.3 propagation sends them. */
 const MAIL_BATCH = 10;
 
@@ -129,10 +145,17 @@ type Outcome =
       unverified: boolean;
       told: 'now' | 'before' | null;
       unmatched: string[];
+      dropped: unknown[];
     };
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+/** The JSON of a dropped entry, cut to a readable length. */
+const droppedJson = (entry: unknown) => {
+  const json = JSON.stringify(entry) ?? String(entry);
+  return json.length > DROPPED_JSON_MAX ? `${json.slice(0, DROPPED_JSON_MAX)}…` : json;
+};
 
 const noRowMatched = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
@@ -153,9 +176,17 @@ async function fillNormalizedNames(
       normalizedName: true,
       chefProfileId: true,
       status: true,
+      createdAt: true,
     },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
+  // Active entries first, then the oldest: when two entries claim a name, the one that
+  // is live (then the first created) keeps it.
+  rows.sort(
+    (a, b) =>
+      Number(b.status === 'active') - Number(a.status === 'active') ||
+      (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0) ||
+      a.id.localeCompare(b.id),
+  );
   // The scopes of the two partial unique indexes (Recettes §5.1).
   const scope = (row: (typeof rows)[number], normalized: string) =>
     row.chefProfileId === null
@@ -241,6 +272,11 @@ async function repriseMeal(
       reprised.lines,
     );
   }
+  // The repair must have worked: a dish still missing an allergen is not written.
+  const stillLost = missingAllergens(row.allergens, composed.state.allergens);
+  if (stillLost.length) {
+    throw new Error(`allergens lost after the repair: ${stillLost.join(', ')}`);
+  }
   const unmatched = composed.ingredients.flatMap((line) =>
     line.catalogIngredientId ? [] : [line.name],
   );
@@ -257,9 +293,9 @@ async function repriseMeal(
   const columns = compositionColumns(composed);
   // R18: the recipe a version keeps changed (its lines as stored, or its storage), so
   // the next "Prête" save or confirmation cuts a version of it; until then bookings
-  // pin the last one, legacy units and unlinked lines included. Compared as stored, not as `readLines`
-  // reads them: the reprise exists to get the new format into a version. A write of
-  // the allergen columns alone leaves the flag as it is.
+  // pin the last one, legacy units and unlinked lines included. Compared as stored,
+  // not as `readLines` reads them: the reprise exists to get the new format into a
+  // version. A write of the allergen columns alone leaves the flag as it is.
   const contentChanged =
     storageChanged || !sameContent(row.ingredients, columns.ingredients);
   if (!dryRun) {
@@ -324,6 +360,7 @@ async function repriseMeal(
     unverified,
     told: toldNow,
     unmatched,
+    dropped: reprised.dropped,
   };
 }
 
@@ -360,12 +397,20 @@ export async function runReprise(
     changed: 0,
     unchanged: 0,
     skipped: [],
+    gone: 0,
     failed: [],
+    dropped: { total: 0, meals: [], examples: [] },
     chefs: [],
     unmatched: [],
     unmatchedNames: 0,
     notifications: { recipesMigrated: 0, allergensChanged: 0 },
-    emails: { recipesMigrated: 0, allergensChanged: 0, sent: 0, notSent: 0 },
+    emails: {
+      recipesMigrated: 0,
+      allergensChanged: 0,
+      sent: 0,
+      notSent: 0,
+      failures: [],
+    },
   };
   const tallies = new Map<string, ChefTally & { owner: Owner | null }>();
   const told = new Set<string>();
@@ -388,7 +433,10 @@ export async function runReprise(
       }
       continue;
     }
-    if (outcome.kind === 'gone') continue;
+    if (outcome.kind === 'gone') {
+      report.gone += 1;
+      continue;
+    }
 
     for (const name of outcome.unmatched) {
       const key = matchKey(name);
@@ -402,6 +450,15 @@ export async function runReprise(
     }
 
     report.changed += 1;
+    if (outcome.dropped.length) {
+      report.dropped.total += outcome.dropped.length;
+      report.dropped.meals.push({ id, count: outcome.dropped.length });
+      for (const entry of outcome.dropped) {
+        if (report.dropped.examples.length < DROPPED_SHOWN) {
+          report.dropped.examples.push({ id, json: droppedJson(entry) });
+        }
+      }
+    }
     const owner = outcome.owner;
     const key = owner?.id ?? '';
     const tally = tallies.get(key) ?? {
@@ -458,44 +515,68 @@ async function tellChefs(
   mailer: RepriseMailer,
   report: RepriseReport,
 ): Promise<void> {
-  const mails: (() => Promise<{ sent: boolean }>)[] = [];
+  const mails: {
+    send: () => Promise<{ sent: boolean }>;
+    chefProfileId: string;
+    email: string;
+    kind: string;
+  }[] = [];
   for (const tally of tallies) {
     const owner = tally.owner;
     if (!owner) continue;
     const to = { email: owner.user.email, name: owner.user.fullName };
     if (tally.told === 'now') {
       report.emails.recipesMigrated += 1;
-      mails.push(() =>
-        mailer.recipesMigrated({
-          ...to,
-          dishCount: tally.dishesChanged,
-          linesToVerify: tally.linesToVerify,
-        }),
-      );
+      mails.push({
+        chefProfileId: owner.id,
+        email: owner.user.email,
+        kind: 'recipes migrated',
+        send: () =>
+          mailer.recipesMigrated({
+            ...to,
+            dishCount: tally.dishesChanged,
+            linesToVerify: tally.linesToVerify,
+          }),
+      });
     }
     if (tally.verificationsCleared > 0) {
       report.emails.allergensChanged += 1;
-      mails.push(() =>
-        mailer.recipeAllergensChanged({ ...to, dishCount: tally.verificationsCleared }),
-      );
+      mails.push({
+        chefProfileId: owner.id,
+        email: owner.user.email,
+        kind: 'allergens changed',
+        send: () =>
+          mailer.recipeAllergensChanged({ ...to, dishCount: tally.verificationsCleared }),
+      });
     }
   }
   if (report.dryRun) return;
 
   for (let start = 0; start < mails.length; start += MAIL_BATCH) {
+    const batch = mails.slice(start, start + MAIL_BATCH);
     const results = await Promise.all(
-      mails.slice(start, start + MAIL_BATCH).map((send) =>
+      batch.map(({ send }) =>
         send().then(
           (result) => result.sent,
           () => false,
         ),
       ),
     );
-    for (const sent of results) {
-      if (sent) report.emails.sent += 1;
-      else report.emails.notSent += 1;
-    }
+    results.forEach((sent, i) => {
+      if (sent) {
+        report.emails.sent += 1;
+      } else {
+        report.emails.notSent += 1;
+        const { chefProfileId, email, kind } = batch[i];
+        report.emails.failures.push({ chefProfileId, email, kind });
+      }
+    });
   }
+}
+
+/** The script's exit code: 1 when a meal failed or an e-mail did not go out. */
+export function exitCodeOf(report: RepriseReport): 0 | 1 {
+  return report.failed.length > 0 || report.emails.notSent > 0 ? 1 : 0;
 }
 
 /**
@@ -526,8 +607,20 @@ export function formatReport(report: RepriseReport): string[] {
   lines.push(
     `Meals: ${report.meals} read, ${report.changed} ${would('changed', 'would change')}, ` +
       `${report.unchanged} already up to date, ${report.skipped.length} skipped ` +
-      `(saved meanwhile), ${report.failed.length} failed`,
+      `(saved meanwhile), ${report.gone} deleted meanwhile, ${report.failed.length} failed`,
   );
+
+  lines.push('');
+  const { dropped } = report;
+  lines.push(
+    `Stored entries that are not lines, ${would('dropped', 'that would be dropped')}: ` +
+      `${dropped.total} stored entries in ${dropped.meals.length} meals`,
+  );
+  for (const m of dropped.meals) lines.push(`  ${m.id}: ${m.count}`);
+  if (dropped.examples.length) {
+    lines.push(`  Examples (${dropped.examples.length} of ${dropped.total}):`);
+    for (const e of dropped.examples) lines.push(`    ${e.id}: ${e.json}`);
+  }
 
   lines.push('');
   lines.push('Per chef:');
@@ -575,6 +668,13 @@ export function formatReport(report: RepriseReport): string[] {
       would(` (${e.sent} sent, ${e.notSent} not sent: see the warnings above)`, ''),
   );
 
+  if (e.failures.length) {
+    lines.push('');
+    lines.push('E-mails not sent (follow up with these chefs):');
+    for (const f of e.failures) {
+      lines.push(`  ${f.chefProfileId}  ${f.email}  (${f.kind})`);
+    }
+  }
   if (report.skipped.length) {
     lines.push('');
     lines.push('Skipped, saved meanwhile (run again to pick them up):');

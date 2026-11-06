@@ -1,7 +1,9 @@
 import { MealStatus, Prisma } from '../../generated/prisma/client';
+import * as service from './dishes.service';
 import { dishRow, entryRow } from './dishes.test-helpers';
 import { missingAllergens } from './domain/reprise.rules';
 import {
+  exitCodeOf,
   formatReport,
   RepriseDb,
   RepriseMailer,
@@ -10,6 +12,7 @@ import {
 } from './reprise.runner';
 
 type Entry = ReturnType<typeof entryRow> & {
+  createdAt?: Date;
   aliases: string[];
   normalizedName: string | null;
 };
@@ -562,6 +565,7 @@ describe('runReprise (Recettes §9)', () => {
       recipesMigrated: 2,
       allergensChanged: 1,
       sent: 3,
+      failures: [],
       notSent: 0,
     });
     expect(report.notifications).toEqual({ recipesMigrated: 2, allergensChanged: 1 });
@@ -772,6 +776,195 @@ describe('runReprise (Recettes §9)', () => {
     expect(byId.get('cat-cerise')).toBe('tomate cerise');
     expect(byId.get('cat-private')).toBe('tomate');
     expect(byId.get('cat-tomate-2')).toBeNull();
+  });
+});
+
+describe('runReprise hardening (Task 20B)', () => {
+  const staleDish = () =>
+    legacy({
+      id: 'dish-stale',
+      ingredients: [
+        {
+          name: 'Beurre',
+          qty: 10,
+          unit: 'g',
+          aisle: 'cremerie',
+          link: null,
+          toVerify: false,
+          fixedQuantity: false,
+          catalogIngredientId: 'cat-beurre',
+          optional: false,
+          precision: null,
+          preparation: null,
+          group: null,
+          hiddenFromClient: false,
+          rawText: null,
+          allergens: ['eggs', 'milk'],
+          incomplete: false,
+        },
+      ],
+      allergens: ['eggs', 'milk'],
+    });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('fails a dish whose repaired composition still misses an allergen, and writes nothing', async () => {
+    const real = service.composeLines;
+    let calls = 0;
+    jest.spyOn(service, 'composeLines').mockImplementation(async (...args) => {
+      const composed = await real(...args);
+      calls += 1;
+      // The repair (second composition) comes back without the allergen it carried.
+      return calls === 2
+        ? { ...composed, state: { ...composed.state, allergens: ['milk'] } }
+        : composed;
+    });
+    const h = database({ meals: [staleDish()] });
+    const report = await run(h);
+
+    expect(calls).toBe(2);
+    expect(report.failed).toEqual([
+      { id: 'dish-stale', error: expect.stringContaining('eggs') },
+    ]);
+    expect(report.changed).toBe(0);
+    expect(h.meal.update).not.toHaveBeenCalled();
+    expect(h.notification.create).not.toHaveBeenCalled();
+    expect(h.meals.get('dish-stale')!.lockVersion).toBe(0);
+    expect(exitCodeOf(report)).toBe(1);
+  });
+
+  it('reports the stored entries that are not lines, per meal and in total, in a dry run too', async () => {
+    const meals = [
+      legacy({
+        id: 'dish-a',
+        ingredients: [{ name: 'Tomates', qty: 1, unit: '' }, { oignons: 2 }, 'Sel'],
+      }),
+      legacy({
+        id: 'dish-b',
+        chefProfileId: 'chef-2',
+        ingredients: [{ name: 'Ail', qty: 1, unit: 'g' }, null],
+      }),
+      legacy({ id: 'dish-c', ingredients: [{ name: 'Ail', qty: 1, unit: 'g' }] }),
+    ];
+    for (const dryRun of [false, true]) {
+      const report = await run(database({ meals }), mailer(), dryRun);
+      expect(report.dropped.total).toBe(3);
+      expect(report.dropped.meals).toEqual([
+        { id: 'dish-a', count: 2 },
+        { id: 'dish-b', count: 1 },
+      ]);
+      expect(report.dropped.examples).toEqual([
+        { id: 'dish-a', json: '{"oignons":2}' },
+        { id: 'dish-a', json: '"Sel"' },
+        { id: 'dish-b', json: 'null' },
+      ]);
+      const text = formatReport(report).join('\n');
+      expect(text).toContain('3 stored entries');
+      expect(text).toContain('dish-a');
+      expect(text).toContain('{"oignons":2}');
+    }
+  });
+
+  it('lists at most 50 examples, each truncated, but counts them all', async () => {
+    const junk = Array.from({ length: 60 }, (_, i) => ({ [`k${i}`]: 'x'.repeat(500) }));
+    const report = await run(
+      database({ meals: [legacy({ id: 'dish-junk', ingredients: junk })] }),
+    );
+    expect(report.dropped.total).toBe(60);
+    expect(report.dropped.meals).toEqual([{ id: 'dish-junk', count: 60 }]);
+    expect(report.dropped.examples).toHaveLength(50);
+    expect(report.dropped.examples[0].json.length).toBeLessThanOrEqual(201);
+    expect(report.dropped.examples[0].json.endsWith('…')).toBe(true);
+  });
+
+  it('reports no dropped entries when every stored entry is a line', async () => {
+    const report = await run(database());
+    expect(report.dropped).toEqual({ total: 0, meals: [], examples: [] });
+  });
+
+  it('lists the chefs an e-mail did not reach, whether Brevo said no or threw', async () => {
+    const h = database();
+    const m = mailer();
+    m.recipesMigrated.mockImplementation(async (input) =>
+      input.email === 'marie@example.com' ? { sent: false } : { sent: true },
+    );
+    m.recipeAllergensChanged.mockRejectedValue(new Error('brevo down'));
+    const report = await run(h, m);
+
+    expect(report.emails.notSent).toBe(2);
+    expect(report.emails.failures).toEqual([
+      { chefProfileId: 'chef-1', email: 'marie@example.com', kind: 'recipes migrated' },
+      { chefProfileId: 'chef-1', email: 'marie@example.com', kind: 'allergens changed' },
+    ]);
+    const text = formatReport(report).join('\n');
+    expect(text).toContain('chef-1');
+    expect(text).toContain('marie@example.com');
+    expect(exitCodeOf(report)).toBe(1);
+  });
+
+  it('lists no e-mail failure in a dry run or when everything went out', async () => {
+    const dry = await run(database(), mailer(), true);
+    expect(dry.emails.failures).toEqual([]);
+    const sent = await run(database());
+    expect(sent.emails.failures).toEqual([]);
+    expect(exitCodeOf(sent)).toBe(0);
+    expect(exitCodeOf(dry)).toBe(0);
+  });
+
+  it('exits 1 for a failed meal, 0 for skipped meals alone', async () => {
+    const h = database();
+    h.meal.update.mockRejectedValueOnce(new Error('connection reset'));
+    expect(exitCodeOf(await run(h))).toBe(1);
+
+    const base = await run(database());
+    expect(exitCodeOf({ ...base, skipped: ['x'] })).toBe(0);
+  });
+
+  it('counts a dish deleted meanwhile in its own bucket, so the totals add up', async () => {
+    const h = database();
+    const read = h.meal.findUnique.getMockImplementation()!;
+    h.meal.findUnique.mockImplementation(async (args) =>
+      args.where.id === 'dish-3' ? null : read(args),
+    );
+    const report = await run(h);
+
+    expect(report.gone).toBe(1);
+    expect(
+      report.changed +
+        report.unchanged +
+        report.skipped.length +
+        report.failed.length +
+        report.gone,
+    ).toBe(report.meals);
+    expect(formatReport(report).join('\n')).toContain('1 deleted meanwhile');
+  });
+
+  it('gives a name two entries claim to the active one, then to the older', async () => {
+    const entries = [
+      entry({
+        id: 'cat-old-inactive',
+        name: 'Sel fin',
+        status: 'inactive',
+        createdAt: new Date('2026-01-01'),
+      }),
+      entry({ id: 'cat-new-active', name: 'SEL FIN', createdAt: new Date('2026-06-01') }),
+      entry({
+        id: 'cat-older-active',
+        name: 'sel  fin',
+        createdAt: new Date('2026-03-01'),
+      }),
+    ];
+    const h = database({ entries });
+    const report = await run(h);
+
+    const byId = new Map(h.entries.map((e) => [e.id, e.normalizedName]));
+    expect(byId.get('cat-older-active')).toBe('sel fin');
+    expect(byId.get('cat-new-active')).toBeNull();
+    expect(byId.get('cat-old-inactive')).toBeNull();
+    expect(report.names.conflicts.map((c) => c.id)).toEqual([
+      'cat-new-active',
+      'cat-old-inactive',
+    ]);
   });
 });
 

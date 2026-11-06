@@ -173,6 +173,52 @@ describe('repriseLine (Recettes §9)', () => {
     });
   });
 
+  it('sends a linked line whose quantity cannot be read to verification, with the original words', () => {
+    for (const qty of ['1/2', '1,5']) {
+      expect(repriseLine({ name: 'Beurre doux', qty, unit: 'g' }, INDEX)).toMatchObject({
+        catalogIngredientId: 'cat-beurre',
+        toVerify: true,
+        qty: null,
+        unit: 'g',
+        rawText: `${qty} g Beurre doux`,
+      });
+    }
+  });
+
+  it('sends an unlinked line whose quantity cannot be read to verification too', () => {
+    expect(
+      repriseLine({ name: 'Citron vert', qty: '1/2', unit: 'g' }, INDEX),
+    ).toMatchObject({
+      catalogIngredientId: null,
+      toVerify: true,
+      qty: null,
+      rawText: '1/2 g Citron vert',
+    });
+  });
+
+  it('does not flag a linked line whose quantity is readable, or « to taste »', () => {
+    expect(repriseLine({ name: 'Tomates', qty: '4', unit: 'g' }, INDEX)).toMatchObject({
+      toVerify: false,
+      qty: 4,
+      rawText: null,
+    });
+    expect(
+      repriseLine({ name: 'Basilic', qty: null, unit: 'to_taste' }, INDEX),
+    ).toMatchObject({ toVerify: false, qty: null, rawText: null });
+    expect(
+      repriseLine({ name: 'Basilic', qty: 'au goût', unit: 'to_taste' }, INDEX),
+    ).toMatchObject({ toVerify: false, rawText: null });
+  });
+
+  it('reads the original rawText, not the one a unit conversion rebuilt', () => {
+    expect(
+      repriseLine(
+        { name: 'Basilic', qty: 1, unit: 'poignée', rawText: 'une belle poignée' },
+        INDEX,
+      ),
+    ).toMatchObject({ toVerify: true, unit: null, rawText: 'une belle poignée' });
+  });
+
   it('keeps the original words an unlinked line already has', () => {
     expect(
       repriseLine(
@@ -261,6 +307,25 @@ describe('repriseDish (Recettes §9)', () => {
       'Huile de noix',
     ]);
     expect(result.linesToVerify).toBe(2);
+  });
+
+  it('returns the stored entries it drops, as they were', () => {
+    const result = repriseDish(
+      dish({
+        ingredients: [
+          { name: 'Tomates', qty: 3, unit: '' },
+          { oignons: 2 },
+          'Sel',
+          null,
+          { name: '  ' },
+          7,
+        ],
+      }),
+      INDEX,
+    );
+    expect(result.lines).toHaveLength(1);
+    expect(result.dropped).toEqual([{ oignons: 2 }, 'Sel', null, { name: '  ' }, 7]);
+    expect(repriseDish(dish({ ingredients: [] }), INDEX).dropped).toEqual([]);
   });
 
   it('hides a basic from the client unless the line said otherwise (§5.2, is_basic)', () => {

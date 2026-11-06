@@ -28,7 +28,11 @@ import { configLoader } from '../src/config/config.loader';
 import { loadRepoEnv } from '../src/config/env-files';
 import { BrevoService } from '../src/integrations/brevo.service';
 import { DishesMailer } from '../src/modules/dishes/dishes.mailer';
-import { formatReport, runReprise } from '../src/modules/dishes/reprise.runner';
+import {
+  exitCodeOf,
+  formatReport,
+  runReprise,
+} from '../src/modules/dishes/reprise.runner';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
 
 loadRepoEnv();
@@ -115,6 +119,8 @@ async function main(): Promise<void> {
   console.log('');
   for (const line of formatReport(report))
     console.log(`${dryRun ? '[dry-run] ' : ''}${line}`);
+  // A failed meal or an e-mail that did not go out: the operator must look.
+  process.exitCode = exitCodeOf(report);
 }
 
 async function shutdown(): Promise<void> {
