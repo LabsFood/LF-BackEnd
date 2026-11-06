@@ -1334,6 +1334,78 @@ describe('DishesService', () => {
       expect(data).not.toHaveProperty('reviewReason');
       expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
     });
+
+    describe('freezable, unanswered stays unanswered (R20)', () => {
+      const UNANSWERED = { method: 'fridge', days: 3 };
+      const storedUnanswered = {
+        method: 'fridge',
+        days: 3,
+        container: null,
+        freezerMonths: null,
+        thawing: null,
+      };
+
+      it('stores no freezable key when none is sent, and readiness still asks', async () => {
+        const h = harness();
+        withEntries(h, READY_ENTRIES);
+        stored(h, readyDishRow({ versionPending: false }));
+
+        await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+          lockVersion: 0,
+          recipe: { ...READY_RECIPE, storage: UNANSWERED },
+        });
+
+        const { data } = h.meal.update.mock.calls[0][0];
+        expect(data.storage).toEqual(storedUnanswered);
+        expect(data.storage).not.toHaveProperty('freezable');
+        const result = readiness({ ...readyDishRow(), storage: data.storage } as never);
+        expect(result.problems.map((p) => p.field)).toContain('recipe.storage.freezable');
+      });
+
+      it('stores freezable false as false', async () => {
+        const h = harness();
+        withEntries(h, READY_ENTRIES);
+        stored(h, readyDishRow());
+
+        await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+          lockVersion: 0,
+          recipe: { ...READY_RECIPE, storage: { ...UNANSWERED, freezable: false } },
+        });
+
+        const { data } = h.meal.update.mock.calls[0][0];
+        expect(data.storage).toMatchObject({ freezable: false });
+      });
+
+      it('changes nothing when the same storage is saved again without freezable', async () => {
+        const h = harness();
+        withEntries(h, READY_ENTRIES);
+        stored(h, readyDishRow({ storage: storedUnanswered }));
+
+        await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+          lockVersion: 0,
+          recipe: { ...READY_RECIPE, storage: UNANSWERED },
+        });
+
+        const { data } = h.meal.update.mock.calls[0][0];
+        expect(data).not.toHaveProperty('versionPending');
+        expect(data).not.toHaveProperty('allergensVerifiedAt');
+        expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
+      });
+
+      it('still reports months and thawing for freezable true without them', () => {
+        const result = readiness({
+          ...readyDishRow(),
+          storage: { method: 'fridge', days: 3, freezable: true },
+        } as never);
+        const fields = result.problems.map((p) => p.field);
+        expect(fields).toEqual(
+          expect.arrayContaining([
+            'recipe.storage.freezerMonths',
+            'recipe.storage.thawing',
+          ]),
+        );
+      });
+    });
   });
 
   describe('moderation of a recipe change (§3.2)', () => {

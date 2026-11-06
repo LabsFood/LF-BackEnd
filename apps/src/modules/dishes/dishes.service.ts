@@ -859,7 +859,8 @@ export const toStorageJson = (storage?: StorageDto | null) =>
         method: storage.method,
         days: storage.days,
         container: storage.container ?? null,
-        freezable: storage.freezable ?? false,
+        // R20: stored only when answered; absent stays "not answered yet" (§5.3).
+        ...(typeof storage.freezable === 'boolean' && { freezable: storage.freezable }),
         freezerMonths: storage.freezerMonths ?? null,
         thawing: storage.thawing ?? null,
       }

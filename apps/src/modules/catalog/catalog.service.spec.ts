@@ -172,6 +172,34 @@ describe('CatalogService', () => {
       expect(data.isFeatured).toBeUndefined();
     });
 
+    it('stores no freezable key when none is sent, and freezable false as false (R20)', async () => {
+      await service.createMeal(
+        { name: 'Mafé', prepTime: 90, storage: { method: 'fridge', days: 3 } },
+        ADMIN_ID,
+      );
+      await service.createMeal(
+        {
+          name: 'Mafé',
+          prepTime: 90,
+          storage: { method: 'fridge', days: 3, freezable: false },
+        },
+        ADMIN_ID,
+      );
+
+      const first = meal.create.mock.calls[0][0].data.storage;
+      expect(first).toEqual({
+        method: 'fridge',
+        days: 3,
+        container: null,
+        freezerMonths: null,
+        thawing: null,
+      });
+      expect(first).not.toHaveProperty('freezable');
+      expect(meal.create.mock.calls[1][0].data.storage).toMatchObject({
+        freezable: false,
+      });
+    });
+
     it('records the admin as author and never sets an owner', async () => {
       await service.createMeal({ name: 'Mafé', prepTime: 90 }, ADMIN_ID);
 
