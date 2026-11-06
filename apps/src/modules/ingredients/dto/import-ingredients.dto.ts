@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+
+import { Raw } from '../../../common/dto/strict';
 
 /** Recettes §7.4: about 2 MB of text. */
 export const IMPORT_MAX_CHARACTERS = 2_000_000;
@@ -17,6 +18,7 @@ export class ImportIngredientsDto {
       'nom;autres_noms;rayon;allergenes;aucun_allergene;regimes;mois;base;doute\n' +
       'Tomate;pomme d’amour;fruits-legumes;;oui;vegan|gluten-free;6|7|8|9;non;',
   })
+  @Raw()
   @IsString()
   @MaxLength(IMPORT_MAX_CHARACTERS)
   csv!: string;
@@ -26,8 +28,7 @@ export class ImportIngredientsDto {
     default: false,
   })
   @IsOptional()
-  // The raw value: implicit conversion has already turned "false" into true.
-  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => obj[key])
+  @Raw()
   @IsBoolean()
   confirm?: boolean;
 }

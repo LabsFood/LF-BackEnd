@@ -29,6 +29,7 @@ import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
 } from '../../common/swagger/auth-responses';
+import { Raw } from '../../common/dto/strict';
 import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
 import { PlatformSettingsService } from './platform-settings.service';
@@ -150,11 +151,13 @@ class ListItemDto {
     description: 'Lowercase letters, digits, `-` and `_`. Stored on each dish.',
     example: 'oven',
   })
+  @Raw()
   @IsString()
   @Matches(/^[a-z0-9_-]{1,40}$/)
   code!: string;
 
   @ApiProperty({ maxLength: 60, example: 'Four' })
+  @Raw()
   @Transform(trim)
   @IsString()
   @IsNotEmpty()
@@ -182,7 +185,7 @@ class RecipeProfilesDto {
   profiles!: ListItemDto[];
 }
 
-class AislesDto {
+export class AislesDto {
   @ApiProperty({
     type: [ListItemDto],
     description: 'The whole list in store order, 1 to 30 aisles.',

@@ -6,7 +6,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -35,6 +34,7 @@ import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { ParseVersionPipe } from '../../common/pipes/version-param.pipe';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { DishesService } from './dishes.service';
@@ -232,7 +232,7 @@ export class MeContentController {
   getVersion(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('version', ParseIntPipe) version: number,
+    @Param('version', ParseVersionPipe) version: number,
   ) {
     return this.versions.get(user.userId, id, version);
   }
@@ -271,10 +271,10 @@ export class MeContentController {
   restoreVersion(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('version', ParseIntPipe) version: number,
+    @Param('version', ParseVersionPipe) version: number,
     @Body() payload: RestoreVersionDto,
   ) {
-    return this.versions.restore(user.userId, id, version, payload.lockVersion);
+    return this.versions.restore(user.userId, id, version, payload?.lockVersion);
   }
 
   @Patch('dishes/:id')

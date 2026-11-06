@@ -20,6 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { Raw } from '../../../common/dto/strict';
 import {
   MealContinent,
   MealDifficulty,
@@ -51,6 +52,7 @@ export class CreateMealDto {
     description: 'Display name of the dish.',
     example: 'Poulet yassa',
   })
+  @Raw()
   @IsString()
   @Length(1, 255)
   name!: string;
@@ -61,6 +63,7 @@ export class CreateMealDto {
     example: 'Poulet mariné au citron et aux oignons, riz blanc.',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(2000)
   description?: string;
@@ -70,6 +73,7 @@ export class CreateMealDto {
     description: 'Preparation time in minutes.',
     example: 45,
   })
+  @Raw()
   @IsInt()
   @Min(1)
   prepTime!: number;
@@ -81,6 +85,7 @@ export class CreateMealDto {
     example: ['halal'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(DIET_CODES, { each: true })
   dietaryTags?: string[];
@@ -91,6 +96,7 @@ export class CreateMealDto {
     example: [],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -109,6 +115,7 @@ export class CreateMealDto {
     example: ['celery'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(14)
   @ArrayUnique()
@@ -121,6 +128,7 @@ export class CreateMealDto {
     example: [],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -147,6 +155,7 @@ export class CreateMealDto {
     example: 'main',
   })
   @IsOptional()
+  @Raw()
   @IsIn(DISH_CATEGORY_CODES)
   category?: string | null;
 
@@ -156,6 +165,7 @@ export class CreateMealDto {
     example: 30,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   cookTime?: number | null;
@@ -182,6 +192,7 @@ export class CreateMealDto {
       'https://your-project-ref.supabase.co/storage/v1/object/public/meal-images/poulet-yassa.jpg',
   })
   @IsOptional()
+  @Raw()
   @IsUrl({
     protocols: ['http', 'https'],
     require_protocol: true,
@@ -195,6 +206,7 @@ export class CreateMealDto {
     example: MealContinent.africa,
   })
   @IsOptional()
+  @Raw()
   @IsEnum(MealContinent)
   continent?: MealContinent | null;
 
@@ -205,6 +217,7 @@ export class CreateMealDto {
     example: 'SN',
   })
   @IsOptional()
+  @Raw()
   @IsISO31661Alpha2()
   country?: string | null;
 
@@ -215,6 +228,7 @@ export class CreateMealDto {
     example: 4,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(1)
   portions?: number;
@@ -225,6 +239,7 @@ export class CreateMealDto {
     example: 620,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   calories?: number | null;
@@ -235,6 +250,7 @@ export class CreateMealDto {
     example: MealDifficulty.medium,
   })
   @IsOptional()
+  @Raw()
   @IsEnum(MealDifficulty)
   difficulty?: MealDifficulty | null;
 
@@ -255,6 +271,7 @@ export class CreateMealDto {
     description: 'Recettes §4.8: the diets declared, not computable (halal, kosher).',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(['halal', 'kosher'], { each: true })
   declaredDiets?: string[];
@@ -264,6 +281,7 @@ export class CreateMealDto {
     description: 'Codes from `GET /referentials/recipe-profiles`.',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -275,6 +293,7 @@ export class CreateMealDto {
     description: 'Months in season set instead of the computed ones; `[]` for none.',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(12)
   @IsInt({ each: true })
@@ -288,6 +307,7 @@ export class CreateMealDto {
     example: ['Cocotte en fonte'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
@@ -300,6 +320,7 @@ export class CreateMealDto {
     example: false,
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   isFeatured?: boolean;
 
@@ -311,6 +332,7 @@ export class CreateMealDto {
   })
   @IsOptional()
   // Not `suspended`: that one is for moderating a batch cooker's dish.
+  @Raw()
   @IsIn(MEAL_STATUSES)
   status?: MealStatus;
 }

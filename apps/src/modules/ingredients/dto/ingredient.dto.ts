@@ -17,6 +17,7 @@ import {
 
 import { oneLine } from '../../../common/dto/clean-text';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
+import { Raw } from '../../../common/dto/strict';
 import { QueryBoolean } from '../../../common/dto/query-boolean';
 import { ALLERGEN_CODES, COMPUTED_DIET_CODES } from '../../dishes/domain/dishes.rules';
 
@@ -32,6 +33,7 @@ export const CATALOG_STATUSES = ['active', 'inactive', 'pending', 'merged'] as c
 /** One entry of the common ingredient list (Recettes §4.10 / §5.1). */
 export class CatalogIngredientDto {
   @ApiProperty({ maxLength: 120, example: 'Tomate' })
+  @Raw()
   @Transform(oneLine)
   @IsString()
   @Length(1, 120)
@@ -44,6 +46,7 @@ export class CatalogIngredientDto {
     example: ['pomme d’amour'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(20)
   @Transform(eachOneLine)
@@ -59,6 +62,7 @@ export class CatalogIngredientDto {
     example: ['vegetarian', 'vegan', 'no-pork', 'gluten-free', 'lactose-free'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(COMPUTED_DIET_CODES, { each: true })
   diets?: string[];
@@ -69,6 +73,7 @@ export class CatalogIngredientDto {
     example: [6, 7, 8, 9],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(12)
   @ArrayUnique()
@@ -84,6 +89,7 @@ export class CatalogIngredientDto {
     example: 'fruits-legumes',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @Length(1, 60)
   aisle?: string;
@@ -96,6 +102,7 @@ export class CatalogIngredientDto {
     example: ['gluten'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayUnique()
   @IsIn(ALLERGEN_CODES, { each: true })
@@ -107,6 +114,7 @@ export class CatalogIngredientDto {
     example: true,
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   allergensNone?: boolean;
 
@@ -115,6 +123,7 @@ export class CatalogIngredientDto {
     example: false,
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   isBasic?: boolean;
 }
@@ -125,6 +134,7 @@ export class UpdateCatalogIngredientDto extends PartialType(CatalogIngredientDto
     description: 'Only for a common entry: a chef’s private entry answers `422`.',
   })
   @IsOptional()
+  @Raw()
   @IsIn(['active', 'inactive'])
   status?: 'active' | 'inactive';
 }

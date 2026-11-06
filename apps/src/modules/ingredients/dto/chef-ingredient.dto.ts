@@ -1,6 +1,6 @@
 import { ApiProperty, OmitType, PartialType } from '@nestjs/swagger';
 import { IsString, Length } from 'class-validator';
-
+import { Raw } from '../../../common/dto/strict';
 import { CatalogIngredientDto } from './ingredient.dto';
 
 /**
@@ -18,6 +18,7 @@ export class ChefIngredientDto extends OmitType(CatalogIngredientDto, [
       'The supermarket aisle: a code of the list in force. `422` when it is not in it.',
     example: 'epicerie',
   })
+  @Raw()
   @IsString()
   @Length(1, 60)
   aisle!: string;
