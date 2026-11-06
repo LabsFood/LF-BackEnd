@@ -151,7 +151,7 @@ Des fonctions sans accès à la base, dans `modules/dishes/domain/`, avec un tes
 - `allergens` = union des allergènes des ingrédients de toutes les lignes reliées (de base, cachées et facultatives comprises), plus `added_allergens`.
 - `conditional_allergens` = les allergènes apportés seulement par des lignes facultatives, et pas ajoutés par le chef. Ils restent dans `allergens` : le contrôle des allergies du client les compte.
 - `allergens_none` = vrai seulement si chaque ligne est reliée à un ingrédient dont les allergènes sont renseignés, et que `allergens` et `custom_allergens` sont vides.
-- Une ligne non reliée, ou reliée à un ingrédient « à compléter », n'apporte rien. Elle empêche « Prête » et la confirmation des allergènes.
+- Une ligne non reliée n'apporte rien. Une ligne reliée apporte toujours les allergènes que son ingrédient porte, même « à compléter » : l'ingrédient peut n'y manquer que le rayon, et les ignorer sous-déclarerait. Une ligne non reliée, un ingrédient « à compléter » ou un code d'allergène inconnu rendent seulement l'état incomplet : le code inconnu est gardé, après ceux de l'annexe. Un état incomplet empêche « Prête » et la confirmation des allergènes.
 - Le chef ne peut pas retirer un allergène calculé : l'API n'accepte en écriture que `addedAllergens` et `customAllergens`.
 - La vue d'un plat renvoie aussi, pour chaque allergène, les ingrédients qui l'apportent (« Lait : beurre, crème »).
 
@@ -441,6 +441,7 @@ Lien avec le lot 3 (« Menu figé et conservation ») : le figement des allergè
 7. Au moins un mode de réchauffage exigé pour être « Prête ».
 8. Origine culinaire facultative, et non contrôlée au §4.11.
 9. Seuil d'alerte de conservation fixé à 4 jours dans le code, pas réglable.
+10. Une ligne reliée à un ingrédient « à compléter » apporte ses allergènes (§6.1), au lieu de « n'apporter rien » : seul l'état devient incomplet, comme pour un code d'allergène inconnu.
 
 Trous du document à faire compléter par LAB'S FOOD :
 

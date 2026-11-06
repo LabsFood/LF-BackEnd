@@ -166,7 +166,7 @@ export function declarationProblems(state: DeclarationState): string[] {
   for (const value of state.customAllergens) {
     if (duplicatesReference(value, ALLERGENS)) {
       problems.push(
-        `"${value}" is a regulated allergen: tick it in \`allergens\` instead.`,
+        `"${value}" is a regulated allergen: tick it in \`addedAllergens\` instead.`,
       );
     }
   }

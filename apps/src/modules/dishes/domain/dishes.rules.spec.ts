@@ -347,6 +347,11 @@ describe('declarationProblems', () => {
     expect(declarationProblems({ ...clean, customAllergens: ['oeufs'] })).toHaveLength(1);
   });
 
+  it('points the chef to addedAllergens, the field the API accepts', () => {
+    const [message] = declarationProblems({ ...clean, customAllergens: ['Gluten'] });
+    expect(message).toContain('`addedAllergens`');
+  });
+
   it('refuses a listed diet typed as free text', () => {
     expect(declarationProblems({ ...clean, customDiets: ['Sans gluten'] })).toHaveLength(
       1,
