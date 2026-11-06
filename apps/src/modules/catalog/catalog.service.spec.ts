@@ -544,6 +544,23 @@ describe('CatalogService', () => {
       expect(suggestions.flagCopies).not.toHaveBeenCalled();
     });
 
+    it('keeps an unknown allergen code an admin save does not send (ruling R22)', async () => {
+      const legacy = storedMeal({
+        allergens: ['arachide'],
+        addedAllergens: ['arachide'],
+      });
+      meal.findFirst.mockResolvedValueOnce(legacy);
+      meal.update.mockResolvedValueOnce(legacy);
+
+      await service.updateMeal('meal-1', { addedAllergens: [] }, ADMIN_ID);
+
+      const { data } = meal.update.mock.calls[0][0];
+      expect(data).toMatchObject({
+        allergens: ['arachide'],
+        addedAllergens: ['arachide'],
+      });
+    });
+
     it('leaves copies alone when carrying a hand-declared allergen changes nothing', async () => {
       const legacy = storedMeal({ allergens: ['milk'] });
       meal.findFirst.mockResolvedValueOnce(legacy);

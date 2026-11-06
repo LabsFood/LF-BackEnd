@@ -696,6 +696,8 @@ export async function composeLines(
   const addedAllergens = inAnnexOrder([
     ...(payload.addedAllergens ?? current?.addedAllergens ?? []),
     ...(current ? legacyDeclaredAllergens(current) : []),
+    // Ruling R22: a code outside the 14 is sticky, a save neither adds nor removes it.
+    ...(current?.addedAllergens ?? []).filter((code) => !ALLERGEN_CODES.includes(code)),
   ]);
   const customAllergens = payload.customAllergens ?? current?.customAllergens ?? [];
   const composed = await compositionOf(db, lines, { addedAllergens, customAllergens });

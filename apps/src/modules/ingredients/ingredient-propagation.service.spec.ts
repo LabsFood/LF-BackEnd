@@ -772,6 +772,33 @@ describe('IngredientPropagationService.propagate (Recettes §7.3)', () => {
     expect(h.notifications.notify).not.toHaveBeenCalled();
   });
 
+  // Ruling R22: an unknown code already added stays through a recomputation.
+  it('keeps an unknown allergen code of a row, as added', async () => {
+    const tomato = entryRow({ id: 'cat-tomate', name: 'Tomate' });
+    const row = {
+      chefProfile: MARIE,
+      ...dishRow({
+        ingredients: [
+          { name: 'tomates', qty: 2, unit: 'kg', catalogIngredientId: 'cat-tomate' },
+        ],
+        allergens: ['arachide'],
+        allergensNone: false,
+        addedAllergens: ['arachide'],
+        status: MealStatus.published,
+        allergensVerifiedAt: VERIFIED_AT,
+        lockVersion: 4,
+      }),
+    } as Dish;
+    const h = harness([tomato], [row]);
+
+    await h.service.propagate(['cat-tomate'], ADMIN);
+
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['arachide'],
+      addedAllergens: ['arachide'],
+    });
+  });
+
   it('drops an allergen the entry no longer has, and asks the chef to verify again', async () => {
     const butter = { ...BUTTER, ...WITH_MILK };
     const h = harness(

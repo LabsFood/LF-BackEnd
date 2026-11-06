@@ -1546,6 +1546,40 @@ describe('DishesService', () => {
       expect(data.allergens).toEqual(['milk', 'mustard']);
     });
 
+    // Ruling R22: a code outside the 14 can be neither added nor removed by a chef.
+    it('keeps an unknown code a chef save cannot send back (ruling R22)', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(
+        legacy({ allergens: ['arachide'], addedAllergens: ['arachide'] }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: [],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.addedAllergens).toEqual(['arachide']);
+      expect(data.allergens).toEqual(['arachide']);
+    });
+
+    it('still removes a known code the chef unticks, beside a sticky unknown one', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(
+        legacy({
+          allergens: ['celery', 'arachide'],
+          addedAllergens: ['celery', 'arachide'],
+        }),
+      );
+
+      await new DishesService(h.prisma, h.access).update('clerk_1', 'dish-1', {
+        addedAllergens: ['mustard'],
+      });
+
+      const { data } = h.meal.update.mock.calls[0][0];
+      expect(data.addedAllergens).toEqual(['mustard', 'arachide']);
+      expect(data.allergens).toEqual(['mustard', 'arachide']);
+    });
+
     it('drops milk with the butter line once it was computed (not carried)', async () => {
       const h = harness();
       withEntries(h, [...READY_ENTRIES, BEURRE]);
