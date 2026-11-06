@@ -36,6 +36,7 @@ Monolithic **NestJS** API (REST + OpenAPI/Swagger), containerised with Docker, s
 | Email          | [Brevo](https://www.brevo.com/)                                                                                                              | Transactional notifications                     |
 | Maps           | Google Maps API                                                                                                                              | Key configured (`GOOGLE_MAPS_API_KEY`), not used yet |
 | Object storage | [Cloudflare R2](https://developers.cloudflare.com/r2/) (public, S3-compatible) for photos; Supabase Storage (private) for documents | Dish, menu and profile photos (no egress fee); chef KYC documents and message attachments |
+| Error tracking | [Sentry](https://sentry.io/) (EU region)                                                                                                       | Every `error` log line, traces at 10 %, the daily dossier cron monitor: `apps/src/instrument.ts`, `docs/deploy/railway.md` §4b |
 | Hosting        | Railway                                                                                                                                      | API container (Postgres on Supabase; Redis plugin once the API runs on more than one instance) |
 
 ## Domain naming (resolved)

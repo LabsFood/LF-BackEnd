@@ -147,6 +147,11 @@ export const envValidationSchema = Joi.object({
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
     .optional(),
   LOG_JSON: Joi.boolean().truthy('true').falsy('false').optional(),
+  /** Error reporting (src/instrument.ts). Unset = Sentry off. A typo fails startup here. */
+  SENTRY_DSN: Joi.string()
+    .uri({ scheme: ['https'] })
+    .allow('')
+    .optional(),
 
   /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),
