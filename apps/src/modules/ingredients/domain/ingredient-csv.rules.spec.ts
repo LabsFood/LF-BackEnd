@@ -137,4 +137,52 @@ describe('parseIngredientCsv (Recettes §7.4)', () => {
     const { rows } = parse(HEADER, 'To\u0007mate;;epicerie;;oui;;;;');
     expect(rows[0].name).toBe('Tomate');
   });
+
+  describe('strictness (Task 20A)', () => {
+    it.each([
+      ['"Sel"fin;;epicerie;;oui;;;;', 'caractère inattendu après un guillemet fermant'],
+      ['"Sel" ;;epicerie;;oui;;;;', 'caractère inattendu après un guillemet fermant'],
+      ['Sel;"a"b;epicerie;;oui;;;;', 'caractère inattendu après un guillemet fermant'],
+    ])('refuses text after a closing quote: %s', (line, message) => {
+      const { rows, errors } = parse(HEADER, line);
+      expect(rows).toEqual([]);
+      expect(errors).toEqual([{ line: 2, message: expect.stringContaining(message) }]);
+    });
+
+    it('still accepts a closing quote before the separator, a line end or the end', () => {
+      const { rows, errors } = parse(
+        HEADER,
+        '"Sel";"x";epicerie;;oui;;;;"a"',
+        'Poivre;;epicerie;;oui;;;;"b"',
+      );
+      expect(errors).toEqual([]);
+      expect(rows.map((r) => r.name)).toEqual(['Sel', 'Poivre']);
+    });
+
+    it('refuses text after a closing quote in the header', () => {
+      const { rows, errors } = parseIngredientCsv('"nom"x;rayon', AISLES);
+      expect(rows).toEqual([]);
+      expect(errors[0].line).toBe(1);
+    });
+
+    it('keeps the line numbers right after a quoted cell with a line break', () => {
+      const { rows, errors } = parse(
+        HEADER,
+        '"Sel\nfin";;epicerie;;oui;;;;',
+        'A;;cave;;oui;;;;',
+        'B;;epicerie;;oui;;;;',
+        'C;;cave;;oui;;;;',
+      );
+      expect(rows.map((r) => r.name)).toEqual(['Sel fin', 'B']);
+      expect(errors.map((e) => e.line)).toEqual([4, 6]);
+    });
+
+    it('counts a CRLF inside a quoted cell as one line break', () => {
+      const text = [HEADER, '"Sel\r\nfin";;epicerie;;oui;;;;', 'A;;cave;;oui;;;;'].join(
+        '\r\n',
+      );
+      const { errors } = parseIngredientCsv(text, AISLES);
+      expect(errors.map((e) => e.line)).toEqual([4]);
+    });
+  });
 });

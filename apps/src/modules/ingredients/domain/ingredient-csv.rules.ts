@@ -32,7 +32,11 @@ export interface CsvLineError {
 interface Record_ {
   line: number;
   cells: string[];
+  /** Set when the record is malformed whatever its cells say. */
+  error?: string;
 }
+
+const AFTER_QUOTE = 'caractère inattendu après un guillemet fermant.';
 
 /** Splits the text into records (a quoted cell may hold the separator or a line break). */
 function records(text: string): Record_[] {
@@ -40,13 +44,20 @@ function records(text: string): Record_[] {
   let cells: string[] = [];
   let cell = '';
   let quoted = false;
+  /** The last character read closed a quoted cell: only a separator or a line end may follow. */
+  let closed = false;
+  let error: string | undefined;
   let line = 1;
   let start = 1;
   const endRecord = () => {
     cells.push(cell);
-    if (cells.length > 1 || cells[0].trim() !== '') out.push({ line: start, cells });
+    if (cells.length > 1 || cells[0].trim() !== '') {
+      out.push(error ? { line: start, cells, error } : { line: start, cells });
+    }
     cells = [];
     cell = '';
+    closed = false;
+    error = undefined;
   };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -56,21 +67,24 @@ function records(text: string): Record_[] {
         i++;
       } else if (c === '"') {
         quoted = false;
+        closed = true;
       } else {
         if (c === '\n') line++;
         cell += c;
       }
-    } else if (c === '"' && cell === '') {
+    } else if (c === '"' && cell === '' && !closed) {
       quoted = true;
     } else if (c === ';') {
       cells.push(cell);
       cell = '';
+      closed = false;
     } else if (c === '\n' || c === '\r') {
       if (c === '\r' && text[i + 1] === '\n') i++;
       endRecord();
       line++;
       start = line;
     } else {
+      if (closed) error ??= AFTER_QUOTE;
       cell += c;
     }
   }
@@ -166,6 +180,12 @@ export function parseIngredientCsv(
   if (all.length === 0) {
     return { rows: [], errors: [{ line: 1, message: 'Le fichier est vide.' }] };
   }
+  if (all[0].error) {
+    return {
+      rows: [],
+      errors: [{ line: all[0].line, message: `En-tête: ${all[0].error}` }],
+    };
+  }
   const header = all[0].cells.map((cell) => clean(cell).toLowerCase());
   const missing = CSV_COLUMNS.filter((column) => !header.includes(column));
   const extra = header.filter(
@@ -199,6 +219,7 @@ export function parseIngredientCsv(
   const seen = new Set<string>();
   for (const record of data) {
     try {
+      if (record.error) throw new Error(record.error);
       if (record.cells.length !== header.length) {
         throw new Error(`${record.cells.length} colonnes au lieu de ${header.length}.`);
       }
