@@ -459,14 +459,28 @@ export class MealResponseDto {
   @ApiProperty({
     type: ReheatingDto,
     nullable: true,
-    example: { mode: 'oven', temperature: 160, minutes: 15, note: null },
+    example: {
+      modes: ['oven'],
+      mode: 'oven',
+      temperature: 160,
+      minutes: 15,
+      note: null,
+      container: null,
+    },
   })
   reheating!: unknown;
 
   @ApiProperty({
     type: StorageDto,
     nullable: true,
-    example: { method: 'fridge', days: 3, container: null },
+    example: {
+      method: 'fridge',
+      days: 3,
+      container: null,
+      freezable: false,
+      freezerMonths: null,
+      thawing: null,
+    },
   })
   storage!: unknown;
 

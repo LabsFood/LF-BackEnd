@@ -169,8 +169,9 @@ export class IngredientDto {
   group?: string | null;
 
   @ApiPropertyOptional({
-    default: false,
-    description: 'Kept on the chef’s fiche, left off the client’s.',
+    description:
+      'Kept on the chef’s fiche, left off the client’s. Left out, a line linked to a ' +
+      'basic ingredient (salt, oil) is hidden, any other line shown (Recettes §5.2).',
   })
   @IsOptional()
   @Raw()

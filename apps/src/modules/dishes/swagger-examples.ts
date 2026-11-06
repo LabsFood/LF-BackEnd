@@ -5,23 +5,69 @@
 
 export const DISH_ID = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
 
+/**
+ * A recipe line as a save stores and returns it (Recettes §5.2): every field written,
+ * stamped from the linked ingredient (`aisle`, `allergens`, `incomplete`).
+ */
+const LINE = {
+  link: null,
+  toVerify: false,
+  fixedQuantity: false,
+  optional: false,
+  precision: null,
+  preparation: null,
+  group: null,
+  hiddenFromClient: false,
+  rawText: null,
+  allergens: [] as string[],
+  incomplete: false,
+};
+
 export const RECIPE_EXAMPLE = {
   ingredients: [
     {
+      ...LINE,
       name: 'Poulet fermier entier',
       qty: 1.4,
       unit: 'kg',
       aisle: 'boucherie',
       precision: 'fermier',
-      preparation: null,
-      group: null,
-      optional: false,
-      hiddenFromClient: false,
-      rawText: null,
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c01',
     },
-    { name: 'Pommes de terre grenaille', qty: 800, unit: 'g', aisle: 'fruits-legumes' },
-    { name: 'Ail', qty: 4, unit: 'clove', aisle: 'fruits-legumes' },
-    { name: 'Sel', qty: null, unit: 'to_taste', aisle: 'epicerie' },
+    {
+      ...LINE,
+      name: 'Pommes de terre grenaille',
+      qty: 800,
+      unit: 'g',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c02',
+    },
+    {
+      ...LINE,
+      name: 'Céleri-rave',
+      qty: 300,
+      unit: 'g',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c03',
+      allergens: ['celery'],
+    },
+    {
+      ...LINE,
+      name: 'Ail',
+      qty: 4,
+      unit: 'clove',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c04',
+    },
+    {
+      ...LINE,
+      name: 'Sel',
+      qty: null,
+      unit: 'to_taste',
+      aisle: 'epices',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c05',
+      hiddenFromClient: true,
+    },
   ],
   steps: [
     {
@@ -43,7 +89,14 @@ export const RECIPE_EXAMPLE = {
       durationMinutes: 55,
     },
   ],
-  reheating: { mode: 'oven', temperature: 160, minutes: 15, note: 'Couvrir.' },
+  reheating: {
+    modes: ['oven'],
+    mode: 'oven',
+    temperature: 160,
+    minutes: 15,
+    note: 'Couvrir.',
+    container: null,
+  },
   storage: {
     method: 'fridge',
     days: 3,
