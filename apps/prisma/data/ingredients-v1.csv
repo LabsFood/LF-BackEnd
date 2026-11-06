@@ -84,7 +84,8 @@ Baguette;pain|baguette tradition|pain blanc;boulangerie;gluten;non;vegetarian|ve
 Pain de campagne;pain au levain;boulangerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;seigle souvent présent (gluten aussi), traces de sésame ou de soja selon le fournil
 Pain complet;;boulangerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;graines ajoutées selon le pain, traces de sésame ou de soja selon le fournil
 Pain de mie;pain de mie complet;boulangerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;lait, soja ou sésame selon la marque, émulsifiants parfois d'origine animale
-Pain burger;pain à burger|pain hamburger|bun|buns;boulangerie;gluten|sesame;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;sésame selon le pain, œufs, lait ou soja dans les pains briochés : à vérifier selon la marque
+Pain burger;pain à burger|pain hamburger|bun|buns;boulangerie;gluten|sesame;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;sésame selon le pain, œufs, lait ou soja dans les pains briochés : à vérifier selon la marque, version briochée : voir Pain burger brioché
+Pain burger brioché;pain burger brioché|bun brioché|pain hamburger brioché;boulangerie;gluten|eggs|milk;non;vegetarian|no-pork|pescetarian;;non;sésame selon le pain
 Brioche;brioche tranchée|pain brioché;boulangerie;gluten|eggs|milk;non;vegetarian|no-pork|pescetarian;;non;traces de fruits à coque ou de soja selon la marque
 Tortilla de blé;tortilla|tortillas|wrap|wraps;boulangerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;émulsifiants, lait ou soja possibles selon la marque
 Bœuf haché;viande hachée|steak haché|haché de bœuf;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;viande hachée pure : une préparation de viande hachée peut contenir sulfites, soja ou gluten
@@ -145,7 +146,8 @@ Crème de soja;crème soja|crème végétale soja;cremerie;soy;non;vegetarian|ve
 Tofu nature;tofu|tofu ferme;cremerie;soy;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Pâte feuilletée;pâte feuilletée prête à dérouler;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;matière grasse végétale dans la plupart des marques, lait (pâte pur beurre) ou œufs possibles : à vérifier
 Pâte feuilletée pur beurre;;cremerie;gluten|milk;non;vegetarian|no-pork|pescetarian;;non;œufs possibles selon la marque
-Pâte brisée;pâte à tarte;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;matière grasse végétale dans la plupart des marques, beurre (lait) ou œufs possibles : à vérifier
+Pâte brisée;pâte à tarte;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;matière grasse végétale dans la plupart des marques, beurre (lait) ou œufs possibles : à vérifier, version pur beurre : voir Pâte brisée pur beurre
+Pâte brisée pur beurre;pâte brisée beurre;cremerie;gluten|milk;non;vegetarian|no-pork|pescetarian;;non;
 Pâte à pizza;;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;lait ou soja possibles selon la marque
 Emmental râpé;fromage râpé|gruyère râpé|râpé;fromages;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;présure animale possible : végétarien selon l'usage courant, à trancher pour un végétarien strict, teneur en lactose très faible, antiagglomérant (amidon) selon la marque
 Emmental;;fromages;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;présure animale possible : végétarien selon l'usage courant, à trancher pour un végétarien strict, teneur en lactose très faible
