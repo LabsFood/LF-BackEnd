@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { CalendarModule } from '../calendar/calendar.module';
 import { ChefOnboardingModule } from '../chef-onboarding/chef-onboarding.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 import { UsersModule } from '../users/users.module';
 import { AdminContentController } from './admin-content.controller';
@@ -10,6 +11,7 @@ import { ChefContentService } from './chef-content.service';
 import { ContentPhotosService } from './content-photos.service';
 import { DishesMailer } from './dishes.mailer';
 import { DishesService } from './dishes.service';
+import { DuplicationService } from './duplication.service';
 import { LabsFoodContentService } from './labs-food-content.service';
 import { MeContentController } from './me-content.controller';
 import { MenusService } from './menus.service';
@@ -22,7 +24,13 @@ import { VitrineService } from './vitrine.service';
 
 /** FLOW-02 — dishes, menus, publication and moderation. */
 @Module({
-  imports: [ChefOnboardingModule, UsersModule, ShoppingListsModule, CalendarModule],
+  imports: [
+    ChefOnboardingModule,
+    UsersModule,
+    ShoppingListsModule,
+    CalendarModule,
+    NotificationsModule,
+  ],
   controllers: [
     MeContentController,
     AdminContentController,
@@ -35,6 +43,7 @@ import { VitrineService } from './vitrine.service';
     ContentPhotosService,
     DishesService,
     DishesMailer,
+    DuplicationService,
     LabsFoodContentService,
     MenusService,
     MissionsService,

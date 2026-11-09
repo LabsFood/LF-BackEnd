@@ -15,6 +15,14 @@ const START = new Date('2030-03-12T08:00:00.000Z'); // 09:00 in Paris
 const prismaError = (code: string) =>
   new Prisma.PrismaClientKnownRequestError(code, { code, clientVersion: 'test' });
 
+/** A client who answered the allergy question (Recettes lot 1): peanuts. */
+const DECLARED = {
+  allergies: ['peanuts'],
+  customAllergies: [],
+  allergiesNone: false,
+  allergiesDeclaredAt: new Date('2030-03-01T10:00:00.000Z'),
+};
+
 /** A booking as the detail view reads it. */
 const row = (overrides: Record<string, unknown> = {}) => ({
   id: 'booking-1',
@@ -45,7 +53,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     fullName: 'Sophie Martin',
     email: 'sophie@example.com',
     avatarUrl: null,
-    clientProfile: { allergies: ['arachides'], dietaryPreferences: ['halal'] },
+    clientProfile: { ...DECLARED, dietaryPreferences: ['halal'] },
   },
   chefProfile: { id: 'chef-1', displayName: 'Chef Marie', sapProfile: null },
   serviceOffer: {
@@ -108,12 +116,21 @@ describe('BookingsService', () => {
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
       conversation: { count: jest.fn().mockResolvedValue(0) },
       formule: { findFirst: jest.fn().mockResolvedValue(null) },
-      meal: { count: jest.fn().mockResolvedValue(0) },
+      meal: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      clientProfile: { findUnique: jest.fn().mockResolvedValue(DECLARED) },
       payment: { count: jest.fn().mockResolvedValue(0) },
       platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
       commission: { findFirst: jest.fn().mockResolvedValue(null) },
-      bookingMeal: { deleteMany: jest.fn(), createMany: jest.fn() },
+      bookingMeal: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+        delete: jest.fn(),
+        create: jest.fn(),
+      },
       $transaction: jest.fn(),
     } as never;
     prisma.$transaction.mockImplementation((work: unknown) =>
@@ -215,7 +232,7 @@ describe('BookingsService', () => {
       const detail = await service.detailFor('chef', 'clerk_1', 'booking-1');
 
       expect(detail).toMatchObject({
-        allergies: ['arachides', 'sésame'],
+        allergies: ['Arachides', 'Graines de sésame'],
         diets: ['halal'],
       });
     });
@@ -582,6 +599,150 @@ describe('BookingsService', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'booking.expired', subjectId: 'booking-1' }),
       );
+    });
+  });
+
+  describe('allergies (Recettes lot 1)', () => {
+    const withMeals = {
+      serviceOfferId: 'offer-1',
+      startsAt: START,
+      meals: [{ mealId: 'meal-1' }],
+    };
+    const dish = (id: string, allergens: string[]) => ({
+      id,
+      allergens,
+      allergensNone: false,
+      allergensVerifiedAt: START,
+    });
+    const line = (id: string, allergens: string[]) => ({
+      mealId: id,
+      portions: 6,
+      recipeVersion: null,
+      meal: { ...dish(id, allergens), name: 'Curry' },
+    });
+
+    beforeEach(() => prisma.meal.count.mockResolvedValue(1));
+
+    it('refuses a menu while the client never declared their allergies', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        allergiesDeclaredAt: null,
+      });
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-1', allergens: [], allergensNone: true, allergensVerifiedAt: START },
+      ]);
+
+      await expect(service.create('client', 'clerk_1', withMeals)).rejects.toMatchObject({
+        response: { code: 'ALLERGIES_NOT_DECLARED' },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('sizes a dish for the household when no portions are given, a child as half', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        householdAdults: 2,
+        householdKids: 1,
+      });
+      prisma.meal.findMany.mockResolvedValue([dish('meal-1', ['milk'])]);
+      prisma.booking.create.mockRejectedValue(new Error('stop after the write'));
+
+      await service.create('client', 'clerk_1', withMeals).catch(() => undefined);
+
+      expect(prisma.booking.create.mock.calls[0][0].data.bookingMeals).toEqual({
+        create: [{ mealId: 'meal-1', portions: 2.5 }],
+      });
+    });
+
+    it('refuses a dish holding a declared allergen, for an admin too', async () => {
+      prisma.meal.findMany.mockResolvedValue([dish('meal-1', ['peanuts'])]);
+
+      await expect(
+        service.create('admin', 'clerk_1', {
+          ...withMeals,
+          clientId: 'client-1',
+        } as never),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'ALLERGEN_CONFLICT',
+          conflicts: [{ mealId: 'meal-1', allergens: ['peanuts'] }],
+        },
+      });
+    });
+
+    it('flags a dish in conflict on the detail, and only the reason on a row', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ bookingMeals: [line('meal-1', ['peanuts'])] }),
+      );
+      prisma.booking.findMany.mockResolvedValue([
+        row({ bookingMeals: [line('meal-1', ['peanuts'])] }),
+      ]);
+
+      const detail = await service.detailFor('client', 'clerk_1', 'booking-1');
+      const page = await service.listFor('client', 'clerk_1');
+
+      expect(detail).toMatchObject({
+        allergyCheck: 'unverified',
+        allergyCheckReasons: ['ALLERGEN_CONFLICT'],
+        allergyConflicts: [{ mealId: 'meal-1', allergens: ['peanuts'] }],
+      });
+      expect(page.data[0]).toMatchObject({ allergyCheckReasons: ['ALLERGEN_CONFLICT'] });
+      expect(JSON.stringify(page.data[0])).not.toContain('peanuts');
+    });
+
+    it('swaps a dish in conflict for a safe one, on a confirmed booking', async () => {
+      prisma.booking.findFirst
+        .mockResolvedValueOnce({
+          status: 'confirmed',
+          clientId: 'client-1',
+          chefProfileId: 'chef-1',
+          quote: null,
+          bookingMeals: [{ portions: 6, meal: dish('meal-1', ['peanuts']) }],
+        })
+        .mockResolvedValue(row({ status: 'confirmed' }));
+      prisma.meal.findMany.mockResolvedValue([dish('meal-2', ['milk'])]);
+
+      await service.replaceConflictingMeal('client', 'clerk_1', 'booking-1', {
+        from: 'meal-1',
+        to: 'meal-2',
+      });
+
+      expect(prisma.bookingMeal.delete).toHaveBeenCalledWith({
+        where: { bookingId_mealId: { bookingId: 'booking-1', mealId: 'meal-1' } },
+      });
+      expect(prisma.bookingMeal.create).toHaveBeenCalledWith({
+        data: { bookingId: 'booking-1', mealId: 'meal-2', portions: 6 },
+      });
+      expect(lists.regenerateForBooking).toHaveBeenCalledWith('booking-1');
+    });
+
+    it('refuses to swap a dish that is not in conflict, or for an unsafe one', async () => {
+      const booking = {
+        status: 'confirmed',
+        clientId: 'client-1',
+        chefProfileId: 'chef-1',
+        quote: null,
+        bookingMeals: [
+          { portions: 4, meal: dish('meal-1', ['milk']) },
+          { portions: 4, meal: dish('meal-3', ['peanuts']) },
+        ],
+      };
+      prisma.booking.findFirst.mockResolvedValue(booking);
+      prisma.meal.findMany.mockResolvedValue([dish('meal-2', ['peanuts'])]);
+
+      await expect(
+        service.replaceConflictingMeal('chef', 'clerk_1', 'booking-1', {
+          from: 'meal-1',
+          to: 'meal-2',
+        }),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      await expect(
+        service.replaceConflictingMeal('chef', 'clerk_1', 'booking-1', {
+          from: 'meal-3',
+          to: 'meal-2',
+        }),
+      ).rejects.toMatchObject({ response: { code: 'ALLERGEN_CONFLICT' } });
+      expect(prisma.bookingMeal.delete).not.toHaveBeenCalled();
     });
   });
 

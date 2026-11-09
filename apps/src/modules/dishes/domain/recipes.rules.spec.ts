@@ -3,6 +3,12 @@ import {
   applyCorrections,
   diffCorrections,
   groupByAisle,
+  householdPortions,
+  ingredientsChanged,
+  readSteps,
+  recipeLimitBreach,
+  roundLines,
+  sameContent,
   scale,
 } from './recipes.rules';
 
@@ -25,8 +31,41 @@ describe('scale', () => {
   });
 });
 
-it('rounds half-hundredths up, not down', () => {
-  expect(scale([{ ...ail, qty: 1.005 }], 1, 1)[0].qty).toBe(1.01);
+describe('portions (Recettes §4.12)', () => {
+  const sel = {
+    name: 'Sel',
+    qty: 1,
+    unit: 'pincée',
+    aisle: 'epicerie',
+    fixedQuantity: true,
+  };
+
+  it('keeps a fixed quantity whatever the portions, and rounds nothing on the way', () => {
+    expect(scale([{ ...ail, qty: 1 }, sel], 3, 4)).toEqual([
+      { ...ail, qty: 4 / 3 },
+      { name: 'Sel', qty: 1, unit: 'pincée', aisle: 'epicerie' },
+    ]);
+  });
+
+  it('adds up before rounding, so small errors do not pile up', () => {
+    const third = { ...ail, qty: 1 / 3 };
+    expect(roundLines(aggregate([third, third, third]))).toEqual([{ ...ail, qty: 1 }]);
+  });
+
+  it('rounds half-hundredths up, and a count of pieces to the next whole one', () => {
+    expect(roundLines([{ ...ail, unit: 'g', qty: 1.005 }])[0].qty).toBe(1.01);
+    expect(
+      roundLines([
+        { name: 'Citron', qty: 1.2, unit: 'pièce', aisle: 'fruits-legumes' },
+      ])[0].qty,
+    ).toBe(2);
+  });
+
+  it('counts a child as half a portion (BLK-27), one portion at least', () => {
+    expect(householdPortions(2, 1)).toBe(2.5);
+    expect(householdPortions(1, 0)).toBe(1);
+    expect(householdPortions(0, 0)).toBe(1);
+  });
 });
 
 describe('aggregate', () => {
@@ -79,4 +118,77 @@ it('groups lines by aisle, in first-seen order', () => {
     },
     { aisle: 'boucherie', lines: [{ name: 'Poulet fermier', qty: 1.4, unit: 'kg' }] },
   ]);
+});
+
+describe('recipeLimitBreach (BLK-28)', () => {
+  it('lets a recipe at the caps through', () => {
+    expect(recipeLimitBreach(60, Array(40).fill('x'.repeat(2000)))).toBeNull();
+  });
+
+  it('names the first cap broken, with its maximum', () => {
+    expect(recipeLimitBreach(61, [])).toEqual({ limit: 'ingredients', max: 60 });
+    expect(recipeLimitBreach(1, Array(41).fill('x'))).toEqual({
+      limit: 'steps',
+      max: 40,
+    });
+    expect(recipeLimitBreach(1, ['x'.repeat(2001)])).toEqual({
+      limit: 'stepLength',
+      max: 2000,
+    });
+  });
+});
+
+describe('readSteps (§4.5)', () => {
+  it('numbers the steps by position and keeps their type and duration', () => {
+    expect(
+      readSteps([
+        { order: 9, text: 'Éplucher', type: 'preparation', durationMinutes: 10 },
+        { text: 'Cuire', type: null },
+      ]),
+    ).toEqual([
+      { order: 1, text: 'Éplucher', type: 'preparation', durationMinutes: 10 },
+      { order: 2, text: 'Cuire', type: null, durationMinutes: null },
+    ]);
+  });
+
+  it('reads a step stored as plain text, before steps had a type', () => {
+    expect(readSteps(['Éplucher'])).toEqual([
+      { order: 1, text: 'Éplucher', type: null, durationMinutes: null },
+    ]);
+  });
+
+  it('skips what is not a step, and forgets a type outside the list', () => {
+    expect(readSteps([{}, 3, '', { text: 'Dresser', type: 'flambage' }])).toEqual([
+      { order: 1, text: 'Dresser', type: null, durationMinutes: null },
+    ]);
+    expect(readSteps(null)).toEqual([]);
+  });
+});
+
+describe('ingredientsChanged (Recettes §4.9, R17)', () => {
+  it('ignores quantities, units, aisles, order, case and accents', () => {
+    expect(
+      ingredientsChanged(
+        [ail, poulet],
+        [
+          { ...poulet, qty: 2 },
+          { ...ail, name: 'AÏL', unit: 'g', aisle: 'epicerie' },
+        ],
+      ),
+    ).toBe(false);
+  });
+
+  it('sees an ingredient added, removed or renamed', () => {
+    expect(ingredientsChanged([ail], [ail, poulet])).toBe(true);
+    expect(ingredientsChanged([ail, poulet], [ail])).toBe(true);
+    expect(ingredientsChanged([ail], [{ ...ail, name: 'Échalote' }])).toBe(true);
+  });
+});
+
+describe('sameContent', () => {
+  it('compares stored JSON whatever the key order the database gives back', () => {
+    expect(sameContent([{ qty: 4, name: 'Ail' }], [{ name: 'Ail', qty: 4 }])).toBe(true);
+    expect(sameContent([{ name: 'Ail', qty: 4 }], [{ name: 'Ail', qty: 5 }])).toBe(false);
+    expect(sameContent(null, null)).toBe(true);
+  });
 });

@@ -24,7 +24,7 @@ import { R2StorageService } from '../../integrations/r2-storage.service';
 import { chefPhotoFolder } from './content-photos.service';
 
 /** Removal reasons where the photo itself may be what is wrong. */
-const PHOTO_REASONS = new Set(['inappropriate-content', 'copyright']);
+const PHOTO_REASONS = new Set(['inappropriate-content', 'copyright', 'not-a-real-photo']);
 
 type Kind = 'dish' | 'menu';
 

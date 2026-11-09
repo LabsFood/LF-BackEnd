@@ -137,10 +137,56 @@ export class ClientProfileDto {
 
   @ApiPropertyOptional({
     type: [String],
-    description: 'Known food allergies.',
+    description:
+      'The 14 regulated allergens the client declared (codes of `GET /reference/allergens`). ' +
+      'Set through `PUT /me/profile/allergies` only. Never in `GET /admin/clients`.',
     example: ['peanuts'],
   })
   allergies?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Allergies the 14 codes do not cover, in the client’s words.',
+    example: ['kiwi'],
+  })
+  customAllergies?: string[];
+
+  @ApiPropertyOptional({ description: '"No allergy", said explicitly.', example: false })
+  allergiesNone?: boolean;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description:
+      '`null`: never answered, so no menu can be validated (`ALLERGIES_NOT_DECLARED`).',
+  })
+  allergiesDeclaredAt?: Date | null;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  healthConsentAt?: Date | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'The version of the consent text accepted.',
+  })
+  healthConsentVersion?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ['verified', 'unverified'],
+    description:
+      '`verified` once declared with nothing left to check by hand. On `GET /me/profile` only.',
+  })
+  allergyCheck?: 'verified' | 'unverified';
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Why it is `unverified`: `ALLERGIES_NOT_DECLARED`, or `CUSTOM_ALLERGIES` (free text the ' +
+      'platform cannot check; the batch cooker reads it).',
+  })
+  allergyCheckReasons?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -281,6 +327,19 @@ export class ChefProfileDto {
     example: false,
   })
   isVerified!: boolean;
+
+  @ApiProperty({
+    enum: ['tier_1', 'tier_2', 'tier_3', 'tier_4'],
+    description: 'The tier an admin set (`tier_1` until then). No billing depends on it.',
+    example: 'tier_1',
+  })
+  tier!: string;
+
+  @ApiPropertyOptional({
+    description: 'The name of the tier, as an admin set it. On `GET /me/profile`.',
+    example: 'Palier 1',
+  })
+  tierLabel?: string;
 }
 
 /**
@@ -328,6 +387,14 @@ export class UserWithProfileDto {
   })
   profile!: ClientProfileDto | ChefProfileDto | null;
 
+  @ApiPropertyOptional({
+    description:
+      'The consent text to show before listing allergies, and its `version`, to send back ' +
+      'with `PUT /me/profile/allergies`. A draft until legal validates it.',
+    example: { version: 'brouillon-2026-11-02', text: 'J’accepte que Lab’s Food…' },
+  })
+  healthConsent?: { version: string; text: string };
+
   @ApiProperty({
     type: NotificationPreferencesDto,
     description: 'The same for every account, whatever `profileType` is.',
@@ -354,7 +421,8 @@ export class AdminClientListItemDto {
     nullable: true,
     description:
       '`null` until the client saves their preferences (`PATCH /me/profile`). ' +
-      'Its `id` is the one `GET/PATCH /admin/clients/:id` expects.',
+      'Its `id` is the one `GET/PATCH /admin/clients/:id` expects. Without `allergies` ' +
+      'nor `customAllergies`: health data stays on the client’s page.',
   })
   clientProfile!: ClientProfileDto | null;
 }

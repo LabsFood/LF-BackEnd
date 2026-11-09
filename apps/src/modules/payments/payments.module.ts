@@ -13,6 +13,8 @@ import { CommissionDebitsService } from './commission-debits.service';
 import { CommissionInvoicesController } from './commission-invoices.controller';
 import { FiscalAttestationsController } from './fiscal-attestations.controller';
 import { FiscalAttestationsService } from './fiscal-attestations.service';
+import { PaymentInvoicesController } from './payment-invoices.controller';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { SepaMandatesController } from './sepa-mandates.controller';
@@ -44,6 +46,7 @@ import { UrssafGateway } from './urssaf.gateway';
     StripeConnectController,
     SepaMandatesController,
     FiscalAttestationsController,
+    PaymentInvoicesController,
   ],
   providers: [
     PaymentsService,
@@ -54,6 +57,7 @@ import { UrssafGateway } from './urssaf.gateway';
     StripeConnectService,
     SepaMandatesService,
     FiscalAttestationsService,
+    PaymentInvoicesService,
   ],
   exports: [
     PaymentsService,

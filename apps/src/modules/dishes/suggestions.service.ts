@@ -9,7 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChefContentService, ChefContext, MENU_DISHES } from './chef-content.service';
 import { DishesMailer } from './dishes.mailer';
-import { toDishView, toPublicDish } from './dishes.views';
+import { toDishSummary, toDishView } from './dishes.views';
 import { toMenuView } from './menus.service';
 
 /**
@@ -339,9 +339,9 @@ export class SuggestionsService {
   }
 }
 
-/** A preview (§6): the public fields of the dish, never its recipe. */
+/** A preview (§6): the dish without its recipe; a chef route, so with the times. */
 function toPreview(meal: Meal) {
-  return { ...toPublicDish(meal), updatedAt: meal.updatedAt };
+  return { ...toDishSummary(meal), updatedAt: meal.updatedAt };
 }
 
 function assertConsent(consent: boolean): void {
@@ -390,7 +390,12 @@ async function copyDish(tx: Tx, chef: ChefContext, source: Meal) {
       allergensNone: source.allergensNone,
       customAllergens: source.customAllergens,
       ingredients: source.ingredients ?? [],
-      steps: source.steps,
+      steps: source.steps ?? [],
+      equipment: source.equipment,
+      declaredDiets: source.declaredDiets,
+      profiles: source.profiles,
+      seasonsOverride: source.seasonsOverride,
+      classification: source.classification ?? Prisma.DbNull,
       reheating: source.reheating ?? Prisma.DbNull,
       storage: source.storage ?? Prisma.DbNull,
     },

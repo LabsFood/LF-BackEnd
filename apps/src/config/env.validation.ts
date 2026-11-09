@@ -74,6 +74,14 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
   /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
   PAYMENTS_COMMISSION_INVOICE_PREFIX: Joi.string().max(16).default('LF-COM'),
+  /**
+   * Numbering template of facture A, the client's invoice: `YY` the year's last two
+   * digits, the trailing run of `X` the year's sequence (`LF-CUSYY-XXXXX` → `LF-CUS26-00001`).
+   */
+  PAYMENTS_INVOICE_PREFIX: Joi.string()
+    .pattern(/^[^X]*YY[^X]*X+$/)
+    .max(24)
+    .default('LF-CUSYY-XXXXX'),
 
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
@@ -139,6 +147,11 @@ export const envValidationSchema = Joi.object({
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
     .optional(),
   LOG_JSON: Joi.boolean().truthy('true').falsy('false').optional(),
+  /** Error reporting (src/instrument.ts). Unset = Sentry off. A typo fails startup here. */
+  SENTRY_DSN: Joi.string()
+    .uri({ scheme: ['https'] })
+    .allow('')
+    .optional(),
 
   /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),
@@ -163,6 +176,8 @@ export const envValidationSchema = Joi.object({
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
   /** Private bucket for conversation attachments. Must not allow public reads. */
   SUPABASE_MESSAGING_BUCKET: Joi.string().default('labsfood-messages'),
+  /** Private bucket for the clients' invoices (facture A). Must not allow public reads. */
+  SUPABASE_INVOICES_BUCKET: Joi.string().default('labsfood-invoices'),
   /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */
   R2_ACCOUNT_ID: Joi.string().optional(),
   R2_ACCESS_KEY_ID: Joi.string().optional(),

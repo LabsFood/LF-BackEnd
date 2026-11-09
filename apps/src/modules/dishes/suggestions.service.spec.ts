@@ -155,6 +155,9 @@ describe('SuggestionsService', () => {
     expect(dishes[0]).not.toHaveProperty('recipe');
     expect(dishes[0]).not.toHaveProperty('ingredients');
     expect(dishes[0].adoptedCopyId).toBeNull();
+    // A chef route: the times and calories the storefront hides stay here.
+    expect(dishes[0]).toHaveProperty('prepMinutes');
+    expect(dishes[0]).toHaveProperty('calories');
   });
 
   describe('offers', () => {

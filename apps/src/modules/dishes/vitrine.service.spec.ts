@@ -43,6 +43,7 @@ function vitrine(data: {
     booking: { groupBy: jest.fn(async () => []) },
     serviceOffer: {
       groupBy: jest.fn(async () => [{ chefProfileId: 'a', _min: { priceCents: 15000 } }]),
+      findMany: jest.fn(async () => []),
     },
   };
   const availability = {
@@ -215,6 +216,59 @@ describe('VitrineService', () => {
       const { data } = await service.week({});
 
       expect(data[0].chef.languages).toEqual(['fr', 'wo']);
+    });
+  });
+
+  describe('what the storefront shows of a dish (Recettes, lot 0)', () => {
+    // The whole list: a field added to the public projection fails here until it is
+    // listed on purpose. Times and calories are for the chef and the admin only.
+    // Recettes §4.8 adds the computed and declared diets, the seasons and the
+    // profiles. Never the chef's personal tags.
+    const PUBLIC_DISH_KEYS = [
+      'allergens',
+      'allergensNone',
+      'category',
+      'computedDiets',
+      'continent',
+      'country',
+      'customAllergens',
+      'customDiets',
+      'declaredDiets',
+      'description',
+      'diets',
+      'difficulty',
+      'id',
+      'imageUrl',
+      'name',
+      'portions',
+      'profiles',
+      'seasonMonths',
+    ];
+    const dish = dishRow({ id: 'd1', ...WITH_RECIPE, calories: 640 });
+    const menu = menuRow({ id: 'm1', chefProfileId: 'a', status: MealStatus.published }, [
+      dish,
+    ]);
+    const { service } = vitrine({
+      chefs: [chef('a')],
+      showcase: [{ chefProfileId: 'a', weekStart: new Date('2026-09-21'), menu }],
+      dishes: [dish],
+    });
+
+    it.each<[string, () => Promise<object[]>]>([
+      [
+        'GET /menus/week',
+        async () => (await service.week({ week: '2026-09-21' })).data[0].dishes,
+      ],
+      ['GET /chefs/{id}', async () => (await service.chef('a')).dishes],
+      [
+        'GET /chefs/{id}/showcase',
+        async () => (await service.showcase('a', {})).weeks[0].menu?.dishes ?? [],
+      ],
+    ])('%s lists only the public fields of a dish', async (_route, dishesOf) => {
+      const dishes = await dishesOf();
+
+      expect(dishes).toHaveLength(1);
+      expect(Object.keys(dishes[0]).sort()).toEqual(PUBLIC_DISH_KEYS);
     });
   });
 

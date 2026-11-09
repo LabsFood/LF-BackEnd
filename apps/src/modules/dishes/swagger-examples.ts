@@ -12,9 +12,24 @@ export const RECIPE_EXAMPLE = {
     { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' },
   ],
   steps: [
-    'Préchauffer le four à 200 °C.',
-    "Glisser le beurre, l'ail écrasé et les herbes sous la peau du poulet.",
-    'Enfourner 55 min en arrosant deux fois avec le jus.',
+    {
+      order: 1,
+      text: 'Préchauffer le four à 200 °C.',
+      type: 'preparation',
+      durationMinutes: 10,
+    },
+    {
+      order: 2,
+      text: "Glisser le beurre, l'ail écrasé et les herbes sous la peau du poulet.",
+      type: 'preparation',
+      durationMinutes: 10,
+    },
+    {
+      order: 3,
+      text: 'Enfourner 55 min en arrosant deux fois avec le jus.',
+      type: 'cuisson',
+      durationMinutes: 55,
+    },
   ],
   reheating: { mode: 'oven', temperature: 160, minutes: 15, note: 'Couvrir.' },
   storage: { method: 'fridge', days: 3, container: 'Boîte hermétique' },
@@ -29,10 +44,7 @@ export const PUBLIC_DISH_EXAMPLE = {
   category: 'main',
   imageUrl: null,
   portions: 3,
-  prepMinutes: 20,
-  cookMinutes: 55,
   difficulty: 'easy',
-  calories: 640,
   diets: ['lactose-free'],
   customDiets: [],
   allergens: ['celery'],
@@ -40,9 +52,17 @@ export const PUBLIC_DISH_EXAMPLE = {
   customAllergens: ['sarrasin'],
 };
 
+/** The public fields plus the times and calories: chef and admin routes. */
+export const DISH_SUMMARY_EXAMPLE = {
+  ...PUBLIC_DISH_EXAMPLE,
+  prepMinutes: 20,
+  cookMinutes: 55,
+  calories: 640,
+};
+
 /** `GET /me/dishes/{id}` → 200. */
 export const DISH_EXAMPLE = {
-  ...PUBLIC_DISH_EXAMPLE,
+  ...DISH_SUMMARY_EXAMPLE,
   recipe: RECIPE_EXAMPLE,
   recipeComplete: true,
   recipeVersion: 3,
@@ -58,15 +78,18 @@ export const DISH_EXAMPLE = {
 
 /** `POST /me/dishes/{id}/publish` → 422. */
 export const PUBLISH_REFUSED_EXAMPLE = {
-  code: 'ALLERGENS_REQUIRED',
-  message: 'This dish cannot be published yet.',
+  code: 'RECIPE_NOT_READY',
+  message: 'This recipe is not ready to publish.',
   problems: [
     {
-      code: 'ALLERGENS_REQUIRED',
+      code: 'STEP_TYPE_MISSING',
+      field: 'recipe.steps[0]',
+      message: 'Say what this step is: preparation, cooking, cooling or packing.',
+    },
+    {
+      code: 'ALLERGENS_UNVERIFIED',
       field: 'allergens',
-      message:
-        'Declare the allergens: list them, or confirm the dish contains none of the 14 ' +
-        'regulated allergens (`allergensNone: true`).',
+      message: 'Confirm the allergens: the ingredients changed since they were verified.',
     },
   ],
 };
@@ -140,7 +163,7 @@ export const SHOWCASE_EXAMPLE = {
 export const SUGGESTIONS_EXAMPLE = {
   dishes: [
     {
-      ...PUBLIC_DISH_EXAMPLE,
+      ...DISH_SUMMARY_EXAMPLE,
       id: 'd3eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
       name: 'Poulet yassa',
       country: 'SN',
@@ -155,7 +178,7 @@ export const SUGGESTIONS_EXAMPLE = {
       pitch: 'Une semaine qui voyage.',
       period: 'week',
       updatedAt: '2026-09-10T09:00:00.000Z',
-      dishes: [{ ...PUBLIC_DISH_EXAMPLE, updatedAt: '2026-09-03T14:12:00.000Z' }],
+      dishes: [{ ...DISH_SUMMARY_EXAMPLE, updatedAt: '2026-09-03T14:12:00.000Z' }],
       adoptedCopyId: MENU_ID,
     },
   ],

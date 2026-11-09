@@ -3,6 +3,7 @@ import {
   declarationProblems,
   isRecipeComplete,
   publishProblems,
+  readiness,
 } from './dishes.rules';
 
 const READY = {
@@ -31,16 +32,105 @@ describe('publishProblems (FLOW-02 §3.3)', () => {
   it('reports every problem at once, not the first one', () => {
     const problems = publishProblems({
       name: '  ',
-      country: null,
       portions: 0,
       allergens: [],
       allergensNone: false,
     });
-    expect(problems.map((p) => p.field)).toEqual([
-      'name',
-      'country',
-      'portions',
-      'allergens',
+    expect(problems.map((p) => p.field)).toEqual(['name', 'portions', 'allergens']);
+  });
+});
+
+describe('readiness (Recettes §4.11)', () => {
+  const ail = { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' };
+  const step = {
+    order: 1,
+    text: 'Enfourner 55 min.',
+    type: 'cuisson',
+    durationMinutes: 55,
+  };
+  const DISH = {
+    name: 'Poulet rôti aux herbes',
+    category: 'main',
+    portions: 3,
+    cookTime: 55,
+    description: 'Poulet fermier rôti, thym et romarin.',
+    imageUrl: 'https://photos.example.com/poulet.jpg',
+    ingredients: [ail],
+    steps: [step],
+    storage: { method: 'fridge', days: 3 },
+    reheating: { modes: ['oven'] },
+    allergens: ['celery'],
+    allergensNone: false,
+    allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
+  };
+
+  it('is ready when every point is met; origin and equipment are never asked', () => {
+    expect(readiness(DISH)).toEqual({
+      ready: true,
+      problems: [],
+      toPublish: [],
+      warnings: [],
+    });
+  });
+
+  it('lists every missing point at once, each pointing at its field', () => {
+    const result = readiness({
+      ...DISH,
+      name: ' ',
+      category: null,
+      cookTime: null,
+      ingredients: [],
+      steps: [],
+      storage: null,
+      reheating: null,
+      allergens: [],
+      allergensVerifiedAt: null,
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.problems.map((p) => [p.code, p.field])).toEqual([
+      ['VALIDATION_FAILED', 'name'],
+      ['VALIDATION_FAILED', 'category'],
+      ['VALIDATION_FAILED', 'cookMinutes'],
+      ['VALIDATION_FAILED', 'recipe.ingredients'],
+      ['VALIDATION_FAILED', 'recipe.steps'],
+      ['VALIDATION_FAILED', 'recipe.storage'],
+      ['VALIDATION_FAILED', 'recipe.reheating'],
+      ['ALLERGENS_REQUIRED', 'allergens'],
+    ]);
+  });
+
+  it('points at each ingredient to verify and each step without a type', () => {
+    const result = readiness({
+      ...DISH,
+      ingredients: [ail, { ...ail, name: 'Sel', toVerify: true }],
+      steps: ['Éplucher', step],
+    });
+
+    expect(result.problems).toEqual([
+      expect.objectContaining({
+        code: 'INGREDIENT_TO_VERIFY',
+        field: 'recipe.ingredients[1]',
+      }),
+      expect.objectContaining({ code: 'STEP_TYPE_MISSING', field: 'recipe.steps[0]' }),
+    ]);
+  });
+
+  it('asks for the allergens to be verified again after an ingredient change', () => {
+    expect(readiness({ ...DISH, allergensVerifiedAt: null }).problems).toEqual([
+      expect.objectContaining({ code: 'ALLERGENS_UNVERIFIED', field: 'allergens' }),
+    ]);
+  });
+
+  it('needs a short description to publish, and only warns about the photo for now', () => {
+    const result = readiness({ ...DISH, description: ' ', imageUrl: null });
+
+    expect(result.ready).toBe(true);
+    expect(result.toPublish).toEqual([
+      expect.objectContaining({ code: 'VALIDATION_FAILED', field: 'description' }),
+    ]);
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ code: 'PHOTO_MISSING', field: 'imageUrl' }),
     ]);
   });
 });

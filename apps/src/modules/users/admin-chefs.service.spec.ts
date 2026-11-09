@@ -48,6 +48,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     decidedAt: null,
   },
   _count: { dishes: 12, menus: 3 },
+  tier: 'tier_1',
   ...overrides,
 });
 
@@ -62,6 +63,7 @@ describe('AdminChefsService', () => {
     };
     user: { findUnique: jest.Mock };
     booking: { groupBy: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
   };
   let audit: { record: jest.Mock };
   /** geo.api.gouv.fr, as far as these tests go. */
@@ -88,6 +90,7 @@ describe('AdminChefsService', () => {
       },
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'admin-1' }) },
       booking: { groupBy: jest.fn().mockResolvedValue([]) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
     service = new AdminChefsService(
@@ -311,6 +314,49 @@ describe('AdminChefsService', () => {
       await expect(service.setZones('nope', LYON, 'clerk-admin')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('tier (Recettes R34)', () => {
+    it('shows the tier with the label in force, on the list and on the detail', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(row({ tier: 'tier_2' }));
+      prisma.platformSetting.findUnique.mockResolvedValue({
+        value: { tier_2: 'Confirmé' },
+      });
+
+      const chef = await service.get('chef-1');
+      const { data } = await service.list({});
+
+      expect(chef).toMatchObject({ tier: 'tier_2', tierLabel: 'Confirmé' });
+      expect(data[0]).toMatchObject({ tier: 'tier_1', tierLabel: 'Palier 1' });
+    });
+
+    it('changes the tier and journals before and after', async () => {
+      await service.setTier('chef-1', 'tier_3', 'clerk-admin');
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { tier: 'tier_3' },
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'chef.tier_changed',
+          subjectType: 'chef_profile',
+          subjectId: 'chef-1',
+          metadata: { before: 'tier_1', after: 'tier_3' },
+        }),
+      );
+    });
+
+    it('answers 404 for an unknown or deleted batch cooker', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue(null);
+
+      await expect(service.setTier('nope', 'tier_2', 'clerk-admin')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
     });
   });
 });

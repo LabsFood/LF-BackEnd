@@ -31,16 +31,46 @@ export function dishRow(overrides: Record<string, unknown> = {}) {
     customDiets: [],
     allergens: ['celery'],
     allergensNone: false,
+    allergensVerifiedAt: null as Date | null,
     customAllergens: [],
-    ingredients: [],
-    steps: [],
-    reheating: null,
-    storage: null,
+    category: null as string | null,
+    description: null as string | null,
+    imageUrl: null as string | null,
+    ingredients: [] as unknown[],
+    steps: [] as unknown[],
+    equipment: [] as string[],
+    declaredDiets: [] as string[],
+    profiles: [] as string[],
+    personalTags: [] as string[],
+    seasonsOverride: [] as number[],
+    classification: null as unknown,
+    reheating: null as unknown,
+    storage: null as unknown,
+    recipeVersion: 1,
+    versionPending: false,
     status: MealStatus.draft,
     publishedAt: null,
     ...UNMODERATED,
     ...overrides,
   };
+}
+
+/** A dish that passes the Recettes §4.11 check, at version 2 with nothing pending. */
+export function readyDishRow(overrides: Record<string, unknown> = {}) {
+  return dishRow({
+    category: 'main',
+    description: 'Poulet fermier rôti, thym et romarin.',
+    imageUrl: 'https://photos.example.com/poulet.jpg',
+    ingredients: [{ name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' }],
+    steps: [
+      { order: 1, text: 'Enfourner 55 min.', type: 'cuisson', durationMinutes: 55 },
+    ],
+    storage: { method: 'fridge', days: 3, container: null },
+    reheating: { modes: ['oven'], mode: 'oven', minutes: 15 },
+    allergensVerifiedAt: new Date('2026-11-01T09:00:00.000Z'),
+    recipeVersion: 2,
+    ...overrides,
+  });
 }
 
 /** Never reviewed, never taken down. */
@@ -132,7 +162,27 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     findFirst: jest.fn(async () => (options.chef === undefined ? CHEF : options.chef)),
     findUnique: jest.fn(async (): Promise<unknown> => ({ id: 'chef-2' })),
   };
-  const client = { meal, menu, menuDish, chefShowcaseWeek, chefProfile };
+  const platformSetting = {
+    findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+  };
+  const catalogIngredient = {
+    count: jest.fn(async (_args?: unknown) => 0),
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
+  };
+  const mealRecipeVersion = {
+    findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    create: jest.fn(async ({ data }: WriteArgs) => data),
+  };
+  const client = {
+    meal,
+    menu,
+    menuDish,
+    chefShowcaseWeek,
+    chefProfile,
+    platformSetting,
+    mealRecipeVersion,
+    catalogIngredient,
+  };
   const $transaction = jest.fn(async (work: unknown) =>
     typeof work === 'function' ? work(client) : Promise.all(work as Promise<unknown>[]),
   );

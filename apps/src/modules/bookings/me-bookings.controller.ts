@@ -37,6 +37,7 @@ import { BookingsService } from './bookings.service';
 import {
   BookingsQueryDto,
   NewBookingDto,
+  ReplaceMealDto,
   RescheduleAnswerDto,
   RescheduleDto,
   UpdateBookingDto,
@@ -177,6 +178,33 @@ export class MeBookingsController {
     @Body() body: UpdateBookingDto,
   ) {
     return this.bookings.update('client', user.userId, id, body);
+  }
+
+  @Post(':id/meals/replace')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Replace a dish that clashes with my allergies',
+    description:
+      'After an allergy declared once the menu was validated, `allergyConflicts` lists ' +
+      'the dishes to replace. Any status before delivery, a frozen menu included; only ' +
+      'a dish in conflict, and only for a safe one.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The booking.', example: CLIENT_DETAIL })
+  @ApiNotFoundResponse({ description: 'No such booking, or not mine.' })
+  @ApiConflictResponse({ description: '`BOOKING_LOCKED`: the prestation is over.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED` (the dish is not in conflict, or already on the menu), ' +
+      '`MEAL_UNAVAILABLE`, `ALLERGENS_UNVERIFIED` or `ALLERGEN_CONFLICT` for the new dish.',
+  })
+  @ApiClerkAuthResponses()
+  replaceMeal(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ReplaceMealDto,
+  ) {
+    return this.bookings.replaceConflictingMeal('client', user.userId, id, body);
   }
 
   @Post(':id/reschedule')

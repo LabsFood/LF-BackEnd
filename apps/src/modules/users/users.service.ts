@@ -32,6 +32,8 @@ import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
+import { chefTierLabels } from '../platform-settings/chef-tiers';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -78,7 +80,13 @@ export interface ChefIdentity {
 }
 
 /** Row of `GET /admin/clients`: a client account and its profile, if any. */
-export type AdminClientListItem = { user: User; clientProfile: ClientProfile | null };
+/** Allergies are health data: on the client's page, never in the list (Recettes lot 1). */
+const LIST_OMIT = { allergies: true, customAllergies: true } as const;
+
+export type AdminClientListItem = {
+  user: User;
+  clientProfile: Omit<ClientProfile, keyof typeof LIST_OMIT> | null;
+};
 
 /** Row of `GET /admin/users`: an account, with the id of its client or chef profile. */
 export type AdminUserListItem = Pick<
@@ -430,10 +438,11 @@ export class UsersService {
       where: { userId: user.id },
     });
     if (chef) {
+      const tierLabels = await chefTierLabels(this.prisma);
       return {
         user,
         profileType: 'chef' as const,
-        profile: chef,
+        profile: { ...chef, tierLabel: tierLabels[chef.tier] },
         notificationPreferences,
       };
     }
@@ -441,10 +450,17 @@ export class UsersService {
     const client = await this.prisma.clientProfile.findUnique({
       where: { userId: user.id },
     });
+    const check = allergyCheck(client);
     return {
       user,
       profileType: client ? ('client' as const) : ('none' as const),
-      profile: client,
+      profile: client && {
+        ...client,
+        allergyCheck: check.allergyCheck,
+        allergyCheckReasons: check.allergyCheckReasons,
+      },
+      // The text a client accepts before listing allergies (PUT /me/profile/allergies).
+      healthConsent: HEALTH_CONSENT,
       notificationPreferences,
     };
   }
@@ -569,7 +585,6 @@ export class UsersService {
       create: {
         userId: user.id,
         dietaryPreferences: profileFields.dietaryPreferences ?? [],
-        allergies: profileFields.allergies ?? [],
         dislikes: profileFields.dislikes ?? [],
         favorites: profileFields.favorites ?? [],
         spiceLevel: profileFields.spiceLevel,
@@ -821,7 +836,7 @@ export class UsersService {
    * must ship with a self-dealing guard on bookings and quotes. Decision pending; see
    * `.claude/plans/dual-role-switcher-analysis.md`.
    */
-  private async assertNoConflictingProfile(
+  async assertNoConflictingProfile(
     userId: string,
     target: 'client' | 'chef',
   ): Promise<void> {
@@ -917,7 +932,7 @@ export class UsersService {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
-        include: { clientProfile: true },
+        include: { clientProfile: { omit: LIST_OMIT } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: bounds.skip,
         take: bounds.take,

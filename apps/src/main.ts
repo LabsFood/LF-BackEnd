@@ -1,3 +1,5 @@
+// First: Sentry has to patch modules before they load (src/instrument.ts).
+import './instrument';
 import 'reflect-metadata';
 
 import helmet from '@fastify/helmet';

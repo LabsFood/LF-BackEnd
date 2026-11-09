@@ -20,13 +20,18 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
-import { PutShoppingListDto, RecipeSheetQueryDto } from './dto/mission.dto';
+import {
+  PutShoppingListDto,
+  RecipeSheetQueryDto,
+  SubmitShoppingListDto,
+} from './dto/mission.dto';
 import { MissionsService } from './missions.service';
 import { DISH_ID, RECIPE_EXAMPLE } from './swagger-examples';
 
@@ -35,21 +40,58 @@ const MISSION_ID = '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88';
 const SHOPPING_LIST_EXAMPLE = {
   missionId: MISSION_ID,
   persons: 3,
+  shoppingByClient: false,
+  deadline: '2026-09-24T10:00:00.000Z',
+  status: 'final_received',
   generatedAt: '2026-09-20T15:41:02.000Z',
+  version: 1,
+  sentAt: '2026-09-21T08:12:40.000Z',
+  finalReceivedAt: '2026-09-22T19:03:11.000Z',
   groups: [
     {
       aisle: 'fruits-legumes',
       lines: [
-        { name: 'Ail', qty: 6, unit: 'gousse', edited: true },
-        { name: 'Pommes de terre grenaille', qty: 800, unit: 'g', edited: false },
+        {
+          name: 'Ail',
+          qty: 6,
+          unit: 'gousse',
+          edited: true,
+          alreadyHave: true,
+          comment: null,
+        },
+        {
+          name: 'Pommes de terre grenaille',
+          qty: 800,
+          unit: 'g',
+          edited: false,
+          alreadyHave: false,
+          comment: 'Plutôt des rattes',
+        },
       ],
     },
     {
       aisle: 'boucherie',
-      lines: [{ name: 'Poulet fermier entier', qty: 1.4, unit: 'kg', edited: false }],
+      lines: [
+        {
+          name: 'Poulet fermier entier',
+          qty: 1.4,
+          unit: 'kg',
+          edited: false,
+          alreadyHave: false,
+          comment: null,
+        },
+      ],
     },
   ],
 };
+
+const LIST_FIELDS =
+  '\n\n**The exchange with the client** (Recettes §10.7, when the batch cooker shops): ' +
+  '`status` is `preparing` (not sent yet), `sent`, `update_sent` (sent again since the ' +
+  "client's last answer), `final_received` or `frozen` (from `deadline`: noon, Paris " +
+  'time, the day before). `version` counts the sends. On each line, `alreadyHave` and ' +
+  "`comment` are the client's answer: shown to the batch cooker and admins once it " +
+  'answers the list sent last; to the client always, to start again from it.';
 
 const NOT_FOUND = {
   description:
@@ -140,7 +182,8 @@ export class MissionsController {
       'Computed from the recipes of the prestation: scaled to the portions booked, ' +
       'the same ingredient in the same unit added up, grouped by aisle. `edited: true` ' +
       'marks a line the batch cooker changed or added. For the batch cooker, admins ' +
-      'and the client.',
+      'and the client.' +
+      LIST_FIELDS,
   })
   @ApiMissionIdParam()
   @ApiOkResponse({ description: 'The list.', example: SHOPPING_LIST_EXAMPLE })
@@ -189,6 +232,70 @@ export class MissionsController {
   @ApiClerkAuthResponses()
   reset(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.missions.resetShoppingList(user.userId, id);
+  }
+
+  @Post('chef-missions/:id/shopping-list/send')
+  @ApiTags(TAGS.missions)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send the shopping list to the client',
+    description:
+      'The client gets the list as it is now, marks what they already have, comments ' +
+      'a line and sends their final list back. Send again after a change you want ' +
+      'them to see: they are told, and must answer the new version. Until noon, ' +
+      'Paris time, the day before the prestation.' +
+      LIST_FIELDS,
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({ description: 'The list as sent.', example: SHOPPING_LIST_EXAMPLE })
+  @ApiConflictResponse({
+    description:
+      '`SHOPPING_LIST_FROZEN` after the deadline; `SHOPPING_BY_CLIENT` when the client ' +
+      'does the shopping.',
+  })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  send(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.missions.sendShoppingList(user.userId, id);
+  }
+
+  @Post('me/bookings/:id/shopping-list/submit')
+  @ApiTags(TAGS.missions)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Send my final shopping list to the batch cooker',
+    description:
+      'What you already have, and a comment per line if you like. Send it again as ' +
+      'often as you like until noon, Paris time, the day before; after that, the list ' +
+      'is frozen. If you never send it, the batch cooker buys the whole list.' +
+      LIST_FIELDS,
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({
+    description: 'The list with your answer.',
+    example: SHOPPING_LIST_EXAMPLE,
+  })
+  @ApiConflictResponse({
+    description:
+      '`SHOPPING_LIST_NOT_SENT`, `SHOPPING_LIST_FROZEN` (`frozenSince`), ' +
+      '`SHOPPING_LIST_UPDATED` (`version`: reload), `SHOPPING_BY_CLIENT`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a line that is not on the list, or answered twice.',
+  })
+  @ApiForbiddenResponse({
+    description: '`CONTENT_NOT_OWNED`: only the client of this prestation answers.',
+  })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  submit(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: SubmitShoppingListDto,
+  ) {
+    return this.missions.submitShoppingList(user.userId, id, payload);
   }
 
   @Post('chef-missions/:id/recipes/repin')

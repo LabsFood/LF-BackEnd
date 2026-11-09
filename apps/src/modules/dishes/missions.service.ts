@@ -2,16 +2,24 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import { BookingStatus, UserRole } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  listStatus,
+  MarkInput,
+  shoppingDeadline,
+} from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
+import { shoppingByClient, shoppingListFrozen } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
-import { Line, scale } from './domain/recipes.rules';
+import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
 
 type Role = 'chef' | 'admin' | 'client';
 
@@ -24,11 +32,14 @@ type Role = 'chef' | 'admin' | 'client';
  */
 @Injectable()
 export class MissionsService {
+  private readonly logger = new Logger(MissionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly lists: ShoppingListsService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async access(clerkUserId: string, bookingId: string) {
@@ -61,6 +72,17 @@ export class MissionsService {
       throw new ForbiddenException({
         code: 'CONTENT_NOT_OWNED',
         message: 'Only the batch cooker of this prestation can change its documents.',
+      });
+    }
+    return context;
+  }
+
+  private async asClient(clerkUserId: string, bookingId: string) {
+    const context = await this.access(clerkUserId, bookingId);
+    if (context.role !== 'client') {
+      throw new ForbiddenException({
+        code: 'CONTENT_NOT_OWNED',
+        message: 'Only the client of this prestation can send its final shopping list.',
       });
     }
     return context;
@@ -113,9 +135,10 @@ export class MissionsService {
       },
       portions: servings,
       recipe: {
-        ingredients: scale(recipe.ingredients, recipe.portions, servings),
-        steps: recipe.steps,
-        reheating: recipe.reheating,
+        ingredients: roundLines(scale(recipe.ingredients, recipe.portions, servings)),
+        steps: readSteps(recipe.steps),
+        // Not part of a version (Recettes §4.6): the advice as it stands today.
+        reheating: meal.reheating,
         storage: recipe.storage,
       },
       version: {
@@ -126,10 +149,68 @@ export class MissionsService {
     };
   }
 
-  /** §7's shopping list, for the chef, the admins and the booking's client. */
+  /**
+   * §7's shopping list, for the chef, the admins and the booking's client. The
+   * client starts again from their last answer while they can still send it; once
+   * frozen, they see what counts, like everyone else.
+   */
   async shoppingList(clerkUserId: string, bookingId: string) {
-    const { booking } = await this.access(clerkUserId, bookingId);
+    const { booking, role } = await this.access(clerkUserId, bookingId);
+    const editable = new Date() < shoppingDeadline(booking.startsAt);
+    return this.withMission(
+      booking,
+      await this.lists.view(bookingId, { forClient: role === 'client' && editable }),
+    );
+  }
+
+  /**
+   * Recettes §10.7, case 1: the chef sends the list to the client, again after any
+   * change they want the client to see. Until noon the day before.
+   */
+  async sendShoppingList(clerkUserId: string, bookingId: string) {
+    const { booking } = await this.asChef(clerkUserId, bookingId);
+    if (booking.shoppingByClient) throw shoppingByClient();
+    const deadline = shoppingDeadline(booking.startsAt);
+    if (new Date() >= deadline) throw shoppingListFrozen(deadline);
+
+    const { version } = await this.lists.send(bookingId);
+    this.logger.log({ event: 'shopping_list.sent', bookingId, version });
+    await this.tell(
+      booking.clientId,
+      version > 1 ? 'shopping_list.updated' : 'shopping_list.sent',
+      bookingId,
+    );
     return this.withMission(booking, await this.lists.view(bookingId));
+  }
+
+  /**
+   * The client's final list: what they already have and their comments, against
+   * the version they had on screen. Resent as often as they like until the deadline.
+   */
+  async submitShoppingList(
+    clerkUserId: string,
+    bookingId: string,
+    answer: { version: number; marks: MarkInput[] },
+  ) {
+    const { booking } = await this.asClient(clerkUserId, bookingId);
+    if (booking.shoppingByClient) throw shoppingByClient();
+
+    const { version, marks } = await this.lists.submit(
+      bookingId,
+      answer,
+      shoppingDeadline(booking.startsAt),
+    );
+    // The count only: a comment is the client's words, and may say what they eat.
+    this.logger.log({ event: 'shopping_list.final_received', bookingId, version, marks });
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { id: booking.chefProfileId },
+      select: { userId: true },
+    });
+    if (chef) await this.tell(chef.userId, 'shopping_list.final_received', bookingId);
+    return this.withMission(
+      booking,
+      await this.lists.view(bookingId, { forClient: true }),
+    );
   }
 
   /** The chef's corrections: they survive every recalculation. */
@@ -216,10 +297,40 @@ export class MissionsService {
     return { total: COUNTRIES_TOTAL, explored: [...explored.values()] };
   }
 
+  /**
+   * The bell, best effort: the list is sent or answered either way, and the other
+   * side sees it on their page. A failure is logged, never thrown.
+   */
+  private async tell(userId: string, type: string, bookingId: string) {
+    try {
+      await this.notifications.notify(userId, type, { type: 'booking', id: bookingId });
+    } catch (error) {
+      this.logger.error({
+        event: 'shopping_list.notify_failed',
+        type,
+        bookingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private withMission(
-    booking: { id: string; persons: number | null },
-    list: { generatedAt: Date; groups: unknown },
+    booking: {
+      id: string;
+      persons: number | null;
+      startsAt: Date;
+      shoppingByClient: boolean;
+    },
+    list: Awaited<ReturnType<ShoppingListsService['view']>>,
   ) {
-    return { missionId: booking.id, persons: booking.persons, ...list };
+    const deadline = shoppingDeadline(booking.startsAt);
+    return {
+      missionId: booking.id,
+      persons: booking.persons,
+      shoppingByClient: booking.shoppingByClient,
+      deadline,
+      status: listStatus(list, deadline, new Date()),
+      ...list,
+    };
   }
 }

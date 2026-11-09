@@ -116,7 +116,8 @@ export class PublicVitrineController {
       '- `coveredDiets` is what **every** dish satisfies, and `diets` filters on it.\n' +
       '- The order rotates once a month, the same for everyone, so the same cooks are ' +
       'not always first.\n' +
-      '- Never a recipe: no ingredients, no steps.\n\n' +
+      '- Never a recipe: no ingredients, no steps. No prep or cook time and no ' +
+      'calories either; `portions` stays.\n\n' +
       '`avatarUrl` is the profile photo, `null` until the batch cooker adds one. ' +
       '`rating` and `reviewCount` are empty until reviews exist. `languages` are codes ' +
       'from `GET /referentials/languages`, `[]` until the batch cooker sets them. ' +

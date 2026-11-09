@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import {
   ChefApplicationStatus,
@@ -40,7 +41,13 @@ export class ChefDossierCron {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * The Sentry monitor (schedule taken from `@Cron`, container clock: UTC) raises an
+   * alert when a day passes without a run. A failed run still checks in `ok`, since
+   * the catch below keeps the error: its `logger.error` is what reports it.
+   */
   @Cron(CronExpression.EVERY_DAY_AT_6AM, { name: 'chef-dossier-daily' })
+  @SentryCron('chef-dossier-daily', { checkinMargin: 30, maxRuntime: 30 })
   async runDaily(): Promise<void> {
     const startedAt = Date.now();
     try {

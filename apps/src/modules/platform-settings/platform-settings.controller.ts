@@ -6,7 +6,21 @@ import {
   ApiProperty,
   ApiTags,
 } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsDefined,
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
@@ -75,6 +89,113 @@ const SUPPLEMENTS_EXAMPLE = {
   extraPersonCents: 1500,
   extraMealCents: 800,
   updatedAt: '2026-10-18T09:00:00.000Z',
+};
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+/** The name shown for each tier code. All four, every time. */
+class ChefTierLabelsDto {
+  @ApiProperty({ maxLength: 40, example: 'Découverte' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_1!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Confirmé' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_2!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Expert' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_3!: string;
+
+  @ApiProperty({ maxLength: 40, example: 'Partenaire' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  tier_4!: string;
+}
+
+class ChefTiersDto {
+  @ApiProperty({ type: ChefTierLabelsDto })
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => ChefTierLabelsDto)
+  labels!: ChefTierLabelsDto;
+}
+
+const CHEF_TIERS_EXAMPLE = {
+  labels: {
+    tier_1: 'Découverte',
+    tier_2: 'Confirmé',
+    tier_3: 'Expert',
+    tier_4: 'Partenaire',
+  },
+  updatedAt: '2026-10-31T09:00:00.000Z',
+};
+
+/** One entry of an editable list: a stable code, the label shown. */
+class ListItemDto {
+  @ApiProperty({
+    maxLength: 40,
+    description: 'Lowercase letters, digits, `-` and `_`. Stored on each dish.',
+    example: 'oven',
+  })
+  @IsString()
+  @Matches(/^[a-z0-9_-]{1,40}$/)
+  code!: string;
+
+  @ApiProperty({ maxLength: 60, example: 'Four' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  label!: string;
+}
+
+class ReheatModesDto {
+  @ApiProperty({ type: [ListItemDto], description: 'The whole list, 1 to 30 modes.' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  modes!: ListItemDto[];
+}
+
+class RecipeProfilesDto {
+  @ApiProperty({ type: [ListItemDto], description: 'The whole list, 1 to 30 profiles.' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  profiles!: ListItemDto[];
+}
+
+const RECIPE_PROFILES_EXAMPLE = {
+  profiles: [
+    { code: 'kids', label: 'Adapté aux enfants' },
+    { code: 'budget', label: 'Petit budget' },
+  ],
+  updatedAt: '2026-11-02T09:00:00.000Z',
+};
+
+const REHEAT_MODES_EXAMPLE = {
+  modes: [
+    { code: 'oven', label: 'Four' },
+    { code: 'microwave', label: 'Micro-ondes' },
+  ],
+  updatedAt: '2026-11-02T09:00:00.000Z',
 };
 
 const reqId = (req: { id?: unknown }): string | undefined =>
@@ -190,5 +311,151 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setBookingSupplements(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/chef-tiers')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the names of the chef tiers',
+    description:
+      'The name shown for each of the four tier codes (`tier_1` to `tier_4`) set on a ' +
+      'batch cooker with `PATCH /admin/chefs/{id}/tier`. `updatedAt: null`: never ' +
+      'changed, the neutral names apply ("Palier 1" to "Palier 4").',
+  })
+  @ApiOkResponse({ description: 'The names.', example: CHEF_TIERS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  chefTiers() {
+    return this.settings.chefTiers();
+  }
+
+  @Put('admin/settings/chef-tiers')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Rename the chef tiers',
+    description:
+      'All four names, every time, 40 characters at most. Only the names change: ' +
+      'each batch cooker keeps their tier code. Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new names.', example: CHEF_TIERS_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setChefTiers(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: ChefTiersDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setChefTiers(body.labels, admin.id, reqId(req));
+  }
+
+  @Get('referentials/reheat-modes')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the reheating modes',
+    description:
+      'What `recipe.reheating.modes` takes (Recettes §4.6). The list is edited in ' +
+      'the console. Public.',
+  })
+  @ApiOkResponse({
+    description: 'The modes, as code and label.',
+    example: REHEAT_MODES_EXAMPLE,
+  })
+  reheatModes() {
+    return this.settings.reheatModes();
+  }
+
+  @Get('admin/settings/reheat-modes')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the reheating modes',
+    description: '`updatedAt: null`: never changed, the default list applies.',
+  })
+  @ApiOkResponse({ description: 'The modes.', example: REHEAT_MODES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminReheatModes() {
+    return this.settings.reheatModes();
+  }
+
+  @Put('admin/settings/reheat-modes')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the reheating modes',
+    description:
+      'The whole list, every time, each code once (else 422 `VALIDATION_FAILED`). A ' +
+      'dish keeps a code removed from the list; it is refused when the dish is saved ' +
+      'again. Changing a mode never makes a new recipe version. Recorded in the audit ' +
+      'log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: REHEAT_MODES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setReheatModes(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: ReheatModesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setReheatModes(body.modes, admin.id, reqId(req));
+  }
+
+  @Get('referentials/recipe-profiles')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the recipe profiles',
+    description:
+      'What `profiles` takes on a dish (Recettes §4.8): adapted to children, sport… ' +
+      'The list is edited in the console. Public.',
+  })
+  @ApiOkResponse({ description: 'The profiles.', example: RECIPE_PROFILES_EXAMPLE })
+  recipeProfiles() {
+    return this.settings.recipeProfiles();
+  }
+
+  @Get('admin/settings/recipe-profiles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the recipe profiles',
+    description: '`updatedAt: null`: never changed, the PRD’s examples apply.',
+  })
+  @ApiOkResponse({ description: 'The profiles.', example: RECIPE_PROFILES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminRecipeProfiles() {
+    return this.settings.recipeProfiles();
+  }
+
+  @Put('admin/settings/recipe-profiles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the recipe profiles',
+    description:
+      'The whole list, every time, each code once (else 422 `VALIDATION_FAILED`). A ' +
+      'dish keeps a code removed from the list; it is refused when the dish is saved ' +
+      'again. Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: RECIPE_PROFILES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setRecipeProfiles(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: RecipeProfilesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setRecipeProfiles(body.profiles, admin.id, reqId(req));
   }
 }

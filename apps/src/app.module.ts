@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { SentryModule } from '@sentry/nestjs/setup';
 
 import { AuditModule } from './common/audit/audit.module';
 import { AuthModule } from './auth/auth.module';
@@ -14,6 +15,7 @@ import { ClerkWebhooksModule } from './modules/clerk-webhooks/clerk-webhooks.mod
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -26,11 +28,16 @@ import { DishesModule } from './modules/dishes/dishes.module';
 import { ServiceOffersModule } from './modules/service-offers/service-offers.module';
 import { UsersModule } from './modules/users/users.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { AllergiesModule } from './modules/allergies/allergies.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
+    // Names each trace after its route (`GET /me/bookings/:id`). Errors are reported
+    // by AppLogger, not by a Sentry filter: see src/instrument.ts.
+    SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolveEnvFilePaths(),
@@ -71,6 +78,7 @@ import { RedisModule } from './redis/redis.module';
     HealthModule,
     UsersModule,
     CatalogModule,
+    IngredientsModule,
     ShoppingListsModule,
     QuotesModule,
     StatsModule,
@@ -80,6 +88,8 @@ import { RedisModule } from './redis/redis.module';
     DishesModule,
     ServiceOffersModule,
     MessagingModule,
+    NotificationsModule,
+    AllergiesModule,
     ContactModule,
     PlatformSettingsModule,
     PaymentsModule,

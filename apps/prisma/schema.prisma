@@ -23,6 +23,7 @@ model User {
   /// data is blanked (`UsersService.deleteByClerkId`).
   deletedAt                DateTime?                 @map("deleted_at") @db.Timestamptz(6)
   bookingsAsClient         Booking[]                 @relation("BookingClient")
+  paymentInvoices          PaymentInvoice[]
   reschedulesProposed      BookingReschedule[]       @relation("BookingRescheduleProposer")
   chefProfile              ChefProfile?
   clientProfile            ClientProfile?
@@ -40,6 +41,7 @@ model User {
   contactReplies           ContactMessageReply[]     @relation("ContactReplySender")
   cesuSettlementsConfirmed CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
   urssafLinks              UrssafLink[]              @relation("UrssafLinkClient")
+  notifications            Notification[]
 
   @@map("users")
 }
@@ -67,6 +69,9 @@ model ChefProfile {
   /// valid one is deposited. Distinguishes an automatic suspension from an admin
   /// deactivation: only an automatic one may be undone automatically.
   autoSuspendedAt        DateTime?                   @map("auto_suspended_at") @db.Timestamptz(6)
+  /// Recettes R34: set by an admin. The label shown comes from the `chef_tiers`
+  /// platform setting. No billing and no publication rule hang on it yet.
+  tier                   ChefTier                    @default(tier_1)
   createdAt              DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   availabilitySlots      AvailabilitySlot[]
@@ -90,6 +95,7 @@ model ChefProfile {
   sepaMandate            SepaMandate?
   commissions            Commission[]
   commissionInvoices     CommissionInvoice[]
+  paymentInvoices        PaymentInvoice[]
   urssafLinks            UrssafLink[]
   workingHours           ChefWorkingHour[]
   availabilityExceptions ChefAvailabilityException[]
@@ -182,6 +188,7 @@ model Booking {
   quote                 Quote?              @relation("QuoteBooking")
   serviceOffer          ServiceOffer        @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
   payments              Payment[]
+  paymentInvoices       PaymentInvoice[]
   photos                BookingPhoto[]
   reschedules           BookingReschedule[]
 
@@ -194,7 +201,18 @@ model ClientProfile {
   id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId             String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
   dietaryPreferences String[]            @default([]) @map("dietary_preferences")
+  /// The 14 regulated allergens only (codes of dishes.rules.ts): health data. Declared
+  /// through PUT /me/profile/allergies, never in a list or an export.
   allergies          String[]            @default([])
+  /// What the 14 codes do not cover, in the client's words.
+  customAllergies    String[]            @default([]) @map("custom_allergies")
+  /// "No allergy", said explicitly; the database forbids it next to a listed one.
+  allergiesNone      Boolean             @default(false) @map("allergies_none")
+  /// Null: the client never answered, so no menu can be validated (fail-closed).
+  allergiesDeclaredAt DateTime?          @map("allergies_declared_at") @db.Timestamptz(6)
+  healthConsentAt    DateTime?           @map("health_consent_at") @db.Timestamptz(6)
+  /// The version of the consent text accepted.
+  healthConsentVersion String?           @map("health_consent_version") @db.VarChar(32)
   dislikes           String[]            @default([])
   favorites          String[]            @default([])
   spiceLevel         Int?                @map("spice_level")
@@ -228,6 +246,9 @@ model Meal {
   sourceVersion          DateTime?           @map("source_version") @db.Timestamptz(6)
   /// Set when the suggestion's allergens, diets or country changed after adoption.
   sourceChangedAt        DateTime?           @map("source_changed_at") @db.Timestamptz(6)
+  /// Recettes §5.4: the dish this one was copied from ("variante de"). Not the
+  /// adoption link above, whose unique index allows one copy per chef.
+  variantOfId            String?             @map("variant_of_id") @db.Uuid
   name                   String              @db.VarChar(255)
   description            String?
   imageUrl               String?             @map("image_url") @db.VarChar(512)
@@ -241,6 +262,9 @@ model Meal {
   /// list alone cannot be told apart from "not filled in" (FLOW-02 §3.3). A CHECK
   /// in the migration forbids it next to a listed allergen.
   allergensNone          Boolean             @default(false) @map("allergens_none")
+  /// Recettes §4.9: when the chef last confirmed the allergens. Cleared when an
+  /// ingredient is added, removed or renamed; a dish without it cannot be booked.
+  allergensVerifiedAt    DateTime?           @map("allergens_verified_at") @db.Timestamptz(6)
   /// Free-text values outside the reference lists (the "Autre" button).
   customDiets            String[]            @default([]) @map("custom_diets")
   customAllergens        String[]            @default([]) @map("custom_allergens")
@@ -249,10 +273,28 @@ model Meal {
   calories               Int?
   difficulty             MealDifficulty?
   ingredients            Json                @default("[]")
-  steps                  String[]            @default([])
+  /// Recettes §4.5: `[{ order, text, type, durationMinutes }]`, in order.
+  steps                  Json                @default("[]")
+  /// Recettes §4.7: what the recipe needs, as free text. Optional, never checked.
+  equipment              String[]            @default([])
+  /// Recettes §4.8. Diets the chef declares (halal, kosher): not computable.
+  declaredDiets          String[]            @default([]) @map("declared_diets")
+  /// Codes of the `recipe_profiles` list.
+  profiles               String[]            @default([])
+  /// The chef's own tags: never shown to clients.
+  personalTags           String[]            @default([]) @map("personal_tags")
+  /// Months the chef sets instead of the computed ones; empty: none.
+  seasonsOverride        Int[]               @default([]) @map("seasons_override")
+  /// `{ diets, seasonMonths }` computed from the common ingredient list; null while
+  /// a line is not linked ("non calculé"). Recomputed when the list changes.
+  classification         Json?
   /// The recipe's version: +1 on every change to ingredients, steps, reheating,
   /// storage or portions. A booking pins the version it was cooked from (§9.2).
   recipeVersion          Int                 @default(1) @map("recipe_version")
+  /// Recettes R6: the recipe changed since its last version. A version is made,
+  /// and kept in meal_recipe_versions, once the recipe is "Prête" again or when the
+  /// allergens are confirmed; saving a draft never makes one.
+  versionPending         Boolean             @default(false) @map("version_pending")
   reheating              Json?
   storage                Json?
   isFeatured             Boolean             @default(false) @map("is_featured")
@@ -274,6 +316,8 @@ model Meal {
   menus                  MenuDish[]
   recipeVersions         MealRecipeVersion[]
   copies                 Meal[]              @relation("MealSource")
+  variants               Meal[]              @relation("MealVariant")
+  variantOf              Meal?               @relation("MealVariant", fields: [variantOfId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_variant_of_id")
   source                 Meal?               @relation("MealSource", fields: [sourceMealId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_source_meal_id")
   offeredTo              ChefProfile?        @relation("MealOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_offered_to_chef_profile_id")
   // Cascade, not SetNull: an ownerless chef dish would become a public Lab's Food
@@ -288,6 +332,7 @@ model Meal {
   @@index([createdByUserId], map: "ix_meals_created_by_user_id")
   @@index([offeredToChefProfileId], map: "ix_meals_offered_to_chef_profile_id")
   @@index([sourceMealId], map: "ix_meals_source_meal_id")
+  @@index([variantOfId], map: "ix_meals_variant_of_id")
   @@index([reviewPendingSince], map: "ix_meals_review_pending_since")
   @@map("meals")
 }
@@ -336,7 +381,8 @@ model Formule {
 model BookingMeal {
   bookingId     String             @map("booking_id") @db.Uuid
   mealId        String             @map("meal_id") @db.Uuid
-  portions      Int                @default(4)
+  /// Recettes BLK-27: a child counts as half a portion, so halves are possible.
+  portions      Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
   recipeVersion Int?               @map("recipe_version")
   booking       Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
@@ -353,6 +399,13 @@ model ShoppingList {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   bookingId   String         @unique(map: "shopping_lists_booking_id_key") @map("booking_id") @db.Uuid
   generatedAt DateTime       @default(now()) @map("generated_at") @db.Timestamptz(6)
+  /// Recettes §10.7, case 1: how many times the batch cooker sent the list (0 = never).
+  version         Int       @default(0)
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  /// When the client last sent their final list back.
+  finalReceivedAt DateTime? @map("final_received_at") @db.Timestamptz(6)
+  /// The client's answer, keyed like the lines: `ClientMark[]` in shopping-list.rules.ts.
+  clientMarks     Json      @default("[]") @map("client_marks")
   booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
   items       ShoppingItem[]
 
@@ -765,6 +818,16 @@ enum SapPath {
   @@map("sap_path")
 }
 
+/// Neutral codes: product will name the tiers, and renaming one is a setting change.
+enum ChefTier {
+  tier_1
+  tier_2
+  tier_3
+  tier_4
+
+  @@map("chef_tier")
+}
+
 enum MenuPeriod {
   week
   month
@@ -851,13 +914,31 @@ model ChefShowcaseWeek {
 
 /// A recipe as it was at one version, kept once a booking pins it, so the fiche a
 /// client received and the one the API serves always agree (FLOW-02 §9.2).
+/// Recettes §4.10: the common ingredient list, filled by the Lab's Food admin.
+/// What each ingredient suits (diets) and when it is in season. No allergens and
+/// no purchase units in this release.
+model CatalogIngredient {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @unique(map: "uq_catalog_ingredients_name") @db.VarChar(120)
+  /// Other names, folded to lowercase: what a chef may type instead.
+  aliases      String[] @default([])
+  /// Codes of COMPUTED_DIETS (dishes.rules.ts) the ingredient suits.
+  diets        String[] @default([])
+  /// Months 1 to 12; empty: not seasonal, in season all year.
+  seasonMonths Int[]    @default([]) @map("season_months")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("catalog_ingredients")
+}
+
 model MealRecipeVersion {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   mealId       String        @map("meal_id") @db.Uuid
   version      Int
   portions     Int
   ingredients  Json          @default("[]")
-  steps        String[]      @default([])
+  steps        Json          @default("[]")
   reheating    Json?
   storage      Json?
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1055,6 +1136,7 @@ model Payment {
   booking                 Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
   commission              Commission?
   cesuSettlement          CesuSettlement?
+  invoice                 PaymentInvoice?
 
   /// `uq_payments_live_cesu_booking_id` — a partial unique index on
   /// (booking_id) WHERE method = 'cesu' AND status <> 'failed' — also guards this table.
@@ -1063,6 +1145,40 @@ model Payment {
   @@index([bookingId], map: "ix_payments_booking_id")
   @@index([status], map: "ix_payments_status")
   @@map("payments")
+}
+
+/// Facture A: the invoice the client receives for one card payment, issued in the chef's
+/// name (merchant of record through `on_behalf_of`) once the payment is `succeeded` and
+/// its commission `collected`. Not to be confused with `CommissionInvoice` (facture B,
+/// platform to chef).
+/// The row exists, numbered, before the PDF does: `snapshot` is everything the PDF is
+/// drawn from, so a failed upload is redrawn identically instead of read again from
+/// rows that may have changed since. `storagePath` stays null until the file is stored.
+model PaymentInvoice {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId      String      @unique(map: "uq_payment_invoices_payment_id") @map("payment_id") @db.Uuid
+  bookingId      String      @map("booking_id") @db.Uuid
+  clientId       String      @map("client_id") @db.Uuid
+  chefProfileId  String      @map("chef_profile_id") @db.Uuid
+  invoiceNumber  String      @unique(map: "uq_payment_invoices_invoice_number") @map("invoice_number") @db.VarChar(32)
+  issuedAt       DateTime    @default(now()) @map("issued_at") @db.Timestamptz(6)
+  amountTtcCents Int         @map("amount_ttc_cents")
+  currency       String      @default("EUR") @db.VarChar(3)
+  snapshot       Json
+  /// Object key in the invoices bucket. Null while the PDF is not stored.
+  storagePath    String?     @map("storage_path") @db.VarChar(512)
+  archivedAt     DateTime?   @map("archived_at") @db.Timestamptz(6)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment        Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_payment_invoices_payment_id")
+  booking        Booking     @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payment_invoices_booking_id")
+  client         User        @relation(fields: [clientId], references: [id], onDelete: Restrict, map: "fk_payment_invoices_client_id")
+  chefProfile    ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_payment_invoices_chef_profile_id")
+
+  @@index([clientId, issuedAt], map: "ix_payment_invoices_client_issued")
+  @@index([chefProfileId], map: "ix_payment_invoices_chef_profile_id")
+  @@index([bookingId], map: "ix_payment_invoices_booking_id")
+  @@map("payment_invoices")
 }
 
 /// Platform commission on a payment. Rate and VAT are frozen at creation time so an
@@ -1548,4 +1664,21 @@ model ChefCalendarFeed {
   chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_calendar_feeds_chef_profile_id")
 
   @@map("chef_calendar_feeds")
+}
+
+/// In-app notifications (Recettes §12): a type and the thing it is about, never what
+/// it says. The fronts word it from `type`. No e-mail is sent from here.
+model Notification {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  /// Each Recettes lot adds its own, e.g. `allergy_conflict`.
+  type        String    @db.VarChar(64)
+  subjectType String    @map("subject_type") @db.VarChar(32)
+  subjectId   String    @map("subject_id") @db.Uuid
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notifications_user_id")
+
+  @@index([userId, createdAt], map: "ix_notifications_user_id_created_at")
+  @@map("notifications")
 }

@@ -2,11 +2,17 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { classificationOf } from '../ingredients/ingredients.service';
 import {
+  assertCatalogIngredients,
   assertConsistent,
+  assertProfiles,
+  assertReheatModes,
+  assertWithinLimits,
   SAFETY_FIELDS,
   toIngredientsJson,
   toReheatingJson,
+  toStepsJson,
   toStorageJson,
 } from '../dishes/dishes.service';
 import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
@@ -49,6 +55,11 @@ export class CatalogService {
   /** Always an unowned Lab's Food meal; the admin is recorded as its author only. */
   async createMeal(payload: CreateMealDto, adminUserId: string) {
     assertConsistent(declarationOf(null, payload));
+    assertWithinLimits(payload);
+    await assertReheatModes(this.prisma, payload.reheating);
+    await assertCatalogIngredients(this.prisma, payload.ingredients);
+    await assertProfiles(this.prisma, payload.profiles);
+    const ingredients = toIngredientsJson(payload.ingredients ?? []);
     return this.prisma.meal.create({
       data: {
         createdByUserId: adminUserId,
@@ -66,12 +77,20 @@ export class CatalogService {
         allergens: payload.allergens ?? [],
         allergensNone: payload.allergensNone ?? false,
         customAllergens: payload.customAllergens ?? [],
+        // Recettes §4.9: an admin writes the whole form at once, so the save is the
+        // check, provided something is declared.
+        allergensVerifiedAt: isDeclared(declarationOf(null, payload)) ? new Date() : null,
         calories: payload.calories ?? null,
         difficulty: payload.difficulty ?? null,
         category: payload.category ?? null,
         cookTime: payload.cookTime ?? null,
-        ingredients: toIngredientsJson(payload.ingredients ?? []),
-        steps: payload.steps,
+        ingredients,
+        classification: await classificationOf(this.prisma, ingredients),
+        steps: payload.steps && toStepsJson(payload.steps),
+        equipment: payload.equipment,
+        declaredDiets: payload.declaredDiets,
+        profiles: payload.profiles,
+        seasonsOverride: payload.seasonsOverride,
         reheating: toReheatingJson(payload.reheating),
         storage: toStorageJson(payload.storage),
         isFeatured: payload.isFeatured,
@@ -85,9 +104,14 @@ export class CatalogService {
    * statement: no gap in which the row could change hands in between.
    */
   async updateMeal(id: string, payload: UpdateMealDto, adminUserId: string) {
+    assertWithinLimits(payload);
+    await assertReheatModes(this.prisma, payload.reheating);
+    await assertCatalogIngredients(this.prisma, payload.ingredients);
+    await assertProfiles(this.prisma, payload.profiles);
     let current: Meal | null = null;
     const publishing = payload.status === MealStatus.published;
-    if (touchesDeclaration(payload) || payload.country !== undefined || publishing) {
+    const reverify = payload.ingredients != null || touchesDeclaration(payload);
+    if (reverify || payload.country !== undefined || publishing) {
       current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
       if (!current) return this.explainMissing(id);
       assertConsistent(declarationOf(current, payload));
@@ -97,7 +121,20 @@ export class CatalogService {
     try {
       updated = await this.prisma.meal.update({
         where: { id, ...LABS_FOOD },
-        data: CatalogService.toMealUpdateData(payload),
+        data: {
+          ...CatalogService.toMealUpdateData(payload),
+          ...(payload.ingredients != null && {
+            classification: await classificationOf(
+              this.prisma,
+              toIngredientsJson(payload.ingredients),
+            ),
+          }),
+          ...(reverify && {
+            allergensVerifiedAt: isDeclared(declarationOf(current, payload))
+              ? new Date()
+              : null,
+          }),
+        },
       });
     } catch (error) {
       if (isNotFound(error)) return this.explainMissing(id);
@@ -153,15 +190,19 @@ export class CatalogService {
     if (payload.ingredients != null) {
       data.ingredients = toIngredientsJson(payload.ingredients);
     }
-    if (payload.steps != null) data.steps = payload.steps;
+    if (payload.steps != null) data.steps = toStepsJson(payload.steps);
+    if (payload.equipment != null) data.equipment = payload.equipment;
+    if (payload.declaredDiets != null) data.declaredDiets = payload.declaredDiets;
+    if (payload.profiles != null) data.profiles = payload.profiles;
+    if (payload.seasonsOverride != null) data.seasonsOverride = payload.seasonsOverride;
     if (payload.isFeatured != null) data.isFeatured = payload.isFeatured;
     if (payload.status != null) data.status = payload.status;
 
     // A new recipe version; bookings keep the one they pinned (FLOW-02 §9.2).
+    // Reheating is not part of it (Recettes §4.6): it applies as soon as saved.
     const recipeTouched = [
       payload.ingredients,
       payload.steps,
-      payload.reheating,
       payload.storage,
       payload.portions,
     ].some((value) => value !== undefined && value !== null);
@@ -306,6 +347,9 @@ function declarationOf(current: Meal | null, payload: UpdateMealDto) {
     customDiets: payload.customDiets ?? current?.customDiets ?? [],
   };
 }
+
+const isDeclared = (declaration: { allergens: string[]; allergensNone: boolean }) =>
+  declaration.allergens.length > 0 || declaration.allergensNone;
 
 /** Whether allergens, diets or country differ between two versions of a meal. */
 function safetyChanged(before: Meal, after: Meal): boolean {

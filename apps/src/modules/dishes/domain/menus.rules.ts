@@ -1,4 +1,4 @@
-import { PublishableDish, PublishProblem, publishProblems } from './dishes.rules';
+import { PublishProblem, readiness, ReadinessDish } from './dishes.rules';
 
 /** `YYYY-MM-DD` that is a real calendar day and a Monday (§3.5). */
 export function isMonday(day: string): boolean {
@@ -12,7 +12,7 @@ export function isMonday(day: string): boolean {
 }
 
 /** A dish as menu publication needs it. */
-export interface MenuDishState extends PublishableDish {
+export interface MenuDishState extends ReadinessDish {
   id: string;
   status: string;
 }
@@ -27,8 +27,8 @@ export interface MenuPublishProblems {
 /**
  * §3.4, with the PRD's rule that publishing a menu publishes its draft dishes: the
  * menu needs a title and a dish, no dish may be suspended, and every draft dish
- * must pass the same checks as if it were published on its own. All or nothing,
- * so everything that fails is reported at once.
+ * must pass the same checks as if it were published on its own (Recettes §4.11,
+ * R3). All or nothing, so everything that fails is reported at once.
  */
 export function menuPublishProblems(
   menu: { title: string },
@@ -63,7 +63,7 @@ export function menuPublishProblems(
           ]
         : dish.status === 'published'
           ? []
-          : publishProblems(dish);
+          : publicationProblems(dish);
     if (problems.length)
       result.dishes.push({ dishId: dish.id, name: dish.name, problems });
   }
@@ -72,3 +72,9 @@ export function menuPublishProblems(
 
 export const hasMenuProblems = (problems: MenuPublishProblems) =>
   problems.menu.length > 0 || problems.dishes.length > 0;
+
+/** What publishing a dish needs: "Prête", plus what publication adds (§4.11). */
+export function publicationProblems(dish: ReadinessDish): PublishProblem[] {
+  const { problems, toPublish } = readiness(dish);
+  return [...problems, ...toPublish];
+}
