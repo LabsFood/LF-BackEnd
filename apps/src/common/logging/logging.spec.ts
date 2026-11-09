@@ -5,11 +5,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { fastify } from 'fastify';
 
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { AppLogger } from './app-logger';
 import { currentRequest, registerRequestContext } from './request-context';
+
+jest.mock('@sentry/nestjs', () => ({ captureException: jest.fn() }));
 
 function captureStdout(): {
   lines: () => Record<string, unknown>[];
@@ -74,6 +77,86 @@ describe('request context', () => {
 
   it('is empty outside a request', () => {
     expect(currentRequest()).toBeUndefined();
+  });
+});
+
+describe('AppLogger error reporting', () => {
+  const captureException = Sentry.captureException as jest.Mock;
+  const stack =
+    'TypeError: boom\n    at BookingsService.notify (bookings.service.ts:12:3)';
+
+  // Nest writes error lines to stderr and the rest to stdout.
+  function silenced(run: () => unknown): unknown {
+    const out = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const err = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      return run();
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+    }
+  }
+
+  beforeEach(() => captureException.mockClear());
+
+  it('reports an error line with its stack, request, user and logger context', async () => {
+    const app = fastify({ genReqId: () => 'req-1' });
+    registerRequestContext(app);
+    const logger = new AppLogger({ json: true });
+    app.get('/me/bookings/:id', async () => {
+      currentRequest()!.userId = 'user_2abc';
+      // As `new Logger('BookingsService').error(...)` forwards it: context last.
+      logger.error(
+        { event: 'booking.mail_failed', bookingId: 'b-1' },
+        stack,
+        'BookingsService',
+      );
+      return {};
+    });
+
+    await silenced(() => app.inject({ method: 'GET', url: '/me/bookings/b-1' }));
+    await app.close();
+
+    expect(captureException).toHaveBeenCalledTimes(1);
+    const [error, hint] = captureException.mock.calls[0];
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('BookingsService');
+    expect(error.message).toBe('booking.mail_failed (TypeError: boom)');
+    expect(error.stack).toBe(stack);
+    expect(hint).toEqual({
+      tags: { requestId: 'req-1', route: '/me/bookings/:id' },
+      user: { id: 'user_2abc' },
+      extra: { event: 'booking.mail_failed', bookingId: 'b-1' },
+    });
+  });
+
+  it('reports an Error passed as the message as it is', () => {
+    const thrown = new RangeError('out of slots');
+    silenced(() => new AppLogger({ json: true }).error(thrown));
+    expect(captureException).toHaveBeenCalledWith(thrown, expect.anything());
+  });
+
+  it('keeps email addresses out of what it reports', () => {
+    silenced(() =>
+      new AppLogger({ json: true }).error(
+        'Brevo rejected "welcome" for jean.dupont+test@example.fr: 400',
+        undefined,
+        'BrevoService',
+      ),
+    );
+    const [error] = captureException.mock.calls[0];
+    expect(error.message).toBe('Brevo rejected "welcome" for [email]: 400');
+    expect(error.stack).not.toContain('example.fr');
+  });
+
+  it('does not report warn, log or debug lines', () => {
+    const logger = new AppLogger({ json: true, logLevels: ['log', 'warn', 'debug'] });
+    silenced(() => {
+      logger.warn({ event: 'http.error', status: 409 });
+      logger.log({ event: 'booking.created' });
+      logger.debug({ event: 'http.error', status: 404 });
+    });
+    expect(captureException).not.toHaveBeenCalled();
   });
 });
 

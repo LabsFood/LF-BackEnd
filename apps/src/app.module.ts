@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { SentryModule } from '@sentry/nestjs/setup';
 
 import { AuditModule } from './common/audit/audit.module';
 import { AuthModule } from './auth/auth.module';
@@ -34,6 +35,9 @@ import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
+    // Names each trace after its route (`GET /me/bookings/:id`). Errors are reported
+    // by AppLogger, not by a Sentry filter: see src/instrument.ts.
+    SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: resolveEnvFilePaths(),
