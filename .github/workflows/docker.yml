@@ -171,11 +171,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Pushes to main only (not develop, PRs or tags). SemRelease tags the commit,
-  # publishes the GitHub Release and queues "Deploy production".
+  # Pushes to main, or a manual run on main (Actions → LF API Server image →
+  # Run workflow → main), never develop, PRs or tags. The manual run is the way
+  # out when a push to main did not start this workflow, e.g. a squash-merge
+  # whose message carries "[skip ci]". SemRelease tags the commit, publishes the
+  # GitHub Release and queues "Deploy production".
   release:
     needs: build-run-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: contains(fromJSON('["push", "workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     permissions:
       contents: write
       issues: write
