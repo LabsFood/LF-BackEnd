@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -290,6 +291,11 @@ export class QuoteOffersService {
    * each update only touches rows still in the state it expects.
    */
   @Cron(CronExpression.EVERY_10_MINUTES, { name: 'quote-offers-expiry' })
+  @SentryCron('quote-offers-expiry', {
+    checkinMargin: 5,
+    maxRuntime: 5,
+    failureIssueThreshold: 3,
+  })
   async expireDue(): Promise<number> {
     try {
       const due = await this.prisma.quoteOffer.findMany({

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
@@ -620,6 +621,11 @@ export class BookingsService {
    * cancellation only touches a booking still unpaid and `pending`.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'bookings-unpaid-hold' })
+  @SentryCron('bookings-unpaid-hold', {
+    checkinMargin: 10,
+    maxRuntime: 10,
+    failureIssueThreshold: 2,
+  })
   async expireUnpaid(
     now: Date = new Date(),
   ): Promise<{ reminded: number; expired: number }> {

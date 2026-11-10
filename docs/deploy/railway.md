@@ -63,7 +63,8 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `CONTACT_NOTIFICATION_EMAIL`, `ADMIN_SITE_URL` | Team address told about contact messages and custom requests with no batch cooker (Reply-To of the answers), and the admin console link in those emails. Without `BREVO_TPL_CONTACT_REPLY` an admin cannot answer a contact message |
 | `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
 | `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §4b |
-| `SENTRY_DSN` | Error reporting to Sentry (EU region), one DSN per environment — see §4b. Unset = off |
+| `SENTRY_DSN` | Error reporting to Sentry (EU region), the `lf-api` project — see §4b. Unset = off |
+| `SENTRY_ENVIRONMENT` | `develop` on the develop service, unset in production — see §4b |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).
 
@@ -217,6 +218,22 @@ Each event carries:
 Email addresses are redacted from messages and stacks before sending. Traces are
 sampled at 10 % in production and named after the route.
 
+The Sentry environment is `SENTRY_ENVIRONMENT`, else `ENVIRONMENT`. The develop
+service runs with `ENVIRONMENT=production`, so it sets `SENTRY_ENVIRONMENT=develop`:
+without it, its errors, traces and cron check-ins land in production and page the
+`[prod]` alerts. Sentry routes each environment separately:
+
+| Alert | Covers | Sends |
+|---|---|---|
+| `[prod] New, regressed or reappearing error` | errors, all three projects | at once, then at most every 30 min per issue |
+| `[prod] Error spike` | one issue over 20 events in 1 h | at most hourly |
+| `[prod] Monitors` | uptime (website, admin), cron check-ins, the API error-count and p95 metric monitors, the website error-count monitor | down, missed, crossed and recovered |
+| `[dev] New or regressed error` | errors, `develop` | once a day per issue |
+| `[dev] Monitors` | missed cron check-ins on `develop` | once a day |
+
+The API itself has no uptime monitor: Sentry refuses new ones on `*.railway.app`
+(1,000 per domain, all customers). One needs a custom domain for the API.
+
 The variable is read from the real environment before `.env` is loaded, so to try
 it locally export it in the shell: `SENTRY_DSN=… npm run start:dev`.
 
@@ -226,11 +243,16 @@ Five jobs run in-process via `@nestjs/schedule`. There is no queue.
 
 | Job | When | What |
 |-----|------|------|
-| `ChefDossierCron` | daily, 06:00 UTC (the container's clock) | Document expiry warnings, automatic suspension, retention purge. Sentry monitor `chef-dossier-daily` alerts when a day passes without a run |
+| `ChefDossierCron` | daily, 06:00 UTC (the container's clock) | Document expiry warnings, automatic suspension, retention purge |
 | `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
 | `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
 | `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h |
 | `booking-reschedules-expiry` | hourly | Lapses reschedule proposals nobody answered in time |
+
+Each job checks in to a Sentry cron monitor of the same slug (`chef-dossier-daily`
+for `ChefDossierCron`, `messaging-unread-emails` for `MessagingNotifierCron`). A
+missed or failed run opens an issue: after 1 run for the daily job, 2 for the
+hourly ones, 3 for the 5- and 10-minute ones, so a container restart stays quiet.
 
 **If you scale the API past one replica, every replica will run them.** The
 messaging, offer and booking jobs claim their rows, or only move rows still in

@@ -11,7 +11,9 @@ import * as Sentry from '@sentry/nestjs';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  environment: process.env.ENVIRONMENT ?? 'development',
+  // The deployed develop API runs with ENVIRONMENT=production (strict Clerk checks), so
+  // SENTRY_ENVIRONMENT=develop keeps its events, traces and check-ins out of production.
+  environment: process.env.SENTRY_ENVIRONMENT ?? process.env.ENVIRONMENT ?? 'development',
   // The deployment the log lines name as `version` (LOG_BASE in app-logger.ts).
   release: process.env.DD_VERSION ?? process.env.RAILWAY_GIT_COMMIT_SHA,
   tracesSampleRate: process.env.ENVIRONMENT === 'production' ? 0.1 : 1,

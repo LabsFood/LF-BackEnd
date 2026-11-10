@@ -153,6 +153,8 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['https'] })
     .allow('')
     .optional(),
+  /** Sentry environment when it differs from ENVIRONMENT: `develop` on the develop API. */
+  SENTRY_ENVIRONMENT: Joi.string().valid('develop', 'production').optional(),
 
   /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),
