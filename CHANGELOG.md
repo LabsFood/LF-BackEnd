@@ -1,3 +1,296 @@
+## [2.0.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.5.0...v2.0.0) (2026-11-09)
+
+### ⚠ BREAKING CHANGES
+
+* the dishes returned by GET /menus/week, GET /chefs/{id} and
+GET /chefs/{id}/showcase no longer have prepMinutes, cookMinutes or calories. Read them
+from the chef and admin routes, which still return them.
+
+* feat(users): add four chef tiers with admin-editable names
+
+Recettes lot 0, step 2 (LF-0192; LF-0193 stays blocked on BLK-26).
+
+- ChefTier enum (tier_1 to tier_4) on chef_profiles, tier_1 by default. Migration
+  20261031120000_chef_tiers is written, not applied.
+- GET/PUT /admin/settings/chef-tiers: the name of each code in the chef_tiers platform
+  setting, neutral ("Palier 1".."Palier 4") until an admin renames them; audited.
+- PATCH /admin/chefs/{id}/tier: logged and audited with before and after.
+- tier and tierLabel on GET /admin/chefs, GET /admin/chefs/{id} and GET /me/profile.
+- No billing and no publication rule: assertCanPublish marks where the tier check goes.
+
+* feat(notifications): add the in-app notification feed
+
+Recettes lot 0, step 3 (LF-0194).
+
+- Notification model: recipient, type, subject (type and id), readAt. It never holds
+  what the notification says, so no allergy or personal data. Migration
+  20261031130000_notifications is written, not applied.
+- GET /me/notifications: the caller's own, newest first, paginated (100 at most per
+  page), with unreadCount for the bell.
+- POST /me/notifications/{id}/read: once; someone else's answers 404
+  NOTIFICATION_NOT_FOUND.
+- NotificationsService.notify() is exported for lots 1, 3 and 4. No e-mail is sent.
+
+* fix(notifications): replace the unused legacy notifications table
+
+The first schema (20250522130000_spec_domain) created a "notifications" table
+(channel, payload) and a notification_channel enum. Their model was removed later
+but no migration dropped them, so CREATE TABLE "notifications" failed on every
+database, and in the image check that replays all migrations.
+
+The migration now drops the legacy table and enum before creating the new table.
+A guard stops it, with an explicit error, if the legacy table holds any row: data
+is moved by hand, never dropped silently. Empty on DEV; no code references either.
+
+Not applied anywhere yet, so the file can still change.
+
+* feat(shopping-lists): the client answers the shopping list until noon the day before
+
+Recettes lot 4, client part (LF-0279 to LF-0282, part of LF-0286), when the batch
+cooker does the shopping.
+
+- POST /chef-missions/{id}/shopping-list/send: the chef sends the list, or sends it
+  again after a correction. Each send bumps the version and tells the client in the
+  app (shopping_list.sent, then shopping_list.updated).
+- POST /me/bookings/{id}/shopping-list/submit: the client sends their final list, what
+  they already have and a comment per line, with the version they saw. A newer send
+  answers 409 SHOPPING_LIST_UPDATED, before any send 409 SHOPPING_LIST_NOT_SENT, from
+  noon (Paris) the day before 409 SHOPPING_LIST_FROZEN. The chef is told
+  (shopping_list.final_received).
+- Both answer 409 SHOPPING_BY_CLIENT when the client does the shopping.
+- The answers live on the list (client_marks), keyed by ingredient and unit, because
+  the lines are rebuilt on every recalculation. An answer lapses when its quantity
+  changes.
+- Status (preparing, sent, update_sent, final_received, frozen) and deadline are
+  computed, not stored: shopping-lists/domain/shopping-list.rules.ts.
+- Logs carry the number of answers, never the comments. A failed notification is
+  logged and does not undo the send.
+
+Migration 20261031140000_shopping_list_answers adds four columns to shopping_lists. It
+is written, not applied.
+
+* feat(allergies)!: clients declare their allergies with consent, or none
+
+Recettes lot 1, step 1 (LF-0205, LF-0206, LF-0207, profile part of LF-0209).
+
+- client_profiles: allergies holds only the 14 regulated codes (a CHECK enforces
+  it), customAllergies the rest in the client's words, then allergiesNone,
+  allergiesDeclaredAt (null: never answered), healthConsentAt and
+  healthConsentVersion.
+- PUT /me/profile/allergies: a list with consent to the current text, or
+  { "none": true }. A list without consent, or with an older version, answers 422
+  HEALTH_CONSENT_REQUIRED with the version to accept; "none" next to a list, or an
+  empty list, 422 VALIDATION_FAILED.
+- DELETE /me/profile/health-consent erases the allergies with the consent: the
+  question comes back.
+- GET /me/profile adds healthConsent (text and version) and, on the profile,
+  allergyCheck with its reasons. The text is a draft until legal validates it
+  (BLK-25).
+- The batch cooker reads the allergies in French, free text included: booking
+  detail, client card in the messaging.
+- Rules in allergies/domain/allergies.rules.ts, tested first. Logs carry counts,
+  never an allergy. A separate module, because NotificationsModule already imports
+  UsersModule.
+* PATCH /me/profile and PATCH /admin/clients/{id} refuse
+`allergies` (400). GET /admin/clients rows no longer carry allergies nor
+customAllergies. The booking detail's `allergies` are French labels.
+
+Migration 20261102100000_client_allergies moves the existing free text, word for
+word, into custom_allergies, in place of the mapping script LF-0207 planned. It is
+written, not applied.
+
+* feat(bookings)!: refuse a menu the client's allergies do not clear
+
+Recettes lot 1, step 2 (LF-0208, booking part of LF-0209).
+
+- Creating a booking with dishes, or changing its dishes, is refused for every
+  caller, admins included, in this order: 422 ALLERGIES_NOT_DECLARED while the
+  client never answered, 422 ALLERGENS_UNVERIFIED (mealIds) for a dish that
+  declares neither allergens nor "none", 422 ALLERGEN_CONFLICT (conflicts) for a
+  dish holding a declared allergen. Free text that names one of the 14, from the
+  client or the quote request, counts.
+- Booking rows and details carry allergyCheck ("verified" only when nothing is
+  left to check by hand) and allergyCheckReasons. A row never carries the
+  allergies themselves.
+- The rule is menuRefusal in allergies.rules.ts, tested first.
+* booking a menu now requires declared allergies; every existing
+client has to declare before their next menu (LF-0221).
+
+* feat(allergies): re-check upcoming menus when the client's allergies change
+
+Recettes lot 1, step 3 (LF-0210, R41).
+
+- After a declaration, each prestation still to cook (pending to cooking, not yet
+  over, with dishes) is checked again. A dish newly in conflict notifies the
+  client (allergy.conflict) and the batch cooker (mission.allergy_conflict), in
+  the app, with the booking as subject. A conflict already there stays quiet.
+- Best effort: the declaration stands whatever happens, a failure is logged
+  (client.allergies_recheck_failed), and the booking shows its conflicts live.
+- The booking detail lists allergyConflicts: each dish to replace and the
+  allergens it holds.
+- Logs carry ids and counts, never an allergy.
+
+* feat(bookings): replace a dish in conflict with the client's allergies
+
+Recettes lot 1, step 4 (LF-0211).
+
+- POST /me/bookings/{id}/meals/replace and POST /chef/bookings/{id}/meals/replace,
+  body { from, to }: swaps a dish in conflict for another, keeping its portions,
+  then rebuilds the shopping list.
+- Any status before delivery: there is no menu freeze yet (lot 3), and this route
+  is the exception it will need. 409 BOOKING_LOCKED once delivered, completed or
+  cancelled.
+- Only a dish in conflict, and only for a safe one: 422 VALIDATION_FAILED when
+  `from` is not in conflict or `to` is already on the menu, then the usual checks
+  on the new dish alone (MEAL_UNAVAILABLE, ALLERGENS_UNVERIFIED,
+  ALLERGEN_CONFLICT).
+- Logged as booking.allergy_meal_replaced, with ids and the caller's role.
+
+* chore(release): 1.5.0 [skip ci]
+
+## [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02)
+
+### Features
+
+* integrate geo.api.gouv.fr for address validation across modules ([427dd75](https://github.com/LabsFood/LF-BackEnd/commit/427dd75190ac4701b173e2a1ddde03309efd2ca9))
+* **users:** add listUsers endpoint for admin to retrieve user accounts ([070b2f8](https://github.com/LabsFood/LF-BackEnd/commit/070b2f88c8ea7a22253f923a9009fc21436e580a))
+
+### Bug Fixes
+
+* **tls:** distrust eMudhra (emSign) root CAs ([164a4cb](https://github.com/LabsFood/LF-BackEnd/commit/164a4cb95b398f2e5554ae1b7daec11dd17af967))
+
+* refactor(pdf): share the brand helpers and the PDF text extraction
+
+The batchcooking identity (logo, palette, embedded fonts, header, panels,
+footer) moves out of the SEPA mandate into common/pdf/brand.ts so every
+document the API prints wears it. The specs' text extraction moves to
+common/pdf/pdf.test-helpers.ts.
+
+The extraction no longer accepts \r\n before endstream: PDFKit always
+writes a bare \n, and the optional \r ate the last byte of a compressed
+stream ending in 0x0D, which made inflate fail at random.
+
+* feat(payments): rules for the lines and number of invoice A
+
+Invoice A is the invoice the client receives for a card payment, in the
+chef's name. Pure rules, test-first:
+- numbering <prefix>-<year>-NNNN, the year read in Paris;
+- a payment covering the whole booking shows its breakdown (base,
+  shopping, extra adults, extra dishes); a part payment is one line,
+  since the booking does not record which share of the extras it paid;
+- the lines always add up to the amount paid.
+
+* refactor(pdf): share the brand helpers and the PDF text extraction
+
+The batchcooking identity (logo, palette, embedded fonts, header, panels,
+footer) moves out of the SEPA mandate into common/pdf/brand.ts so every
+document the API prints wears it. The specs' text extraction moves to
+common/pdf/pdf.test-helpers.ts.
+
+The extraction no longer accepts \r\n before endstream: PDFKit always
+writes a bare \n, and the optional \r ate the last byte of a compressed
+stream ending in 0x0D, which made inflate fail at random.
+
+* feat(recettes): lot 2 work in progress
+
+Work in progress on Recettes lot 2, carried over in one commit from the
+working tree of 2026-11-02:
+- migrations (not applied): recipe equipment, typed steps, allergen
+  verification, recipe versions, half portions, catalog ingredients,
+  recipe classification, dish variants;
+- new ingredients module (catalogue);
+- dishes: classification rules, duplication, recipe sheet PDF, and the
+  rules, views and routes those migrations need;
+- platform settings: recipe lists;
+- follow-ups in allergies, bookings, catalog, referentials, shopping
+  lists and R2 storage.
+
+* feat(payments): payment_invoices table for invoice A
+
+One invoice per card payment (unique on payment_id), numbered with a
+unique invoice_number. The row exists before its PDF: snapshot freezes
+everything the PDF is drawn from, so a failed upload is redrawn
+identically; storage_path stays null until the file is stored.
+
+Idempotent migration, not applied. No backfill: an invoice invented
+after the fact for a past payment would be a false document.
+
+* feat(payments): draw invoice A as a branded PDF
+
+PDF/A-3b in the batchcooking identity, like the SEPA mandate: number,
+issue and payment dates, the chef (with their SAP number when declared),
+the client, the prestation, the lines and the total paid. Drawn only from
+the frozen snapshot. Amounts are formatted by hand: Intl narrow no-break
+spaces are missing from the embedded face.
+
+* feat(payments): the chef is merchant of record on card payments
+
+Card PaymentIntents, direct and through Checkout, now carry on_behalf_of
+the chef's connected account, beside the unchanged destination charge and
+application fee: the step decided on 2026-09-05 so invoice A can be issued
+in the chef's name. The commission debit still never carries it.
+
+Intents already open before this change are reused as they are, without
+on_behalf_of.
+
+* feat(payments): issue invoice A on card payment and serve it to the client
+
+On payment_intent.succeeded, once the payment is settled and its
+commission collected, invoice A is numbered in the same transaction: a
+settled card payment always has its invoice. Its PDF is then drawn and
+stored in the private Supabase bucket SUPABASE_INVOICES_BUCKET
+(labsfood-invoices). A storage failure is logged
+(payment_invoice.archive_failed), never thrown: the next download redraws
+the PDF from the frozen snapshot and stores it.
+
+Two routes for the order and document spaces:
+- GET /me/payment-invoices (?bookingId= for one order), newest first;
+- GET /me/payment-invoices/:id/download-url, a 5-minute signed link.
+A client sees the invoices addressed to them, a chef those issued for
+them; anyone else's answers 404 INVOICE_NOT_FOUND.
+
+New settings: SUPABASE_INVOICES_BUCKET, PAYMENTS_INVOICE_PREFIX (LF-FAC).
+CESU and URSSAF payments get no invoice A yet.
+* **bookings:** booking a menu now requires declared allergies; every existing
+client has to declare before their next menu (LF-0221).
+* **allergies:** PATCH /me/profile and PATCH /admin/clients/{id} refuse
+`allergies` (400). GET /admin/clients rows no longer carry allergies nor
+customAllergies. The booking detail's `allergies` are French labels.
+
+Migration 20261102100000_client_allergies moves the existing free text, word for
+word, into custom_allergies, in place of the mapping script LF-0207 planned. It is
+written, not applied.
+* **dishes:** the dishes returned by GET /menus/week, GET /chefs/{id} and
+GET /chefs/{id}/showcase no longer have prepMinutes, cookMinutes or calories. Read them
+from the chef and admin routes, which still return them.
+
+### Features
+
+* **allergies:** clients declare their allergies with consent, or none ([206738b](https://github.com/LabsFood/LF-BackEnd/commit/206738b7537f444a3eedab2723fb173256df81da))
+* **allergies:** re-check upcoming menus when the client's allergies change ([92f9a58](https://github.com/LabsFood/LF-BackEnd/commit/92f9a5869b797f6e184d096db81307e3ebb217ba))
+* **bookings:** refuse a menu the client's allergies do not clear ([e9fc26b](https://github.com/LabsFood/LF-BackEnd/commit/e9fc26b149267ce85b1e2e1e8cd3a525f2444584))
+* **bookings:** replace a dish in conflict with the client's allergies ([cd826a7](https://github.com/LabsFood/LF-BackEnd/commit/cd826a768cd0b09607ae6459d9d8e736acdeebec))
+* **dishes:** add Recettes reason codes and hide times and calories on the storefront ([6daf5de](https://github.com/LabsFood/LF-BackEnd/commit/6daf5de90f9b77e44b1c8e4e13de3109a0a557af))
+* **notifications:** add the in-app notification feed ([0a76385](https://github.com/LabsFood/LF-BackEnd/commit/0a763851a34400c8e5d917ad563b0351f9629aee))
+* **observability:** report error logs to Sentry ([#78](https://github.com/LabsFood/LF-BackEnd/issues/78)) ([bba6105](https://github.com/LabsFood/LF-BackEnd/commit/bba6105aa4b04d4024e5c807c0c008d7ea4e5364))
+* **payments:** draw invoice A as a branded PDF ([cb63f8e](https://github.com/LabsFood/LF-BackEnd/commit/cb63f8e1a7e25783a1d57a9e475286a82585d782))
+* **payments:** issue invoice A on card payment and serve it to the client ([5b8963f](https://github.com/LabsFood/LF-BackEnd/commit/5b8963ff204c98e710f6e839abb573bbd7a3e225))
+* **payments:** LF-CUSYY-XXXXX numbering and backfill of invoice A ([#77](https://github.com/LabsFood/LF-BackEnd/issues/77)) ([9cdd778](https://github.com/LabsFood/LF-BackEnd/commit/9cdd77841748dc46f99bd796a95f4cadc8759ac3))
+* **payments:** payment_invoices table for invoice A ([b88002c](https://github.com/LabsFood/LF-BackEnd/commit/b88002cd7e22b63f71840beb93e21d18e58a319b))
+* **payments:** rules for the lines and number of invoice A ([a5a3425](https://github.com/LabsFood/LF-BackEnd/commit/a5a34252893e07c1aee1a42cad767c6d1eb9dffc))
+* **payments:** the chef is merchant of record on card payments ([a40b95e](https://github.com/LabsFood/LF-BackEnd/commit/a40b95ea1f70ca980e61350b629318cf223f54f9))
+* **recettes:** lot 2 work in progress ([574be4e](https://github.com/LabsFood/LF-BackEnd/commit/574be4e605d49238287db98cccd00eef133b9c33))
+* **shopping-lists:** the client answers the shopping list until noon the day before ([4246933](https://github.com/LabsFood/LF-BackEnd/commit/42469336beb7ec48d0029174a43a3239e06079cb))
+* **users:** add four chef tiers with admin-editable names ([17fdb10](https://github.com/LabsFood/LF-BackEnd/commit/17fdb105db11893231c79394c4bc1c2e8bf204be))
+
+### Bug Fixes
+
+* **notifications:** replace the unused legacy notifications table ([87846bd](https://github.com/LabsFood/LF-BackEnd/commit/87846bdfae5affbddeb8787c739349f9466f2ebe))
+
+### Miscellaneous Chores
+
+* promote develop to main for the Recettes, invoice A and Sentry release ([#79](https://github.com/LabsFood/LF-BackEnd/issues/79)) ([f92911f](https://github.com/LabsFood/LF-BackEnd/commit/f92911fe400d13393b449e3156dbc86a4ae628ae)), closes [#77](https://github.com/LabsFood/LF-BackEnd/issues/77) [#78](https://github.com/LabsFood/LF-BackEnd/issues/78)
+
 ## [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02)
 
 ### Features
