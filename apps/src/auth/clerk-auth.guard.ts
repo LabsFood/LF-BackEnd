@@ -107,10 +107,14 @@ async function resolveClaims(
   return decodeUnverifiedJwt(token);
 }
 
+/**
+ * Fail closed: signatures are checked everywhere except Jest and a local machine
+ * running the documented stub. A malformed or stub key on a deployed environment
+ * then rejects every token instead of accepting forged ones.
+ */
 export function shouldVerifyClerkJwt(secret: string, environment?: string): boolean {
   if (environment === 'test') return false;
-  if (secret === CLERK_LOCAL_STUB_SECRET) return false;
-  return CLERK_SECRET_KEY_PATTERN.test(secret);
+  return !(environment === 'development' && secret === CLERK_LOCAL_STUB_SECRET);
 }
 
 /** Decode a JWT payload without verifying the signature (local / test only). */

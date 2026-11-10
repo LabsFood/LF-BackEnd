@@ -37,13 +37,24 @@ describe('shouldVerifyClerkJwt', () => {
     expect(shouldVerifyClerkJwt('sk_test_abc123', 'test')).toBe(false);
   });
 
-  it('skips verification for the local placeholder secret', () => {
+  it('skips verification for the local placeholder secret in development', () => {
     expect(shouldVerifyClerkJwt('sk_test_placeholder', 'development')).toBe(false);
   });
 
   it('enables verification for real Clerk secret keys outside test', () => {
     expect(shouldVerifyClerkJwt('sk_test_abc123', 'development')).toBe(true);
     expect(shouldVerifyClerkJwt('sk_live_abc123', 'production')).toBe(true);
+  });
+
+  // Fail closed: a misconfigured key makes every token fail, never every token pass.
+  it('verifies the placeholder secret outside development', () => {
+    expect(shouldVerifyClerkJwt('sk_test_placeholder', 'production')).toBe(true);
+    expect(shouldVerifyClerkJwt('sk_test_placeholder', undefined)).toBe(true);
+  });
+
+  it('verifies a malformed secret instead of decoding tokens unchecked', () => {
+    expect(shouldVerifyClerkJwt('not-a-clerk-key', 'development')).toBe(true);
+    expect(shouldVerifyClerkJwt('not-a-clerk-key', 'production')).toBe(true);
   });
 });
 
