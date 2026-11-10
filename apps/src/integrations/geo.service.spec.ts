@@ -158,4 +158,88 @@ describe('GeoService', () => {
       expect(JSON.stringify(logged.mock.calls)).not.toContain('93100');
     });
   });
+
+  describe('assertStreet — the street must exist in the postcode, spelling forgiven', () => {
+    const hit = (score: number) => ({ features: [{ properties: { score } }] });
+
+    it('asks the Géoplateforme for the best match of the street in the postcode', async () => {
+      answer(200, hit(0.9));
+
+      await geo.assertStreet('12 rue de la Paix', ' 75002 ', 'addressLine');
+
+      const url = new URL(String(fetchMock.mock.calls[0][0]));
+      expect(url.origin + url.pathname).toBe('https://data.geopf.fr/geocodage/search');
+      expect(url.searchParams.get('q')).toBe('12 rue de la Paix');
+      expect(url.searchParams.get('postcode')).toBe('75002');
+      expect(url.searchParams.get('limit')).toBe('1');
+    });
+
+    it.each([0.32, 0.4, 0.83])(
+      'accepts a loose match (score %p): typos, lieux-dits',
+      async (score) => {
+        answer(200, hit(score));
+        await expect(
+          geo.assertStreet('rue Hoche', '93100', 'addressLine'),
+        ).resolves.toBeUndefined();
+      },
+    );
+
+    it.each([
+      ['nothing found', { features: [] }],
+      ['a match too weak to be that street', hit(0.2)],
+    ])('refuses an address with %s: 422 ADDRESS_NOT_FOUND', async (_why, body) => {
+      answer(200, body);
+
+      const error = await geo
+        .assertStreet('azerty qwerty', '33000', 'addressLine')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(UnprocessableEntityException);
+      expect((error as UnprocessableEntityException).getResponse()).toEqual({
+        code: 'ADDRESS_NOT_FOUND',
+        message: 'addressLine was not found in postcode 33000.',
+      });
+    });
+
+    it.each([
+      [undefined, '75002'],
+      ['12 rue de la Paix', null],
+      ['  ', '75002'],
+    ])(
+      'has nothing to check while half the address is missing (%p, %p)',
+      async (line, postcode) => {
+        await expect(
+          geo.assertStreet(line, postcode, 'addressLine'),
+        ).resolves.toBeUndefined();
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it('fails closed, naming the Géoplateforme, and never logs the street or postcode', async () => {
+      const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      fetchMock.mockResolvedValue(new Response('down', { status: 503 }));
+
+      const error = await geo
+        .assertStreet('12 rue de la Paix', '75002', 'addressLine')
+        .catch((e: HttpException) => e);
+
+      expect(error).toBeInstanceOf(BadGatewayException);
+      expect((error as HttpException).getResponse()).toMatchObject({
+        code: 'GEO_UNAVAILABLE',
+        upstream: 'data.geopf.fr',
+        reason: 'http-error',
+      });
+      expect(logged).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'geo.lookup_failed', lookup: 'street' }),
+      );
+      expect(JSON.stringify(logged.mock.calls)).not.toMatch(/Paix|75002/);
+      logged.mockRestore();
+    });
+
+    it('fails closed on an answer that is not a list of matches', async () => {
+      answer(200, { nope: true });
+      await expect(
+        geo.assertStreet('12 rue de la Paix', '75002', 'addressLine'),
+      ).rejects.toBeInstanceOf(BadGatewayException);
+    });
+  });
 });

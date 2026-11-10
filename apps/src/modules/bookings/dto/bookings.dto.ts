@@ -122,7 +122,13 @@ export class NewBookingDto {
   @Max(50)
   persons?: number;
 
-  @ApiPropertyOptional({ maxLength: 255, example: '12 rue des Lilas, 75011 Paris' })
+  @ApiPropertyOptional({
+    maxLength: 255,
+    description:
+      'With a postcode, the street must be findable in it in the official address ' +
+      'base (data.geopf.fr), typos forgiven: otherwise 422 `ADDRESS_NOT_FOUND`.',
+    example: '12 rue des Lilas, 75011 Paris',
+  })
   @IsOptional()
   @IsString()
   @Length(1, 255)

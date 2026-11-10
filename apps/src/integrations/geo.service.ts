@@ -11,6 +11,16 @@ import { Commune, matchCommune } from '../common/commune.rules';
 /** Official commune base (INSEE COG + La Poste postcodes), public, no key. */
 const UPSTREAM = 'geo.api.gouv.fr';
 const GEO_API = `https://${UPSTREAM}`;
+/** Official address base (Géoplateforme geocoder, the BAN's successor), public, no key. */
+const GEOCODER = 'data.geopf.fr';
+const GEOCODER_API = `https://${GEOCODER}/geocodage`;
+/**
+ * Below this a match is a stranger's street, not a typo: 0.32 is a lieu-dit,
+ * 0.38 a flat with its building, 0.42 « bld » for « boulevard »; gibberish has no
+ * match at all. Deliberately loose: a real address refused costs a booking, a
+ * doubtful one accepted costs a phone call. Raise it if fake streets slip through.
+ */
+const MIN_STREET_SCORE = 0.3;
 const TIMEOUT_MS = 5000;
 const FIELDS = 'fields=nom,code,codeDepartement';
 
@@ -21,7 +31,7 @@ const FAILED: Record<GeoFailure, string> = {
   timeout: `did not answer within ${TIMEOUT_MS / 1000} s`,
   unreachable: 'could not be reached',
   'http-error': 'answered with an error',
-  'invalid-response': 'sent an answer that is not a list of communes',
+  'invalid-response': 'sent an answer that could not be read',
 };
 
 /** `AbortSignal.timeout` rejects with a `TimeoutError`, while connecting or reading. */
@@ -76,6 +86,73 @@ export class GeoService {
     }
   }
 
+  /**
+   * Refuses a street the postcode has no trace of (`ADDRESS_NOT_FOUND`): « 5 avenue
+   * des Fées Magiques » in 75001. Tolerant by design (see `MIN_STREET_SCORE`): it
+   * rejects what the official base cannot place, not what it spells differently.
+   * Nothing to check while either half is missing. Same fail-closed rule as above.
+   */
+  async assertStreet(
+    line: string | null | undefined,
+    postcode: string | null | undefined,
+    field: string,
+  ): Promise<void> {
+    const street = line?.trim();
+    const code = postcode?.trim();
+    if (!street || !code) return;
+    const score = await this.bestStreetScore(street, code);
+    if (score === null || score < MIN_STREET_SCORE) {
+      throw new UnprocessableEntityException({
+        code: 'ADDRESS_NOT_FOUND',
+        message: `${field} was not found in postcode ${code}.`,
+      });
+    }
+  }
+
+  /** The score of the best match of a street within a postcode; null when none. */
+  async bestStreetScore(line: string, postcode: string): Promise<number | null> {
+    const started = Date.now();
+    const query = new URLSearchParams({ q: line, postcode, limit: '1' });
+    let response: Response;
+    try {
+      response = await fetch(`${GEOCODER_API}/search?${query}`, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw this.failure(
+        'street',
+        isTimeout(error) ? 'timeout' : 'unreachable',
+        started,
+        {
+          detail: detailOf(error),
+        },
+      );
+    }
+    const upstreamStatus = response.status;
+    if (!response.ok)
+      throw this.failure('street', 'http-error', started, { upstreamStatus });
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      throw this.failure(
+        'street',
+        isTimeout(error) ? 'timeout' : 'invalid-response',
+        started,
+        { upstreamStatus, detail: detailOf(error) },
+      );
+    }
+    const features = (body as { features?: unknown } | null)?.features;
+    if (!Array.isArray(features)) {
+      throw this.failure('street', 'invalid-response', started, { upstreamStatus });
+    }
+    const scores = features
+      .map((f: { properties?: { score?: unknown } } | null) => f?.properties?.score)
+      .filter((score): score is number => typeof score === 'number');
+    return scores.length ? Math.max(...scores) : null;
+  }
+
   /** The communes a postcode serves; none for a postcode that does not exist. */
   communesByPostcode(postcode: string): Promise<Commune[]> {
     return this.get('postcode', `codePostal=${encodeURIComponent(postcode)}`);
@@ -128,14 +205,16 @@ export class GeoService {
    * never its value: a postcode belongs to someone's address.
    */
   private failure(
-    lookup: 'postcode' | 'region',
+    lookup: 'postcode' | 'region' | 'street',
     reason: GeoFailure,
     started: number,
     extra: { upstreamStatus?: number; detail?: string },
   ) {
+    const upstream = lookup === 'street' ? GEOCODER : UPSTREAM;
+    const base = lookup === 'street' ? 'address base' : 'commune base';
     this.logger.error({
       event: 'geo.lookup_failed',
-      upstream: UPSTREAM,
+      upstream,
       lookup,
       reason,
       ...extra,
@@ -143,8 +222,8 @@ export class GeoService {
     });
     const body = {
       code: 'GEO_UNAVAILABLE',
-      message: `${UPSTREAM}, the official commune base, ${FAILED[reason]}: the address could not be checked and nothing was saved. Try again in a moment.`,
-      upstream: UPSTREAM,
+      message: `${upstream}, the official ${base}, ${FAILED[reason]}: the address could not be checked and nothing was saved. Try again in a moment.`,
+      upstream,
       reason,
       ...(extra.upstreamStatus !== undefined && { upstreamStatus: extra.upstreamStatus }),
     };

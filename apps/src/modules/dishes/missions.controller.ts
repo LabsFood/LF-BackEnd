@@ -28,6 +28,7 @@ import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
+  PutDishNotesDto,
   PutShoppingListDto,
   RecipeSheetQueryDto,
   SubmitShoppingListDto,
@@ -172,6 +173,44 @@ export class MissionsController {
     @Query() query: RecipeSheetQueryDto,
   ) {
     return this.missions.recipeSheet(user.userId, id, dishId, query.portions);
+  }
+
+  @Put('chef-missions/:id/dishes/:dishId/notes')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Write the reheating and storage notes of a dish of a prestation',
+    description:
+      'Your own words on this dish as cooked in this prestation: how to reheat it, ' +
+      'how to keep it. They belong to the prestation, **not** to the recipe, whose ' +
+      'advice is unchanged; the fiche shows both (`notes` beside `recipe`). Open ' +
+      'from `cooking` on (`409 PRESTATION_NOT_STARTED` before). A field left out ' +
+      'stays; a blank or null one is cleared. The client reads them on the fiche ' +
+      'once the prestation is done.',
+  })
+  @ApiMissionIdParam()
+  @ApiParam({
+    name: 'dishId',
+    description: 'A dish of the prestation.',
+    example: DISH_ID,
+  })
+  @ApiOkResponse({
+    description: 'The notes as saved.',
+    example: {
+      reheatingNote: 'Four à 160 °C pendant 15 min, film retiré.',
+      storageNote: 'Réfrigérateur, 3 jours maximum.',
+    },
+  })
+  @ApiConflictResponse({ description: '`PRESTATION_NOT_STARTED`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  setDishNotes(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('dishId', ParseUUIDPipe) dishId: string,
+    @Body() payload: PutDishNotesDto,
+  ) {
+    return this.missions.setDishNotes(user.userId, id, dishId, payload);
   }
 
   @Get('chef-missions/:id/shopping-list')

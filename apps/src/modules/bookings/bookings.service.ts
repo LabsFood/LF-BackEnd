@@ -252,6 +252,7 @@ export class BookingsService {
       portions = await this.householdPortions(clientId, dto.meals);
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
+    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
     // An admin books on support's word: the override is audited below.

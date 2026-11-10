@@ -98,6 +98,8 @@ describe('BookingsService', () => {
         ? [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }]
         : [],
     ),
+    // The official address base knows every street but the made-up one.
+    bestStreetScore: jest.fn(async (line: string) => (/azerty/i.test(line) ? null : 0.9)),
   });
   let service: BookingsService;
 
@@ -264,6 +266,18 @@ describe('BookingsService', () => {
           }),
         }),
       );
+    });
+
+    it('refuses a street the postcode has no trace of, creating nothing', async () => {
+      await expect(
+        service.create('client', 'clerk_1', {
+          ...dto,
+          addressPostalCode: '93100',
+          addressCity: 'Montreuil',
+          addressLine: '99 rue Azerty',
+        }),
+      ).rejects.toMatchObject({ status: 422, response: { code: 'ADDRESS_NOT_FOUND' } });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
     });
 
     it('refuses a town the postcode does not serve, creating nothing', async () => {

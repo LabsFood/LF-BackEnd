@@ -183,7 +183,9 @@ export class CreateQuoteDto {
   @ApiProperty({
     description:
       'Where the prestation takes place. The batch cooker only sees the city and ' +
-      'the postcode until an offer is accepted.',
+      'the postcode until an offer is accepted. The street must be findable in the ' +
+      'postcode in the official address base (data.geopf.fr), typos forgiven: ' +
+      'otherwise 422 `ADDRESS_NOT_FOUND`; 502/504 `GEO_UNAVAILABLE` when that base fails.',
     example: '12 rue des Lilas',
     maxLength: 255,
   })

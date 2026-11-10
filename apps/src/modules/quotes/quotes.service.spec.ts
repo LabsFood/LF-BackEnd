@@ -59,6 +59,8 @@ function setup() {
     communesByPostcode: jest.fn(async (code: string) =>
       code === '06000' ? [{ nom: 'Nice', code: '06088', codeDepartement: '06' }] : [],
     ),
+    // The official address base knows every street but the made-up one.
+    bestStreetScore: jest.fn(async (line: string) => (/azerty/i.test(line) ? null : 0.9)),
   });
   const service = new QuotesService(
     prisma as unknown as PrismaService,
@@ -80,6 +82,18 @@ describe('QuotesService.createQuote', () => {
     ).rejects.toMatchObject({
       status: 422,
       response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Nice'] },
+    });
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a street the postcode has no trace of, storing nothing', async () => {
+    const { service, prisma } = setup();
+
+    await expect(
+      service.createQuote('clerk_1', form({ addressLine: '99 rue Azerty' })),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { code: 'ADDRESS_NOT_FOUND' },
     });
     expect(prisma.quote.create).not.toHaveBeenCalled();
   });
