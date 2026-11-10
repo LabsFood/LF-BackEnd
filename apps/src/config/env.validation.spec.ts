@@ -30,6 +30,17 @@ describe('envValidationSchema — CLERK_SECRET_KEY in production', () => {
   });
 });
 
+describe('envValidationSchema — ENVIRONMENT', () => {
+  // Only develop and production are deployed; staging was retired on 2026-11-10.
+  it('refuses staging', () => {
+    const { error } = envValidationSchema.validate(
+      { ...REQUIRED, ENVIRONMENT: 'staging' },
+      { allowUnknown: true, abortEarly: false },
+    );
+    expect(error?.message).toMatch(/ENVIRONMENT/);
+  });
+});
+
 describe('envValidationSchema — URSSAF_GATEWAY', () => {
   const validate = (env: Record<string, string>) =>
     envValidationSchema.validate(

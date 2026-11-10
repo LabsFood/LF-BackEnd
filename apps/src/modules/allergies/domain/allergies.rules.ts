@@ -23,10 +23,11 @@ import { ALLERGENS } from '../../dishes/domain/dishes.rules';
  * The text the client accepts before listing allergies. Changing the text means a
  * new version: a declaration then needs the new one.
  *
- * ponytail: draft until legal validates it (BLK-25), with no retention period yet.
+ * Validated by legal on 2026-11-10 (BLK-25), word for word the 2026-11-02 draft.
+ * Consents stored under `brouillon-2026-11-02` accepted this same text and stay valid.
  */
 export const HEALTH_CONSENT = {
-  version: 'brouillon-2026-11-02',
+  version: '2026-11-10',
   text:
     'J’accepte que Lab’s Food enregistre mes allergies alimentaires et les transmette ' +
     'aux batch cookers qui cuisinent pour moi, dans le seul but d’écarter les plats qui ' +

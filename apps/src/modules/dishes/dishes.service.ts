@@ -95,7 +95,7 @@ export class DishesService {
       data: {
         ...write,
         ...(write.ingredients !== undefined && {
-          classification: await classificationOf(this.prisma, write.ingredients),
+          classification: await classificationOf(this.prisma, write.ingredients, chef.id),
         }),
         name: payload.name,
         prepTime: payload.prepMinutes,
@@ -152,7 +152,11 @@ export class DishesService {
           data: {
             ...write,
             ...(write.ingredients !== undefined && {
-              classification: await classificationOf(this.prisma, write.ingredients),
+              classification: await classificationOf(
+                this.prisma,
+                write.ingredients,
+                chef.id,
+              ),
             }),
             ...(reverify && { allergensVerifiedAt: null }),
             ...(changed && { versionPending: true }),

@@ -391,7 +391,7 @@ export class UserWithProfileDto {
     description:
       'The consent text to show before listing allergies, and its `version`, to send back ' +
       'with `PUT /me/profile/allergies`. A draft until legal validates it.',
-    example: { version: 'brouillon-2026-11-02', text: 'J’accepte que Lab’s Food…' },
+    example: { version: '2026-11-10', text: 'J’accepte que Lab’s Food…' },
   })
   healthConsent?: { version: string; text: string };
 

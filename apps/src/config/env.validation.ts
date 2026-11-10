@@ -4,7 +4,8 @@ import { CLERK_SECRET_KEY_PATTERN } from '../auth/clerk-auth.guard';
 
 export const envValidationSchema = Joi.object({
   ENVIRONMENT: Joi.string()
-    .valid('development', 'staging', 'production', 'test')
+    // Deployed: develop (`development`) and `production`. Staging was retired on 2026-11-10.
+    .valid('development', 'production', 'test')
     .default('development'),
   DEBUG: Joi.boolean().truthy('true').falsy('false').default(true),
   API_HOST: Joi.string().default('0.0.0.0'),
@@ -26,9 +27,9 @@ export const envValidationSchema = Joi.object({
 
   /**
    * Unverified-JWT fallback (see clerk-auth.guard.ts `shouldVerifyClerkJwt`) only kicks in
-   * for the local stub or a key that doesn't match `sk_(test|live)_...` — required + pattern
-   * here in production so a malformed key fails startup instead of silently disabling
-   * signature verification on every guarded route.
+   * under Jest or for the local stub with `ENVIRONMENT=development`; anywhere else a bad
+   * key makes every token fail. Required + pattern here in production so a malformed key
+   * fails startup instead of answering 401 to every guarded route.
    */
   CLERK_SECRET_KEY: Joi.string()
     .allow('')

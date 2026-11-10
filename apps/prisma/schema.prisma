@@ -100,6 +100,7 @@ model ChefProfile {
   workingHours           ChefWorkingHour[]
   availabilityExceptions ChefAvailabilityException[]
   timeBlocks             ChefTimeBlock[]
+  ingredients            ChefIngredient[]
   calendarFeed           ChefCalendarFeed?
 
   @@map("chef_profiles")
@@ -928,8 +929,30 @@ model CatalogIngredient {
   seasonMonths Int[]    @default([]) @map("season_months")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefVersions ChefIngredient[]
 
   @@map("catalog_ingredients")
+}
+
+/// BLK-33: a batch cooker's own version of an entry of the common list, adopted
+/// and edited. Their dishes are classified from it; everyone else's from the
+/// common entry. Removing it falls back on the common entry.
+model ChefIngredient {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId       String            @map("chef_profile_id") @db.Uuid
+  catalogIngredientId String            @map("catalog_ingredient_id") @db.Uuid
+  name                String            @db.VarChar(120)
+  aliases             String[]          @default([])
+  diets               String[]          @default([])
+  seasonMonths        Int[]             @default([]) @map("season_months")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile         ChefProfile       @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_ingredients_chef_profile_id")
+  catalogIngredient   CatalogIngredient @relation(fields: [catalogIngredientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_ingredients_catalog_ingredient_id")
+
+  @@unique([chefProfileId, catalogIngredientId], map: "uq_chef_ingredients_chef_catalog")
+  @@index([catalogIngredientId], map: "ix_chef_ingredients_catalog_ingredient_id")
+  @@map("chef_ingredients")
 }
 
 model MealRecipeVersion {

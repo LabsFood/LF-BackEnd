@@ -9,7 +9,7 @@ import {
   supplementRulesInForce,
 } from '../bookings/domain/pricing';
 import { validationFailed } from '../dishes/domain/content.errors';
-import { CHEF_TIERS_KEY, chefTierLabels } from './chef-tiers';
+import { CHEF_TIERS_KEY, chefTierLabels, chefTierRules } from './chef-tiers';
 import {
   DEFAULT_RECIPE_PROFILES,
   DEFAULT_REHEAT_MODES,
@@ -128,6 +128,7 @@ export class PlatformSettingsService {
     });
     return {
       labels: await chefTierLabels(this.prisma),
+      rules: chefTierRules(await this.commissionBps()),
       updatedAt: row?.updatedAt ?? null,
     };
   }

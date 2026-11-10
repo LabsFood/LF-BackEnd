@@ -57,7 +57,7 @@ export class DeclareAllergiesDto {
 
   @ApiPropertyOptional({
     description: 'The `healthConsent.version` of `GET /me/profile` the client read.',
-    example: 'brouillon-2026-11-02',
+    example: '2026-11-10',
   })
   @IsOptional()
   @IsString()

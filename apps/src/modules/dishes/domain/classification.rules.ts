@@ -71,3 +71,31 @@ export function classify(
     : ALL_YEAR;
   return { diets, seasonMonths };
 }
+
+/** A batch cooker's own version of an entry they adopted (BLK-33). */
+export interface ChefVersion {
+  catalogIngredientId: string;
+  diets: string[];
+  seasonMonths: number[];
+}
+
+/**
+ * The entries a chef's dish is classified from: their version of what they
+ * adopted, the common entry for the rest. A version whose entry left the common
+ * list is dropped, so the line reads as unlinked ("non calculé").
+ */
+export function withChefVersions(
+  entries: CatalogEntry[],
+  own: ChefVersion[],
+): Map<string, CatalogEntry> {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  for (const v of own) {
+    if (!byId.has(v.catalogIngredientId)) continue;
+    byId.set(v.catalogIngredientId, {
+      id: v.catalogIngredientId,
+      diets: v.diets,
+      seasonMonths: v.seasonMonths,
+    });
+  }
+  return byId;
+}
