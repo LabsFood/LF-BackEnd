@@ -1,3 +1,13 @@
+## [2.1.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.0.0...v2.1.0) (2026-11-10)
+
+### Features
+
+* launch readiness, security fixes ([#85](https://github.com/LabsFood/LF-BackEnd/issues/85)) ([0d8b02d](https://github.com/LabsFood/LF-BackEnd/commit/0d8b02d5931ac71c0cc042c2995b13fb0d9e5d5a))
+
+### Bug Fixes
+
+* **users:** keep the phone typed in the app when Clerk has none ([1b219a8](https://github.com/LabsFood/LF-BackEnd/commit/1b219a886dbd1b93d5a0e74cab2c6cc8b6e4181a))
+
 ## [2.0.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.5.0...v2.0.0) (2026-11-09)
 
 ### ⚠ BREAKING CHANGES
