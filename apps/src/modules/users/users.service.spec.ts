@@ -274,6 +274,31 @@ describe('UsersService', () => {
       });
     });
 
+    // The number is typed in the app (PATCH /me/profile) and never pushed to Clerk:
+    // Clerk only seeds an empty one, or every request would undo the save.
+    it.each([
+      ['has no phone', null],
+      ['has another phone', '+33699999999'],
+    ])('keeps the phone typed in the app when Clerk %s', async (_label, clerkPhone) => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: '+33612345678',
+        role: UserRole.client,
+      });
+
+      await service.upsertFromClerk({
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: clerkPhone,
+      });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('does not change role on update when role is omitted', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'uuid-1',

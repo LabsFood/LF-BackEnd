@@ -224,8 +224,10 @@ export class UsersService {
       if (input.fullName !== undefined && existing.fullName !== input.fullName) {
         data.fullName = input.fullName ?? null;
       }
-      if (input.phone !== undefined && existing.phone !== input.phone) {
-        data.phone = input.phone ?? null;
+      // The phone is typed in the app (PATCH /me/profile) and never sent to Clerk:
+      // Clerk only seeds an empty one, never clears or replaces it.
+      if (input.phone && !existing.phone) {
+        data.phone = input.phone;
       }
       if (input.role !== undefined && existing.role !== input.role) {
         data.role = input.role;
