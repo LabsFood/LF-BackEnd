@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Length,
   Max,
   MaxLength,
@@ -82,6 +83,13 @@ export class SearchIngredientsQueryDto {
   @IsString()
   @Length(1, 60)
   search!: string;
+}
+
+/** BLK-33: the entry of the common list a batch cooker copies into their own list. */
+export class AdoptIngredientDto {
+  @ApiProperty({ format: 'uuid', example: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c11' })
+  @IsUUID()
+  catalogIngredientId!: string;
 }
 
 /** Re-exported so the controller's swagger can name the page type. */

@@ -41,7 +41,7 @@ const normalize = (origin: string): string =>
 
 /**
  * Built-in allowlist plus anything in `CORS_ORIGINS` (comma-separated).
- * Use `CORS_ORIGINS` for one-off hosts — preview deploys, tunnels, staging —
+ * Use `CORS_ORIGINS` for one-off hosts — preview deploys, tunnels —
  * and this file for the origins that are part of the product.
  */
 export function resolveAllowedOrigins(

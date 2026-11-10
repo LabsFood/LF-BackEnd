@@ -1,7 +1,7 @@
 name: CI
 
 # Quality and security gates. "LF API Server image" (docker.yml) calls this
-# before it builds, so nothing reaches GHCR, staging or production without
+# before it builds, so nothing reaches GHCR, develop or production without
 # passing it. Also runs weekly on main: new advisories land without code changes.
 
 on:

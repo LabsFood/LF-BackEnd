@@ -169,6 +169,9 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     count: jest.fn(async (_args?: unknown) => 0),
     findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
   };
+  const chefIngredient = {
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
+  };
   const mealRecipeVersion = {
     findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => null),
     create: jest.fn(async ({ data }: WriteArgs) => data),
@@ -182,6 +185,7 @@ export function harness(options: { chef?: object | null; dossier?: string } = {}
     platformSetting,
     mealRecipeVersion,
     catalogIngredient,
+    chefIngredient,
   };
   const $transaction = jest.fn(async (work: unknown) =>
     typeof work === 'function' ? work(client) : Promise.all(work as Promise<unknown>[]),

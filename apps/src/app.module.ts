@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { SentryModule } from '@sentry/nestjs/setup';
 
 import { AuditModule } from './common/audit/audit.module';
+import {
+  GLOBAL_THROTTLER,
+  GlobalThrottlerGuard,
+} from './common/throttling/global-throttler.guard';
 import { AuthModule } from './auth/auth.module';
 import { configLoader } from './config/config.loader';
 import { resolveEnvFilePaths } from './config/env-files';
@@ -46,13 +51,14 @@ import { RedisModule } from './redis/redis.module';
       validationOptions: { allowUnknown: true, abortEarly: false },
       cache: true,
     }),
-    // Configured globally but enforced only where `ThrottlerGuard` is attached
-    // (public `POST /auth/register` and the money-moving payment endpoints),
-    // so existing unguarded routes are unaffected.
+    // `global` caps every HTTP route per IP (GlobalThrottlerGuard, below). The
+    // tight `register` and `payments` limits apply only where `ThrottlerGuard`
+    // is attached (registration, candidatures, payments, public pages).
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         throttlers: [
+          { ...GLOBAL_THROTTLER },
           {
             name: 'register',
             ttl: config.get<number>('registerThrottle.ttlMs', 3_600_000),
@@ -95,5 +101,6 @@ import { RedisModule } from './redis/redis.module';
     PaymentsModule,
     StripeWebhooksModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: GlobalThrottlerGuard }],
 })
 export class AppModule {}

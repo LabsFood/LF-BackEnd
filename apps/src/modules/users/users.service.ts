@@ -34,6 +34,7 @@ import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
+import { clientOnboarding } from './domain/client-onboarding.rules';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -223,8 +224,10 @@ export class UsersService {
       if (input.fullName !== undefined && existing.fullName !== input.fullName) {
         data.fullName = input.fullName ?? null;
       }
-      if (input.phone !== undefined && existing.phone !== input.phone) {
-        data.phone = input.phone ?? null;
+      // The phone is typed in the app (PATCH /me/profile) and never sent to Clerk:
+      // Clerk only seeds an empty one, never clears or replaces it.
+      if (input.phone && !existing.phone) {
+        data.phone = input.phone;
       }
       if (input.role !== undefined && existing.role !== input.role) {
         data.role = input.role;
@@ -420,6 +423,33 @@ export class UsersService {
       }),
     ]);
     return 'anonymised';
+  }
+
+  /** LF-0221: the client's "getting started" checklist, derived from what is stored. */
+  async clientOnboarding(clerkUserId: string) {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const [profile, bookings] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: {
+          addressStreet: true,
+          addressCity: true,
+          addressPostalCode: true,
+          allergiesDeclaredAt: true,
+          dietaryPreferences: true,
+          dislikes: true,
+          favorites: true,
+          spiceLevel: true,
+        },
+      }),
+      this.prisma.booking.count({ where: { clientId: user.id } }),
+    ]);
+    return clientOnboarding({
+      fullName: user.fullName,
+      phone: user.phone,
+      profile,
+      bookings,
+    });
   }
 
   /**

@@ -132,6 +132,39 @@ export class UsersController {
     return this.users.currentUser(user.userId, user.email);
   }
 
+  @Get('me/onboarding')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'My getting-started checklist',
+    description:
+      'LF-0221: the steps a client is invited to take after creating the account, in ' +
+      'order — `contact_details`, `address`, `allergies`, `tastes`, `first_booking` — ' +
+      'each `done` as soon as the data exists. Nothing here blocks: `requiredFor: ' +
+      '"menu_validation"` on `allergies` says a menu cannot be validated before it ' +
+      '(the fail-closed rule of `PUT /me/profile/allergies`). The fronts word each step.',
+  })
+  @ApiOkResponse({
+    description: '`completed` out of `total`, and each step.',
+    schema: {
+      example: {
+        steps: [
+          { code: 'contact_details', done: true },
+          { code: 'address', done: true },
+          { code: 'allergies', done: false, requiredFor: 'menu_validation' },
+          { code: 'tastes', done: false },
+          { code: 'first_booking', done: false },
+        ],
+        completed: 2,
+        total: 5,
+        allDone: false,
+      },
+    },
+  })
+  @ApiClerkAuthResponses()
+  onboarding(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.clientOnboarding(user.userId);
+  }
+
   @Get('me/profile')
   @ApiTags(TAGS.me)
   @ApiOperation({
