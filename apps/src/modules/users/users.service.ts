@@ -33,7 +33,11 @@ import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
+import {
+  allergyCheck,
+  HEALTH_CONSENT,
+  preferencesConsent,
+} from '../allergies/domain/allergies.rules';
 import { CONTRACT_TERMS } from '../bookings/domain/contract.rules';
 import { isValidSiren } from '../chef-onboarding/domain/chef-onboarding.rules';
 import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
@@ -594,10 +598,21 @@ export class UsersService {
    * `client_profiles`, which has no columns for them.
    */
   async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateMeProfileDto) {
-    const { firstName, lastName, phone, ...profileFields } = payload;
+    const { firstName, lastName, phone, consent, consentVersion, ...fields } = payload;
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'client');
+    // Politique de confidentialité V1 §5: preferences can reveal health or religion.
+    const consentStamp = preferencesConsent(
+      fields.dietaryPreferences,
+      (await this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: { healthConsentVersion: true },
+      })) ?? { healthConsentVersion: null },
+      { consent, consentVersion },
+      new Date(),
+    );
+    const profileFields = { ...fields, ...consentStamp };
     // The town must be a commune of the postcode; the half not sent is the one on file.
     if (
       profileFields.addressCity !== undefined ||
@@ -631,6 +646,7 @@ export class UsersService {
         addressPostalCode: profileFields.addressPostalCode,
         householdAdults: profileFields.householdAdults,
         householdKids: profileFields.householdKids,
+        ...consentStamp,
       },
     });
   }

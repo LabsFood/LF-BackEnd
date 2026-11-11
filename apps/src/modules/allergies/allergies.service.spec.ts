@@ -133,6 +133,7 @@ describe('AllergiesService', () => {
       where: { userId: 'client-1' },
       data: {
         allergies: [],
+        dietaryPreferences: [],
         customAllergies: [],
         allergiesNone: false,
         allergiesDeclaredAt: null,
