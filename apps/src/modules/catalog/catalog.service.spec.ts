@@ -9,6 +9,7 @@ import {
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SuggestionsService } from '../dishes/suggestions.service';
+import { readyDishRow } from '../dishes/dishes.test-helpers';
 import { CatalogService } from './catalog.service';
 
 const ADMIN_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
@@ -89,7 +90,7 @@ describe('CatalogService', () => {
           difficulty: MealDifficulty.medium,
           steps: [{ text: 'Marinate', type: 'preparation' }, { text: 'Sear' }],
           isFeatured: true,
-          status: MealStatus.published,
+          status: MealStatus.draft,
         },
         ADMIN_ID,
       );
@@ -108,7 +109,7 @@ describe('CatalogService', () => {
             { order: 2, text: 'Sear', type: null, durationMinutes: null },
           ],
           isFeatured: true,
-          status: MealStatus.published,
+          status: MealStatus.draft,
         }),
       });
     });
@@ -314,6 +315,58 @@ describe('CatalogService', () => {
       expect(meal.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { chefProfileId: null } }),
       );
+    });
+  });
+
+  describe('publishing needs a ready recipe (Recettes §4.11)', () => {
+    it('refuses to create a published meal that is not ready, and writes nothing', async () => {
+      await expect(
+        service.createMeal(
+          { name: 'Incomplet', prepTime: 10, status: MealStatus.published },
+          ADMIN_ID,
+        ),
+      ).rejects.toMatchObject({ response: { code: 'RECIPE_NOT_READY' } });
+      expect(meal.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses to publish a meal that is not ready, and writes nothing', async () => {
+      meal.findFirst.mockResolvedValueOnce(
+        readyDishRow({ steps: [], chefProfileId: null }),
+      );
+
+      await expect(
+        service.updateMeal('meal-1', { status: MealStatus.published }, ADMIN_ID),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'RECIPE_NOT_READY',
+          problems: expect.arrayContaining([
+            expect.objectContaining({ field: 'recipe.steps' }),
+          ]),
+        },
+      });
+      expect(meal.update).not.toHaveBeenCalled();
+    });
+
+    it('publishes a ready meal', async () => {
+      meal.findFirst.mockResolvedValueOnce(readyDishRow({ chefProfileId: null }));
+
+      await service.updateMeal('meal-1', { status: MealStatus.published }, ADMIN_ID);
+
+      expect(meal.update.mock.calls[0][0].data.status).toBe(MealStatus.published);
+    });
+
+    it('judges the meal as it will be after the patch', async () => {
+      meal.findFirst.mockResolvedValueOnce(
+        readyDishRow({ steps: [], chefProfileId: null }),
+      );
+
+      await service.updateMeal(
+        'meal-1',
+        { status: MealStatus.published, steps: [{ text: 'Cuire', type: 'cuisson' }] },
+        ADMIN_ID,
+      );
+
+      expect(meal.update).toHaveBeenCalled();
     });
   });
 

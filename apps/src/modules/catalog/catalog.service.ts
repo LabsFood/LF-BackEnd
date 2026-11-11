@@ -15,7 +15,13 @@ import {
   toStepsJson,
   toStorageJson,
 } from '../dishes/dishes.service';
-import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
+import {
+  contentNotOwned,
+  offerPending,
+  recipeNotReady,
+} from '../dishes/domain/content.errors';
+import { ReadinessDish } from '../dishes/domain/dishes.rules';
+import { publicationProblems } from '../dishes/domain/menus.rules';
 import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
@@ -60,43 +66,49 @@ export class CatalogService {
     await assertCatalogIngredients(this.prisma, payload.ingredients);
     await assertProfiles(this.prisma, payload.profiles);
     const ingredients = toIngredientsJson(payload.ingredients ?? []);
-    return this.prisma.meal.create({
-      data: {
-        createdByUserId: adminUserId,
-        name: payload.name,
-        description: payload.description,
-        imageUrl: payload.imageUrl ?? null,
-        continent: payload.continent ?? null,
-        country: payload.country ?? null,
-        // Left undefined when omitted so Prisma applies the schema defaults
-        // (portions 4, steps [], isFeatured false).
-        portions: payload.portions,
-        prepTime: payload.prepTime,
-        dietaryTags: payload.dietaryTags ?? [],
-        customDiets: payload.customDiets ?? [],
-        allergens: payload.allergens ?? [],
-        allergensNone: payload.allergensNone ?? false,
-        customAllergens: payload.customAllergens ?? [],
-        // Recettes §4.9: an admin writes the whole form at once, so the save is the
-        // check, provided something is declared.
-        allergensVerifiedAt: isDeclared(declarationOf(null, payload)) ? new Date() : null,
-        calories: payload.calories ?? null,
-        difficulty: payload.difficulty ?? null,
-        category: payload.category ?? null,
-        cookTime: payload.cookTime ?? null,
-        ingredients,
-        classification: await classificationOf(this.prisma, ingredients),
-        steps: payload.steps && toStepsJson(payload.steps),
-        equipment: payload.equipment,
-        declaredDiets: payload.declaredDiets,
-        profiles: payload.profiles,
-        seasonsOverride: payload.seasonsOverride,
-        reheating: toReheatingJson(payload.reheating),
-        storage: toStorageJson(payload.storage),
-        isFeatured: payload.isFeatured,
-        status: payload.status ?? MealStatus.draft,
-      },
-    });
+    const data = {
+      createdByUserId: adminUserId,
+      name: payload.name,
+      description: payload.description,
+      imageUrl: payload.imageUrl ?? null,
+      continent: payload.continent ?? null,
+      country: payload.country ?? null,
+      // Left undefined when omitted so Prisma applies the schema defaults
+      // (portions 4, steps [], isFeatured false).
+      portions: payload.portions,
+      prepTime: payload.prepTime,
+      dietaryTags: payload.dietaryTags ?? [],
+      customDiets: payload.customDiets ?? [],
+      allergens: payload.allergens ?? [],
+      allergensNone: payload.allergensNone ?? false,
+      customAllergens: payload.customAllergens ?? [],
+      // Recettes §4.9: an admin writes the whole form at once, so the save is the
+      // check, provided something is declared.
+      allergensVerifiedAt: isDeclared(declarationOf(null, payload)) ? new Date() : null,
+      calories: payload.calories ?? null,
+      difficulty: payload.difficulty ?? null,
+      category: payload.category ?? null,
+      cookTime: payload.cookTime ?? null,
+      ingredients,
+      classification: await classificationOf(this.prisma, ingredients),
+      steps: payload.steps && toStepsJson(payload.steps),
+      equipment: payload.equipment,
+      declaredDiets: payload.declaredDiets,
+      profiles: payload.profiles,
+      seasonsOverride: payload.seasonsOverride,
+      reheating: toReheatingJson(payload.reheating),
+      storage: toStorageJson(payload.storage),
+      isFeatured: payload.isFeatured,
+      status: payload.status ?? MealStatus.draft,
+    };
+    // Recettes §4.11: a Lab's Food meal goes online on the same terms as a chef's.
+    if (data.status === MealStatus.published) {
+      assertPublishable({
+        ...data,
+        description: data.description ?? null,
+      } as ReadinessDish);
+    }
+    return this.prisma.meal.create({ data });
   }
 
   /**
@@ -117,23 +129,29 @@ export class CatalogService {
       assertConsistent(declarationOf(current, payload));
       if (publishing && current.offeredToChefProfileId) throw offerPending();
     }
+    const allergensVerifiedAt =
+      reverify && isDeclared(declarationOf(current, payload)) ? new Date() : null;
+    const changes = CatalogService.toMealUpdateData(payload);
+    if (publishing) {
+      assertPublishable({
+        ...current,
+        ...changes,
+        ...(reverify && { allergensVerifiedAt }),
+      } as ReadinessDish);
+    }
     let updated: Meal;
     try {
       updated = await this.prisma.meal.update({
         where: { id, ...LABS_FOOD },
         data: {
-          ...CatalogService.toMealUpdateData(payload),
+          ...changes,
           ...(payload.ingredients != null && {
             classification: await classificationOf(
               this.prisma,
               toIngredientsJson(payload.ingredients),
             ),
           }),
-          ...(reverify && {
-            allergensVerifiedAt: isDeclared(declarationOf(current, payload))
-              ? new Date()
-              : null,
-          }),
+          ...(reverify && { allergensVerifiedAt }),
         },
       });
     } catch (error) {
@@ -390,4 +408,10 @@ function isUniqueViolation(error: unknown): boolean {
 /** Prisma's "no row matched the `where`" (P2025). */
 function isNotFound(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
+}
+
+/** The readiness rule chefs publish under (Recettes §4.11), for the admin's meals. */
+function assertPublishable(meal: ReadinessDish): void {
+  const problems = publicationProblems(meal);
+  if (problems.length) throw recipeNotReady(problems);
 }
