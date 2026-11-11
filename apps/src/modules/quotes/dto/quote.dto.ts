@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -16,8 +16,10 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 
+import { ContractConsentsDto } from '../../bookings/dto/bookings.dto';
 import {
   MAX_NET_CENTS,
   MAX_VALIDITY_DAYS,
@@ -381,3 +383,18 @@ export class DeclineDto {
 }
 
 export const ADMIN_QUOTE_FILTERS = ['needs_chef'] as const;
+
+/** Body of an acceptance: the booking boxes, ticked with the « accept » click. */
+export class AcceptOfferDto {
+  @ApiPropertyOptional({
+    type: ContractConsentsDto,
+    description:
+      'Accepting concludes the contract: from 2026-11-21 the CGV box is required, and ' +
+      'the early-execution request when the prestation falls inside the 14-day ' +
+      'withdrawal period (`CONTRACT_CONSENT_REQUIRED` lists what is missing).',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContractConsentsDto)
+  consents?: ContractConsentsDto;
+}

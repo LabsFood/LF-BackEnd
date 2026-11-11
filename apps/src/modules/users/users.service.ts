@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -33,6 +34,10 @@ import { ClerkService } from '../../integrations/clerk.service';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
+import { CONTRACT_TERMS } from '../bookings/domain/contract.rules';
+import { isValidSiren } from '../chef-onboarding/domain/chef-onboarding.rules';
+import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
+import { UpdateChefLegalDto } from './dto/chef-legal.dto';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
 import { clientOnboarding } from './domain/client-onboarding.rules';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
@@ -491,6 +496,8 @@ export class UsersService {
       },
       // The text a client accepts before listing allergies (PUT /me/profile/allergies).
       healthConsent: HEALTH_CONSENT,
+      // The booking boxes (CGV art. 5.1), to send back with `consents`.
+      contractTerms: CONTRACT_TERMS,
       notificationPreferences,
     };
   }
@@ -785,6 +792,43 @@ export class UsersService {
    * The SAP declaration hangs off `chef_profiles`, so onboarding form 2
    * (`PATCH /me/chef-profile`) has to come first.
    */
+  /** `GET /me/chef-profile/legal`: the fields as entered, and what is still missing. */
+  async getChefLegal(clerkUserId: string) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    return this.chefLegalView(id);
+  }
+
+  /** `PATCH /me/chef-profile/legal`: CGV art. 3.2, entered by the chef. */
+  async updateChefLegal(clerkUserId: string, dto: UpdateChefLegalDto) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    if (dto.siren && !isValidSiren(dto.siren)) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: 'siren fails its Luhn key.',
+      });
+    }
+    const data = Object.fromEntries(
+      Object.entries(dto).filter(([, value]) => value !== undefined),
+    );
+    await this.prisma.chefProfile.update({ where: { id }, data });
+    this.logger.log({
+      event: 'chef.legal_updated',
+      chefProfileId: id,
+      fields: Object.keys(data),
+    });
+    return this.chefLegalView(id);
+  }
+
+  private async chefLegalView(chefProfileId: string) {
+    const row = await this.prisma.chefProfile.findUniqueOrThrow({
+      where: { id: chefProfileId },
+      select: CHEF_LEGAL_SELECT,
+    });
+    const { sapDeclarationNumber: _sap, sapProfile: _profile, ...fields } = row;
+    const identity = chefLegalIdentity(row);
+    return { ...fields, sapNumber: identity.sapNumber, missing: identity.missing };
+  }
+
   async requireOwnChefProfile(
     clerkUserId: string,
   ): Promise<{ id: string; userId: string }> {

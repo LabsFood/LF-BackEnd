@@ -29,6 +29,7 @@ import {
   ChefStateFilter,
   ListAdminChefsQueryDto,
 } from './dto/admin-chefs.dto';
+import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
 
 const REGION_LABEL = new Map<string, string>(
   METROPOLITAN_REGIONS.map((r) => [r.code, r.label]),
@@ -55,9 +56,15 @@ const CHEF_SELECT = {
   tier: true,
   interventionZones: true,
   sapPath: true,
-  sapDeclarationNumber: true,
+  // `sapDeclarationNumber` comes with the legal fields below.
+  // CGV art. 3.2: the identity clients read, and its gaps.
+  ...CHEF_LEGAL_SELECT,
   sapProfile: {
-    select: { crcesuAffiliationStatus: true, urssafTiersPrestationStatus: true },
+    select: {
+      crcesuAffiliationStatus: true,
+      urssafTiersPrestationStatus: true,
+      novaCode: true,
+    },
   },
   stripeAccountId: true,
   calendarFeed: { select: { lastFetchedAt: true } },
@@ -204,6 +211,8 @@ export class AdminChefsService {
       crcesuAffiliationStatus: row.sapProfile?.crcesuAffiliationStatus ?? null,
       urssafTiersPrestationStatus: row.sapProfile?.urssafTiersPrestationStatus ?? null,
       zones: zonesOf(row),
+      // What clients read before booking, and what they cannot yet (never blocks).
+      legalIdentity: chefLegalIdentity(row),
       // Whether the integrations are connected, never their identifiers.
       payoutsConnected: row.stripeAccountId !== null,
       // Their calendar app syncs our feed: fetched in the last 7 days.
@@ -454,6 +463,8 @@ function toItem(
       code: zone.regionCode,
       label: zone.regionLabel,
     })),
+    /** CGV art. 3.2: everything a client must read before booking is filled. */
+    legalIdentityComplete: chefLegalIdentity(row).missing.length === 0,
     application: row.application
       ? {
           id: row.application.id,

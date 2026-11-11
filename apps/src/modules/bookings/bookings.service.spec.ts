@@ -420,6 +420,145 @@ describe('BookingsService', () => {
     });
   });
 
+  describe('booking boxes (CGV V1)', () => {
+    /** 1 December 2026: the CGV V1 are in force. */
+    const V1_NOW = new Date('2026-12-01T09:00:00.000Z');
+    const dto = { serviceOfferId: 'offer-1', startsAt: START };
+    const boxes = { version: '1.0', cgv: true };
+
+    beforeEach(() => {
+      jest.useFakeTimers({
+        now: V1_NOW,
+        doNotFake: [
+          'nextTick',
+          'setImmediate',
+          'setTimeout',
+          'setInterval',
+          'queueMicrotask',
+        ],
+      });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('refuses a client booking sent without them, creating nothing', async () => {
+      await expect(service.create('client', 'clerk_1', dto)).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'CONTRACT_CONSENT_REQUIRED', missing: ['CGV'], version: '1.0' },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('asks for the mandate when the batch cooker shops, and for early execution inside 14 days', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({
+        ...OFFER,
+        shoppingIncluded: true,
+      });
+      const soon = new Date('2026-12-10T09:00:00.000Z');
+
+      await expect(
+        service.create('client', 'clerk_1', { ...dto, startsAt: soon, consents: boxes }),
+      ).rejects.toMatchObject({
+        response: { missing: ['DEBOURS_MANDATE', 'EARLY_EXECUTION'] },
+      });
+    });
+
+    it('stamps the boxes on the booking and keeps the proof in the audit', async () => {
+      await service.create('client', 'clerk_1', { ...dto, consents: boxes });
+
+      expect(prisma.booking.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            contractVersion: '1.0',
+            cgvAcceptedAt: V1_NOW,
+            deboursMandateAcceptedAt: null,
+            earlyExecutionRequestedAt: null,
+          }),
+        }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'client',
+          action: 'booking.consents',
+          subjectId: 'booking-1',
+          metadata: expect.objectContaining({
+            version: '1.0',
+            texts: { cgv: expect.stringContaining('Conditions Générales de Vente') },
+          }),
+        }),
+      );
+    });
+
+    it('lets a batch cooker book for a client: the client ticks the boxes before paying', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      await service.create('chef', 'clerk_1', {
+        ...dto,
+        clientId: 'client-1',
+        consents: boxes,
+      });
+
+      expect(prisma.booking.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ contractVersion: null, cgvAcceptedAt: null }),
+        }),
+      );
+    });
+
+    describe('consent', () => {
+      const pending = {
+        status: 'pending',
+        startsAt: START,
+        createdAt: V1_NOW,
+        shoppingByClient: false,
+        contractVersion: null,
+        cgvAcceptedAt: null,
+        deboursMandateAcceptedAt: null,
+        earlyExecutionRequestedAt: null,
+        serviceOffer: { shoppingIncluded: true },
+      };
+
+      it('stamps the boxes a pending booking still lacks', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce(pending);
+
+        await service.consent('clerk_1', 'booking-1', { ...boxes, deboursMandate: true });
+
+        expect(prisma.booking.update).toHaveBeenCalledWith({
+          where: { id: 'booking-1', status: 'pending' },
+          data: {
+            contractVersion: '1.0',
+            cgvAcceptedAt: V1_NOW,
+            deboursMandateAcceptedAt: V1_NOW,
+            earlyExecutionRequestedAt: null,
+          },
+        });
+      });
+
+      it('refuses while a box the booking needs is still missing', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce(pending);
+
+        await expect(
+          service.consent('clerk_1', 'booking-1', boxes),
+        ).rejects.toMatchObject({
+          status: 422,
+          response: { missing: ['DEBOURS_MANDATE'] },
+        });
+        expect(prisma.booking.update).not.toHaveBeenCalled();
+      });
+
+      it('takes boxes on a pending booking only', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce({
+          ...pending,
+          status: 'confirmed',
+        });
+
+        await expect(
+          service.consent('clerk_1', 'booking-1', boxes),
+        ).rejects.toMatchObject({
+          response: { code: 'BOOKING_LOCKED' },
+        });
+      });
+    });
+  });
+
   describe('update', () => {
     it('locks the details once the booking is no longer pending', async () => {
       prisma.booking.findFirst.mockResolvedValue(row({ status: 'confirmed' }));

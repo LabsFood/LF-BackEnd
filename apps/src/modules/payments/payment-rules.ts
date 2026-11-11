@@ -1,6 +1,12 @@
 import { ConflictException } from '@nestjs/common';
 
-import type { BookingStatus } from '../../generated/prisma/client';
+import type { BookingStatus, Prisma } from '../../generated/prisma/client';
+import { contractConsentRequired } from '../bookings/domain/contract.errors';
+import {
+  chefShops,
+  contractGaps,
+  type ContractState,
+} from '../bookings/domain/contract.rules';
 
 /**
  * When a prestation can be paid.
@@ -36,7 +42,35 @@ export function paymentPhase(
   }
 }
 
-export function assertPayable(booking: PayableBooking, now: Date = new Date()): void {
+/** What a payment needs to know of the contract (CGV art. 5.1). */
+export interface ContractedBooking extends ContractState {
+  startsAt: Date;
+  createdAt: Date;
+  shoppingByClient: boolean;
+  serviceOffer: { shoppingIncluded: boolean };
+}
+
+/** Spread into a booking `select` (or added to an `include`) before `assertPayable`. */
+export const CONTRACT_SELECT = {
+  startsAt: true,
+  createdAt: true,
+  shoppingByClient: true,
+  contractVersion: true,
+  cgvAcceptedAt: true,
+  deboursMandateAcceptedAt: true,
+  earlyExecutionRequestedAt: true,
+  serviceOffer: { select: { shoppingIncluded: true } },
+} satisfies Prisma.BookingSelect;
+
+/**
+ * Whether money may be taken now. Also the one gate every payment route goes through
+ * for the booking boxes: a booking made under the CGV V1 is never paid without them.
+ * Paying concludes the contract now, so the 14 days are counted from `now`.
+ */
+export function assertPayable(
+  booking: PayableBooking & ContractedBooking,
+  now: Date = new Date(),
+): void {
   const phase = paymentPhase(booking, now);
   if (phase === 'cancelled') {
     throw new ConflictException({
@@ -57,6 +91,13 @@ export function assertPayable(booking: PayableBooking, now: Date = new Date()): 
       message: 'This prestation is paid after it has taken place.',
     });
   }
+  const missing = contractGaps(booking, {
+    chefShops: chefShops(booking.serviceOffer, booking),
+    startsAt: booking.startsAt,
+    latestConclusion: now,
+    bookedAt: booking.createdAt,
+  });
+  if (missing.length) throw contractConsentRequired(missing, 'payment');
 }
 
 /**

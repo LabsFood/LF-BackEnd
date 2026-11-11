@@ -187,6 +187,8 @@ export class QuotesMailer {
     afterTaxCreditCents: number;
     netCents: number;
     conditions: string | null;
+    /** False once the client gets the contract email instead (CGV V1 boxes ticked). */
+    clientCopy?: boolean;
   }) {
     const common = {
       reference: input.bookingReference ?? '',
@@ -198,20 +200,21 @@ export class QuotesMailer {
       conditions: input.conditions ?? '',
     };
     await Promise.all([
-      this.brevo.sendTemplate({
-        templateId: this.brevo.templates.bookingConfirmed,
-        to: { email: input.client.email, name: input.client.fullName ?? undefined },
-        label: 'booking-confirmed-client',
-        params: {
-          ...common,
-          firstName: firstName(input.client.fullName),
-          forChef: false,
-          counterpartName: input.chef.displayName,
-          price: euros(input.clientPriceCents),
-          priceAfterTaxCredit: euros(input.afterTaxCreditCents),
-          spaceUrl: `${this.site}/espace-client/commandes`,
-        },
-      }),
+      input.clientCopy !== false &&
+        this.brevo.sendTemplate({
+          templateId: this.brevo.templates.bookingConfirmed,
+          to: { email: input.client.email, name: input.client.fullName ?? undefined },
+          label: 'booking-confirmed-client',
+          params: {
+            ...common,
+            firstName: firstName(input.client.fullName),
+            forChef: false,
+            counterpartName: input.chef.displayName,
+            price: euros(input.clientPriceCents),
+            priceAfterTaxCredit: euros(input.afterTaxCreditCents),
+            spaceUrl: `${this.site}/espace-client/commandes`,
+          },
+        }),
       this.brevo.sendTemplate({
         templateId: this.brevo.templates.bookingConfirmed,
         to: { email: input.chef.email, name: input.chef.fullName ?? undefined },

@@ -116,6 +116,9 @@ export interface AppConfig {
       bookingHoldReminderChef?: number;
       bookingRescheduleProposed?: number;
       bookingRescheduleAnswered?: number;
+      bookingContractClient?: number;
+      bookingWithdrawalAck?: number;
+      bookingWithdrawalAdmin?: number;
     };
   };
   /** Structured stdout logging, read by Railway's log explorer. */
@@ -266,6 +269,13 @@ export const configLoader = (): AppConfig => ({
       ),
       bookingRescheduleAnswered: optionalNumber(
         process.env.BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED,
+      ),
+      bookingContractClient: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_CONTRACT_CLIENT,
+      ),
+      bookingWithdrawalAck: optionalNumber(process.env.BREVO_TPL_BOOKING_WITHDRAWAL_ACK),
+      bookingWithdrawalAdmin: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN,
       ),
     },
   },

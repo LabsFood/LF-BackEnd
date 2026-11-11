@@ -126,6 +126,18 @@ describe('ChefApplicationsAdminService.approve', () => {
     expect(result.user).toMatchObject({ id: 'u-1' });
   });
 
+  it('prefills the legal identity from the SIRET, never the address (CGV art. 3.2)', async () => {
+    prisma.chefApplication.findUnique.mockResolvedValue(
+      application({ companySiret: '44306184100047', addressStreet: '12 rue des Lilas' }),
+    );
+
+    await service.approve('app-1', {}, 'admin-1');
+
+    const { data } = prisma.chefProfile.update.mock.calls[0][0];
+    expect(data).toMatchObject({ siren: '443061841', legalStatus: 'micro_entreprise' });
+    expect(data).not.toHaveProperty('businessAddress');
+  });
+
   it('creates the SAP declaration row from the dossier without touching existing statuses', async () => {
     await service.approve('app-1', {}, 'admin-1');
     expect(prisma.sapProfile.upsert).toHaveBeenCalledWith({

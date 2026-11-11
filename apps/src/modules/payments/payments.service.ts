@@ -20,7 +20,7 @@ import {
   CreateCheckoutSessionDto,
   PaymentIntentDto,
 } from './dto/payment.dto';
-import { assertPayable, commissionBlockApplies } from './payment-rules';
+import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { assertOwnSiteUrl } from './own-site-url';
 import { PaymentInvoicesService } from './payment-invoices.service';
 import {
@@ -119,7 +119,7 @@ export class PaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
-      include: { chefProfile: true },
+      include: { chefProfile: true, serviceOffer: CONTRACT_SELECT.serviceOffer },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');

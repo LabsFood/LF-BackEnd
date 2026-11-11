@@ -24,6 +24,7 @@ import {
 } from './domain/vitrine.rules';
 import { validationFailed } from './domain/content.errors';
 import { ChefShowcaseQueryDto, WeekMenusQueryDto } from './dto/vitrine.dto';
+import { CHEF_LEGAL_SELECT, publicChefLegalIdentity } from '../users/chef-legal.views';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_SHOWCASE_WEEKS = 26;
@@ -184,7 +185,7 @@ export class VitrineService {
   async chef(id: string) {
     const chef = await this.listedChef(id);
     const week = weekOf(parisDay(new Date()));
-    const [extras, dishes, menus, slotsLeft, serviceOffers] = await Promise.all([
+    const [extras, dishes, menus, slotsLeft, serviceOffers, legal] = await Promise.all([
       this.cardExtras([chef.id]),
       this.prisma.meal.findMany({
         where: { chefProfileId: chef.id, status: MealStatus.published },
@@ -212,9 +213,15 @@ export class VitrineService {
           shoppingFeeCents: true,
         },
       }),
+      this.prisma.chefProfile.findUnique({
+        where: { id: chef.id },
+        select: CHEF_LEGAL_SELECT,
+      }),
     ]);
     return {
       ...extras.chefCard(chef),
+      // CGV art. 3.2: who the client contracts with, read before booking.
+      legalIdentity: legal ? publicChefLegalIdentity(legal) : null,
       slotsLeft: slotsLeft.get(chef.id) ?? null,
       bio: chef.bio,
       zones: zonesOf(chef).map((zone) => ({

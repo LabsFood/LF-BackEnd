@@ -21,6 +21,7 @@ import {
   ApiParam,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import {
@@ -40,6 +41,7 @@ import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
+import { ChefLegalDto, UpdateChefLegalDto } from './dto/chef-legal.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import {
   SapProfileDto,
@@ -339,6 +341,45 @@ export class UsersController {
     @Body() payload: UpdateMeSapProfileDto,
   ) {
     return this.users.updateSapProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Get('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Get my legal identity',
+    description:
+      'What clients read about me before booking (CGV art. 3.2), as entered, with ' +
+      '`missing`: what they cannot see yet. Nothing blocks a booking meanwhile.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeChefLegal(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getChefLegal(user.userId);
+  }
+
+  @Patch('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Fill in my legal identity',
+    description:
+      'Name or company name, legal status, SIREN, professional address, VAT regime, ' +
+      'insurance and consumer mediator, shown to clients on my page, in the booking ' +
+      'recap and in the contract they receive. A field absent is kept, `null` clears it.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`VALIDATION_FAILED`: the SIREN fails its Luhn key.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeChefLegal(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateChefLegalDto,
+  ) {
+    return this.users.updateChefLegal(user.userId, payload);
   }
 
   @Get('admin/users')

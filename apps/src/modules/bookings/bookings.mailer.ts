@@ -16,6 +16,20 @@ const WHEN = new Intl.DateTimeFormat('fr-FR', {
   timeStyle: 'short',
 });
 
+const DAY = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: 'Europe/Paris',
+  dateStyle: 'full',
+});
+
+/** An amount, or '' when there is none: the templates test emptiness. */
+const amountOrEmpty = (cents: number | null) => (cents ? euros(cents) : '');
+
+/** A file attached to an email: its name and its bytes. */
+export interface MailFile {
+  name: string;
+  bytes: Buffer;
+}
+
 /**
  * The emails of a booking. Best-effort, like every Brevo send: an unset template
  * id or an outage is logged and never undoes what triggered it.
@@ -24,6 +38,9 @@ const WHEN = new Intl.DateTimeFormat('fr-FR', {
 export class BookingsMailer {
   private readonly site: string;
 
+  private readonly adminSite: string;
+  private readonly adminEmail?: string;
+
   constructor(
     private readonly brevo: BrevoService,
     config: ConfigService,
@@ -31,6 +48,118 @@ export class BookingsMailer {
     this.site = config
       .get<string>('chefOnboarding.publicSiteUrl', 'https://batchcooking.labsfood.fr')
       .replace(/\/$/, '');
+    this.adminSite = config
+      .get<string>('contact.adminSiteUrl', 'https://admin.labsfood.fr')
+      .replace(/\/$/, '');
+    this.adminEmail = config.get<string>('contact.notificationEmail') || undefined;
+  }
+
+  /**
+   * To the client, once the contract is concluded: its recap on a durable medium,
+   * with the CGV and the withdrawal form attached (CGV art. 2.4, 5.2).
+   */
+  async contractClient(input: {
+    bookingId: string;
+    reference: string | null;
+    client: { email: string; fullName: string | null };
+    title: string;
+    startsAt: Date;
+    slot: string | null;
+    address: string | null;
+    persons: number | null;
+    priceCents: number;
+    conditions: string | null;
+    chefName: string;
+    /** The legal identity, one line per item (CGV art. 3.2). */
+    chefIdentity: string;
+    withdrawalUntil: Date;
+    earlyExecution: boolean;
+    files: MailFile[];
+  }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingContractClient,
+      to: { email: input.client.email, name: input.client.fullName ?? undefined },
+      label: 'booking-contract-client',
+      params: {
+        firstName: firstName(input.client.fullName),
+        reference: input.reference ?? '',
+        title: input.title,
+        date: DAY.format(input.startsAt),
+        slot: input.slot ?? '',
+        address: input.address ?? '',
+        persons: input.persons ?? '',
+        price: euros(input.priceCents),
+        conditions: input.conditions ?? '',
+        chefName: input.chefName,
+        chefIdentity: input.chefIdentity,
+        withdrawalUntil: DAY.format(input.withdrawalUntil),
+        earlyExecution: input.earlyExecution,
+        spaceUrl: this.spaceUrl('client', input.bookingId),
+      },
+      attachment: input.files.map((file) => ({
+        name: file.name,
+        content: file.bytes.toString('base64'),
+      })),
+    });
+  }
+
+  /** To the client: the acknowledgement of an online withdrawal (CGV art. 15.2). */
+  async withdrawalAck(input: {
+    bookingId: string;
+    reference: string | null;
+    client: { email: string; fullName: string | null };
+    chefName: string;
+    submittedAt: Date;
+    declaration: string;
+    dueCents: number | null;
+    refundCents: number | null;
+  }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingWithdrawalAck,
+      to: { email: input.client.email, name: input.client.fullName ?? undefined },
+      label: 'booking-withdrawal-ack',
+      params: {
+        firstName: firstName(input.client.fullName),
+        reference: input.reference ?? '',
+        chefName: input.chefName,
+        submittedAt: WHEN.format(input.submittedAt),
+        declaration: input.declaration,
+        shareUnknown: input.dueCents === null,
+        dueAmount: amountOrEmpty(input.dueCents),
+        refundAmount: amountOrEmpty(input.refundCents),
+        spaceUrl: this.spaceUrl('client', input.bookingId),
+      },
+    });
+  }
+
+  /** To the team: a withdrawal to refund by hand before `deadline` (CGV art. 15.5). */
+  async withdrawalAdmin(input: {
+    bookingId: string;
+    reference: string | null;
+    status: string;
+    paidCents: number;
+    dueCents: number | null;
+    refundCents: number | null;
+    methods: string[];
+    deadline: Date;
+  }) {
+    if (!this.adminEmail) return { sent: false };
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingWithdrawalAdmin,
+      to: { email: this.adminEmail },
+      label: 'booking-withdrawal-admin',
+      params: {
+        reference: input.reference ?? input.bookingId,
+        status: input.status,
+        paidAmount: euros(input.paidCents),
+        shareUnknown: input.dueCents === null,
+        dueAmount: euros(input.dueCents ?? 0),
+        refundAmount: euros(input.refundCents ?? 0),
+        methods: input.methods.join(', '),
+        deadline: DAY.format(input.deadline),
+        adminUrl: `${this.adminSite}/reservations/${input.bookingId}`,
+      },
+    });
   }
 
   /** To both, 24 h before an unpaid booking frees its slot. */

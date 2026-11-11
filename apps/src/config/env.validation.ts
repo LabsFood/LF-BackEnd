@@ -138,6 +138,9 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_PROPOSED: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CONTRACT_CLIENT: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ACK: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
