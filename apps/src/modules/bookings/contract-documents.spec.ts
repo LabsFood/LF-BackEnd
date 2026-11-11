@@ -27,6 +27,8 @@ describe('renderWithdrawalFormPdf', () => {
       'Formulaire de rétractation',
       'Je vous notifie par la présente ma rétractation',
       'retractation@labsfood.fr',
+      // The model form names the professional's geographic address (R.221-1).
+      '200 rue de la Croix Nivert, 75015 Paris',
       'LF-2026-0042',
       'Marie Dupont EI',
       'Sophie Martin',
@@ -64,7 +66,8 @@ describe('renderDeboursMandatePdf', () => {
     for (const fact of [
       'Mandat de débours',
       'Sophie Martin',
-      "LAB'S FOOD",
+      "LAB'S FOOD - BATCHCOOKING",
+      'RCS Paris 131 895 203',
       'Marie Dupont EI',
       '443061841',
       'Dahl de lentilles',

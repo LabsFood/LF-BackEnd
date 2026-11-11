@@ -24,6 +24,9 @@ import { WITHDRAWAL_DECLARATION } from './domain/withdrawal.rules';
  */
 
 const COMPANY = "LAB'S FOOD";
+/** The publisher, as the Mentions légales V1 name it. */
+const LEGAL_NAME = "LAB'S FOOD - BATCHCOOKING";
+const POSTAL_ADDRESS = '200 rue de la Croix Nivert, 75015 Paris';
 const WITHDRAWAL_EMAIL = 'retractation@labsfood.fr';
 
 const day = (date: Date) =>
@@ -86,11 +89,10 @@ export function renderWithdrawalFormPdf(input: WithdrawalFormInput): Promise<Buf
   section(
     doc,
     'Destinataire',
-    `À l’attention de ${COMPANY}, agissant au nom et pour le compte du batch cooker ` +
-      `concerné : par e-mail à ${WITHDRAWAL_EMAIL}, ou par courrier recommandé avec ` +
-      'accusé de réception à l’adresse postale indiquée dans les mentions légales de ' +
-      'labsfood.fr. Vous pouvez aussi utiliser le bouton « Se rétracter » de votre ' +
-      'espace, rubrique « Mes réservations ».',
+    `À l’attention de ${LEGAL_NAME}, agissant au nom et pour le compte du batch ` +
+      `cooker concerné : par e-mail à ${WITHDRAWAL_EMAIL}, ou par courrier recommandé ` +
+      `avec accusé de réception au ${POSTAL_ADDRESS}. Vous pouvez aussi utiliser le ` +
+      'bouton « Se rétracter » de votre espace, rubrique « Mes sessions ».',
   );
   section(doc, 'Déclaration', WITHDRAWAL_DECLARATION);
   doc.y += 10;
@@ -168,7 +170,10 @@ export function renderDeboursMandatePdf(input: DeboursMandateInput): Promise<Buf
 
   panel(doc, COLOR.cream, COLOR.inkSoft, [
     { label: 'Mandant', value: input.clientName, strong: true },
-    { label: 'Mandataire', value: COMPANY },
+    {
+      label: 'Mandataire',
+      value: `${LEGAL_NAME}, SASU, ${POSTAL_ADDRESS} (RCS Paris 131 895 203)`,
+    },
     {
       label: 'Personne désignée pour les achats',
       value: [input.chefName, input.chefSiren && `SIREN ${input.chefSiren}`]
