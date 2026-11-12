@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsString, MaxLength } from 'class-validator';
 
-import { Raw } from '../../../common/dto/strict';
+import { OptionalNotNull, Raw } from '../../../common/dto/strict';
 
 /** Recettes §7.4: about 2 MB of text. */
 export const IMPORT_MAX_CHARACTERS = 2_000_000;
@@ -27,7 +27,7 @@ export class ImportIngredientsDto {
     description: 'True writes the import; absent or false only simulates it.',
     default: false,
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsBoolean()
   confirm?: boolean;

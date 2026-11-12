@@ -24,5 +24,10 @@ export class ChefIngredientDto extends OmitType(CatalogIngredientDto, [
   aisle!: string;
 }
 
-/** Any part of an own pending ingredient (Recettes §7.1). */
-export class UpdateChefIngredientDto extends PartialType(ChefIngredientDto) {}
+/**
+ * Any part of an own pending ingredient (Recettes §7.1). I4: a field may be left
+ * out, never sent as null (400, never a 500).
+ */
+export class UpdateChefIngredientDto extends PartialType(ChefIngredientDto, {
+  skipNullProperties: false,
+}) {}

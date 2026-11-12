@@ -17,7 +17,7 @@ import {
 
 import { oneLine } from '../../../common/dto/clean-text';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
-import { Raw } from '../../../common/dto/strict';
+import { OptionalNotNull, Raw } from '../../../common/dto/strict';
 import { QueryBoolean } from '../../../common/dto/query-boolean';
 import { ALLERGEN_CODES, COMPUTED_DIET_CODES } from '../../dishes/domain/dishes.rules';
 
@@ -45,7 +45,7 @@ export class CatalogIngredientDto {
     description: 'Other names a chef may type, 20 at most. Stored in lowercase.',
     example: ['pomme d’amour'],
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsArray()
   @ArrayMaxSize(20)
@@ -61,7 +61,7 @@ export class CatalogIngredientDto {
       'The diets the ingredient suits. Labels in `GET /referentials/computed-diets`.',
     example: ['vegetarian', 'vegan', 'no-pork', 'gluten-free', 'lactose-free'],
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsArray()
   @IsIn(COMPUTED_DIET_CODES, { each: true })
@@ -72,7 +72,7 @@ export class CatalogIngredientDto {
     description: 'Months in season, 1 to 12, each once. Empty: not seasonal.',
     example: [6, 7, 8, 9],
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsArray()
   @ArrayMaxSize(12)
@@ -88,7 +88,7 @@ export class CatalogIngredientDto {
       'The supermarket aisle: a code of the list in force. `422` when it is not in it.',
     example: 'fruits-legumes',
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsString()
   @Length(1, 60)
@@ -101,7 +101,7 @@ export class CatalogIngredientDto {
       'The allergens it contains, each once. Not together with `allergensNone`.',
     example: ['gluten'],
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsArray()
   @ArrayUnique()
@@ -113,7 +113,7 @@ export class CatalogIngredientDto {
       'True: it holds none of the 14 allergens. Not together with `allergens`.',
     example: true,
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsBoolean()
   allergensNone?: boolean;
@@ -122,18 +122,21 @@ export class CatalogIngredientDto {
     description: 'A basic (salt, oil…): a pantry staple, left out of shopping lists.',
     example: false,
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsBoolean()
   isBasic?: boolean;
 }
 
-export class UpdateCatalogIngredientDto extends PartialType(CatalogIngredientDto) {
+// I4: every field may be left out, none sent as null (400, never a 500).
+export class UpdateCatalogIngredientDto extends PartialType(CatalogIngredientDto, {
+  skipNullProperties: false,
+}) {
   @ApiPropertyOptional({
     enum: ['active', 'inactive'],
     description: 'Only for a common entry: a chef’s private entry answers `422`.',
   })
-  @IsOptional()
+  @OptionalNotNull()
   @Raw()
   @IsIn(['active', 'inactive'])
   status?: 'active' | 'inactive';

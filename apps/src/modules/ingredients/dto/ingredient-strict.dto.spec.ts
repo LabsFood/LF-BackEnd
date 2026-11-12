@@ -65,6 +65,57 @@ describe('UpdateCatalogIngredientDto (Task 20A)', () => {
   });
 });
 
+// I4: `@IsOptional()` let `null` through, and the service then failed on it (500).
+// No ingredient field is cleared by null: lists clear with [], booleans with false,
+// and an aisle is never cleared. So null is refused (400), field by field.
+describe('null on an ingredient field is refused, never a 500 (I4)', () => {
+  const FIELDS = [
+    'name',
+    'aliases',
+    'aisle',
+    'allergens',
+    'allergensNone',
+    'isBasic',
+    'diets',
+    'seasonMonths',
+  ];
+
+  describe.each([
+    ['CatalogIngredientDto', CatalogIngredientDto],
+    ['ChefIngredientDto', ChefIngredientDto],
+  ])('%s', (_name, dto) => {
+    it.each(FIELDS)('refuses %s = null', async (field) => {
+      expect(await refusalOf({ ...valid(), [field]: null }, dto)).toContain(field);
+    });
+  });
+
+  describe.each([
+    ['UpdateCatalogIngredientDto', UpdateCatalogIngredientDto],
+    ['UpdateChefIngredientDto', UpdateChefIngredientDto],
+  ])('%s', (_name, dto) => {
+    it.each(FIELDS)('refuses %s = null, alone', async (field) => {
+      expect(await refusalOf({ [field]: null }, dto)).toContain(field);
+    });
+
+    it('still takes any one field alone, and an empty body', async () => {
+      await expect(checkBody({ isBasic: true }, dto)).resolves.toBeInstanceOf(dto);
+      await expect(checkBody({}, dto)).resolves.toBeInstanceOf(dto);
+    });
+  });
+
+  it('refuses status = null on the admin update', async () => {
+    expect(await refusalOf({ status: null }, UpdateCatalogIngredientDto)).toContain(
+      'status',
+    );
+  });
+
+  it('refuses confirm = null on the import', async () => {
+    expect(
+      await refusalOf({ csv: 'nom', confirm: null }, ImportIngredientsDto),
+    ).toContain('confirm');
+  });
+});
+
 describe('ImportIngredientsDto (Task 20A)', () => {
   it.each([12, {}, ['nom'], true])('refuses csv = %j', async (csv) => {
     expect(await refusalOf({ csv }, ImportIngredientsDto)).toContain('csv');
