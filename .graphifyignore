@@ -1,0 +1,5 @@
+# Kept out of the graphify graph (gitignore syntax).
+# Migrations: schema.prisma already describes the data model.
+apps/prisma/migrations/
+# Specs: keep the graph to app code.
+**/*.spec.ts
