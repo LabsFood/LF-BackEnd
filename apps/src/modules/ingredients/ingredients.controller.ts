@@ -160,7 +160,9 @@ export class IngredientsController {
       'active), a changed entry is updated and carried into the recipes (§7.3, the ' +
       'figures summed in `propagation`; `updatedIds` lists the entries updated ' +
       '(empty in a simulation), to replay `failed` dishes with `POST ' +
-      '/admin/ingredients/:id/propagate` for each), an identical one is left. Row by row: if a ' +
+      '/admin/ingredients/:id/propagate` for each), an identical one is left. A chef ' +
+      'whose dishes lose their verification gets one e-mail for the whole import ' +
+      '(`propagation.chefs` counts them once). Row by row: if a ' +
       'write fails the run stops with that error (`line: 0`), and the same file can be ' +
       'sent again. Recorded in the audit log.',
   })

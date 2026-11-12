@@ -64,7 +64,15 @@ function harness(existing: Record<string, unknown>[] = []) {
   };
   const platformSetting = { findUnique: jest.fn(async (_args?: unknown) => null) };
   const audit = { record: jest.fn(async (_entry: object) => undefined) };
-  const propagation = { propagate: jest.fn(async (..._args: unknown[]) => FIGURES) };
+  const propagation = {
+    // A run tells one chef, into the list the import shares across its runs (M3).
+    propagate: jest.fn(async (...args: unknown[]) => {
+      const tell = (args[3] as { tell?: Map<string, unknown> } | undefined)?.tell;
+      tell?.set('user-1', { dishIds: new Set(['dish-1']) });
+      return { ...FIGURES };
+    }),
+    tellChefs: jest.fn(async (_tell: unknown) => undefined),
+  };
   // An interactive transaction runs on the same client here.
   const $transaction = jest.fn(
     async (work: (tx: { catalogIngredient: typeof catalogIngredient }) => unknown) =>
@@ -85,6 +93,7 @@ function harness(existing: Record<string, unknown>[] = []) {
     prisma,
     ingredients,
     audit as unknown as AuditService,
+    propagation as unknown as IngredientPropagationService,
   );
   return { catalogIngredient, audit, propagation, service, stored };
 }
@@ -168,10 +177,13 @@ describe('IngredientImportService (Recettes §7.4)', () => {
       where: { id: 'ing-1' },
       data: { carryPendingAt: expect.any(Date) },
     });
-    expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
-      type: 'admin',
-      userId: 'admin-1',
-    });
+    expect(propagation.propagate).toHaveBeenCalledWith(
+      ['ing-1'],
+      { type: 'admin', userId: 'admin-1' },
+      undefined,
+      // M3: the chefs to e-mail once, at the end of the import.
+      { tell: expect.any(Map) },
+    );
     expect(result.propagation).toEqual(FIGURES);
     // Ruling R25: the console replays the propagation for these ids when `failed > 0`.
     expect(result.updatedIds).toEqual(['ing-1']);
@@ -348,5 +360,82 @@ describe('IngredientImportService and lot 2 entries (I2)', () => {
     expect(catalogIngredient.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'ing-1' } }),
     );
+  });
+});
+
+// Recettes §5.5, M3: one e-mail per chef and per operation, not per updated row.
+describe('IngredientImportService e-mails each chef once (M3)', () => {
+  const PAIN = {
+    ...TOMATE,
+    id: 'ing-2',
+    name: 'Pain',
+    normalizedName: 'pain',
+    aisle: 'boulangerie',
+    allergens: ['gluten'],
+    allergensNone: false,
+    diets: [],
+  };
+
+  it('two updated entries share one list of chefs, told once at the end', async () => {
+    const { propagation, service } = harness([TOMATE, PAIN]);
+    // Marie's dishes use both: each run adds her, with the dish it cleared.
+    propagation.propagate.mockImplementation(async (...args: unknown[]) => {
+      const tell = (args[3] as { tell: Map<string, { dishIds: Set<string> }> }).tell;
+      const marie = tell.get('user-1') ?? { dishIds: new Set<string>() };
+      marie.dishIds.add(`dish-of-${(args[0] as string[])[0]}`);
+      tell.set('user-1', marie);
+      return { dishes: 1, reverified: 1, chefs: 1, skipped: 0, failed: 0 };
+    });
+
+    const result = await service.run(
+      csv(
+        'Tomate;;fruits-legumes;gluten;;;;non;',
+        'Pain;;boulangerie;gluten|milk;;;;non;',
+      ),
+      { confirm: true },
+      'admin-1',
+    );
+
+    expect(result).toMatchObject({ updated: 2 });
+    expect(propagation.propagate).toHaveBeenCalledTimes(2);
+    const tells = propagation.propagate.mock.calls.map(
+      (call) => (call[3] as { tell: unknown }).tell,
+    );
+    expect(tells[0]).toBe(tells[1]);
+    expect(propagation.tellChefs).toHaveBeenCalledTimes(1);
+    expect(propagation.tellChefs).toHaveBeenCalledWith(tells[0]);
+    // The chefs told, once each: one e-mail each.
+    expect(result.propagation).toMatchObject({ dishes: 2, reverified: 2, chefs: 1 });
+  });
+
+  it('tells the chefs of the rows written before a write that fails', async () => {
+    const { catalogIngredient, propagation, service } = harness([TOMATE, PAIN]);
+    const write = catalogIngredient.update.getMockImplementation()!;
+    catalogIngredient.update.mockImplementation(async (args) => {
+      if (args.where.id === 'ing-2') throw new Error('db down');
+      return write(args);
+    });
+
+    const result = await service.run(
+      csv(
+        'Tomate;;fruits-legumes;gluten;;;;non;',
+        'Pain;;boulangerie;gluten|milk;;;;non;',
+      ),
+      { confirm: true },
+      'admin-1',
+    );
+
+    expect(result.errors).toHaveLength(1);
+    expect(propagation.tellChefs).toHaveBeenCalledTimes(1);
+  });
+
+  it('a simulation tells nobody', async () => {
+    const { propagation, service } = harness([TOMATE]);
+    await service.run(
+      csv('Tomate;;fruits-legumes;gluten;;;;non;'),
+      { confirm: false },
+      'a',
+    );
+    expect(propagation.tellChefs).not.toHaveBeenCalled();
   });
 });

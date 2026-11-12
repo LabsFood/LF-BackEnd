@@ -6,7 +6,11 @@ import { aislesInForce } from '../platform-settings/recipe-lists';
 import { parseIngredientCsv } from './domain/ingredient-csv.rules';
 import { normalizeName } from './domain/ingredient.rules';
 import { CatalogIngredientDto } from './dto/ingredient.dto';
-import { PropagationResult } from './ingredient-propagation.service';
+import {
+  ChefsToTell,
+  IngredientPropagationService,
+  PropagationResult,
+} from './ingredient-propagation.service';
 import { IngredientsService } from './ingredients.service';
 
 export interface ImportReport {
@@ -59,7 +63,8 @@ const none = (): PropagationResult => ({
  * error. Confirmed, it writes row by row through the admin routes' own paths (an
  * update is carried into the recipes, §7.3), not in one transaction since the
  * propagation runs per dish. A write that fails stops the run: the file can be
- * replayed, the rows already written are then unchanged.
+ * replayed, the rows already written are then unchanged. Recettes §5.5, M3: the
+ * chefs whose dishes the updates reach get one e-mail each for the whole import.
  */
 @Injectable()
 export class IngredientImportService {
@@ -67,6 +72,7 @@ export class IngredientImportService {
     private readonly prisma: PrismaService,
     private readonly ingredients: IngredientsService,
     private readonly audit: AuditService,
+    private readonly propagation: IngredientPropagationService,
   ) {}
 
   async run(
@@ -88,6 +94,8 @@ export class IngredientImportService {
     if (!options.confirm || errors.length > 0) return report;
 
     report.created = report.updated = report.unchanged = 0;
+    // M3: every update's propagation adds its chefs here; they are e-mailed once.
+    const tell: ChefsToTell = new Map();
     try {
       for (const step of plan) {
         if (step.action === 'unchanged') {
@@ -100,6 +108,7 @@ export class IngredientImportService {
             step.id,
             step.row,
             adminUserId,
+            { tell },
           );
           report.updated++;
           report.updatedIds.push(step.id);
@@ -123,6 +132,9 @@ export class IngredientImportService {
         }`,
       });
     }
+    // The dishes of the rows written are carried: their chefs hear of it, once each.
+    report.propagation.chefs = tell.size;
+    await this.propagation.tellChefs(tell);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: adminUserId,

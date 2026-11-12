@@ -1147,6 +1147,71 @@ describe('carry_pending_at (ruling R28)', () => {
   });
 });
 
+// Recettes §5.5, M3: one e-mail per chef and per operation. An import carries each
+// updated entry in its own run; the runs share who to tell, sent once at the end.
+describe('one e-mail per chef across the runs of one operation (M3)', () => {
+  it('two updated entries used by the same chef send one e-mail, counting both dishes', async () => {
+    const dishes = await Promise.all([
+      saved([BUTTER, CELERY], [line('Beurre', 'cat-beurre')], { id: 'dish-1' }),
+      saved([BUTTER, CELERY], [line('Céleri-rave', 'cat-celeri')], { id: 'dish-2' }),
+    ]);
+    const h = harness([BUTTER, CELERY], dishes);
+    const tell = new Map();
+
+    h.change('cat-beurre', WITH_MILK);
+    const first = await h.service.propagate(['cat-beurre'], ADMIN, undefined, { tell });
+    h.change('cat-celeri', { allergens: ['celery', 'mustard'] });
+    const second = await h.service.propagate(['cat-celeri'], ADMIN, undefined, { tell });
+
+    // Each run still counts its own figures, and sends nothing itself.
+    expect(first).toMatchObject({ reverified: 1, chefs: 1 });
+    expect(second).toMatchObject({ reverified: 1, chefs: 1 });
+    expect(h.mailer.recipeAllergensChanged).not.toHaveBeenCalled();
+    // In the app, each dish is still notified.
+    expect(h.notifications.notify).toHaveBeenCalledTimes(2);
+
+    await h.service.tellChefs(tell);
+
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(1);
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledWith({
+      email: 'marie@example.com',
+      name: 'Marie Dupont',
+      dishCount: 2,
+    });
+  });
+
+  it('a dish two runs both reach counts once', async () => {
+    const dish = await saved([BUTTER, CELERY], BUTTER_AND_CELERY);
+    const h = harness([BUTTER, CELERY], [dish]);
+    const tell = new Map();
+
+    h.change('cat-beurre', WITH_MILK);
+    await h.service.propagate(['cat-beurre'], ADMIN, undefined, { tell });
+    // Verified again by the chef in between: the second change clears it again.
+    h.rows.set('dish-1', { ...h.rows.get('dish-1')!, allergensVerifiedAt: VERIFIED_AT });
+    h.change('cat-celeri', { allergens: ['celery', 'mustard'] });
+    await h.service.propagate(['cat-celeri'], ADMIN, undefined, { tell });
+    await h.service.tellChefs(tell);
+
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(1);
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ dishCount: 1 }),
+    );
+  });
+
+  it('a run on its own still e-mails at its end', async () => {
+    const h = harness(
+      [BUTTER, CELERY],
+      [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
+    );
+    h.change('cat-beurre', WITH_MILK);
+
+    await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.mailer.recipeAllergensChanged).toHaveBeenCalledTimes(1);
+  });
+});
+
 // Task 14 carry-over: the hop `entriesFor` follows needs a merged status too.
 describe('mergedInto (Recettes §7.3)', () => {
   it('finds the entries merged into the ids, by status and target', async () => {

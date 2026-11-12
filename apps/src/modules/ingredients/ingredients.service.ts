@@ -20,6 +20,7 @@ import {
   UpdateCatalogIngredientDto,
 } from './dto/ingredient.dto';
 import {
+  ChefsToTell,
   dishesLinking,
   IngredientPropagationService,
   mergedInto,
@@ -223,7 +224,13 @@ export class IngredientsService {
    * carry left it) with the figures of that propagation (null when nothing was
    * carried), so the console can warn about `failed` dishes and offer the replay.
    */
-  async update(id: string, payload: UpdateCatalogIngredientDto, adminUserId: string) {
+  async update(
+    id: string,
+    payload: UpdateCatalogIngredientDto,
+    adminUserId: string,
+    // M3: an operation of several updates (the import) e-mails each chef once.
+    options?: { tell?: ChefsToTell },
+  ) {
     const before = (await this.prisma.catalogIngredient.findUnique({
       where: { id },
       select: { ...CARRIED, chefProfileId: true, status: true, normalizedName: true },
@@ -284,9 +291,12 @@ export class IngredientsService {
       metadata: { fields: Object.keys(data), propagated: carried },
     });
     // Records its own audit entry, with its figures.
-    const propagation = carried
-      ? await this.propagation.propagate([id], { type: 'admin', userId: adminUserId })
-      : null;
+    const actor = { type: 'admin' as const, userId: adminUserId };
+    const propagation = !carried
+      ? null
+      : options?.tell
+        ? await this.propagation.propagate([id], actor, undefined, { tell: options.tell })
+        : await this.propagation.propagate([id], actor);
     return {
       ingredient: withChef(propagation ? await this.withPendingRead(row) : row),
       propagation,

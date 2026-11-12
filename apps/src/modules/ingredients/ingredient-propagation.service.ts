@@ -21,7 +21,10 @@ export interface PropagationResult {
   dishes: number;
   /** Verified dishes whose allergens changed: their verification is cleared. */
   reverified: number;
-  /** Chefs told about those dishes, one e-mail each. */
+  /**
+   * Chefs told about those dishes, one e-mail each. Within an operation of several
+   * runs (the import, M3), each is e-mailed once, at its end.
+   */
   chefs: number;
   /**
    * Rulings R12/R12b: dishes saved twice by someone else while this ran, and found
@@ -100,8 +103,15 @@ const UNCHANGED: Carried = { written: false, unverified: false, owner: null };
 /** E-mails sent at once: a large propagation never floods the provider. */
 const MAIL_BATCH = 10;
 
-/** A chef told once per propagation, however many of their dishes changed. */
-type Told = { email: string; name: string | null; dishCount: number };
+/** A chef told once per operation, however many of their dishes changed. */
+type Told = { email: string; name: string | null; dishIds: Set<string> };
+
+/**
+ * Recettes §5.5, M3: the chefs to e-mail at the end of an operation, by user id. An
+ * operation that runs several propagations (the CSV import, one per updated entry)
+ * shares one, then sends it once with `tellChefs`.
+ */
+export type ChefsToTell = Map<string, Told>;
 
 /**
  * Recettes §7.3: carries a change of the common list into every recipe linking it,
@@ -126,6 +136,8 @@ export class IngredientPropagationService {
     entryIds: string[],
     actor: PropagationActor,
     remap?: Remap,
+    // M3: given, the chefs are added to it and the caller e-mails them once.
+    options?: { tell?: ChefsToTell },
   ): Promise<PropagationResult> {
     // Ruling R28: the marks this run may clear are those set before it started.
     const startedAt = new Date();
@@ -149,7 +161,7 @@ export class IngredientPropagationService {
       skipped: 0,
       failed: 0,
     };
-    const told = new Map<string, Told>();
+    const told: ChefsToTell = new Map();
     for (const { id } of meals) {
       let carried: Carried;
       try {
@@ -179,9 +191,9 @@ export class IngredientPropagationService {
         const chef = told.get(owner.userId) ?? {
           email: owner.user.email,
           name: owner.user.fullName,
-          dishCount: 0,
+          dishIds: new Set<string>(),
         };
-        chef.dishCount += 1;
+        chef.dishIds.add(id);
         told.set(owner.userId, chef);
       }
     }
@@ -189,7 +201,8 @@ export class IngredientPropagationService {
     // Ruling R28: every dish linking these entries now holds them as they stand.
     if (result.failed === 0) await this.clearPending(searched, startedAt);
 
-    await this.tellChefs(told);
+    if (options?.tell) addTold(options.tell, told);
+    else await this.tellChefs(told);
     await this.audit.record({
       actorType: actor.type,
       actorUserId: actor.userId,
@@ -330,17 +343,21 @@ export class IngredientPropagationService {
   }
 
   /**
-   * Recettes §5.5: one e-mail per chef and per propagation, with the count of their
+   * Recettes §5.5: one e-mail per chef and per operation, with the count of their
    * dishes to verify again, `MAIL_BATCH` at a time. Best effort: the dishes and
    * notifications are written, and an e-mail provider failure never undoes them.
    */
-  private async tellChefs(told: Map<string, Told>): Promise<void> {
+  async tellChefs(told: ChefsToTell): Promise<void> {
     const chefs = [...told];
     for (let start = 0; start < chefs.length; start += MAIL_BATCH) {
       await Promise.all(
         chefs.slice(start, start + MAIL_BATCH).map(async ([userId, chef]) => {
           try {
-            await this.mailer.recipeAllergensChanged(chef);
+            await this.mailer.recipeAllergensChanged({
+              email: chef.email,
+              name: chef.name,
+              dishCount: chef.dishIds.size,
+            });
           } catch (error) {
             this.logger.error({
               event: 'catalog_ingredient.propagation_email_failed',
@@ -351,6 +368,15 @@ export class IngredientPropagationService {
         }),
       );
     }
+  }
+}
+
+/** M3: one run's chefs into the operation's, each dish counted once. */
+function addTold(into: ChefsToTell, from: ChefsToTell): void {
+  for (const [userId, chef] of from) {
+    const kept = into.get(userId);
+    if (kept) for (const id of chef.dishIds) kept.dishIds.add(id);
+    else into.set(userId, { ...chef, dishIds: new Set(chef.dishIds) });
   }
 }
 
