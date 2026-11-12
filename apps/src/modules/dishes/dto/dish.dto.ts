@@ -323,7 +323,12 @@ export class StorageDto {
   @MaxLength(120)
   container?: string;
 
-  @ApiPropertyOptional({ default: false, description: 'It can go in the freezer.' })
+  @ApiPropertyOptional({
+    description:
+      'It can go in the freezer: true or false. No default: omitted, the question ' +
+      'stays unanswered and readiness asks it (Recettes §6.4).',
+    example: true,
+  })
   @IsOptional()
   @Raw()
   @IsBoolean()

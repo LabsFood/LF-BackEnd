@@ -1,7 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { ApiValidationPipe } from '../../../common/validation.pipe';
-import { ConfirmAllergensDto, CreateDishDto, UpdateDishDto } from './dish.dto';
+import {
+  ConfirmAllergensDto,
+  CreateDishDto,
+  StorageDto,
+  UpdateDishDto,
+} from './dish.dto';
 
 const pipe = new ApiValidationPipe({
   whitelist: true,
@@ -150,5 +155,20 @@ describe('allergen confirmation body (ruling R8)', () => {
     ['an unknown field', { allergens: ['milk'] }, 'allergens'],
   ])('refuses %s', async (_case, body, field) => {
     expect(await refusal(body, ConfirmAllergensDto)).toContain(field);
+  });
+});
+
+// Recettes §5.3: omitted, `freezable` is unanswered (readiness asks it), not false.
+describe('StorageDto.freezable in Swagger', () => {
+  it('documents no default', () => {
+    // The key @nestjs/swagger stores a property's @ApiProperty options under.
+    const meta = Reflect.getMetadata(
+      'swagger/apiModelProperties',
+      StorageDto.prototype,
+      'freezable',
+    ) as Record<string, unknown>;
+    expect(meta).toBeDefined();
+    expect(meta).not.toHaveProperty('default');
+    expect(String(meta.description)).toContain('unanswered');
   });
 });
