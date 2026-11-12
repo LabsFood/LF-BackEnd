@@ -88,3 +88,50 @@ describe.each([
     expect(JSON.stringify(row)).toBe(before);
   });
 });
+
+// Ruling R30 (§8.1): the admin's form sends back the lockVersion it read, and shows
+// which line brings each allergen, as the chef's view does.
+describe('toLabsFoodMealView lockVersion and allergenSources (ruling R30)', () => {
+  it('returns the lockVersion and, per allergen, the lines that bring it', () => {
+    const view = toLabsFoodMealView(
+      meal({
+        lockVersion: 6,
+        chefProfileId: null,
+        ingredients: [
+          STAMPED,
+          {
+            ...STAMPED,
+            name: 'Beurre',
+            catalogIngredientId: 'cat-beurre',
+            allergens: ['milk'],
+            optional: false,
+          },
+        ],
+        addedAllergens: ['mustard'],
+      }),
+    );
+
+    expect(view.lockVersion).toBe(6);
+    expect(view.allergenSources).toEqual(
+      toDishView(
+        meal({
+          ingredients: [
+            STAMPED,
+            {
+              ...STAMPED,
+              name: 'Beurre',
+              catalogIngredientId: 'cat-beurre',
+              allergens: ['milk'],
+              optional: false,
+            },
+          ],
+          addedAllergens: ['mustard'],
+        }),
+      ).allergenSources,
+    );
+    expect(view.allergenSources).toMatchObject({
+      celery: ['Céleri-rave'],
+      milk: ['Beurre'],
+    });
+  });
+});

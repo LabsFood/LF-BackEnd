@@ -68,6 +68,11 @@ export function toDishSummary(meal: Meal) {
 const servedLines = (meal: Pick<Meal, 'ingredients'>) =>
   readLines(meal.ingredients).map((line) => ({ ...line }));
 
+/** Recettes §6.1: per allergen, the names of the lines that bring it. */
+const allergenSources = (meal: Meal) =>
+  allergenStateOf(readLines(meal.ingredients), meal.addedAllergens, meal.customAllergens)
+    .sources;
+
 /** The chef's own view, and the admin's (§8): with the recipe and the status. */
 export function toDishView(meal: Meal) {
   const ingredients = servedLines(meal);
@@ -85,11 +90,7 @@ export function toDishView(meal: Meal) {
     /** The ones the chef added on top of the computed ones. */
     addedAllergens: meal.addedAllergens,
     /** Per allergen, the ingredients that bring it. */
-    allergenSources: allergenStateOf(
-      readLines(meal.ingredients),
-      meal.addedAllergens,
-      meal.customAllergens,
-    ).sources,
+    allergenSources: allergenSources(meal),
     /** The version a save must send back (`lockVersion`) to prove it read the latest. */
     lockVersion: meal.lockVersion,
     /** The chef's alone: never on the storefront. */
@@ -129,13 +130,16 @@ export function toDishView(meal: Meal) {
 
 /**
  * A Lab's Food meal as the admin routes answer it (`/admin/meals`): the row, with its
- * lines and steps served as the rules read them (R33), and its readiness.
+ * lines and steps served as the rules read them (R33), its readiness, and (ruling
+ * R30, §8.1) the sources of its allergens. `lockVersion` comes with the row: the
+ * form sends it back, so two tabs never overwrite each other.
  */
 export function toLabsFoodMealView(meal: Meal) {
   return {
     ...meal,
     ingredients: servedLines(meal),
     steps: readSteps(meal.steps),
+    allergenSources: allergenSources(meal),
     readiness: readiness(meal),
   };
 }

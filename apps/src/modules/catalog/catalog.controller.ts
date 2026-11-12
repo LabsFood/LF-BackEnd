@@ -246,7 +246,11 @@ export class CatalogController {
       'Send only the fields to change. To empty an optional field, send `null`: ' +
       '`{ "imageUrl": null }` removes the photo. That works for `description`, ' +
       '`imageUrl`, `continent`, `country`, `calories` and `difficulty`.\n\n' +
-      'To stop offering a meal, set `{ "status": "archived" }`.',
+      'To stop offering a meal, set `{ "status": "archived" }`.\n\n' +
+      'Ruling R30, Recettes §8.1: send the `lockVersion` the form read. If the meal ' +
+      'changed since, nothing is written and the answer is `409 RECIPE_CONFLICT` with ' +
+      'the current `lockVersion`: reload, then save again. Without it, nothing is ' +
+      'checked against it. The answer carries `lockVersion` and `allergenSources`.',
   })
   @ApiMealIdParam()
   @ApiOkResponse({ description: 'The updated meal.', type: MealResponseDto })
@@ -254,9 +258,15 @@ export class CatalogController {
   @ApiConflictResponse({
     description:
       '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first. ' +
-      '`RECIPE_CONFLICT` (with `lockVersion`): the ingredients or allergens changed ' +
-      'since the meal was read, typically a change to the common ingredient list ' +
-      'carried into it (Recettes §7.3); nothing was saved, reload and send again.',
+      '`RECIPE_CONFLICT` (with `lockVersion`): the `lockVersion` sent is stale (another ' +
+      'tab saved it), or the ingredients or allergens changed since the meal was ' +
+      'read, typically a change to the common ingredient list carried into it ' +
+      '(Recettes §7.3); nothing was saved, reload and send again.',
+    example: {
+      code: 'RECIPE_CONFLICT',
+      message: 'The recipe was changed since you opened it.',
+      lockVersion: 5,
+    },
   })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()

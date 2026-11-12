@@ -337,7 +337,22 @@ export class CreateMealDto {
   status?: MealStatus;
 }
 
-export class UpdateMealDto extends PartialType(CreateMealDto) {}
+export class UpdateMealDto extends PartialType(CreateMealDto) {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'Ruling R30, Recettes §8.1: the `lockVersion` of the meal as you read it. Sent ' +
+      'and stale, the answer is `409 RECIPE_CONFLICT` with the current `lockVersion` ' +
+      '(the body of the chef route) and nothing is written, so two tabs never ' +
+      'overwrite each other. Omitted, nothing is checked against it.',
+    example: 4,
+  })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}
 
 /**
  * Shape of a meal record as returned by the admin endpoints. Documentation only:
@@ -437,6 +452,24 @@ export class MealResponseDto {
 
   @ApiProperty({ type: [String], description: 'Allergens added by hand.', example: [] })
   addedAllergens!: string[];
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    description:
+      'Ruling R30, Recettes §6.1 and §8.1: per allergen code, the names of the lines ' +
+      'that bring it. An allergen only added by hand has no entry.',
+    example: { milk: ['Beurre', 'Crème'] },
+  })
+  allergenSources!: Record<string, string[]>;
+
+  @ApiProperty({
+    example: 4,
+    description:
+      'Ruling R30, Recettes §8.1: +1 on each write of the recipe, the §7.3 carry ' +
+      'included. Send it back as `lockVersion` to save over this version only.',
+  })
+  lockVersion!: number;
 
   @ApiProperty({
     example: false,

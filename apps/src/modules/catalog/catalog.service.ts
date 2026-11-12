@@ -131,6 +131,8 @@ export class CatalogService {
     await assertReheatModes(this.prisma, payload.reheating);
     await assertProfiles(this.prisma, payload.profiles);
     let current: Meal | null = null;
+    // Ruling R30: the version the admin read; null counts as not sent, as on the chef route.
+    const readVersion = payload.lockVersion ?? undefined;
     const publishing = payload.status === MealStatus.published;
     const recomposes =
       lines !== undefined ||
@@ -140,10 +142,15 @@ export class CatalogService {
       recomposes ||
       touchesDeclaration(payload) ||
       payload.country !== undefined ||
-      publishing
+      publishing ||
+      readVersion !== undefined
     ) {
       current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
       if (!current) return this.explainMissing(id);
+      // A form that read an older version reloads before anything else is checked.
+      if (readVersion !== undefined && readVersion !== current.lockVersion) {
+        throw recipeConflict(current.lockVersion);
+      }
       assertConsistent(declarationOf(current, payload));
       if (publishing && current.offeredToChefProfileId) throw offerPending();
       if (lines) {
@@ -160,8 +167,10 @@ export class CatalogService {
     // Recettes §7.3, ruling R12: a write of the composition lands only on the
     // `lockVersion` read, and moves it on, as a chef's save does. A propagation and
     // this save then never overwrite each other's lines (`current` is always read
-    // when the meal recomposes).
-    const guard = composed && current ? { lockVersion: current.lockVersion } : {};
+    // when the meal recomposes). Ruling R30: so does any write that sent the
+    // version it read, so another tab's save in between answers 409 too.
+    const guarded = !!current && (!!composed || readVersion !== undefined);
+    const guard = guarded && current ? { lockVersion: current.lockVersion } : {};
     let updated: Meal;
     try {
       updated = await this.prisma.meal.update({
@@ -171,8 +180,8 @@ export class CatalogService {
           ...(composed && {
             ...compositionColumns(composed),
             allergensVerifiedAt: composed.state.complete ? new Date() : null,
-            lockVersion: { increment: 1 },
           }),
+          ...(guarded && { lockVersion: { increment: 1 } }),
         },
       });
     } catch (error) {

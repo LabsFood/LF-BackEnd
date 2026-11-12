@@ -476,6 +476,73 @@ describe('CatalogService', () => {
       expect(suggestions.flagCopies).not.toHaveBeenCalled();
     });
 
+    // Ruling R30 (§8.1, §11 risk 1): the admin's form sends the `lockVersion` it
+    // loaded, so two tabs never overwrite each other silently.
+    describe('lockVersion sent by the admin (ruling R30)', () => {
+      it('stale: 409 RECIPE_CONFLICT with the current value, the body of the chef route, nothing written', async () => {
+        meal.findFirst.mockResolvedValueOnce(storedMeal({ lockVersion: 5 }));
+
+        const error = await service
+          .updateMeal('meal-1', { name: 'Yassa', lockVersion: 4 }, ADMIN_ID)
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ConflictException);
+        expect((error as ConflictException).getResponse()).toEqual({
+          code: 'RECIPE_CONFLICT',
+          message: 'The recipe was changed since you opened it.',
+          lockVersion: 5,
+        });
+        expect(meal.update).not.toHaveBeenCalled();
+      });
+
+      it('fresh: written on the lockVersion read and moved on, even with no recipe sent', async () => {
+        meal.findFirst.mockResolvedValueOnce(storedMeal({ lockVersion: 5 }));
+
+        await service.updateMeal('meal-1', { name: 'Yassa', lockVersion: 5 }, ADMIN_ID);
+
+        const { where, data } = meal.update.mock.calls[0][0];
+        expect(where).toEqual({ id: 'meal-1', chefProfileId: null, lockVersion: 5 });
+        expect(data).toMatchObject({ name: 'Yassa', lockVersion: { increment: 1 } });
+        expect(data).not.toHaveProperty('ingredients');
+      });
+
+      it('fresh, then a save lands before the write: 409, nothing written', async () => {
+        meal.findFirst.mockResolvedValueOnce(storedMeal({ lockVersion: 5 }));
+        meal.update.mockRejectedValueOnce(knownRequestError('P2025'));
+        meal.findUnique.mockResolvedValueOnce({ chefProfileId: null, lockVersion: 6 });
+
+        const error = await service
+          .updateMeal('meal-1', { name: 'Yassa', lockVersion: 5 }, ADMIN_ID)
+          .catch((e: unknown) => e);
+
+        expect((error as ConflictException).getResponse()).toMatchObject({
+          code: 'RECIPE_CONFLICT',
+          lockVersion: 6,
+        });
+      });
+
+      it("absent: today's behaviour, no read and no guard for a field the recipe does not hold", async () => {
+        await service.updateMeal('meal-1', { name: 'Yassa' }, ADMIN_ID);
+
+        expect(meal.findFirst).not.toHaveBeenCalled();
+        const { where, data } = meal.update.mock.calls[0][0];
+        expect(where).toEqual({ id: 'meal-1', chefProfileId: null });
+        expect(data).not.toHaveProperty('lockVersion');
+      });
+
+      it('a stale lockVersion on a meal of a batch cooker is still refused as not owned', async () => {
+        meal.findFirst.mockResolvedValueOnce(null);
+        meal.findUnique.mockResolvedValueOnce({
+          chefProfileId: 'chef-1',
+          lockVersion: 9,
+        });
+
+        await expect(
+          service.updateMeal('meal-1', { name: 'Yassa', lockVersion: 1 }, ADMIN_ID),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
     it('keeps a hand-declared allergen of an existing row, as added (R7)', async () => {
       meal.findFirst.mockResolvedValueOnce(
         storedMeal({

@@ -106,3 +106,31 @@ describe('meal fields keep the raw value (Task 20A)', () => {
     await expect(checkBody({ isFeatured: false }, UpdateMealDto)).resolves.toBeDefined();
   });
 });
+
+// Ruling R30: an admin update may send the lockVersion it read; a create never does.
+describe('UpdateMealDto.lockVersion (ruling R30)', () => {
+  it('accepts a whole number from 0, and its absence', async () => {
+    await expect(
+      checkBody({ name: 'Yassa', lockVersion: 0 }, UpdateMealDto),
+    ).resolves.toMatchObject({ lockVersion: 0 });
+    await expect(
+      checkBody({ name: 'Yassa', lockVersion: 7 }, UpdateMealDto),
+    ).resolves.toMatchObject({ lockVersion: 7 });
+    await expect(checkBody({ name: 'Yassa' }, UpdateMealDto)).resolves.toBeDefined();
+  });
+
+  it.each([['4'], [-1], [1.5], [true], [{}]])(
+    'refuses lockVersion = %j',
+    async (value) => {
+      expect(await refusalOf({ lockVersion: value }, UpdateMealDto)).toContain(
+        'lockVersion',
+      );
+    },
+  );
+
+  it('is not part of a create', async () => {
+    expect(await refusalOf({ ...valid(), lockVersion: 0 }, CreateMealDto)).toContain(
+      'lockVersion',
+    );
+  });
+});
