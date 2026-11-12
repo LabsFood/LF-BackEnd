@@ -169,6 +169,17 @@ export class ListCatalogIngredientsQueryDto extends PaginationQueryDto {
   @IsBoolean()
   incomplete?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Ruling R28. True: a change of the entry is still to carry into the recipes ' +
+      '(a run cut short, or dishes that failed): replay it with ' +
+      '`POST /admin/ingredients/:id/propagate`. False: nothing pending.',
+  })
+  @IsOptional()
+  @QueryBoolean()
+  @IsBoolean()
+  carryPending?: boolean;
+
   @ApiPropertyOptional({ description: 'True: reviewed by an admin; false: not yet.' })
   @IsOptional()
   @QueryBoolean()

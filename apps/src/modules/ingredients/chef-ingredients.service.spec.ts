@@ -53,6 +53,11 @@ function harness() {
   const prisma = {
     catalogIngredient,
     platformSetting: { findUnique: jest.fn(async (_args?: unknown) => null) },
+    // An interactive transaction runs on the same client here.
+    $transaction: jest.fn(
+      async (work: (tx: { catalogIngredient: typeof catalogIngredient }) => unknown) =>
+        work({ catalogIngredient }),
+    ),
   } as unknown as PrismaService;
   const propagation = {
     propagate: jest.fn(async (..._args: unknown[]) => ({
@@ -306,9 +311,28 @@ describe('ChefIngredientsService.update (Recettes §7.1)', () => {
   });
 
   it('carries nothing for a change that no recipe line copies', async () => {
-    const { propagation, service } = harness();
+    const { catalogIngredient, propagation, service } = harness();
     await service.update('clerk-1', 'ing-1', { aliases: ['harissa'], isBasic: true });
     expect(propagation.propagate).not.toHaveBeenCalled();
+    expect(catalogIngredient.update).toHaveBeenCalledTimes(1);
+  });
+
+  // Ruling R28: the chef's change needs a carry into their dishes, so it is marked
+  // pending in the same transaction; the carry clears it when no dish failed.
+  it('marks the carry pending with a change its lines copy, before carrying it', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+
+    await service.update('clerk-1', 'ing-1', { allergens: ['mustard', 'gluten'] });
+
+    expect(catalogIngredient.update).toHaveBeenCalledTimes(2);
+    expect(catalogIngredient.update.mock.calls[1][0]).toEqual({
+      where: { id: 'ing-1' },
+      data: { carryPendingAt: expect.any(Date) },
+      select: { carryPendingAt: true },
+    });
+    expect(catalogIngredient.update.mock.invocationCallOrder[1]).toBeLessThan(
+      propagation.propagate.mock.invocationCallOrder[0],
+    );
   });
 
   it('answers 404 for another chef’s ingredient, and for an unknown one', async () => {

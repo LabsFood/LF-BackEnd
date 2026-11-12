@@ -63,13 +63,31 @@ function harness() {
     })),
   };
   const notifications = { notify: jest.fn(async (..._args: unknown[]) => ({})) };
+  // An interactive transaction runs on the same client here.
+  const $transaction = jest.fn(
+    async (work: (tx: { catalogIngredient: typeof catalogIngredient }) => unknown) =>
+      work({ catalogIngredient }),
+  );
   const service = new IngredientsService(
-    { catalogIngredient, meal, platformSetting } as unknown as PrismaService,
+    {
+      catalogIngredient,
+      meal,
+      platformSetting,
+      $transaction,
+    } as unknown as PrismaService,
     audit as unknown as AuditService,
     propagation as unknown as IngredientPropagationService,
     notifications as unknown as NotificationsService,
   );
-  return { catalogIngredient, meal, audit, propagation, notifications, service };
+  return {
+    catalogIngredient,
+    meal,
+    audit,
+    propagation,
+    notifications,
+    service,
+    $transaction,
+  };
 }
 
 describe('IngredientsService (Recettes §4.10)', () => {
@@ -293,7 +311,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
   it('keeps the allergen state coherent on update', async () => {
     const { catalogIngredient, service } = harness();
     await service.update('ing-1', { allergens: ['gluten'] }, 'a');
-    expect(catalogIngredient.update).toHaveBeenLastCalledWith({
+    expect(catalogIngredient.update).toHaveBeenCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: ['gluten'], allergensNone: false },
       include: { chefProfile: { select: { id: true, displayName: true } } },
@@ -311,7 +329,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
   it('stores the allergens in annex order, and carries nothing for a reorder', async () => {
     const { catalogIngredient, propagation, service } = harness();
     await service.update('ing-1', { allergens: ['milk', 'gluten', 'milk'] }, 'a');
-    expect(catalogIngredient.update).toHaveBeenLastCalledWith({
+    expect(catalogIngredient.update).toHaveBeenCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: ['gluten', 'milk'], allergensNone: false },
       include: { chefProfile: { select: { id: true, displayName: true } } },
@@ -483,6 +501,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.update).toHaveBeenCalledWith({
       where: { id: 'ing-1' },
       data: { reviewedAt: expect.any(Date), reviewedByUserId: 'admin-1' },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -797,6 +816,8 @@ describe('IngredientsService.merge (Recettes §7.2)', () => {
         mergedIntoId: 'ing-1',
         reviewedAt: expect.any(Date),
         reviewedByUserId: 'admin-1',
+        // Ruling R28: the carry the merge needs is pending, in the same write.
+        carryPendingAt: expect.any(Date),
       },
       include: { chefProfile: { select: { id: true, displayName: true } } },
     });
@@ -1168,5 +1189,126 @@ describe('IngredientsService legacy names (I2)', () => {
 
     const { data } = catalogIngredient.update.mock.calls[0][0] as { data: object };
     expect(data).toEqual({ aisle: 'cremerie' });
+  });
+});
+
+// Ruling R28: a change that needs a carry marks it pending in the same transaction.
+// The propagation clears the mark (ingredient-propagation.service.spec.ts).
+describe('IngredientsService carry pending (ruling R28)', () => {
+  const AT = new Date('2026-11-10T09:00:00.000Z');
+
+  it('marks the carry pending in the transaction of a change lines copy', async () => {
+    const { catalogIngredient, propagation, service, $transaction } = harness();
+
+    await service.update('ing-1', { name: 'Tomate cerise' }, 'admin-1');
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(catalogIngredient.update.mock.calls[0][0]).toMatchObject({
+      where: { id: 'ing-1' },
+      data: { name: 'Tomate cerise' },
+    });
+    expect(catalogIngredient.update.mock.calls[1][0]).toMatchObject({
+      where: { id: 'ing-1' },
+      data: { carryPendingAt: expect.any(Date) },
+    });
+    // Marked before the carry starts.
+    expect(catalogIngredient.update.mock.invocationCallOrder[1]).toBeLessThan(
+      propagation.propagate.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('leaves the mark alone when nothing a line copies changed', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+
+    await service.update('ing-1', { isBasic: true }, 'admin-1');
+
+    expect(catalogIngredient.update).toHaveBeenCalledTimes(1);
+    expect(catalogIngredient.update.mock.calls[0][0]).not.toHaveProperty(
+      'data.carryPendingAt',
+    );
+    expect(propagation.propagate).not.toHaveBeenCalled();
+  });
+
+  it('a carry that throws midway leaves the mark set: nothing here clears it', async () => {
+    const { catalogIngredient, propagation, service } = harness();
+    propagation.propagate.mockRejectedValue(new Error('process restarted'));
+
+    await expect(
+      service.update('ing-1', { allergens: ['gluten'] }, 'admin-1'),
+    ).rejects.toThrow('process restarted');
+
+    const writes = catalogIngredient.update.mock.calls.map(([args]) => args as object);
+    expect(writes).toContainEqual(
+      expect.objectContaining({ data: { carryPendingAt: expect.any(Date) } }),
+    );
+    expect(writes).not.toContainEqual(
+      expect.objectContaining({ data: { carryPendingAt: null } }),
+    );
+  });
+
+  it('answers carryPending as the carry left it, read again after it', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findUnique
+      .mockResolvedValueOnce(TOMATE)
+      .mockResolvedValueOnce({ carryPendingAt: AT });
+
+    const result = await service.update('ing-1', { name: 'Tomate cerise' }, 'admin-1');
+
+    expect(result.ingredient).toMatchObject({ carryPending: true, carryPendingAt: AT });
+    expect(catalogIngredient.findUnique).toHaveBeenLastCalledWith({
+      where: { id: 'ing-1' },
+      select: { carryPendingAt: true },
+    });
+  });
+
+  it('every admin answer says carryPending: create, validate, review, list', async () => {
+    const { catalogIngredient, service } = harness();
+    expect(
+      await service.create({ name: 'Poivre', allergensNone: true }, 'admin-1'),
+    ).toMatchObject({ carryPending: false });
+    expect(await service.review('ing-1', 'admin-1')).toMatchObject({
+      carryPending: false,
+    });
+    catalogIngredient.update.mockResolvedValueOnce({
+      ...TOMATE,
+      carryPendingAt: AT,
+    } as typeof TOMATE);
+    expect(await service.review('ing-1', 'admin-1')).toMatchObject({
+      carryPending: true,
+    });
+
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...TOMATE,
+      status: 'pending',
+      chefProfileId: 'chef-1',
+      createdByUserId: 'user-1',
+    });
+    const validated = await service.validate('ing-1', 'admin-1');
+    expect(validated.ingredient).toMatchObject({ carryPending: false });
+    // Validating changes nothing a line copies: no carry, no mark.
+    expect(catalogIngredient.update.mock.calls.at(-1)![0]).not.toHaveProperty(
+      'data.carryPendingAt',
+    );
+
+    catalogIngredient.findMany.mockResolvedValue([
+      { ...TOMATE, carryPendingAt: AT },
+      { ...TOMATE, id: 'ing-2', carryPendingAt: null },
+    ]);
+    const page = await service.list({ page: 1, limit: 20 });
+    expect(page.data.map((row) => row.carryPending)).toEqual([true, false]);
+  });
+
+  it('filters the list on carryPending, true or false', async () => {
+    const { catalogIngredient, service } = harness();
+
+    await service.list({ page: 1, limit: 20, carryPending: true });
+    await service.list({ page: 1, limit: 20, carryPending: false });
+
+    expect(catalogIngredient.findMany.mock.calls[0][0]).toMatchObject({
+      where: { AND: [{ carryPendingAt: { not: null } }] },
+    });
+    expect(catalogIngredient.findMany.mock.calls[1][0]).toMatchObject({
+      where: { AND: [{ carryPendingAt: null }] },
+    });
   });
 });

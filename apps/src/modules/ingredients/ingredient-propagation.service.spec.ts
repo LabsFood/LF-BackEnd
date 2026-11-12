@@ -189,7 +189,48 @@ function harness(entries: Entry[], dishes: Dish[]) {
       async ({ where }: { where: { id: string } }) =>
         list.find((entry) => entry.id === where.id) ?? null,
     ),
+    findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    // An admin edit of an entry (IngredientsService.update).
+    update: jest.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => {
+        const found = list.find((entry) => entry.id === where.id);
+        if (!found) throw noRowMatched();
+        const next = { ...found, ...data } as Entry;
+        list = list.map((entry) => (entry.id === where.id ? next : entry));
+        return next;
+      },
+    ),
+    // Ruling R28: the pending carries a run clears, those marked before it started.
+    updateMany: jest.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: { in: string[] }; carryPendingAt: { lte: Date } };
+        data: Record<string, unknown>;
+      }) => {
+        let count = 0;
+        list = list.map((entry) => {
+          const at = (entry as { carryPendingAt?: Date | null }).carryPendingAt ?? null;
+          if (!where.id.in.includes(entry.id) || !at || at > where.carryPendingAt.lte) {
+            return entry;
+          }
+          count += 1;
+          return { ...entry, ...data } as Entry;
+        });
+        return { count };
+      },
+    ),
   };
+  const entry = (id: string) =>
+    list.find((e) => e.id === id) as
+      (Entry & { carryPendingAt?: Date | null }) | undefined;
   const client = { meal, catalogIngredient };
   const $transaction = jest.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
     work(client),
@@ -253,6 +294,8 @@ function harness(entries: Entry[], dishes: Dish[]) {
     rows,
     meal,
     client,
+    catalogIngredient,
+    entry,
     notifications,
     mailer,
     audit,
@@ -961,6 +1004,146 @@ describe('IngredientsService.propagate, the admin replay (ruling R14)', () => {
     );
     expect(h.meal.findMany).not.toHaveBeenCalled();
     expect(h.audit.record).not.toHaveBeenCalled();
+  });
+});
+
+// Ruling R28: an entry change marks its carry pending in the same transaction, and
+// only a carry or a replay ending with no failed dish clears the mark. No replay at
+// boot: the console lists the pending entries and the admin replays them.
+describe('carry_pending_at (ruling R28)', () => {
+  const PENDING = new Date('2026-11-10T09:00:00.000Z');
+  const ingredients = (h: ReturnType<typeof harness>) =>
+    new IngredientsService(h.prisma, h.audit as unknown as AuditService, h.service, {
+      notify: jest.fn(),
+    } as unknown as NotificationsService);
+  const failOn = (h: ReturnType<typeof harness>, id: string) => {
+    const write = h.meal.update.getMockImplementation()!;
+    h.meal.update.mockImplementation(async (args) => {
+      if (args.where.id === id) throw new Error('deadlock detected');
+      return write(args);
+    });
+  };
+
+  it('a carry that throws midway leaves it set, and a replay with failed = 0 clears it', async () => {
+    const h = harness(
+      [BUTTER, CELERY],
+      [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
+    );
+    // The run dies after the entry is committed, before any dish (a restart).
+    h.meal.findMany.mockRejectedValueOnce(new Error('process restarted'));
+
+    await expect(
+      ingredients(h).update('cat-beurre', { allergens: ['milk'] }, 'admin-1'),
+    ).rejects.toThrow('process restarted');
+
+    // Written with the change, in its transaction.
+    expect(h.entry('cat-beurre')).toMatchObject({
+      allergens: ['milk'],
+      allergensNone: false,
+      carryPendingAt: expect.any(Date),
+    });
+    // The dish still holds the entry as it was, and is still verified.
+    expect(h.rows.get('dish-1')).toMatchObject({
+      allergens: ['celery'],
+      allergensVerifiedAt: VERIFIED_AT,
+    });
+
+    const replay = await ingredients(h).propagate('cat-beurre', 'admin-1');
+
+    expect(replay).toMatchObject({ dishes: 1, reverified: 1, failed: 0 });
+    expect(h.rows.get('dish-1')!.allergens).toEqual(['milk', 'celery']);
+    expect(h.entry('cat-beurre')!.carryPendingAt).toBeNull();
+  });
+
+  it('a replay with failures keeps it, for the next replay', async () => {
+    const dishes = await Promise.all(
+      ['dish-1', 'dish-2'].map((id) =>
+        saved([BUTTER, CELERY], BUTTER_AND_CELERY, { id }),
+      ),
+    );
+    const h = harness([entryRow({ ...BUTTER, carryPendingAt: PENDING }), CELERY], dishes);
+    h.change('cat-beurre', WITH_MILK);
+    failOn(h, 'dish-2');
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(result.failed).toBe(1);
+    expect(h.catalogIngredient.updateMany).not.toHaveBeenCalled();
+    expect(h.entry('cat-beurre')!.carryPendingAt).toEqual(PENDING);
+  });
+
+  it('a run with failed = 0 clears the marks set before it started, on every entry it searched', async () => {
+    const h = harness(
+      [entryRow({ ...BUTTER, carryPendingAt: PENDING }), CELERY],
+      [await saved([BUTTER, CELERY], BUTTER_AND_CELERY)],
+    );
+    h.change('cat-beurre', WITH_MILK);
+
+    await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.catalogIngredient.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['cat-beurre'] }, carryPendingAt: { lte: expect.any(Date) } },
+      data: { carryPendingAt: null },
+    });
+    expect(h.entry('cat-beurre')!.carryPendingAt).toBeNull();
+  });
+
+  it('leaves a mark set after the run started: that change has its own run', async () => {
+    const later = new Date(Date.now() + 60_000);
+    const h = harness([entryRow({ ...BUTTER, carryPendingAt: later }), CELERY], []);
+
+    await h.service.propagate(['cat-beurre'], ADMIN);
+
+    expect(h.entry('cat-beurre')!.carryPendingAt).toEqual(later);
+  });
+
+  it('a merge clears the mark of the merged entry once its lines are carried', async () => {
+    const OLD = entryRow({
+      id: 'cat-old',
+      name: 'Beurre maison',
+      status: 'merged',
+      mergedIntoId: 'cat-beurre',
+      chefProfileId: 'chef-1',
+      carryPendingAt: PENDING,
+    });
+    const dish = await saved(
+      [OLD, CELERY],
+      [line('Beurre maison', 'cat-old'), line('Céleri-rave', 'cat-celeri')],
+    );
+    const h = harness([BUTTER, CELERY, OLD], [dish]);
+
+    const result = await h.service.propagate(['cat-beurre'], ADMIN, {
+      from: 'cat-old',
+      to: 'cat-beurre',
+    });
+
+    expect(result.failed).toBe(0);
+    expect(h.entry('cat-old')!.carryPendingAt).toBeNull();
+  });
+
+  it('the admin write answers carryPending as its carry left it', async () => {
+    const dishes = await Promise.all(
+      ['dish-1', 'dish-2'].map((id) =>
+        saved([BUTTER, CELERY], BUTTER_AND_CELERY, { id }),
+      ),
+    );
+    const h = harness([BUTTER, CELERY], dishes);
+
+    const clean = await ingredients(h).update(
+      'cat-beurre',
+      { allergens: ['milk'] },
+      'admin-1',
+    );
+    expect(clean.ingredient).toMatchObject({ carryPending: false });
+
+    failOn(h, 'dish-2');
+    const failed = await ingredients(h).update(
+      'cat-beurre',
+      { allergens: ['eggs'] },
+      'admin-1',
+    );
+    expect(failed.propagation).toMatchObject({ failed: 1 });
+    expect(failed.ingredient).toMatchObject({ carryPending: true });
   });
 });
 

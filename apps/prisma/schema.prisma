@@ -960,6 +960,11 @@ model CatalogIngredient {
   /// When the admin reviewed a pending ingredient.
   reviewedAt       DateTime?           @map("reviewed_at") @db.Timestamptz(6)
   reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  /// Ruling R28: set in the same transaction as a change that must be carried into the
+  /// recipes (Recettes §7.3), cleared only when a carry or a replay of the entry ends
+  /// with no failed dish. Set: some dishes may still hold the entry as it was (a run
+  /// cut short, or failed dishes); the console offers the replay.
+  carryPendingAt   DateTime?           @map("carry_pending_at") @db.Timestamptz(6)
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   chefProfile      ChefProfile?        @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_catalog_ingredients_chef_profile_id")

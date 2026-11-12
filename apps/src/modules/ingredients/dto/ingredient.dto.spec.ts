@@ -83,6 +83,18 @@ describe('ListCatalogIngredientsQueryDto', () => {
     });
   });
 
+  it('reads carryPending, "false" staying false (ruling R28)', async () => {
+    await expect(query({ carryPending: 'true' })).resolves.toMatchObject({
+      carryPending: true,
+    });
+    await expect(query({ carryPending: 'false' })).resolves.toMatchObject({
+      carryPending: false,
+    });
+    await expect(query({ carryPending: 'maybe' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
   it('refuses an unknown status or a non-boolean flag', async () => {
     await expect(query({ status: 'deleted' })).rejects.toBeInstanceOf(
       BadRequestException,

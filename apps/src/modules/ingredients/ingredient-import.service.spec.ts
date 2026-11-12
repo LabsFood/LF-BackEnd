@@ -65,7 +65,16 @@ function harness(existing: Record<string, unknown>[] = []) {
   const platformSetting = { findUnique: jest.fn(async (_args?: unknown) => null) };
   const audit = { record: jest.fn(async (_entry: object) => undefined) };
   const propagation = { propagate: jest.fn(async (..._args: unknown[]) => FIGURES) };
-  const prisma = { catalogIngredient, platformSetting } as unknown as PrismaService;
+  // An interactive transaction runs on the same client here.
+  const $transaction = jest.fn(
+    async (work: (tx: { catalogIngredient: typeof catalogIngredient }) => unknown) =>
+      work({ catalogIngredient }),
+  );
+  const prisma = {
+    catalogIngredient,
+    platformSetting,
+    $transaction,
+  } as unknown as PrismaService;
   const ingredients = new IngredientsService(
     prisma,
     audit as unknown as AuditService,
@@ -153,7 +162,12 @@ describe('IngredientImportService (Recettes §7.4)', () => {
       'admin-1',
     );
     expect(result).toMatchObject({ created: 0, updated: 1, unchanged: 0 });
-    expect(catalogIngredient.update).toHaveBeenCalledTimes(1);
+    // The entry, then (ruling R28) its carry marked pending in the same transaction.
+    expect(catalogIngredient.update).toHaveBeenCalledTimes(2);
+    expect(catalogIngredient.update.mock.calls[1][0]).toMatchObject({
+      where: { id: 'ing-1' },
+      data: { carryPendingAt: expect.any(Date) },
+    });
     expect(propagation.propagate).toHaveBeenCalledWith(['ing-1'], {
       type: 'admin',
       userId: 'admin-1',

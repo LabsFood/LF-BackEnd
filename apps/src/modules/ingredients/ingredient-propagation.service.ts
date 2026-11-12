@@ -127,6 +127,8 @@ export class IngredientPropagationService {
     actor: PropagationActor,
     remap?: Remap,
   ): Promise<PropagationResult> {
+    // Ruling R28: the marks this run may clear are those set before it started.
+    const startedAt = new Date();
     const given = [...new Set(entryIds)];
     // A merge also reaches the lines still linking the entry it replaces, and so
     // does a change to an entry other entries were merged into before.
@@ -184,6 +186,8 @@ export class IngredientPropagationService {
       }
     }
     result.chefs = told.size;
+    // Ruling R28: every dish linking these entries now holds them as they stand.
+    if (result.failed === 0) await this.clearPending(searched, startedAt);
 
     await this.tellChefs(told);
     await this.audit.record({
@@ -206,6 +210,28 @@ export class IngredientPropagationService {
       ...result,
     });
     return result;
+  }
+
+  /**
+   * Ruling R28: the run ended with no failed dish, so the carry of these entries is
+   * done. Only marks set before the run started are cleared: a change committed
+   * since has its own run. Best effort: a mark left set only offers a replay that
+   * finds nothing to write.
+   */
+  private async clearPending(ids: string[], startedAt: Date): Promise<void> {
+    if (!ids.length) return;
+    try {
+      await this.prisma.catalogIngredient.updateMany({
+        where: { id: { in: ids }, carryPendingAt: { lte: startedAt } },
+        data: { carryPendingAt: null },
+      });
+    } catch (error) {
+      this.logger.error({
+        event: 'catalog_ingredient.carry_pending_clear_failed',
+        entryIds: ids,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

@@ -19,6 +19,7 @@ import {
   carriedChanged,
   IngredientsService,
   isNotFound,
+  markCarryPending,
   notPending,
   toPublic,
 } from './ingredients.service';
@@ -132,15 +133,25 @@ export class ChefIngredientsService {
     if (normalized) {
       await this.assertNameAvailable(chef.id, data.name as string, normalized, id);
     }
-    const row = await this.prisma.catalogIngredient
-      // The state read: validated or merged by Lab's Food since, the write finds nothing.
-      .update({ where: { id, chefProfileId: chef.id, status: 'pending' }, data })
+    const { row, carried } = await this.prisma
+      .$transaction(async (tx) => {
+        const written = await tx.catalogIngredient.update({
+          // The state read: validated or merged by Lab's Food since, the write finds
+          // nothing.
+          where: { id, chefProfileId: chef.id, status: 'pending' },
+          data,
+        });
+        const due = carriedChanged(before, written);
+        // Ruling R28: the carry into the chef's dishes is due, marked with the change.
+        if (due) await markCarryPending(tx, id);
+        return { row: written, carried: due };
+      })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw notPending();
         return this.raced(error, chef.id, normalized, id);
       });
     // Records its own audit entry, with its figures.
-    if (carriedChanged(before, row)) {
+    if (carried) {
       await this.propagation.propagate([id], { type: 'chef', userId: chef.userId });
     }
     return toPublic(row);

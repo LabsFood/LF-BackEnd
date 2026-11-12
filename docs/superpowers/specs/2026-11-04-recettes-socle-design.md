@@ -69,7 +69,7 @@
 
 ## 5. Données
 
-Une migration, écrite comme celles du lot 2 (rejouable, `IF NOT EXISTS`).
+Une migration, écrite comme celles du lot 2 (rejouable, `IF NOT EXISTS`), puis une seconde, additive, pour `carry_pending_at` (R28).
 
 ### 5.1 Liste commune — `catalog_ingredients` (étendue)
 
@@ -83,6 +83,7 @@ Une migration, écrite comme celles du lot 2 (rejouable, `IF NOT EXISTS`).
 | `status` | `active`, `pending` (privé, utilisable par son chef), `inactive` (plus proposé, reste valable sur les lignes qui l'ont), `merged` (privé remplacé par un commun). |
 | `merged_into_id` | L'ingrédient commun qui le remplace. |
 | `created_by_user_id`, `reviewed_at`, `reviewed_by_user_id` | Auteur ; relecture par LAB'S FOOD. |
+| `carry_pending_at` | Report en attente (§7.3, R28). Rempli dans la même transaction qu'une modification à reporter ; effacé seulement quand un report ou une relance de cet ingrédient se termine sans plat en échec. La console liste ces ingrédients (`carryPending`) pour relancer le report. |
 
 L'index unique actuel sur `name` est remplacé par deux index partiels : `normalized_name` unique parmi les ingrédients communs, et (`chef_profile_id`, `normalized_name`) unique parmi les ingrédients `pending`. Les régimes gardent leurs garde-fous à l'écriture : `vegan` implique `vegetarian`, et `vegetarian` implique `no-pork` et `pescetarian`.
 
@@ -246,6 +247,8 @@ Pour chaque plat dont une ligne relie l'ingrédient (plats des chefs et recettes
 4. Si les allergènes ont changé et que le plat était vérifié, la vérification est effacée. Le plat reste publié mais n'est plus réservable, et le chef reçoit `recipe_allergens_changed`.
 
 Les prestations déjà validées gardent leur version (lot 2). L'opération est rejouable sans effet en double et laisse une trace dans le journal d'audit avec ses chiffres.
+
+Un report interrompu (redémarrage du serveur pendant l'opération) ne reste jamais silencieux : la modification marque l'ingrédient « report en attente » (`carry_pending_at`, R28) dans sa propre transaction, et seul un report ou une relance terminé sans plat en échec efface la marque. Rien n'est relancé au démarrage : LAB'S FOOD relance depuis la console.
 
 ### 7.4 Import CSV et liste de départ
 

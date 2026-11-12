@@ -33,14 +33,22 @@ const WITH_CHEF = {
 
 type Chef = { id: string; displayName: string };
 
-/** The admin shape of an entry: `chef` in place of the joined profile, null when common. */
+/**
+ * The admin shape of an entry: `chef` in place of the joined profile, null when
+ * common, and (ruling R28) `carryPending`, true while a carry of the entry into the
+ * recipes has not ended with no failed dish.
+ */
 function withChef<T extends object>(row: T) {
-  const { chefProfile, ...rest } = row as T & { chefProfile?: Chef | null };
+  const { chefProfile, ...rest } = row as T & {
+    chefProfile?: Chef | null;
+    carryPendingAt?: Date | null;
+  };
   return {
     ...rest,
     chef: chefProfile
       ? { id: chefProfile.id, displayName: chefProfile.displayName }
       : null,
+    carryPending: rest.carryPendingAt != null,
   };
 }
 
@@ -137,6 +145,12 @@ export class IngredientsService {
         ],
       });
     }
+    // Ruling R28: the entries whose carry into the recipes is still to replay.
+    if (query.carryPending !== undefined) {
+      filters.push(
+        query.carryPending ? { carryPendingAt: { not: null } } : { carryPendingAt: null },
+      );
+    }
     if (query.reviewed !== undefined) {
       filters.push(query.reviewed ? { reviewedAt: { not: null } } : { reviewedAt: null });
     }
@@ -204,7 +218,9 @@ export class IngredientsService {
   /**
    * Recettes §7.3: a change to what recipe lines copy or compute from the entry is
    * carried into every recipe linking it, after the entry is saved and journaled.
-   * Answers the entry with the figures of that propagation (null when nothing was
+   * Ruling R28: the save marks the carry pending in its own transaction; the carry
+   * clears the mark when no dish failed. Answers the entry (`carryPending` as the
+   * carry left it) with the figures of that propagation (null when nothing was
    * carried), so the console can warn about `failed` dishes and offer the replay.
    */
   async update(id: string, payload: UpdateCatalogIngredientDto, adminUserId: string) {
@@ -235,13 +251,30 @@ export class IngredientsService {
         data.normalizedName = normalized = ownKey;
       }
     }
-    const row = await this.prisma.catalogIngredient
-      .update({ where: { id }, data, include: WITH_CHEF })
+    const { row, carried } = await this.prisma
+      .$transaction(async (tx) => {
+        const written = await tx.catalogIngredient.update({
+          where: { id },
+          data,
+          include: WITH_CHEF,
+        });
+        const due = carriedChanged(before, written);
+        // Ruling R28: a carry is due, marked with the change it carries, so a run cut
+        // short (a restart) is never silent. The carry clears it.
+        return {
+          row: due
+            ? {
+                ...written,
+                carryPendingAt: (await markCarryPending(tx, id)).carryPendingAt,
+              }
+            : written,
+          carried: due,
+        };
+      })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
         return this.nameTaken(error, normalized, id);
       });
-    const carried = carriedChanged(before, row);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: adminUserId,
@@ -254,14 +287,27 @@ export class IngredientsService {
     const propagation = carried
       ? await this.propagation.propagate([id], { type: 'admin', userId: adminUserId })
       : null;
-    return { ingredient: withChef(row), propagation };
+    return {
+      ingredient: withChef(propagation ? await this.withPendingRead(row) : row),
+      propagation,
+    };
+  }
+
+  /** Ruling R28: the mark as the carry just left it, read again. */
+  private async withPendingRead<T extends { id: string }>(row: T) {
+    const now = (await this.prisma.catalogIngredient.findUnique({
+      where: { id: row.id },
+      select: { carryPendingAt: true },
+    })) as { carryPendingAt: Date | null } | null;
+    return { ...row, carryPendingAt: now?.carryPendingAt ?? null };
   }
 
   /**
    * Recettes §7.2: Lab's Food keeps a chef's pending ingredient as a common one. It
    * leaves its chef (anyone may link it now), the author is told. Nothing a line
-   * copies changes, so no recipe is carried. A common entry already holding the name
-   * answers 409: the admin merges instead.
+   * copies changes, so no recipe is carried, and no carry is marked pending (ruling
+   * R28). A common entry already holding the name answers 409: the admin merges
+   * instead.
    */
   async validate(id: string, adminUserId: string) {
     const entry = await this.pendingEntry(id);
@@ -323,6 +369,9 @@ export class IngredientsService {
           mergedIntoId: intoId,
           reviewedAt: new Date(),
           reviewedByUserId: adminUserId,
+          // Ruling R28: its lines are to repoint, marked in the same write; the
+          // carry below (or a replay of this entry or its target) clears it.
+          carryPendingAt: new Date(),
         },
         include: WITH_CHEF,
       })
@@ -345,13 +394,14 @@ export class IngredientsService {
       { from: id, to: intoId },
     );
     await this.tellAuthor(entry.createdByUserId, 'ingredient_merged', id);
-    return { ingredient: withChef(row), propagation };
+    return { ingredient: withChef(await this.withPendingRead(row)), propagation };
   }
 
   /**
    * Ruling R14: the admin replays the Recettes §7.3 propagation of an entry, when a
    * run was cut short or some dishes failed. Idempotent: dishes already stamped from
-   * the entry as it stands are not written again, and nobody is told twice.
+   * the entry as it stands are not written again, and nobody is told twice. Ruling
+   * R28: a replay with no failed dish clears the entry's `carryPending`.
    */
   async propagate(id: string, adminUserId: string) {
     const entry = await this.prisma.catalogIngredient.findUnique({
@@ -429,6 +479,7 @@ export class IngredientsService {
       .update({
         where: { id },
         data: { reviewedAt: new Date(), reviewedByUserId: adminUserId },
+        include: WITH_CHEF,
       })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
@@ -441,7 +492,8 @@ export class IngredientsService {
       subjectType: 'catalog_ingredient',
       subjectId: id,
     });
-    return row;
+    // The admin shape, as every other admin write answers it.
+    return withChef(row);
   }
 
   /** A chef's pending entry, for the admin to rule on: 404 unknown, 422 any other state. */
@@ -598,6 +650,22 @@ export class IngredientsService {
     if (payload.isBasic !== undefined) data.isBasic = payload.isBasic;
     return data;
   }
+}
+
+/**
+ * Ruling R28: the carry of the entry into the recipes is due from now. Written in the
+ * transaction of the change that needs it; only the carry, or a replay, ending with
+ * no failed dish clears it (`IngredientPropagationService`).
+ */
+export function markCarryPending(
+  tx: Prisma.TransactionClient,
+  id: string,
+): Promise<{ carryPendingAt: Date | null }> {
+  return tx.catalogIngredient.update({
+    where: { id },
+    data: { carryPendingAt: new Date() },
+    select: { carryPendingAt: true },
+  });
 }
 
 /** The entry is no longer a chef's pending one: ruled on, or changed, meanwhile. */

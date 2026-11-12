@@ -56,6 +56,7 @@ const INGREDIENT_EXAMPLE = {
   private: false,
   reviewedAt: null,
   chef: null,
+  carryPending: false,
   createdAt: '2026-11-02T09:00:00.000Z',
   updatedAt: '2026-11-02T09:00:00.000Z',
 };
@@ -124,9 +125,13 @@ export class IngredientsController {
     description:
       'Recettes §5.1: every entry, private ones included, by name, paginated. `search` ' +
       'filters on a name or another name; `status`, `aisle`, `incomplete=true` (no aisle, ' +
-      'or allergens neither listed nor "none") and `reviewed=true|false` narrow it. ' +
-      'Each entry carries `chef` (`{ id, displayName }` for a chef’s private entry, ' +
-      '`null` for a common one), also in the create, update, validate and merge answers.',
+      'or allergens neither listed nor "none"), `reviewed=true|false` and ' +
+      '`carryPending=true|false` narrow it. Each entry carries `chef` (`{ id, ' +
+      'displayName }` for a chef’s private entry, `null` for a common one) and, ruling ' +
+      'R28, `carryPending`: true while a change of the entry is still to carry into the ' +
+      'recipes (a run cut short, or dishes that failed), to replay with `POST ' +
+      '/admin/ingredients/:id/propagate`. Both are also in the create, update, review, ' +
+      'validate and merge answers.',
   })
   @ApiOkResponse({
     description: '`{ data, meta }`.',
@@ -223,13 +228,17 @@ export class IngredientsController {
       'verified dish whose allergens change loses its verification: it stays published ' +
       'but cannot be booked, and its chef is notified and e-mailed. See ' +
       '`GET /admin/ingredients/:id/impact` first; `POST /admin/ingredients/:id/propagate` ' +
-      'replays the propagation. Recorded in the audit log.',
+      'replays the propagation. Ruling R28: such a change marks the entry ' +
+      '`carryPending` in the same transaction, and only a carry or a replay ending with ' +
+      'no `failed` dish clears it, so a run cut short stays visible. Recorded in the ' +
+      'audit log.',
   })
   @ApiOkResponse({
     description:
       '`{ ingredient, propagation }`: `propagation` holds the figures of what was ' +
       'carried (`failed` dishes can be replayed with `POST ' +
-      '/admin/ingredients/:id/propagate`), and is null when nothing was carried.',
+      '/admin/ingredients/:id/propagate`), and is null when nothing was carried. ' +
+      '`ingredient.carryPending` is as the carry left it: true when dishes failed.',
     example: { ingredient: INGREDIENT_EXAMPLE, propagation: PROPAGATION_EXAMPLE },
   })
   @ApiNotFoundResponse({ description: 'No such ingredient.' })
@@ -317,7 +326,9 @@ export class IngredientsController {
       'rewritten, verifications cleared, chefs told, dishes `skipped` because a save ' +
       'in between already composed them from the ingredient as it stands, and dishes ' +
       '`failed`: an error, or saves in between that left them stale. Replay again for ' +
-      'those. Recorded in the audit log.',
+      'those. Ruling R28: a run with no `failed` dish clears `carryPending` on the ' +
+      'ingredient and on the ingredients merged into it. Nothing replays at boot. ' +
+      'Recorded in the audit log.',
   })
   @ApiOkResponse({
     description: 'The figures of this run.',
@@ -413,7 +424,9 @@ export class IngredientsController {
   @ApiOkResponse({
     description:
       '`{ ingredient, propagation }`: the figures of the carry; replay `failed` dishes ' +
-      'with `POST /admin/ingredients/:id/propagate` on the target.',
+      'with `POST /admin/ingredients/:id/propagate`, on this ingredient or the target. ' +
+      'The merged ingredient stays `carryPending` (ruling R28) until a carry of its ' +
+      'lines ends with no failed dish.',
     example: {
       ingredient: { ...INGREDIENT_EXAMPLE, status: 'merged' },
       propagation: PROPAGATION_EXAMPLE,
