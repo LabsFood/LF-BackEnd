@@ -58,14 +58,48 @@ describe('checkable', () => {
 });
 
 describe('unverifiedDishes and conflicts', () => {
-  const dishes = [dish('a', ['peanuts', 'milk']), dish('b', [], true), dish('c', [])];
+  const dishes = [
+    dish('a', ['peanuts', 'milk']),
+    dish('b', [], true),
+    dish('c', [], false, null),
+  ];
 
-  it('a dish with neither allergens nor "none" cannot be checked', () => {
+  it('a dish whose allergens were never verified cannot be checked', () => {
     expect(unverifiedDishes(dishes)).toEqual(['c']);
   });
 
   it('nor one whose allergens the chef has not verified since its ingredients changed', () => {
     expect(unverifiedDishes([dish('d', ['milk'], false, null)])).toEqual(['d']);
+  });
+
+  // R27: since the socle, verification is set only on a complete composition and
+  // every allergen change clears it, so an empty list no longer means "never declared".
+  it('a verified dish whose only allergens are free text is bookable', () => {
+    expect(unverifiedDishes([dish('e', [], false)])).toEqual([]);
+    expect(
+      menuRefusal(client({ allergies: ['milk'] }), [dish('e', [], false)]),
+    ).toBeNull();
+  });
+
+  it('a verified legacy "none" dish the reprise left incomplete stays bookable', () => {
+    // allergens [] and allergensNone false: a line is linked to an entry still to complete.
+    expect(unverifiedDishes([dish('f', [], false, NOW)])).toEqual([]);
+    expect(allergyCheck(client({ allergiesNone: true }), [dish('f', [], false)])).toEqual(
+      {
+        allergyCheck: 'verified',
+        allergyCheckReasons: [],
+        allergyConflicts: [],
+      },
+    );
+  });
+
+  it('an unverified dish is still refused, whatever its allergens say', () => {
+    expect(
+      unverifiedDishes([dish('g', [], true, null), dish('h', [], false, null)]),
+    ).toEqual(['g', 'h']);
+    expect(
+      body(menuRefusal(client({ allergiesNone: true }), [dish('g', [], true, null)])),
+    ).toMatchObject({ code: 'ALLERGENS_UNVERIFIED', mealIds: ['g'] });
   });
 
   it('lists, per dish, the declared allergens it contains', () => {
@@ -89,7 +123,10 @@ describe('menuRefusal', () => {
 
   it('then refuses a dish that cannot be checked, before any conflict', () => {
     const refusal = body(
-      menuRefusal(client({ allergies: ['milk'] }), [dish('a', ['milk']), dish('b', [])]),
+      menuRefusal(client({ allergies: ['milk'] }), [
+        dish('a', ['milk']),
+        dish('b', [], false, null),
+      ]),
     );
     expect(refusal).toMatchObject({ code: 'ALLERGENS_UNVERIFIED', mealIds: ['b'] });
   });
@@ -134,7 +171,7 @@ describe('allergyCheck', () => {
         allergies: ['milk'],
         customAllergies: ['kiwi'],
       }),
-      [dish('a', ['milk']), dish('b', [])],
+      [dish('a', ['milk']), dish('b', [], false, null)],
     );
     expect(check.allergyCheck).toBe('unverified');
     expect(check.allergyCheckReasons).toEqual([
