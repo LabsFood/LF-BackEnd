@@ -2,11 +2,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { stackOf } from '../../../common/logging/app-logger';
 import { Prisma, User, UserRole } from '../../../generated/prisma/client';
+import { BrevoService } from '../../../integrations/brevo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { allergyLabels } from '../../allergies/domain/allergies.rules';
 import { UsersService } from '../../users/users.service';
@@ -101,13 +105,25 @@ const notFound = () =>
  */
 @Injectable()
 export class MessagingService {
+  private readonly logger = new Logger(MessagingService.name);
+  /** The team's mailbox, alerted when a support thread gets a message. */
+  private readonly teamEmail?: string;
+  private readonly adminSiteUrl: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly storage: MessagingStorageService,
     private readonly rateLimiter: MessagingRateLimiter,
     private readonly events: MessagingEventsService,
-  ) {}
+    private readonly brevo: BrevoService,
+    config: ConfigService,
+  ) {
+    this.teamEmail = config.get<string>('contact.notificationEmail') || undefined;
+    this.adminSiteUrl = config
+      .get<string>('contact.adminSiteUrl', 'https://admin.labsfood.fr')
+      .replace(/\/$/, '');
+  }
 
   // ── Participant routes ────────────────────────────────────────────────────
 
@@ -305,6 +321,7 @@ export class MessagingService {
     const toTeam = conversation.type === 'support' && !sender.isAdmin;
 
     let message: LoadedMessage;
+    let alertTeam = false;
     try {
       message = await this.prisma.$transaction(async (tx) => {
         const created = await tx.message.create({
@@ -326,7 +343,7 @@ export class MessagingService {
           },
           include: MESSAGE_INCLUDE,
         });
-        await tx.conversation.update({
+        const updated = await tx.conversation.update({
           where: { id: conversation.id },
           data: {
             lastMessageAt: now,
@@ -334,6 +351,8 @@ export class MessagingService {
             ...(toTeam ? { adminUnreadCount: { increment: 1 } } : {}),
           },
         });
+        // One email per burst: only the message that makes a read thread unread.
+        alertTeam = toTeam && updated.adminUnreadCount === 1;
         await tx.conversationParticipant.updateMany({
           where: { conversationId: conversation.id, userId: { not: sender.userId } },
           data: { unreadCount: { increment: 1 } },
@@ -373,8 +392,45 @@ export class MessagingService {
         data: { conversationId: conversation.id, message: toAdminMessageView(message) },
       },
     });
+    if (alertTeam) void this.alertTeam(conversation, message.body);
 
     return { message, masked };
+  }
+
+  /**
+   * Best-effort heads-up to the team's mailbox: the message is in the support
+   * inbox whether or not this email leaves. No Reply-To: the answer belongs in the
+   * thread, where the person reads it.
+   */
+  private async alertTeam(conversation: LoadedConversation, body: string): Promise<void> {
+    const person = conversation.supportUser;
+    if (!this.teamEmail || !person) return;
+    try {
+      await this.brevo.sendTemplate({
+        templateId: this.brevo.templates.contactReceivedAdmin,
+        to: { email: this.teamEmail },
+        label: 'support-message-admin',
+        params: {
+          name: person.fullName ?? person.email,
+          email: person.email,
+          phone: person.phone ?? '',
+          subject:
+            body
+              .split('\n')
+              .find((line) => line.trim())
+              ?.trim()
+              .slice(0, 120) ?? 'Fichier joint',
+          message: body,
+          site: `la messagerie support (${person.role === UserRole.chef ? 'batch cooker' : 'client'})`,
+          inboxUrl: `${this.adminSiteUrl}/messagerie?c=${conversation.id}`,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'messaging.support_alert_failed', conversationId: conversation.id },
+        stackOf(error),
+      );
+    }
   }
 
   async loadConversation(id: string): Promise<LoadedConversation> {

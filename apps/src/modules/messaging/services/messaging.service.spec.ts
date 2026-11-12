@@ -3,7 +3,9 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { BrevoService } from '../../../integrations/brevo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UsersService } from '../../users/users.service';
 import { CONTACT_MASK } from '../domain/contact-detector';
@@ -61,6 +63,17 @@ const supportConversation = () =>
     supportUser: person(CLIENT, 'Sophie Marchand', '0611111111'),
   } as unknown as Partial<LoadedConversation>);
 
+const chefSupportConversation = () =>
+  conversation({
+    type: 'support',
+    clientId: null,
+    chefProfileId: null,
+    supportUserId: CHEF_USER,
+    client: null,
+    chefProfile: null,
+    supportUser: { ...person(CHEF_USER, 'Marie Dupont', '0622222222'), role: 'chef' },
+  } as unknown as Partial<LoadedConversation>);
+
 /** A booking between the two, starting `inHours` from now. */
 const booking = (status: string, inHours: number) => ({
   id: 'booking-1',
@@ -89,6 +102,7 @@ describe('MessagingService', () => {
   let storage: { pathFor: jest.Mock; statObject: jest.Mock; createUploadUrl: jest.Mock };
   let rateLimiter: { assertCanSend: jest.Mock };
   let events: { publish: jest.Mock };
+  let brevo: { sendTemplate: jest.Mock; templates: Record<string, number> };
 
   /** The caller takes part in `loaded`, from the given side. */
   const asParticipant = (loaded: LoadedConversation, role: 'client' | 'chef') =>
@@ -109,7 +123,7 @@ describe('MessagingService', () => {
           attachments: [],
         })),
       },
-      conversation: { update: jest.fn() },
+      conversation: { update: jest.fn().mockResolvedValue({ adminUnreadCount: 0 }) },
       conversationParticipant: { updateMany: jest.fn() },
     };
     prisma = {
@@ -136,6 +150,17 @@ describe('MessagingService', () => {
     const users = {
       findByClerkId: jest.fn().mockResolvedValue({ id: CLIENT, role: 'client' }),
     };
+    brevo = {
+      sendTemplate: jest.fn().mockResolvedValue({ sent: true }),
+      templates: { contactReceivedAdmin: 42 },
+    };
+    const settings: Record<string, string> = {
+      'contact.notificationEmail': 'equipe@labsfood.fr',
+      'contact.adminSiteUrl': 'https://admin.test/',
+    };
+    const config = {
+      get: jest.fn((key: string, fallback?: string) => settings[key] ?? fallback),
+    };
 
     service = new MessagingService(
       prisma as unknown as PrismaService,
@@ -143,6 +168,8 @@ describe('MessagingService', () => {
       storage as unknown as MessagingStorageService,
       rateLimiter as unknown as MessagingRateLimiter,
       events as unknown as MessagingEventsService,
+      brevo as unknown as BrevoService,
+      config as unknown as ConfigService,
     );
   });
 
@@ -304,6 +331,66 @@ describe('MessagingService', () => {
       expect(tx.conversation.update.mock.calls[0][0].data).toMatchObject({
         adminUnreadCount: { increment: 1 },
       });
+    });
+
+    it('email the team when a thread it had read gets a message', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      tx.conversation.update.mockResolvedValue({ adminUnreadCount: 1 });
+      asParticipant(chefSupportConversation(), 'chef');
+      const body = 'Demande de rappel — Dès que possible\nTéléphone : 06 22 22 22 22';
+
+      await service.sendMessage('clerk_1', CONVERSATION, { body });
+
+      expect(brevo.sendTemplate).toHaveBeenCalledWith({
+        templateId: 42,
+        to: { email: 'equipe@labsfood.fr' },
+        label: 'support-message-admin',
+        params: {
+          name: 'Marie Dupont',
+          email: 'user-chef@exemple.fr',
+          phone: '0622222222',
+          subject: 'Demande de rappel — Dès que possible',
+          message: body,
+          site: 'la messagerie support (batch cooker)',
+          inboxUrl: 'https://admin.test/messagerie?c=conv-1',
+        },
+      });
+    });
+
+    it('do not email again while the team has not opened the thread', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      tx.conversation.update.mockResolvedValue({ adminUnreadCount: 2 });
+      asParticipant(chefSupportConversation(), 'chef');
+
+      await service.sendMessage('clerk_1', CONVERSATION, { body: 'Un détail de plus' });
+
+      expect(brevo.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('never email the team about its own answer', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      tx.conversation.update.mockResolvedValue({ adminUnreadCount: 1 });
+
+      await service.postMessage(
+        chefSupportConversation(),
+        { userId: 'admin-1', role: 'support', isAdmin: true },
+        { body: 'Nous vous rappelons cet après-midi.' },
+      );
+
+      expect(brevo.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('still deliver the message when the email fails', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      tx.conversation.update.mockResolvedValue({ adminUnreadCount: 1 });
+      brevo.sendTemplate.mockRejectedValue(new Error('Brevo down'));
+      asParticipant(chefSupportConversation(), 'chef');
+
+      const sent = await service.sendMessage('clerk_1', CONVERSATION, {
+        body: 'Nouveau dossier — Un paiement ou un versement',
+      });
+
+      expect(sent.body).toBe('Nouveau dossier — Un paiement ou un versement');
     });
   });
 
