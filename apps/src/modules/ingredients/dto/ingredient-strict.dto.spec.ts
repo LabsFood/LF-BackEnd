@@ -116,6 +116,34 @@ describe('null on an ingredient field is refused, never a 500 (I4)', () => {
   });
 });
 
+// M4: `normalizeName` spells œ and æ out, so a name of 120 can need 121 in the stored
+// key (`normalized_name VARCHAR(120)`): refused with 400, never a 500 from Postgres.
+describe('a name too long once spelled out is refused (M4)', () => {
+  const LONG = `${'a'.repeat(119)}œ`;
+
+  describe.each([
+    ['CatalogIngredientDto', CatalogIngredientDto],
+    ['ChefIngredientDto', ChefIngredientDto],
+    ['UpdateCatalogIngredientDto', UpdateCatalogIngredientDto],
+    ['UpdateChefIngredientDto', UpdateChefIngredientDto],
+  ])('%s', (_name, dto) => {
+    it('refuses 119 letters and an œ, naming the field and the reason', async () => {
+      const refusal = await refusalOf({ ...valid(), name: LONG }, dto);
+      expect(refusal).toContain('"field":"name"');
+      expect(refusal).toContain('120');
+    });
+
+    it('accepts 118 letters and an œ, and 120 plain letters', async () => {
+      await expect(
+        checkBody({ ...valid(), name: `${'a'.repeat(118)}œ` }, dto),
+      ).resolves.toBeInstanceOf(dto);
+      await expect(
+        checkBody({ ...valid(), name: 'a'.repeat(120) }, dto),
+      ).resolves.toBeInstanceOf(dto);
+    });
+  });
+});
+
 describe('ImportIngredientsDto (Task 20A)', () => {
   it.each([12, {}, ['nom'], true])('refuses csv = %j', async (csv) => {
     expect(await refusalOf({ csv }, ImportIngredientsDto)).toContain('csv');

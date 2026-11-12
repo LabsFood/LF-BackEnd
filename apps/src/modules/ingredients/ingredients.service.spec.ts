@@ -1312,3 +1312,21 @@ describe('IngredientsService carry pending (ruling R28)', () => {
     });
   });
 });
+
+// M4: a lot 2 name whose key would not fit the column keeps its key NULL on a save.
+describe('IngredientsService legacy key that cannot fit (M4)', () => {
+  it('leaves the key NULL rather than write 121 characters', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...TOMATE,
+      id: 'legacy-9',
+      name: `${'a'.repeat(119)}œ`,
+      normalizedName: null,
+    });
+
+    await service.update('legacy-9', { isBasic: true }, 'admin-1');
+
+    const { data } = catalogIngredient.update.mock.calls[0][0] as { data: object };
+    expect(data).toEqual({ isBasic: true });
+  });
+});

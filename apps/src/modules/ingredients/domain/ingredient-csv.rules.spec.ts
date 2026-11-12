@@ -83,6 +83,12 @@ describe('parseIngredientCsv (Recettes §7.4)', () => {
     ['a base that is not oui/non', 'Tomate;;epicerie;;oui;;;1;', 'base'],
     ['an empty name', ';;epicerie;;oui;;;;', 'nom'],
     ['a name of 121 characters', `${'a'.repeat(121)};;epicerie;;oui;;;;`, 'nom'],
+    // M4: œ and æ are spelled out in the stored key, which holds 120 at most.
+    [
+      'a name of 120 that is 121 once œ is spelled out',
+      `${'a'.repeat(119)}œ;;epicerie;;oui;;;;`,
+      'nom',
+    ],
     [
       'an alias of 121 characters',
       `Tomate;${'a'.repeat(121)};epicerie;;oui;;;;`,

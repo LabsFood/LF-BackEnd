@@ -7,7 +7,7 @@
 import { CONTROL } from '../../../common/dto/clean-text';
 import { ALLERGEN_CODES, COMPUTED_DIET_CODES } from '../../dishes/domain/dishes.rules';
 import { CatalogIngredientDto } from '../dto/ingredient.dto';
-import { normalizeName } from './ingredient.rules';
+import { keyFits, normalizeName } from './ingredient.rules';
 
 export const IMPORT_MAX_LINES = 2000;
 
@@ -113,6 +113,10 @@ function row(cells: Record<string, string>, aisles: string[]): CatalogIngredient
   const name = clean(cells.nom);
   if (name.length < 1 || name.length > 120) {
     throw new Error('nom: 1 à 120 caractères.');
+  }
+  // M4: the stored key spells œ and æ out, and holds 120 characters at most.
+  if (!keyFits(name)) {
+    throw new Error('nom: 120 caractères au plus, œ et æ comptant pour deux.');
   }
   const dto: CatalogIngredientDto = { name };
 

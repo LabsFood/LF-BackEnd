@@ -13,7 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { inAnnexOrder } from '../dishes/domain/allergens.rules';
 import { NotificationsService } from '../notifications/notifications.service';
 import { aislesInForce } from '../platform-settings/recipe-lists';
-import { normalizeName, withImpliedDiets } from './domain/ingredient.rules';
+import { keyFits, normalizeName, withImpliedDiets } from './domain/ingredient.rules';
 import {
   CatalogIngredientDto,
   ListCatalogIngredientsQueryDto,
@@ -251,7 +251,8 @@ export class IngredientsService {
     // A name that keeps the entry's own key creates no duplicate: only a new key is
     // checked (the unique index still guards the stored ones).
     if (normalized && normalized !== ownKey) await this.assertNameFree(normalized, id);
-    if (!normalized && before.normalizedName === null && ownKey) {
+    // M4: a key that cannot fit its column stays NULL; the reprise reports it.
+    if (!normalized && before.normalizedName === null && ownKey && keyFits(before.name)) {
       // I2: any write fills a legacy key, unless another entry holds it: then it stays
       // NULL for the reprise to report, and the admin's edit still lands.
       if (!(await this.nameHolder(ownKey, id))) {

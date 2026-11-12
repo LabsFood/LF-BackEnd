@@ -19,6 +19,15 @@ export const normalizeName = (name: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/** The longest name, and the longest stored key (`normalized_name VARCHAR(120)`). */
+export const NAME_MAX = 120;
+
+/**
+ * M4: whether the name's key fits its column. `normalizeName` spells `œ` and `æ`
+ * out, so a name of 120 characters can need 121 once normalized.
+ */
+export const keyFits = (name: string): boolean => normalizeName(name).length <= NAME_MAX;
+
 /**
  * What the search compares: the normalized name with the plural ending (`s`, `x`)
  * dropped from each word, so "Tomates" finds "tomate". A word of three letters or

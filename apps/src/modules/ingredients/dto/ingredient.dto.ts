@@ -13,6 +13,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateBy,
 } from 'class-validator';
 
 import { oneLine } from '../../../common/dto/clean-text';
@@ -20,12 +21,27 @@ import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import { OptionalNotNull, Raw } from '../../../common/dto/strict';
 import { QueryBoolean } from '../../../common/dto/query-boolean';
 import { ALLERGEN_CODES, COMPUTED_DIET_CODES } from '../../dishes/domain/dishes.rules';
+import { keyFits, NAME_MAX } from '../domain/ingredient.rules';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
 const eachOneLine = ({ value }: { value: unknown }) =>
   Array.isArray(value) ? value.map((v: unknown) => oneLine({ value: v })) : value;
+
+/**
+ * M4: the stored key (`normalized_name`, 120 characters) spells œ and æ out, so a
+ * name of 120 characters can overflow it: 400 here, never a 500 from Postgres.
+ */
+const KeyFits = () =>
+  ValidateBy({
+    name: 'keyFits',
+    validator: {
+      validate: (value: unknown) => typeof value !== 'string' || keyFits(value),
+      defaultMessage: () =>
+        `name must be at most ${NAME_MAX} characters, œ and æ counting as two`,
+    },
+  });
 
 /** Recettes §4.10: the four states of an entry of the common list. */
 export const CATALOG_STATUSES = ['active', 'inactive', 'pending', 'merged'] as const;
@@ -37,6 +53,7 @@ export class CatalogIngredientDto {
   @Transform(oneLine)
   @IsString()
   @Length(1, 120)
+  @KeyFits()
   name!: string;
 
   @ApiPropertyOptional({
