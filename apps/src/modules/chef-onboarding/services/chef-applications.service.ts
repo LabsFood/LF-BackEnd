@@ -22,6 +22,7 @@ import { ClerkService } from '../../../integrations/clerk.service';
 import { GeoService } from '../../../integrations/geo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  CreateChefApplicationByAdminDto,
   CreateChefApplicationDto,
   InterventionZoneDto,
 } from '../dto/create-chef-application.dto';
@@ -82,6 +83,45 @@ export class ChefApplicationsService {
    * anything to an existing account.
    */
   async submit(payload: CreateChefApplicationDto, requestId?: string) {
+    this.assertConsent(payload);
+    return this.open(payload, undefined, requestId);
+  }
+
+  /**
+   * `POST /admin/chef-applications` — an admin opens the candidature for a batch
+   * cooker. Everything a submission does, with three differences: Clerk's legal check
+   * is skipped (nobody ticked the box), the stored consent says nothing was accepted,
+   * and the actor is the admin. The batch cooker gets the sign-in link by email and
+   * accepts the terms when they sign in; the admins are not mailed about their own act.
+   *
+   * The account stays unverified and inactive: the dossier and the approval are the
+   * usual ones, so no batch cooker is verified without validated documents.
+   */
+  async submitByAdmin(
+    payload: CreateChefApplicationByAdminDto,
+    adminUserId: string,
+    requestId?: string,
+  ) {
+    return this.open(
+      {
+        ...payload,
+        consent: {
+          privacyPolicy: false,
+          terms: false,
+          acceptedAt: new Date().toISOString(),
+        },
+      },
+      adminUserId,
+      requestId,
+    );
+  }
+
+  /** Shared by {@link submit} and {@link submitByAdmin}; `adminUserId` set means the admin did it. */
+  private async open(
+    payload: CreateChefApplicationDto,
+    adminUserId: string | undefined,
+    requestId?: string,
+  ) {
     this.assertValid(payload);
     await this.assertPlaces(payload);
     if (!this.clerk.configured) {
@@ -104,6 +144,11 @@ export class ChefApplicationsService {
         firstName: answers.firstName,
         lastName: answers.lastName,
         skipPasswordRequirement: true,
+        // The form's terms box (required true), for Clerk's legal consent check; an
+        // admin opening it for someone else has no box to point to.
+        ...(adminUserId
+          ? { skipLegalChecks: true }
+          : { legalAcceptedAt: new Date(payload.consent.acceptedAt) }),
       }));
     } catch (error) {
       throw this.mapClerkError(error);
@@ -146,7 +191,8 @@ export class ChefApplicationsService {
       const compensated = await this.deleteClerkUser(clerkUserId);
       await this.audit.failed(
         {
-          actorType: 'candidate',
+          actorType: adminUserId ? 'admin' : 'candidate',
+          actorUserId: adminUserId,
           action: 'application.submit',
           subjectType: 'chef_application',
           requestId,
@@ -159,13 +205,17 @@ export class ChefApplicationsService {
 
     const { application } = created;
     await this.audit.record({
-      actorType: 'candidate',
-      actorUserId: created.userId,
-      action: 'application.submitted',
+      actorType: adminUserId ? 'admin' : 'candidate',
+      actorUserId: adminUserId ?? created.userId,
+      action: adminUserId ? 'application.opened_by_admin' : 'application.submitted',
       subjectType: 'chef_application',
       subjectId: application.id,
       requestId,
-      metadata: { reference: application.reference, city: application.addressCity },
+      metadata: {
+        reference: application.reference,
+        city: application.addressCity,
+        ...(adminUserId && { chefUserId: created.userId }),
+      },
     });
 
     const [received] = await Promise.all([
@@ -175,12 +225,14 @@ export class ChefApplicationsService {
         reference: application.reference,
         ...link,
       }),
-      this.mailer.applicationReceivedAdmin({
-        reference: application.reference,
-        applicationId: application.id,
-        name: fullName,
-        city: application.addressCity,
-      }),
+      adminUserId
+        ? undefined
+        : this.mailer.applicationReceivedAdmin({
+            reference: application.reference,
+            applicationId: application.id,
+            name: fullName,
+            city: application.addressCity,
+          }),
     ]);
     // That email is the only way into the account, so a lost one must be findable
     // by candidature — the recovery is `POST /admin/chef-users/:id/resend-invitation`.
@@ -248,6 +300,7 @@ export class ChefApplicationsService {
     payload: CreateChefApplicationDto,
     requestId?: string,
   ) {
+    this.assertConsent(payload);
     this.assertValid(payload);
     await this.assertPlaces(payload);
 
@@ -549,9 +602,19 @@ export class ChefApplicationsService {
     } else if (declaration.length > 0) {
       fail('company.sap.declarationNumber is only accepted on the type-a route.');
     }
+  }
 
+  /**
+   * The terms and the privacy policy, ticked by the person themselves: required of a
+   * submission and a reapplication, not of a correction (an admin-opened candidature
+   * stores none) nor of the admin's own opening.
+   */
+  private assertConsent(payload: Pick<CreateChefApplicationDto, 'consent'>): void {
     if (!payload.consent.privacyPolicy || !payload.consent.terms) {
-      fail('Both consent.privacyPolicy and consent.terms must be accepted.');
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: 'Both consent.privacyPolicy and consent.terms must be accepted.',
+      });
     }
   }
 
