@@ -86,6 +86,47 @@ describe('RecipeVersionsService (Recettes §8.2)', () => {
       expect(result).not.toHaveProperty('_count');
     });
 
+    // R33: served as the rules read it, the way restore reads it, stamps kept.
+    it('serves a legacy version read as the rules read it: step objects, units mapped', async () => {
+      const h = harness();
+      h.meal.findUnique.mockResolvedValue(readyDishRow());
+      const stamped = {
+        name: 'Céleri-rave',
+        qty: 200,
+        unit: 'g',
+        aisle: 'fruits-legumes',
+        link: null,
+        toVerify: false,
+        fixedQuantity: false,
+        catalogIngredientId: 'cat-celeri',
+        optional: false,
+        precision: null,
+        preparation: null,
+        group: null,
+        hiddenFromClient: false,
+        rawText: null,
+        allergens: ['celery'],
+        incomplete: false,
+      };
+      h.mealRecipeVersion.findUnique.mockResolvedValue(
+        version({
+          ingredients: [stamped, { name: 'Ail', qty: 2, unit: 'poignée' }],
+          steps: ['Éplucher.', 'Cuire 20 min.'],
+        }),
+      );
+
+      const result = await wire(h).get('clerk_1', 'dish-1', 1);
+
+      expect(result.ingredients).toEqual([
+        stamped,
+        expect.objectContaining({ unit: null, toVerify: true, rawText: '2 poignée Ail' }),
+      ]);
+      expect(result.steps).toEqual([
+        expect.objectContaining({ order: 1, text: 'Éplucher.' }),
+        expect.objectContaining({ order: 2, text: 'Cuire 20 min.' }),
+      ]);
+    });
+
     it("answers 404 on another chef's dish, and on an unknown version", async () => {
       const h = harness();
       h.meal.findUnique.mockResolvedValue(dishRow({ chefProfileId: 'chef-2' }));

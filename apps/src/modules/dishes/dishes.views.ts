@@ -59,9 +59,18 @@ export function toDishSummary(meal: Meal) {
   };
 }
 
+/**
+ * R33: the stored lines as every rule reads them (`readLines`): a unit outside the 14
+ * that cannot be mapped, or a quantity that is no number, is served to verify with
+ * its words in `rawText`; every stamp and every field the chef wrote is kept. Read
+ * only: what is stored, and so `lockVersion` and every comparison, stays as it was.
+ */
+const servedLines = (meal: Pick<Meal, 'ingredients'>) =>
+  readLines(meal.ingredients).map((line) => ({ ...line }));
+
 /** The chef's own view, and the admin's (§8): with the recipe and the status. */
 export function toDishView(meal: Meal) {
-  const ingredients = Array.isArray(meal.ingredients) ? meal.ingredients : [];
+  const ingredients = servedLines(meal);
   const steps = readSteps(meal.steps);
   return {
     ...toDishSummary(meal),
@@ -115,6 +124,19 @@ export function toDishView(meal: Meal) {
     moderation: toModeration(meal),
     createdAt: meal.createdAt,
     updatedAt: meal.updatedAt,
+  };
+}
+
+/**
+ * A Lab's Food meal as the admin routes answer it (`/admin/meals`): the row, with its
+ * lines and steps served as the rules read them (R33), and its readiness.
+ */
+export function toLabsFoodMealView(meal: Meal) {
+  return {
+    ...meal,
+    ingredients: servedLines(meal),
+    steps: readSteps(meal.steps),
+    readiness: readiness(meal),
   };
 }
 

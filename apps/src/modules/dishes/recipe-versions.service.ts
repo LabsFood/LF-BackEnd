@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { entriesFor } from '../ingredients/composition';
 import { ChefContentService } from './chef-content.service';
 import { DishesService } from './dishes.service';
-import { LineInput, toLineInput } from './domain/recipe-lines.rules';
+import { LineInput, readLines, toLineInput } from './domain/recipe-lines.rules';
 import { readSteps } from './domain/recipes.rules';
 import type { UpdateDishDto } from './dto/dish.dto';
 
@@ -37,6 +37,11 @@ export class RecipeVersionsService {
     }));
   }
 
+  /**
+   * One version's content. R33: its lines and steps are served as the rules read
+   * them, as `restore` reads them, every stamp kept: a version cut in lot 2 can hold
+   * string steps and legacy units. The version itself is never written.
+   */
   async get(clerkUserId: string, dishId: string, version: number) {
     const chef = await this.access.chef(clerkUserId);
     const dish = await this.access.readableDish(chef, dishId);
@@ -45,8 +50,8 @@ export class RecipeVersionsService {
       version: row.version,
       createdAt: row.createdAt,
       portions: row.portions,
-      ingredients: row.ingredients,
-      steps: row.steps,
+      ingredients: readLines(row.ingredients).map((line) => ({ ...line })),
+      steps: readSteps(row.steps),
       reheating: row.reheating,
       storage: row.storage,
     };

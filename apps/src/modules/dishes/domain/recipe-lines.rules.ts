@@ -41,7 +41,7 @@ const text = (value: unknown): string | null =>
 /**
  * Reads one stored line, legacy or current. A legacy unit is converted by
  * `unitFromText`; one it cannot map sends the line to verification, with the
- * original words kept in `rawText`.
+ * original words kept in `rawText`. So does a quantity typed but no number (R33).
  */
 export function toLineInput(raw: unknown): LineInput {
   const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -71,6 +71,26 @@ export function toLineInput(raw: unknown): LineInput {
   }
   // Legacy "selon le goût" lines carried a zero.
   if (unit === 'to_taste' && qty === 0) qty = null;
+  // R33: a quantity typed but no number ("1/2", "1,5") waits for the chef, with the
+  // words as typed, as an unknown unit does. A "to taste" line needs none.
+  const unreadable =
+    rawQty !== null && rawQty !== undefined && rawQty !== '' && qty === null;
+  if (unreadable && unit !== 'to_taste' && !toVerify) {
+    toVerify = true;
+    rawText =
+      rawText ??
+      [
+        typeof rawQty === 'string' || typeof rawQty === 'number'
+          ? String(rawQty).trim()
+          : '',
+        unitText,
+        name,
+      ]
+        .filter((part) => part !== '')
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+  }
 
   return {
     name,

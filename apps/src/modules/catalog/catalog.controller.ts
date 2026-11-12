@@ -29,8 +29,7 @@ import { TAGS } from '../../common/swagger/tags';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
-import { Meal } from '../../generated/prisma/client';
-import { readiness } from '../dishes/domain/dishes.rules';
+import { toLabsFoodMealView } from '../dishes/dishes.views';
 import { UsersService } from '../users/users.service';
 import {
   CatalogService,
@@ -176,8 +175,11 @@ const MEAL_NOT_LABS_FOOD = {
   },
 };
 
-/** Recettes §4.11: what keeps a Lab's Food meal from "Prête", as on a chef's dish. */
-const withReadiness = (meal: Meal) => ({ ...meal, readiness: readiness(meal) });
+/**
+ * Recettes §4.11: what keeps a Lab's Food meal from "Prête", as on a chef's dish, with
+ * its lines and steps served as the rules read them (R33).
+ */
+const withReadiness = toLabsFoodMealView;
 
 @Controller()
 export class CatalogController {

@@ -49,6 +49,49 @@ describe('toLineInput', () => {
     });
   });
 
+  // R33: an unreadable quantity is no number the line can be held as: the line waits
+  // for the chef with the words as typed, as an unknown unit does.
+  it('sends a quantity it cannot read to verification, with the original words', () => {
+    for (const qty of ['1/2', '1,5', 'un peu']) {
+      expect(toLineInput({ name: 'Beurre', qty, unit: 'g' })).toMatchObject({
+        qty: null,
+        unit: 'g',
+        toVerify: true,
+        rawText: `${qty} g Beurre`,
+      });
+    }
+    // The words the line already had win, linked or not.
+    expect(
+      toLineInput({
+        name: 'Beurre',
+        qty: '1/2',
+        unit: 'g',
+        rawText: 'une demi-plaquette',
+        catalogIngredientId: 'cat-beurre',
+      }),
+    ).toMatchObject({
+      toVerify: true,
+      rawText: 'une demi-plaquette',
+      catalogIngredientId: 'cat-beurre',
+    });
+  });
+
+  it('reads a numeric string, and leaves to_taste and an empty quantity alone', () => {
+    expect(toLineInput({ name: 'Riz', qty: '250', unit: 'g' })).toMatchObject({
+      qty: 250,
+      toVerify: false,
+      rawText: null,
+    });
+    expect(toLineInput({ name: 'Sel', qty: 'au goût', unit: 'to_taste' })).toMatchObject({
+      qty: null,
+      toVerify: false,
+    });
+    expect(toLineInput({ name: 'Riz', qty: '', unit: 'g' })).toMatchObject({
+      qty: null,
+      toVerify: false,
+    });
+  });
+
   it('keeps a valid unit', () => {
     expect(toLineInput({ name: 'Riz', qty: 100, unit: 'g' })).toMatchObject({
       unit: 'g',

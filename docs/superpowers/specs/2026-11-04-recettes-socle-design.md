@@ -411,7 +411,7 @@ Les cinq situations les plus risquées pour un utilisateur, chacune vérifiée p
   1. migration ;
   2. import et relecture de la liste de départ. Les ingrédients du lot 2 n'ont pas encore de `normalized_name` (la reprise le remplit à l'étape 4) : l'API les retrouve par leur nom, normalisé par elle (accents, casse, `œ`/`æ`, espaces), à l'import comme au contrôle d'unicité des noms. Une ligne du fichier qui porte le nom d'un ingrédient du lot 2 met donc à jour cet ingrédient, au lieu d'en créer un second, et lui donne son `normalized_name` ; la reprise ne voit qu'un ingrédient par nom. Toute autre modification d'un ingrédient du lot 2 dans la console remplit aussi son `normalized_name`, si aucun autre ingrédient ne le porte ;
   3. simulation de la reprise, puis complément de la liste avec les noms non reliés ;
-  4. reprise ;
+  4. reprise, terminée avec 0 plat ignoré et 0 en échec avant que le nouvel espace chef soit servi (R33) : un formulaire ne doit jamais supprimer une ligne que le chef n'a pas touchée. L'API sert déjà les lignes comme les règles les lisent (unité hors des 14 non reconnue ou quantité illisible : « à vérifier », avec `rawText`) ;
   5. message aux chefs : leurs recettes incomplètes ne sont plus « Prête », comme pour LF-0266.
 
 ## 13. À valider avec Daniel
