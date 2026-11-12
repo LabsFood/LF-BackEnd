@@ -1,1079 +1,1098 @@
-<<<<<<< HEAD
-# Graph Report - LF-BackEnd  (2026-10-12)
+# Graph Report - LF-BackEnd  (2026-11-12)
 
 ## Corpus Check
-- 308 files · ~187,209 words
+- 480 files · ~356,860 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2942 nodes · 8285 edges · 132 communities (119 shown, 10 thin omitted)
-- Extraction: 92% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 619 edges (avg confidence: 0.83)
-- Token cost: 577,799 input · 0 output
-
-## Community Hubs (Navigation)
-- Clerk & Users Service
-- Contact Forms
-- Quotes
-- Auth Guards
-- Pagination & Booking DTOs
-- Chef Application Submission
-- Admin Chefs Back Office
-- Audit Log
-- Chef Me-Content API
-- Admin Moderation
-- Vitrine Rules
-- Chef Content Service
-- Initial DB Migrations
-- Content Photos & Suggestions
-- Dishes Swagger Examples
-- Catalog Admin DTO Validation
-- Messaging Gateway & Redis
-- Backend Architecture Docs
-- Users Controller Swagger
-- Package Metadata
-- Dishes Test Helpers
-- Catalog Controller
-- Admin Content Controller
-- Messaging DTOs & Examples
-- Catalog Service & Ownership
-- Pagination & Moderation Rules
-- Messaging Service Core
-- R2 Storage & Avatars
-- Me Conversations API
-- Admin Conversations API
-- Payment & Fiscal DTOs
-- Chef Onboarding Mailer & Cron
-- Admin Chef Applications API
-- Stripe Payments Contract Docs
-- Brevo Email Templates
-- Runtime Dependencies
-- Chef Onboarding Rules
-- Supabase & KYC Documents
-- Chef Dishes Menus PRD
-- Messaging Rules & Contact Release
-- Demo Seed Data
-- CORS & Webhook Raw Body
-- Messaging View Types
-- Docker Compose Stack
-- NPM Scripts
-- Missions Controller
-- Bookings Spec Docs
-- Brevo & Cronofy Integrations
-- Bookings Controller
-- Dev Dependencies
-- App & Auth Modules
-- TypeScript Config
-- Clerk Integration Docs
-- Chef Documents Controller
-- Dishes & Menus Rules
-- Pagination Query DTO
-- Chef Applications Service
-- Messaging Admin Service
-- Catalog Meal DTOs
-- Chef Onboarding Swagger Examples
-- Dish & Recipe DTOs
-- Avatar Controller
-- Public User Registration
-- Admin Dashboard Spec
-- Stripe Service
-- Clerk Webhooks
-- Dual-Role Switcher Analysis
-- Stripe Connect
-- SEPA Mandates
-- Chef Applications Admin Service
-- Shopping Lists Service
-- API Docs & CMS Removal Plan
-- Labs Food Content
-- Missions Service (FLOW-02)
-- Agent & Dev Guidelines
-- Clerk-to-DB Sync Script
-- Users-to-Clerk Sync Script
-- Recipe Rules
-- Mission DTOs
-- Nest CLI Config
-- Fastify Raw Body
-- KYC Storage & Dossier Cron
-- Admin Content Photos
-- Chef Onboarding PRD
-- Contact Detection & Masking
-- Prisma Env Config
-- Payment Intents
-- Profile DTOs
-- Prisma Client & DB Connection
-- Booking & Meal Ownership Gaps
-- Create Booking DTO
-- Payments Webhook Handlers
-- Dish Ownership Plan
-- Brevo Templates PRD
-- Clerk User Payload
-- Referentials Controller
-- Health Controller
-- Payments Module & Stripe Webhooks
-- SAP Profile DTO
-- Jest Config
-- Chef Profile DTO
-- Chef Onboarding Migration
-- Messaging Storage
-- TS Build Config
-- Countries Referential
-- Stripe Connect DTOs
-- Docker CI Workflow
-- Bookings & Shopping Modules
-- Booking Read DTO
-- Messaging Notifier Cron
-- Payments Controller
-- CMS Removal & KYC Notes
-- Commission Calculation
-- Payments SAP SEPA Migration
-- CORS Smoke Test
-- Env Validation
-- Gateway Auth Handler
-- Redis Module
-- Audit Module
-- Integrations Module
-- App Module
-- Health Module
-- Database Module
-- Husky Pre-commit
-- Feature Request Template
-- Chef Profiles Table
-- Chef Profiles Table
-- Chef Profiles Table
-- Chef Applications Table
-
-## God Nodes (most connected - your core abstractions)
-1. `@nestjs/common` - 132 edges
-2. `ClerkUser` - 130 edges
-3. `CurrentClerkUser` - 119 edges
-4. `UsersService` - 95 edges
-5. `PrismaService` - 95 edges
-6. `ApiClerkAuthResponses()` - 91 edges
-7. `ApiAdminAuthResponses()` - 86 edges
-8. `@nestjs/swagger` - 62 edges
-9. `AuditService` - 39 edges
-10. `MessagingService` - 37 edges
-
-## Surprising Connections (you probably didn't know these)
-- `Swagger pass on every route (summary, description, examples, error codes)` --references--> `TAGS`  [INFERRED]
-  .claude/plans/api-docs-and-cms-removal.plan.md → apps/src/common/swagger/tags.ts
-- `Daily in-process scheduled job for expiry, suspension and retention` --references--> `ChefDossierCron`  [INFERRED]
-  .claude/prds/batchcooker-chef-onboarding.prd.md → apps/src/modules/chef-onboarding/services/chef-dossier.cron.ts
-- `Retention purge on the FLOW-01 section 8 schedule` --references--> `ChefDossierCron`  [INFERRED]
-  .claude/prds/batchcooker-chef-onboarding.prd.md → apps/src/modules/chef-onboarding/services/chef-dossier.cron.ts
-- `RBAC from Postgres users.role only` --references--> `AdminGuard`  [INFERRED]
-  docs/auth/clerk-integration-contract.md → apps/src/auth/admin.guard.ts
-- `client / chef / admin roles` --references--> `AdminGuard`  [EXTRACTED]
-  stack.md → apps/src/auth/admin.guard.ts
-=======
-# Graph Report - LF-BackEnd  (2026-09-09)
-
-## Corpus Check
-- 82 files · ~174,941 words
-- Verdict: corpus is large enough that graph structure adds value.
-
-## Summary
-- 3549 nodes · 3716 edges · 105 communities (51 shown, 54 thin omitted)
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 2 edges (avg confidence: 0.9)
+- 5001 nodes · 14757 edges · 250 communities (199 shown, 23 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 870 edges (avg confidence: 0.81)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f910479e`
+- Built from commit: `aa28ec42`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- app.module.ts
-- prismaNamespace.ts
-- Booking.ts
-- ChefProfile.ts
-- commonInputTypes.ts
-- User.ts
-- integrations.module.ts
-- Commission.ts
-- CommissionInvoice.ts
+- UsersService
+- .reply
+- CurrentClerkUser
+- ApiAdminAuthResponses
+- user-response.dto.ts
+- .reapply
+- .setZones
+- chef-onboarding.rules.ts
+- MeContentController
+- moderation.service.ts
+- vitrine.service.ts
+- .chef
+- 20250522130000_spec_domain/migration.sql
+- suggestions.service.ts
+- .chefIdentity
+- CreateMenuDto
+- messaging.gateway.ts
+- Backend architecture
+- Body
 - package.json
-- Payment.ts
-- Meal.ts
-- BookingMeal.ts
-- ServiceOffer.ts
-- CesuSettlement.ts
-- MenuWeekMeal.ts
-- ClientProfile.ts
-- Quote.ts
-- ShoppingList.ts
-- CommissionDebit.ts
-- BookingsController
-- Formule.ts
-- MenuWeek.ts
-- CmsPage.ts
-- AvailabilitySlot.ts
-- ShoppingItem.ts
-- SapProfile.ts
-- SepaMandate.ts
-- typeorm_migrations.ts
-- StripeEventLog.ts
-- enums.ts
-- prismaNamespaceBrowser.ts
-- PrismaClient
-- LF BackEnd
-- get_settings
-- client.ts
-- models/__init__.py
-- compilerOptions
-- AvailabilitySlotDelegate
-- BookingDelegate
-- BookingMealDelegate
-- CesuSettlementDelegate
-- ChefProfileDelegate
-- ClientProfileDelegate
-- CmsPageDelegate
-- CommissionDelegate
-- CommissionDebitDelegate
-- CommissionInvoiceDelegate
-- FormuleDelegate
-- main.ts
-- MealDelegate
-- MenuWeekDelegate
-- MenuWeekMealDelegate
-- PaymentDelegate
-- QuoteDelegate
-- SapProfileDelegate
-- SepaMandateDelegate
-- ServiceOfferDelegate
-- ShoppingItemDelegate
-- ShoppingListDelegate
-- StripeEventLogDelegate
-- typeorm_migrationsDelegate
-- UserDelegate
-- bookings.py
-- nest-cli.json
-- health.py
-- clerk.py
-- Prisma__ChefProfileClient
+- dishes.test-helpers.ts
+- .updateMeal
+- AdminContentController
+- admin-conversations.controller.ts
+- dishes.service.ts
+- booking-withdrawals.service.ts
+- MessagingService
+- R2StorageService
+- ClerkUser
+- AdminConversationsController
+- Query
+- Brevo shared email layout
+- .decideDocument
+- PrismaService
+- upload.mjs
 - dependencies
-- Prisma__BookingClient
-- Prisma__UserClient
-- class.ts
-- devDependencies
+- menus.service.ts
+- KycStorageService
+- bookings.views.ts
+- demo-seed-constants.ts
+- allowed-origins.ts
+- messaging.service.ts
+- stack.md
 - scripts
-- Prisma__CommissionClient
-- Prisma__CommissionInvoiceClient
-- Prisma__PaymentClient
-- Prisma__BookingMealClient
-- Prisma__CesuSettlementClient
-- Prisma__MealClient
-- Prisma__MenuWeekMealClient
-- Prisma__ServiceOfferClient
-- Prisma__ShoppingListClient
-- 0001_init.sql
-- 0001_init.py
-- CronofyService
+- .submit
+- availability.service.ts
+- contact.service.ts
+- chef-applications.service.ts
+- devDependencies
+- app.module.ts
+- compilerOptions
+- Clerk integration contract (frontend ↔ backend)
+- .confirm
+- dishes.rules.ts
+- class-validator
+- ChefApplicationsService
+- MessagingAdminService
+- CreateMealDto
+- chef-documents.controller.ts
+- dish.dto.ts
+- PaymentInvoicesService
+- public-users.controller.ts
+- cesu-payments.service.ts
+- @nestjs/common
+- clerk-webhooks.controller.ts
+- Analysis: one account, two spaces (client and chef switcher)
+- sepa-mandates.controller.ts
+- SepaMandatesService
+- .record
+- ShoppingListsService
+- withdrawal.rules.ts
+- .deleteUser
+- platform-settings.service.ts
+- AGENTS.md (development and architecture instructions)
+- sync-clerk-to-db.ts
+- sync-users-to-clerk.ts
+- recipes.rules.ts
+- mission.dto.ts
+- nest-cli.json
+- allergies.rules.ts
+- CesuPaymentsService
+- ContentPhotosService
+- main.ts
+- messaging.service.spec.ts
+- env-files.ts
+- .createCheckoutSession
+- profile.dto.ts
+- db-connection.ts
+- BookingsService
+- bookings.dto.ts
+- .handleVerifiedEvent
+- 4. Juridique
+- clerk-user-payload.ts
+- ReferentialsController
 - HealthController
-- Prisma__AvailabilitySlotClient
-- Prisma__ClientProfileClient
-- Prisma__CmsPageClient
-- Prisma__CommissionDebitClient
-- Prisma__FormuleClient
-- Prisma__MenuWeekClient
-- Prisma__QuoteClient
-- Prisma__SapProfileClient
-- Prisma__SepaMandateClient
-- Prisma__ShoppingItemClient
-- read_thisUser
-- api-fastapi
-- Prisma__StripeEventLogClient
-- Prisma__typeorm_migrationsClient
-- .http
-- .http
-- migrations/README.md
-- lf-api-fastapi
+- StripeWebhooksService
+- UpdateMeSapProfileDto
+- jest
+- ChefProfileFieldsDto
+- 20260920120000_chef_onboarding/migration.sql
+- MessagingStorageService
+- tsconfig.build.json
+- countries.ts
+- contract-documents.ts
+- build-run-push job
+- QuotesService
+- index.ts
+- .notify
+- bookings.service.ts
+- commission-policy.ts
+- 20260831120000_payments_sap_sepa_foundations/migration.sql
+- .ensurePersistedFromClerk
+- env.validation.ts
+- ApiBookingId
+- redis.module.ts
+- AuditModule
+- IntegrationsModule
+- AppModule
+- HealthModule
+- DatabaseModule
+- pre-commit
+- Feature request issue template ([FEATXXX])
+- "chef_profiles"
+- "chef_profiles"
+- "chef_profiles"
+- "chef_applications"
+- CreateQuoteDto
+- QuoteOffersService
+- ApiClerkAuthResponses
+- .feed
+- content.errors.ts
+- .outcome
+- booking-reschedules.service.ts
+- .addBlock
+- availability.dto.ts
+- CommissionDebitsService
+- .retryDebit
+- class-transformer
+- contact.dto.ts
+- booking-documents.service.ts
+- me-bookings.controller.ts
+- quote.rules.ts
+- Deploy LF-BackEnd on Railway
+- .sendTemplate
+- BookingPaymentsService
+- ListItemDto
+- .update
+- 1. Site client (`batchcooking-web`)
+- .create
+- Plan d'audit de sécurité — LF-BackEnd
+- Evolution Register — Payments (Stripe CB, Connect, commissions, SAP/SEPA foundations)
+- booking-audiences.controller.spec.ts
+- StatsService
+- 3. Endpoints
+- global-throttler.smoke.spec.ts
+- CatalogService
+- classification.rules.ts
+- quote-offers.service.ts
+- .replace
+- service-offers.service.ts
+- PaymentsService
+- chef-legal.views.ts
+- [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02)
+- /lf-security-audit
+- contract-documents.spec.ts
+- WeekMenusQueryDto
+- booking-payments.dto.ts
+- fiscal-attestations.service.ts
+- Clerk identity + Supabase/Prisma app data
+- Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine
+- ContactService
+- .slots
+- admin-chefs.dto.ts
+- admin-chefs.service.ts
+- F19 - Page "Notre Concept" CMS
+- CreateCheckoutSessionDto
+- CreateServiceOfferDto
+- ServiceOffersService
+- In-house batch cooker calendar
+- Supabase Postgres connection (LF-BackEnd)
+- Controller
+- ics.ts
+- ConfirmUploadDto
+- payment-invoices.rules.ts
+- AdminChefsService
+- UrssafGateway
+- quote.views.ts
+- UpdateChefLegalDto
+- Role-segmented bookings, batch cooker availability and Cronofy
+- catalog.module.ts
+- recipe-document.ts
+- CreateAdminUserDto
+- overrides
+- swagger.ts
+- client-onboarding.rules.ts
+- templates.test.mjs
+- Phase C: Cronofy (connect, free/busy, events), data center `de`
+- Phase D1: the agenda, fitted to the page
+- Rapport d'audit sécurité — LF-BackEnd — 2026-10-24 (run `--quick`)
+- ListAdminChefsQueryDto
+- chef-profile.dto.ts
+- Phase A: role-segmented bookings
+- Phase B: working hours and computed availability (no Cronofy needed)
+- Phase L: error handling and logging, for every phase below
+- booking-reschedules.service.spec.ts
+- Phase S: a temporary `disputed` status
+- Rapport d'audit sécurité — LF-BackEnd — 2026-10-20 (run `--quick`)
+- 20260905120000_payments_cesu_commission_debits/migration.sql
+- RoutesController
+- Phase D1b: what clients see
+- 20261014130000_chef_availability/migration.sql
+- ListAdminClientsQueryDto
+- "chef_time_blocks"
+- "chef_calendar_feeds"
+- .expireUnpaid
+- 20261102160000_catalog_ingredients/migration.sql
+- 20261102190000_payment_invoices/migration.sql
+- 20261110100000_chef_ingredients/migration.sql
+- commit-msg
+- "chef_profiles"
+- "chef_profiles"
+- "chef_profiles"
 
 ## God Nodes (most connected - your core abstractions)
-1. `PrismaClient` - 34 edges
-2. `compilerOptions` - 19 edges
-3. `AvailabilitySlotDelegate` - 18 edges
-4. `BookingDelegate` - 18 edges
-5. `BookingMealDelegate` - 18 edges
-6. `CesuSettlementDelegate` - 18 edges
-7. `ChefProfileDelegate` - 18 edges
-8. `ClientProfileDelegate` - 18 edges
-9. `CmsPageDelegate` - 18 edges
-10. `CommissionDelegate` - 18 edges
+1. `ClerkUser` - 251 edges
+2. `CurrentClerkUser` - 239 edges
+3. `@nestjs/common` - 212 edges
+4. `ApiClerkAuthResponses()` - 187 edges
+5. `PrismaService` - 153 edges
+6. `UsersService` - 148 edges
+7. `ApiAdminAuthResponses()` - 131 edges
+8. `Body` - 120 edges
+9. `@nestjs/swagger` - 90 edges
+10. `AuditService` - 75 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `require_clerk_user()` --uses--> `Settings`  [INFERRED]
-  apps/api-fastapi/app/auth/clerk.py → apps/api-fastapi/app/config.py
-- `create_app()` --calls--> `get_settings()`  [EXTRACTED]
-  apps/api-fastapi/app/main.py → apps/api-fastapi/app/config.py
-- `Booking` --inherits--> `Base`  [EXTRACTED]
-  apps/api-fastapi/app/models/booking.py → apps/api-fastapi/app/database.py
-- `ProviderProfile` --inherits--> `Base`  [EXTRACTED]
-  apps/api-fastapi/app/models/provider.py → apps/api-fastapi/app/database.py
-- `ServiceOffer` --inherits--> `Base`  [EXTRACTED]
-  apps/api-fastapi/app/models/provider.py → apps/api-fastapi/app/database.py
->>>>>>> main
+- `Automatic-suspension episode (chef_profiles.auto_suspended_at)` --references--> `ChefDossierCron`  [INFERRED]
+  AGENTS.md → apps/src/modules/chef-onboarding/services/chef-dossier.cron.ts
+- `client / chef / admin roles` --references--> `AdminGuard`  [EXTRACTED]
+  stack.md → apps/src/auth/admin.guard.ts
+- `Auth testing without Clerk (sk_test_placeholder decodes JWT without JWKS)` --references--> `ClerkAuthGuard`  [EXTRACTED]
+  AGENTS.md → apps/src/auth/clerk-auth.guard.ts
+- `Append-only chef_documents owned by the chef profile from first upload` --references--> `ChefDocumentsService`  [INFERRED]
+  AGENTS.md → apps/src/modules/chef-onboarding/services/chef-documents.service.ts
+- `Contact forms: stored first, emailed second` --references--> `ContactService`  [INFERRED]
+  AGENTS.md → apps/src/modules/contact/contact.service.ts
 
 ## Import Cycles
 - None detected.
 
-<<<<<<< HEAD
 ## Hyperedges (group relationships)
-- **FLOW-01 public account creation safeguards** — _claude_plans_handoff_public_account_creation_security_requirements, _claude_plans_rework_37_account_at_submission_sign_in_link_inbox_only, _claude_plans_rework_37_account_at_submission_clerk_compensating_delete, _claude_plans_rework_37_account_at_submission_verification_bypass, _claude_plans_dual_role_switcher_analysis_existing_account_takeover_risk [INFERRED 0.85]
-- **FLOW-02 content ownership model (owner, suggestions, offers, adoption, isolation)** — _claude_prds_chef_dishes_menus_prd_ownership_authorship_split, _claude_prds_chef_dishes_menus_prd_suggestions, _claude_prds_chef_dishes_menus_prd_offers, _claude_prds_chef_dishes_menus_prd_adoption, _claude_prds_chef_dishes_menus_prd_chef_isolation, _claude_plans_chef_dishes_menus_architecture_derived_row_kinds, _claude_plans_chef_dishes_menus_architecture_one_access_rule [INFERRED 0.85]
-- **Brevo template safety and editing workflow** — _claude_prds_brevo_templates_prd_html_template_sources, _claude_prds_brevo_templates_prd_security_rules, _claude_prds_brevo_templates_prd_upload_check_update, _claude_prds_brevo_templates_prd_upload_digest [EXTRACTED 1.00]
-- **Chef application lifecycle emails** — brevo_templates_brevo_tpl_application_received, brevo_templates_brevo_tpl_application_received_admin, brevo_templates_brevo_tpl_changes_requested, brevo_templates_brevo_tpl_document_rejected, brevo_templates_brevo_tpl_application_approved, brevo_templates_brevo_tpl_application_rejected, brevo_templates_brevo_tpl_sign_in_link, apps_src_modules_chef_onboarding_services_chef_onboarding_mailer_chefonboardingmailer [INFERRED 0.85]
-- **KYC document expiry and suspension flow** — brevo_templates_brevo_tpl_document_expiring, brevo_templates_brevo_tpl_chef_suspended, brevo_templates_brevo_tpl_document_rejected, stack_supabase_storage [INFERRED 0.75]
 - **Brevo template sync pipeline** — brevo_readme, brevo_layout, brevo_templates, brevo_upload, brevo_templates_test, brevo_upload_test, brevo_readme_upload_drift_detection [EXTRACTED 1.00]
-- **Card payment flow (Stripe Connect destination charge)** — docs_payments_stripe_payments_contract_payment_intent_endpoint, docs_payments_stripe_payments_contract_destination_charge, docs_payments_stripe_payments_contract_commission_arithmetic, docs_payments_stripe_payments_contract_stripe_webhook, docs_payments_stripe_payments_contract_stripe_connect_onboarding, docs_architecture_booking_lifecycle_impl [EXTRACTED 1.00]
-- **Clerk <-> Postgres user sync mechanisms** — docs_auth_clerk_integration_contract_get_me_sync, docs_auth_clerk_supabase_sync_clerk_webhooks, docs_auth_clerk_supabase_sync_backfill_script, docs_auth_clerk_supabase_sync_sync_to_clerk, docs_auth_clerk_integration_contract_admin_provisioning, docs_auth_clerk_supabase_sync_postgres_source_of_truth [EXTRACTED 1.00]
-- **Idempotent replay-safety pattern (migrations, webhooks, intents, cron)** — docs_database_connection_idempotent_migrations, docs_evolution_payments_stripe_cb_evolution_payments_migration, docs_payments_stripe_payments_contract_webhook_idempotency, docs_payments_stripe_payments_contract_intent_idempotency, docs_deploy_railway_chef_dossier_cron [INFERRED 0.85]
+- **KYC document expiry and suspension flow** — brevo_templates_brevo_tpl_document_expiring, brevo_templates_brevo_tpl_chef_suspended, brevo_templates_brevo_tpl_document_rejected, stack_supabase_storage [INFERRED 0.75]
+- **Chef application lifecycle emails** — brevo_templates_brevo_tpl_application_received, brevo_templates_brevo_tpl_application_received_admin, brevo_templates_brevo_tpl_changes_requested, brevo_templates_brevo_tpl_document_rejected, brevo_templates_brevo_tpl_application_approved, brevo_templates_brevo_tpl_application_rejected, brevo_templates_brevo_tpl_sign_in_link, apps_src_modules_chef_onboarding_services_chef_onboarding_mailer_chefonboardingmailer [INFERRED 0.85]
 
-## Communities (132 total, 10 thin omitted)
+## Communities (250 total, 23 thin omitted)
 
-### Community 0 - "Clerk & Users Service"
-Cohesion: 0.05
-Nodes (37): ClerkService, Injectable, mockedVerifyWebhook, FORM, STORED, Role, FUTURE, PINNED (+29 more)
+### Community 0 - "UsersService"
+Cohesion: 0.04
+Nodes (31): ClerkProfileFields, MAX_BOOKING_PHOTOS, STARTED, END, MORNINGS, START, mockedVerifyWebhook, ROW (+23 more)
 
-### Community 1 - "Contact Forms"
-Cohesion: 0.05
-Nodes (49): Contact forms: stored first, emailed second, AdminContactController, ApiMessageIdParam(), ContactController, reqId(), ApiBearerAuth, ApiCreatedResponse, ApiNotFoundResponse (+41 more)
-
-### Community 2 - "Quotes"
-Cohesion: 0.05
-Nodes (40): CreateQuoteDto, ApiProperty, ApiPropertyOptional, IsArray, IsInt, IsOptional, IsString, IsUUID (+32 more)
-
-### Community 3 - "Auth Guards"
-Cohesion: 0.08
-Nodes (35): AdminGuard, Injectable, assertClerkConfigured(), ClerkAuthGuard, decodeUnverifiedJwt(), JwtClaims, resolveClaims(), resolveClerkUser() (+27 more)
-
-### Community 4 - "Pagination & Booking DTOs"
-Cohesion: 0.07
-Nodes (43): DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PaginationMetaDto, ApiProperty, ApiPropertyOptional, IsBoolean, IsOptional, UpdateChefVerificationDto (+35 more)
-
-### Community 5 - "Chef Application Submission"
-Cohesion: 0.07
-Nodes (50): ChefApplicationsController, MyChefApplicationController, reqId(), ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse (+42 more)
-
-### Community 6 - "Admin Chefs Back Office"
-Cohesion: 0.05
-Nodes (43): Batch cookers in the back office (LF-0164, GET /admin/chefs), AdminChefsController, ApiBearerAuth, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags (+35 more)
-
-### Community 7 - "Audit Log"
-Cohesion: 0.08
-Nodes (26): AuditActorType, AuditEntry, AuditService, Injectable, ChefOnboardingEmail, ChefOnboardingModule, Module, DOCUMENT_FAMILY (+18 more)
-
-### Community 8 - "Chef Me-Content API"
-Cohesion: 0.21
-Nodes (27): CurrentClerkUser, ApiClerkAuthResponses(), ApiDishIdParam(), ApiMenuIdParam(), MeContentController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse (+19 more)
-
-### Community 9 - "Admin Moderation"
-Cohesion: 0.09
-Nodes (33): AdminModerationController, ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags (+25 more)
-
-### Community 10 - "Vitrine Rules"
-Cohesion: 0.07
-Nodes (42): coveredDiets(), coversArea(), InterventionZone, parisClock, parisMidnight(), rotationKey(), vitrineOrder(), ChefShowcaseQueryDto (+34 more)
-
-### Community 11 - "Chef Content Service"
-Cohesion: 0.10
-Nodes (17): ChefContentService, Injectable, ContentPhotosService, service(), Injectable, assertPublishable(), changedMeanwhile(), DishesService (+9 more)
-
-### Community 12 - "Initial DB Migrations"
-Cohesion: 0.08
-Nodes (43): "availability_slots", "bookings", "cms_pages", "provider_profiles", "service_offers", "users", "admin_settings", "application_documents" (+35 more)
-
-### Community 13 - "Content Photos & Suggestions"
-Cohesion: 0.10
-Nodes (31): ChefContext, MENU_DISHES, MenuWithDishes, chefPhotoFolder(), PhotoKind, plural(), toDishView(), toModeration() (+23 more)
-
-### Community 14 - "Dishes Swagger Examples"
-Cohesion: 0.07
-Nodes (38): MAX_PHOTO_BYTES, PHOTO_TYPES, LABS_FOOD_MENU_EXAMPLE, NOT_LABS_FOOD, ADMIN_DISH, CHEF, QUEUE_EXAMPLE, REASON_REQUIRED (+30 more)
-
-### Community 15 - "Catalog Admin DTO Validation"
-Cohesion: 0.07
-Nodes (33): CONTINENTS, DIFFICULTIES, MEAL_STATUSES, ALLERGEN_CODES, DIET_CODES, DISH_CATEGORY_CODES, DIFFICULTIES, FREE_TEXT (+25 more)
-
-### Community 16 - "Messaging Gateway & Redis"
-Cohesion: 0.08
-Nodes (15): MessagingGateway, SocketState, RealtimeEnvelope, RealtimeEvent, Listener, MessagingEventsService, Injectable, MessagingRateLimiter (+7 more)
-
-### Community 17 - "Backend Architecture Docs"
-Cohesion: 0.09
-Nodes (42): Backend architecture (LF-BackEnd), Brevo email integration, chef role replaces provider, Cloudflare R2 public dish photos (R2StorageService), Cronofy calendar integration, Health checks GET /health and GET /ready, In-house messaging (modules/messaging, Stream dropped), Implemented module layout (apps/src/modules) (+34 more)
-
-### Community 18 - "Users Controller Swagger"
-Cohesion: 0.15
-Nodes (20): ApiExtraModels, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+12 more)
-
-### Community 19 - "Package Metadata"
-Cohesion: 0.05
-Nodes (37): author, description, keywords, license, lint-staged, {src,test}/**/*.ts, name, private (+29 more)
-
-### Community 20 - "Dishes Test Helpers"
-Cohesion: 0.13
-Nodes (19): CHEF, codeOf(), dishRow(), harness(), menuRow(), UNMODERATED, WriteArgs, service() (+11 more)
-
-### Community 21 - "Catalog Controller"
+### Community 1 - ".reply"
 Cohesion: 0.14
-Nodes (23): ApiMealIdParam(), CatalogController, loggable(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse (+15 more)
+Nodes (19): AdminContactController, ApiMessageIdParam(), ContactController, reqId(), ApiBearerAuth, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse (+11 more)
 
-### Community 22 - "Admin Content Controller"
-Cohesion: 0.23
-Nodes (22): AdminContentController, ApiMenuIdParam(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse, ApiNotFoundResponse (+14 more)
+### Community 2 - "CurrentClerkUser"
+Cohesion: 0.14
+Nodes (30): CurrentClerkUser, ACCEPTED, AdminQuotesController, ApiOfferIdParam(), ApiQuoteIdParam(), CHEF, ChefQuotesController, OFFER (+22 more)
 
-### Community 23 - "Messaging DTOs & Examples"
+### Community 3 - "ApiAdminAuthResponses"
+Cohesion: 0.05
+Nodes (80): AdminGuard, Injectable, assertClerkConfigured(), ClerkAuthGuard, decodeUnverifiedJwt(), JwtClaims, resolveClaims(), resolveClerkUser() (+72 more)
+
+### Community 4 - "user-response.dto.ts"
+Cohesion: 0.20
+Nodes (19): PaginationMetaDto, ApiProperty, USER_ROLES, RegisterResponseDto, ApiProperty, AdminClientDto, AdminClientListItemDto, AdminUserListItemDto (+11 more)
+
+### Community 5 - ".reapply"
+Cohesion: 0.11
+Nodes (24): ChefApplicationsController, MyChefApplicationController, reqId(), ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse (+16 more)
+
+### Community 6 - ".setZones"
+Cohesion: 0.19
+Nodes (14): AdminChefsController, ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags (+6 more)
+
+### Community 7 - "chef-onboarding.rules.ts"
+Cohesion: 0.05
+Nodes (49): AuditActorType, ApplicationAnswers, AWAITING_DECISION, buildApplicationReference(), canApprove(), COUNTS_AS_VALID, deriveDossierStatus(), DOCUMENT_FAMILY (+41 more)
+
+### Community 8 - "MeContentController"
+Cohesion: 0.15
+Nodes (32): PhotoConfirmDto, PhotoUploadDto, ApiProperty, IsIn, IsInt, Matches, Max, Min (+24 more)
+
+### Community 9 - "moderation.service.ts"
+Cohesion: 0.06
+Nodes (49): AdminModerationController, ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags (+41 more)
+
+### Community 10 - "vitrine.service.ts"
+Cohesion: 0.17
+Nodes (21): coveredDiets(), coversArea(), InterventionZone, parisClock, parisDay(), parisMidnight(), rotationKey(), vitrineOrder() (+13 more)
+
+### Community 11 - ".chef"
+Cohesion: 0.10
+Nodes (17): ChefContentService, Injectable, changedMeanwhile(), DishesService, goneMeanwhile(), Injectable, chefNotVerified(), nextReviewReason() (+9 more)
+
+### Community 12 - "20250522130000_spec_domain/migration.sql"
+Cohesion: 0.05
+Nodes (51): "availability_slots", "bookings", "cms_pages", "provider_profiles", "service_offers", "users", "admin_settings", "application_documents" (+43 more)
+
+### Community 13 - "suggestions.service.ts"
+Cohesion: 0.10
+Nodes (24): DishesMailer, Injectable, computed(), seasonsOf(), toDishSummary(), toDishView(), toModeration(), toPublicDish() (+16 more)
+
+### Community 14 - ".chefIdentity"
+Cohesion: 0.06
+Nodes (46): COMPUTED_DIET_CODES, AdoptIngredientDto, CatalogIngredientDto, ListCatalogIngredientsQueryDto, SearchIngredientsQueryDto, ApiProperty, ApiPropertyOptional, ArrayMaxSize (+38 more)
+
+### Community 15 - "CreateMenuDto"
+Cohesion: 0.11
+Nodes (23): CreateMenuDto, MENU_PERIODS, PutShowcaseWeeksDto, ShowcaseAssignmentDto, ShowcaseRangeQueryDto, ApiProperty, ApiPropertyOptional, ArrayMaxSize (+15 more)
+
+### Community 16 - "messaging.gateway.ts"
+Cohesion: 0.06
+Nodes (19): SEND_RATE_LIMIT, MessagingGateway, SocketState, RealtimeEnvelope, RealtimeEvent, Listener, MessagingEventsService, Injectable (+11 more)
+
+### Community 17 - "Backend architecture"
+Cohesion: 0.11
+Nodes (19): Admin backlog (SPEC-ADMIN-DASHBOARD), API surface summary, Authentication, Backend architecture, Booking lifecycle, Client / public backlog (SPEC-BACKEND), Current module layout (implemented), Data model direction (+11 more)
+
+### Community 18 - "Body"
+Cohesion: 0.12
+Nodes (29): ApiExtraModels, Body, IsString, Length, Type, ValidateNested, ApiPropertyOptional, IsBoolean (+21 more)
+
+### Community 19 - "package.json"
+Cohesion: 0.05
+Nodes (41): author, commitlint, extends, description, keywords, license, lint-staged, {src,test}/**/*.ts (+33 more)
+
+### Community 20 - "dishes.test-helpers.ts"
+Cohesion: 0.20
+Nodes (16): adminRow(), CHEF, codeOf(), dishRow(), harness(), menuRow(), readyDishRow(), UNMODERATED (+8 more)
+
+### Community 21 - ".updateMeal"
+Cohesion: 0.21
+Nodes (21): ApiMealIdParam(), ApiMenuWeekIdParam(), CatalogController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse (+13 more)
+
+### Community 22 - "AdminContentController"
+Cohesion: 0.11
+Nodes (34): AdminContentController, ApiMenuIdParam(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse, ApiNotFoundResponse (+26 more)
+
+### Community 23 - "admin-conversations.controller.ts"
 Cohesion: 0.10
 Nodes (34): AdminListConversationsQueryDto, AttachmentRefDto, CreateAttachmentUploadDto, ListMessagesQueryDto, OpenConversationDto, OpenSupportConversationDto, SendMessageDto, ApiProperty (+26 more)
 
-### Community 24 - "Catalog Service & Ownership"
-Cohesion: 0.11
-Nodes (23): Owner-filtered write: where {id, chefProfileId: null}, CatalogService, declarationOf(), isNotFound(), LABS_FOOD, safetyChanged(), LABS_FOOD_MEAL_1, touchesDeclaration() (+15 more)
-
-### Community 25 - "Pagination & Moderation Rules"
-Cohesion: 0.11
-Nodes (24): buildPaginationMeta(), PageBounds, Paginated, resolvePageBounds(), RECIPE_FIELDS, Loaded, SOURCE_LABEL, WITH_REPLIES (+16 more)
-
-### Community 26 - "Messaging Service Core"
-Cohesion: 0.14
-Nodes (9): PairBooking, ConversationDetailView, ConversationView, MessageView, isUniqueViolation(), MessagingService, toMessageView(), Injectable (+1 more)
-
-### Community 27 - "R2 Storage & Avatars"
-Cohesion: 0.11
-Nodes (12): detectImageType(), photoKey(), R2Config, R2StorageService, CONFIG, configured(), Injectable, storage() (+4 more)
-
-### Community 28 - "Me Conversations API"
-Cohesion: 0.17
-Nodes (23): FakeRequest, ClerkUser, ApiConversationIdParam(), MeConversationsController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNoContentResponse (+15 more)
-
-### Community 29 - "Admin Conversations API"
-Cohesion: 0.19
-Nodes (22): ApiAdminAuthResponses(), AdminConversationsController, ApiConversationIdParam(), reqId(), ApiBearerAuth, ApiCreatedResponse, ApiNoContentResponse, ApiNotFoundResponse (+14 more)
-
-### Community 30 - "Payment & Fiscal DTOs"
+### Community 24 - "dishes.service.ts"
 Cohesion: 0.12
-Nodes (22): CreatePaymentIntentDto, FiscalAttestationDto, FiscalAttestationProviderDto, ApiProperty, ApiPropertyOptional, IsUUID, FiscalAttestationsController, resolveYear() (+14 more)
+Nodes (38): assertPublishable(), declarationOf(), isDeclared(), LABS_FOOD, NOT_LABS_FOOD, safetyChanged(), touchesDeclaration(), WITH_MEALS (+30 more)
 
-### Community 31 - "Chef Onboarding Mailer & Cron"
-Cohesion: 0.13
-Nodes (18): expiryNoticeThreshold(), Brevo shared email layout, params: line contract, signInUrl invariant, Application approved email (BREVO_TPL_APPLICATION_APPROVED), Application received email (BREVO_TPL_APPLICATION_RECEIVED), Application received admin email (BREVO_TPL_APPLICATION_RECEIVED_ADMIN), Application rejected email (BREVO_TPL_APPLICATION_REJECTED) (+10 more)
-
-### Community 32 - "Admin Chef Applications API"
-Cohesion: 0.20
-Nodes (21): ApiApplicationIdParam(), ChefApplicationsAdminController, reqId(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse (+13 more)
-
-### Community 33 - "Stripe Payments Contract Docs"
-Cohesion: 0.14
-Nodes (30): chef_profiles table, Chef vetting (is_active / is_verified), ChefDossierCron daily job (expiry warnings, suspension, purge), Evolution register - Payments (Stripe CB, Connect, SAP/SEPA), Payments known follow-ups (refunds, PDF, CESU, admin lists), payment_method enum (cb, avance_immediate, cesu), payment_status enum (paid reserved, unused), Migration 20260831120000_payments_sap_sepa_foundations (+22 more)
-
-### Community 34 - "Brevo Email Templates"
-Cohesion: 0.09
-Nodes (19): One .html per BREVO_TPL_* plus layout.html, loaded by templates.mjs, Brevo email templates README, Brevo template security rules, Upload digest drift detection, dir, layout, templates, declared() (+11 more)
-
-### Community 35 - "Runtime Dependencies"
+### Community 25 - "booking-withdrawals.service.ts"
 Cohesion: 0.07
-Nodes (29): dependencies, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, class-transformer, class-validator, @clerk/backend, @fastify/helmet, @fastify/static (+21 more)
+Nodes (23): buildPaginationMeta(), DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageBounds, Paginated, resolvePageBounds(), CGV_BYTES, FORM_BYTES (+15 more)
 
-### Community 36 - "Chef Onboarding Rules"
-Cohesion: 0.12
-Nodes (22): ApplicationAnswers, AWAITING_DECISION, COUNTS_AS_VALID, deriveDossierStatus(), DocumentFamily, DocumentRequirement, DossierDocument, DossierStatus (+14 more)
-
-### Community 37 - "Supabase & KYC Documents"
-Cohesion: 0.11
-Nodes (20): Document-type enum in Swagger (DOCUMENT_TYPES derived from DOCUMENT_LABEL), SupabaseService, Injectable, DOCUMENT_TYPES, ConfirmUploadDto, CreateUploadUrlDto, DecideDocumentDto, ApiProperty (+12 more)
-
-### Community 38 - "Chef Dishes Menus PRD"
+### Community 26 - "MessagingService"
 Cohesion: 0.14
-Nodes (24): Derived row kinds: chef dish, offer, suggestion, Lab's Food draft, Plan-Orchestrate result for FLOW-02 (8 steps, 8a/8b), ECC review chain: tdd-guide, database-reviewer, typescript-reviewer, security-reviewer, PRD: plats, menus, publication et moderation (FLOW-02), Adoption: idempotent copy with lineage and audit-log consent, CHEF_NOT_VERIFIED publication gate, Shopping lists computed deterministically from structured ingredient lists, Direct publication, moderation after the fact (+16 more)
+Nodes (10): PairBooking, ConversationDetailView, ConversationView, MessageView, isUniqueViolation(), MessagingService, notFound(), toMessageView() (+2 more)
 
-### Community 39 - "Messaging Rules & Contact Release"
-Cohesion: 0.11
-Nodes (22): J-2 contact release (48h before a confirmed booking), CONTACT_RELEASE_HOURS, DEFAULT_MESSAGE_PAGE_SIZE, isContactReleased(), isWritable(), MAX_ATTACHMENTS_PER_MESSAGE, MAX_BODY_LENGTH, MAX_MESSAGE_PAGE_SIZE (+14 more)
+### Community 27 - "R2StorageService"
+Cohesion: 0.05
+Nodes (34): detectImageType(), MAX_PHOTO_BYTES, PHOTO_TYPES, photoKey(), R2Config, R2StorageService, CONFIG, configured() (+26 more)
 
-### Community 40 - "Demo Seed Data"
-Cohesion: 0.17
-Nodes (21): toInputJson(), bookingStatuses, main(), { prisma, pool }, profileStatuses, quoteStatuses, main(), { prisma, pool } (+13 more)
+### Community 28 - "ClerkUser"
+Cohesion: 0.14
+Nodes (22): FakeRequest, ClerkUser, FakeRequest, mockedVerifyToken, ApiConversationIdParam(), MeConversationsController, ApiBearerAuth, ApiConflictResponse (+14 more)
 
-### Community 41 - "CORS & Webhook Raw Body"
+### Community 29 - "AdminConversationsController"
+Cohesion: 0.21
+Nodes (18): AdminConversationsController, ApiConversationIdParam(), reqId(), ApiBearerAuth, ApiCreatedResponse, ApiNoContentResponse, ApiNotFoundResponse, ApiOkResponse (+10 more)
+
+### Community 30 - "Query"
+Cohesion: 0.06
+Nodes (41): Query, IsBoolean, IsOptional, ApiChefIdParam(), PublicVitrineController, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+33 more)
+
+### Community 31 - "Brevo shared email layout"
+Cohesion: 0.21
+Nodes (17): Brevo shared email layout, params: line contract, signInUrl invariant, Application approved email (BREVO_TPL_APPLICATION_APPROVED), Application received email (BREVO_TPL_APPLICATION_RECEIVED), Application received admin email (BREVO_TPL_APPLICATION_RECEIVED_ADMIN), Application rejected email (BREVO_TPL_APPLICATION_REJECTED), Changes requested email (BREVO_TPL_CHANGES_REQUESTED) (+9 more)
+
+### Community 32 - ".decideDocument"
+Cohesion: 0.22
+Nodes (19): ApiApplicationIdParam(), ChefApplicationsAdminController, reqId(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse (+11 more)
+
+### Community 33 - "PrismaService"
+Cohesion: 0.07
+Nodes (18): AuditEntry, AuditService, Injectable, ClerkService, Injectable, ANSWERS, NOTES_OPEN, Role (+10 more)
+
+### Community 34 - "upload.mjs"
 Cohesion: 0.15
-Nodes (21): registerWebhookRawBodyHook(), CORS_METHODS, corsOptions(), DEVELOPMENT_ORIGINS, isOriginAllowed(), normalize(), PRODUCTION_ORIGINS, resolveAllowedOrigins() (+13 more)
+Nodes (12): Upload digest drift detection, dir, layout, templates, byName, [check, update, force], compare(), digest() (+4 more)
 
-### Community 42 - "Messaging View Types"
-Cohesion: 0.13
-Nodes (23): currentBooking(), AdminPartyView, AttachmentView, BookingSummary, ClientCardView, ConversationKind, CounterpartView, SenderRole (+15 more)
+### Community 35 - "dependencies"
+Cohesion: 0.06
+Nodes (31): dependencies, @aws-sdk/client-s3, @aws-sdk/s3-request-presigner, class-transformer, class-validator, @clerk/backend, @fastify/helmet, @fastify/static (+23 more)
 
-### Community 43 - "Docker Compose Stack"
+### Community 36 - "menus.service.ts"
+Cohesion: 0.19
+Nodes (14): isDisabledByAdmin(), ChefContext, MENU_DISHES, MenuWithDishes, chefPhotoFolder(), PhotoKind, plural(), contentNotOwned() (+6 more)
+
+### Community 37 - "KycStorageService"
+Cohesion: 0.10
+Nodes (12): SupabaseService, Injectable, ALLOWED_MIME_TYPES, DOWNLOAD_URL_TTL_SECONDS, KycStorageService, MAX_FILE_BYTES, SignedUpload, Injectable (+4 more)
+
+### Community 39 - "bookings.views.ts"
+Cohesion: 0.24
+Nodes (14): BOOKING_DETAIL_INCLUDE, BOOKING_LIST_INCLUDE, checkOf(), DetailRow, ListRow, paidOf(), toBookingDetail(), toBookingListItem() (+6 more)
+
+### Community 40 - "demo-seed-constants.ts"
+Cohesion: 0.10
+Nodes (35): toInputJson(), bookingStatuses, main(), { prisma, pool }, profileStatuses, quoteStatuses, main(), { prisma, pool } (+27 more)
+
+### Community 41 - "allowed-origins.ts"
+Cohesion: 0.14
+Nodes (18): CORS_METHODS, corsOptions(), DEVELOPMENT_ORIGINS, isOriginAllowed(), normalize(), PRODUCTION_ORIGINS, resolveAllowedOrigins(), AppConfig (+10 more)
+
+### Community 42 - "messaging.service.ts"
+Cohesion: 0.07
+Nodes (44): J-2 contact release (48h before a confirmed booking), GOING_AHEAD, CONTACT_RELEASE_HOURS, currentBooking(), DEFAULT_MESSAGE_PAGE_SIZE, isContactReleased(), isWritable(), MAX_ATTACHMENTS_PER_MESSAGE (+36 more)
+
+### Community 43 - "stack.md"
 Cohesion: 0.13
 Nodes (25): api service (apps/Dockerfile, port 8000), postgres service (postgres:16-alpine), redis service (redis:7-alpine), local-dev full-stack docker-compose.yml, admin-dashboard service (port 8035), local-dev api service, batchcooking-web service (port 3005), labsfood-web service (port 3007) (+17 more)
 
-### Community 44 - "NPM Scripts"
+### Community 44 - "scripts"
 Cohesion: 0.08
 Nodes (26): scripts, build, db:backfill:clerk, db:backfill:clerk:dry, db:generate, db:migrate, db:migrate:dev, db:resolve (+18 more)
 
-### Community 45 - "Missions Controller"
-Cohesion: 0.18
-Nodes (19): ApiMissionIdParam(), MissionsController, ApiBearerAuth, ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+11 more)
+### Community 45 - ".submit"
+Cohesion: 0.28
+Nodes (17): ApiMissionIdParam(), MissionsController, ApiBearerAuth, ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+9 more)
 
-### Community 46 - "Bookings Spec Docs"
-Cohesion: 0.13
-Nodes (26): Booking status pending->confirmed driven by payment webhook, bookings aggregate (spec 'reservation'), Booking reference generator LF-<year>-NNNN, E2 Bookings lifecycle (spec states), E3 Catalog, E5 Quotes, E6 Shopping lists, Module -> spec traceability table (+18 more)
-
-### Community 47 - "Brevo & Cronofy Integrations"
+### Community 46 - "availability.service.ts"
 Cohesion: 0.09
-Nodes (7): src/modules/dishes module layout (one service per milestone), BrevoService, Injectable, CronofyService, Injectable, DishesMailer, Injectable
+Nodes (34): DAY_MS, parisMinute(), weekdayOf(), ymd(), BLOCK_SELECT, MAX_BLOCKS_AHEAD, requestWindow(), FROM (+26 more)
 
-### Community 48 - "Bookings Controller"
-Cohesion: 0.17
-Nodes (18): ApiNotImplementedResponse, ApiBookingIdParam(), BookingsController, ApiBearerAuth, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+10 more)
+### Community 47 - "contact.service.ts"
+Cohesion: 0.10
+Nodes (14): BrevoService, ChefOnboardingEmail, Injectable, DAY, WHEN, Loaded, SOURCE_LABEL, FORM (+6 more)
 
-### Community 49 - "Dev Dependencies"
-Cohesion: 0.08
-Nodes (25): devDependencies, eslint, eslint-config-prettier, eslint-plugin-prettier, husky, jest, lint-staged, @nestjs/cli (+17 more)
+### Community 48 - "chef-applications.service.ts"
+Cohesion: 0.07
+Nodes (18): communeKey(), matchCommune(), FAILED, GeoFailure, GeoService, Injectable, DECLARED, OFFER (+10 more)
 
-### Community 50 - "App & Auth Modules"
-Cohesion: 0.15
-Nodes (17): AuthModule, Global, Module, CatalogModule, Module, ContactModule, Module, DishesModule (+9 more)
+### Community 49 - "devDependencies"
+Cohesion: 0.07
+Nodes (28): devDependencies, @commitlint/cli, @commitlint/config-conventional, eslint, eslint-config-prettier, eslint-plugin-prettier, husky, jest (+20 more)
 
-### Community 51 - "TypeScript Config"
+### Community 50 - "app.module.ts"
+Cohesion: 0.12
+Nodes (26): AllergiesModule, Module, BookingsModule, Module, CalendarModule, Module, ChefOnboardingModule, Module (+18 more)
+
+### Community 51 - "compilerOptions"
 Cohesion: 0.08
 Nodes (24): compilerOptions, allowSyntheticDefaultImports, baseUrl, declaration, emitDecoratorMetadata, esModuleInterop, experimentalDecorators, forceConsistentCasingInFileNames (+16 more)
 
-### Community 52 - "Clerk Integration Docs"
+### Community 52 - "Clerk integration contract (frontend ↔ backend)"
+Cohesion: 0.09
+Nodes (23): A. Sign-up → DB sync (simulates frontend), Admin user provisioning, B. Sign-in → protected API, BAPI email verification note, C. Bootstrap first admin, Chef vetting, Clerk integration contract (frontend ↔ backend), Code map (+15 more)
+
+### Community 53 - ".confirm"
+Cohesion: 0.20
+Nodes (17): ChefDocumentsController, reqId(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse (+9 more)
+
+### Community 54 - "dishes.rules.ts"
 Cohesion: 0.14
-Nodes (25): Clerk authentication decision, Clerk integration contract (frontend <-> backend), Admin user provisioning (POST /admin/users, PATCH /admin/users/:id/role), POST /auth/register public sign-up, Clerk BAPI email auto-verification risk, First admin bootstrap (manual SQL promotion), GET /me first sign-in sync (ensurePersistedFromClerk), One profile per account (client xor chef) (+17 more)
+Nodes (18): ALLERGEN_CODES, ALLERGENS, COMPUTED_DIETS, DeclarationState, DIETS, DISH_CATEGORIES, duplicatesReference(), isObject() (+10 more)
 
-### Community 53 - "Chef Documents Controller"
-Cohesion: 0.18
-Nodes (18): ChefDocumentsController, reqId(), ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+10 more)
+### Community 55 - "class-validator"
+Cohesion: 0.08
+Nodes (31): PaginationQueryDto, ApiPropertyOptional, IsInt, IsOptional, Max, Min, Type, QueryBoolean() (+23 more)
 
-### Community 54 - "Dishes & Menus Rules"
-Cohesion: 0.14
-Nodes (18): METROPOLITAN_REGIONS, ALLERGENS, declarationProblems(), DeclarationState, DIETS, DISH_CATEGORIES, duplicatesReference(), isRecipeComplete() (+10 more)
+### Community 56 - "ChefApplicationsService"
+Cohesion: 0.23
+Nodes (4): CreateChefApplicationDto, ArrayMinSize, ChefApplicationsService, Injectable
 
-### Community 55 - "Pagination Query DTO"
-Cohesion: 0.14
-Nodes (22): PaginationQueryDto, ApiPropertyOptional, IsInt, IsOptional, Max, Min, Type, ApproveApplicationDto (+14 more)
-
-### Community 56 - "Chef Applications Service"
+### Community 57 - "MessagingAdminService"
 Cohesion: 0.17
-Nodes (5): buildApplicationReference(), ChefApplicationsService, sameValue(), toAnswersView(), Injectable
+Nodes (6): AdminConversationView, AdminMessageView, MessagePage, MessagingAdminService, Injectable, LoadedConversation
 
-### Community 57 - "Messaging Admin Service"
-Cohesion: 0.16
-Nodes (7): AdminConversationView, AdminMessageView, MessagePage, MessagingAdminService, Injectable, LoadedConversation, notFound()
+### Community 58 - "CreateMealDto"
+Cohesion: 0.09
+Nodes (27): CONTINENTS, CreateMealDto, CreateMenuWeekDto, DIFFICULTIES, MEAL_STATUSES, ApiProperty, ApiPropertyOptional, ArrayMaxSize (+19 more)
 
-### Community 58 - "Catalog Meal DTOs"
-Cohesion: 0.14
-Nodes (22): CreateMealDto, CreateMenuWeekDto, MealResponseDto, ApiProperty, ApiPropertyOptional, ArrayMaxSize, IsArray, IsBoolean (+14 more)
-
-### Community 59 - "Chef Onboarding Swagger Examples"
-Cohesion: 0.16
+### Community 59 - "chef-documents.controller.ts"
+Cohesion: 0.15
 Nodes (18): VALIDATION_FAILED, ANSWERS_EXAMPLE, APPLICATION_DETAIL_EXAMPLE, APPROVED_EXAMPLE, CANDIDATURE_EXAMPLE, DECISION_EXAMPLE, DEPOSIT_EXAMPLE, DOCUMENT_STATUS_HELP (+10 more)
 
-### Community 60 - "Dish & Recipe DTOs"
-Cohesion: 0.21
-Nodes (22): CreateDishDto, IngredientDto, RecipeDto, ReheatingDto, StorageDto, ApiProperty, ApiPropertyOptional, ArrayMaxSize (+14 more)
+### Community 60 - "dish.dto.ts"
+Cohesion: 0.19
+Nodes (27): CreateDishDto, DIFFICULTIES, FREE_TEXT, IngredientDto, RecipeDto, ReheatingDto, StepDto, StorageDto (+19 more)
 
-### Community 61 - "Avatar Controller"
-Cohesion: 0.15
-Nodes (17): AvatarController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam (+9 more)
+### Community 61 - "PaymentInvoicesService"
+Cohesion: 0.09
+Nodes (27): BackfilledInvoiceDto, BackfillFailureDto, BackfillPaymentInvoicesDto, DocumentLinkDto, PaymentInvoiceBackfillResultDto, PaymentInvoiceDto, ApiProperty, ApiPropertyOptional (+19 more)
 
-### Community 62 - "Public User Registration"
-Cohesion: 0.12
-Nodes (17): RegisterUserDto, ApiProperty, IsEmail, PublicUsersController, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiOperation (+9 more)
-
-### Community 63 - "Admin Dashboard Spec"
-Cohesion: 0.15
-Nodes (22): POST /chef-applications candidature sign-up, E10 Stats, E11 Main site / admin-only domains, E4 Client profile & CRM, E9 Notifications, SPEC-ADMIN-DASHBOARD (admin console spec), /admin/* REST API surface, GET /admin/clients pagination ({data, meta}, limit<=100) (+14 more)
-
-### Community 64 - "Stripe Service"
-Cohesion: 0.21
-Nodes (7): serviceWith(), StripeService, Injectable, CONFIRMABLE_INTENT_STATUSES, StripeWebhooksService, Injectable, stripe
-
-### Community 65 - "Clerk Webhooks"
+### Community 62 - "public-users.controller.ts"
 Cohesion: 0.13
-Nodes (13): buildWebhookHeaders(), ClerkWebhooksController, ApiExcludeController, ApiTags, Controller, HttpCode, Post, Req (+5 more)
+Nodes (15): RegisterUserDto, ApiProperty, IsEmail, PublicUsersController, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiOperation (+7 more)
 
-### Community 66 - "Dual-Role Switcher Analysis"
-Cohesion: 0.14
-Nodes (14): Analysis: one account, two spaces (client and chef switcher), Client and chef space switcher (dual-role account), Risk: attaching a chef profile to an existing account by email (account takeover), Profile-based authorisation (users.role only gates admin), Self-dealing guard (no booking, quoting or paying your own chef profile), URSSAF avance immediate (50% tax credit for services a la personne), Clerk user.deleted anonymisation (deleted_at tombstone), Security requirements for public account creation (+6 more)
+### Community 63 - "cesu-payments.service.ts"
+Cohesion: 0.08
+Nodes (29): withdrawalRefused(), BookingPaymentState, MethodReasonCode, PaymentMethodOption, REASONS, URSSAF_REASON, UrssafReasonCode, CESU_PAYMENT_INCLUDE (+21 more)
 
-### Community 67 - "Stripe Connect"
-Cohesion: 0.14
-Nodes (13): StripeConnectController, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiTags, Controller, Get (+5 more)
+### Community 64 - "@nestjs/common"
+Cohesion: 0.07
+Nodes (43): serviceWith(), StripeService, Injectable, LEGACY_KEY_VARS, COMMISSION_FOR_INVOICE_SELECT, CommissionForInvoice, CommissionInvoiceView, DEBITABLE_COMMISSION_STATUSES (+35 more)
 
-### Community 68 - "SEPA Mandates"
-Cohesion: 0.15
-Nodes (13): SepaMandatesController, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiTags, Controller, Get (+5 more)
+### Community 65 - "clerk-webhooks.controller.ts"
+Cohesion: 0.11
+Nodes (18): CLERK_WEBHOOK_PATH, getWebhookRawBody(), RawBodyFastifyRequest, registerWebhookRawBodyHook(), STRIPE_WEBHOOK_PATH, WEBHOOK_RAW_BODY_PATHS, buildWebhookHeaders(), ClerkWebhooksController (+10 more)
 
-### Community 69 - "Chef Applications Admin Service"
-Cohesion: 0.27
-Nodes (3): toWire(), ChefApplicationsAdminService, Injectable
+### Community 66 - "Analysis: one account, two spaces (client and chef switcher)"
+Cohesion: 0.43
+Nodes (6): Analysis: one account, two spaces (client and chef switcher), Client and chef space switcher (dual-role account), Risk: attaching a chef profile to an existing account by email (account takeover), Profile-based authorisation (users.role only gates admin), Self-dealing guard (no booking, quoting or paying your own chef profile), URSSAF avance immediate (50% tax credit for services a la personne)
 
-### Community 70 - "Shopping Lists Service"
-Cohesion: 0.24
-Nodes (7): Line, formatQuantity(), ShoppingListsService, garlic, lists(), toLine(), Injectable
+### Community 67 - "sepa-mandates.controller.ts"
+Cohesion: 0.08
+Nodes (33): ConfirmSepaMandateDto, CreateSepaMandateCheckoutDto, SepaMandateCheckoutDto, SepaMandateSetupIntentDto, StripeConnectLinkDto, StripeConnectStatusDto, ApiProperty, IsString (+25 more)
 
-### Community 71 - "API Docs & CMS Removal Plan"
-Cohesion: 0.17
-Nodes (17): Plan: API docs pass and CMS removal, Existing wrong behaviour documented as-is (POST /bookings 501, /bookings/me/bookings/:id, ...), OpenAPI check script (NestFactory preview, no database), Swagger pass on every route (summary, description, examples, error codes), Architecture: FLOW-02 dishes, menus, publication and moderation, One migration per milestone (none applied), Optional Brevo and R2 configuration degrades gracefully, HANDOFF: chef onboarding (FLOW-01) and dishes/menus (FLOW-02) (+9 more)
+### Community 68 - "SepaMandatesService"
+Cohesion: 0.21
+Nodes (6): SepaMandateStatusDto, ApiPropertyOptional, idOf(), SepaMandatesService, Injectable, customerRef()
 
-### Community 72 - "Labs Food Content"
+### Community 69 - ".record"
+Cohesion: 0.18
+Nodes (5): toWire(), ChefApplicationsAdminService, Injectable, sameValue(), toAnswersView()
+
+### Community 70 - "ShoppingListsService"
+Cohesion: 0.13
+Nodes (10): Line, MissionsService, missions(), Injectable, shoppingDeadline(), formatQuantity(), ShoppingListsService, garlic (+2 more)
+
+### Community 71 - "withdrawal.rules.ts"
+Cohesion: 0.10
+Nodes (28): contractConsentRequired(), WITHDRAWAL_MESSAGE, chefShops(), consentsAuditMetadata(), ConsentsInput, CONTRACT_TERMS, ContractGap, contractGaps() (+20 more)
+
+### Community 72 - ".deleteUser"
+Cohesion: 0.11
+Nodes (22): BOOKING_STATUSES, AccountDeletionController, ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam (+14 more)
+
+### Community 73 - "platform-settings.service.ts"
+Cohesion: 0.09
+Nodes (35): SupplementRules, SUPPLEMENTS_KEY, CHEF_CAPABILITIES, CHEF_TIERS_KEY, chefTierLabels(), chefTierRules(), DECIDED_CHEF_TIERS, DEFAULT_CHEF_TIER_LABELS (+27 more)
+
+### Community 74 - "AGENTS.md (development and architecture instructions)"
 Cohesion: 0.19
-Nodes (8): CreateLabsFoodMenuDto, ApiPropertyOptional, IsIn, IsOptional, LabsFoodContentService, service(), toAdminMenuView(), Injectable
+Nodes (16): AGENTS.md (development and architecture instructions), audit_log: compliance journal and debugging trail, Auth testing without Clerk (sk_test_placeholder decodes JWT without JWKS), In-house messaging (chef_client and support conversations), Raw-body webhook signature verification (preParsing hook), Redis optional (in-process fallback for messaging rate limit and events), Stripe Connect destination charge (booking confirmed only on payment_intent.succeeded), Automatic-suspension episode (chef_profiles.auto_suspended_at) (+8 more)
 
-### Community 73 - "Missions Service (FLOW-02)"
-Cohesion: 0.23
-Nodes (5): Where the FLOW-02 spec is followed loosely, FLOW-02 known limits (ponytail notes), MissionsService, missions(), Injectable
-
-### Community 74 - "Agent & Dev Guidelines"
-Cohesion: 0.19
-Nodes (16): AGENTS.md (development and architecture instructions), audit_log: compliance journal and debugging trail, Auth testing without Clerk (sk_test_placeholder decodes JWT without JWKS), In-house messaging (chef_client and support conversations), Raw-body webhook signature verification (preParsing hook), Redis optional (in-process fallback for messaging rate limit and events), Stripe Connect destination charge (booking confirmed only on payment_intent.succeeded), lf-api-nestjs README (apps/) (+8 more)
-
-### Community 75 - "Clerk-to-DB Sync Script"
+### Community 75 - "sync-clerk-to-db.ts"
 Cohesion: 0.17
 Nodes (13): argv, clerkIdArg, confirmed, emailArg, main(), resolveClerkUsers(), roleArg, syncAll (+5 more)
 
-### Community 76 - "Users-to-Clerk Sync Script"
+### Community 76 - "sync-users-to-clerk.ts"
 Cohesion: 0.23
 Nodes (11): assertClerkReachable(), clerk, dryRun, main(), previewClerkUser(), { prisma, pool }, isPlaceholderClerkUserId(), isRealClerkSecretKey() (+3 more)
 
-### Community 77 - "Recipe Rules"
-Cohesion: 0.27
-Nodes (12): aggregate(), applyCorrections(), Correction, diffCorrections(), groupByAisle(), lineKey(), scale(), ail (+4 more)
+### Community 77 - "recipes.rules.ts"
+Cohesion: 0.13
+Nodes (26): aggregate(), applyCorrections(), canonical(), Correction, diffCorrections(), fold(), groupByAisle(), householdPortions() (+18 more)
 
-### Community 78 - "Mission DTOs"
-Cohesion: 0.14
-Nodes (16): PutShoppingListDto, RecipeSheetQueryDto, ShoppingLineDto, ApiProperty, ApiPropertyOptional, ArrayMaxSize, IsArray, IsInt (+8 more)
+### Community 78 - "mission.dto.ts"
+Cohesion: 0.18
+Nodes (21): PutDishNotesDto, PutShoppingListDto, RecipeSheetQueryDto, ShoppingLineDto, ShoppingMarkDto, SubmitShoppingListDto, ApiProperty, ApiPropertyOptional (+13 more)
 
-### Community 79 - "Nest CLI Config"
+### Community 79 - "nest-cli.json"
 Cohesion: 0.13
 Nodes (14): collection, compilerOptions, assets, deleteOutDir, plugins, tsConfigPath, watchAssets, webpack (+6 more)
 
-### Community 80 - "Fastify Raw Body"
-Cohesion: 0.19
-Nodes (10): CLERK_WEBHOOK_PATH, getWebhookRawBody(), RawBodyFastifyRequest, STRIPE_WEBHOOK_PATH, WEBHOOK_RAW_BODY_PATHS, HttpCode, Post, Req (+2 more)
+### Community 80 - "allergies.rules.ts"
+Cohesion: 0.12
+Nodes (27): EARLIER, UPCOMING, allergyCheck(), allergyLabels(), AllergyReason, checkable(), CLIENT_ALLERGY_SELECT, ClientAllergies (+19 more)
 
-### Community 81 - "KYC Storage & Dossier Cron"
-Cohesion: 0.19
-Nodes (3): Cron, KycStorageService, Injectable
+### Community 81 - "CesuPaymentsService"
+Cohesion: 0.07
+Nodes (48): CesuPaymentsController, PublicCesuController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse (+40 more)
 
-### Community 82 - "Admin Content Photos"
-Cohesion: 0.19
-Nodes (9): labsFoodPhotoFolder(), PhotoConfirmDto, PhotoUploadDto, ApiProperty, IsIn, IsInt, Matches, Max (+1 more)
+### Community 82 - "ContentPhotosService"
+Cohesion: 0.31
+Nodes (4): ContentPhotosService, labsFoodPhotoFolder(), service(), Injectable
 
-### Community 83 - "Chef Onboarding PRD"
-Cohesion: 0.16
-Nodes (14): Opaque candidate token machinery removed (application-token, guard, resend-link), Admin verification bypass closed (PATCH /admin/chefs/:id/verification answers 409), PRD: batch cooker onboarding (candidature, KYC, admin validation), Submitting a candidature creates a browse-only account, Answers correctable until decision, locked once a validated document proves them, Daily in-process scheduled job for expiry, suspension and retention, Retention purge on the FLOW-01 section 8 schedule, Document requirements computed server-side from the candidate's answers (+6 more)
+### Community 83 - "main.ts"
+Cohesion: 0.11
+Nodes (24): shouldVerifyClerkJwt(), AllExceptionsFilter, Answer, answerFor(), BUSINESS_REFUSALS, AppLogger, isEvent(), JsonOptions (+16 more)
 
-### Community 84 - "Contact Detection & Masking"
+### Community 84 - "messaging.service.spec.ts"
 Cohesion: 0.29
 Nodes (8): Contact details masked when served, not when stored, CONTACT_MASK, detectContact(), maskContact(), matches(), conversation(), person(), supportConversation()
 
-### Community 85 - "Prisma Env Config"
+### Community 85 - "env-files.ts"
 Cohesion: 0.27
 Nodes (7): Env precedence: repo-root .env.local overrides shell exports, url, appsDir, args, findRepoRoot(), loadRepoEnv(), resolveEnvFilePaths()
 
-### Community 86 - "Payment Intents"
-Cohesion: 0.21
-Nodes (8): PaymentIntentDto, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, Body, HttpCode, Post
-
-### Community 87 - "Profile DTOs"
-Cohesion: 0.24
-Nodes (11): ApiPropertyOptional, IsArray, IsInt, IsOptional, IsString, Length, Max, Min (+3 more)
-
-### Community 88 - "Prisma Client & DB Connection"
-Cohesion: 0.21
-Nodes (7): createPrismaClient(), PrismaClientBundle, PrismaLogLevel, isSupabaseCloudUrl(), postgresSsl(), pg, @prisma/adapter-pg
-
-### Community 89 - "Booking & Meal Ownership Gaps"
-Cohesion: 0.18
-Nodes (6): GET /bookings returns every booking (no admin guard), Explicit owner rule in every module reading meals, Extend meals into the chef-owned dish (no second table), Recipes never exposed publicly (section 8), BookingsService, Injectable
-
-### Community 90 - "Create Booking DTO"
-Cohesion: 0.18
-Nodes (11): CreateBookingDto, ApiProperty, ApiPropertyOptional, IsInt, IsOptional, IsString, IsUUID, Length (+3 more)
-
-### Community 91 - "Payments Webhook Handlers"
-Cohesion: 0.24
-Nodes (3): idOf(), PaymentsService, Injectable
-
-### Community 92 - "Dish Ownership Plan"
+### Community 86 - ".createCheckoutSession"
 Cohesion: 0.22
-Nodes (8): One access rule: 404 on read, 403 CONTENT_NOT_OWNED on write, Plan: Dishes have owners (FLOW-02 milestone 1), 403 CONTENT_NOT_OWNED error code, meals.chef_profile_id (owner, Cascade) and created_by_user_id (author, SetNull), Known pre-existing issues: lint errors in src/generated, registerClient TTL test, A chef never reads or copies another chef's content, FLOW-02 M1: Dishes have owners, Ownership (chef_profile_id) separate from authorship (created_by_user_id)
+Nodes (12): PaymentsController, ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnprocessableEntityResponse (+4 more)
 
-### Community 93 - "Brevo Templates PRD"
-Cohesion: 0.27
-Nodes (9): Sign-in link emailed only, never in the HTTP response, Transactional email via Brevo hosted templates (BREVO_TPL_* ids as config), PRD: Brevo email templates (HTML sources, safety tests, editing workflow), No template engine (EJS, Handlebars, Pug rejected), Brevo Pongo2 template language (auto-escaped variables), postmark-cli templates push/pull (repo-as-source model), Six node:test template security rules, upload.mjs --check / --update / --force (repo as source of truth) (+1 more)
+### Community 87 - "profile.dto.ts"
+Cohesion: 0.18
+Nodes (17): CLIENT_STATUS_HELP, CLIENT_STATUSES, ApiPropertyOptional, IsArray, IsBoolean, IsIn, IsInt, IsOptional (+9 more)
 
-### Community 94 - "Clerk User Payload"
-Cohesion: 0.40
-Nodes (6): ClerkProfileFields, clerkProfileFromBapiUser(), clerkProfileFromUserJson(), fullNameFromClerkUser(), primaryEmailFromClerkUser(), primaryPhoneFromClerkUser()
+### Community 88 - "db-connection.ts"
+Cohesion: 0.15
+Nodes (12): distrustCompromisedRoots(), TRUSTED_ROOT_CERTIFICATES, createPrismaClient(), PrismaClientBundle, PrismaLogLevel, isSupabaseCloudUrl(), PG_URL_TLS_PARAMS, postgresPoolConfig (+4 more)
 
-### Community 95 - "Referentials Controller"
-Cohesion: 0.40
-Nodes (6): ReferentialsController, ApiOkResponse, ApiOperation, ApiTags, Controller, Get
+### Community 89 - "BookingsService"
+Cohesion: 0.29
+Nodes (6): BookingsService, invalid(), notFound(), Injectable, Audience, acceptedConsents()
 
-### Community 96 - "Health Controller"
+### Community 90 - "bookings.dto.ts"
+Cohesion: 0.14
+Nodes (33): AdminBookingsQueryDto, AdminUpdateBookingDto, BookingMealDto, BookingPhotoConfirmDto, BookingsQueryDto, ChefBookingsQueryDto, ChefUpdateBookingDto, ContractConsentsDto (+25 more)
+
+### Community 93 - "4. Juridique"
+Cohesion: 0.06
+Nodes (33): 0. Le bilan en bref, 1. Les deux blocs, 2.1 Les courses (carte et empreinte), 2.2 La prestation et le forfait (avance immédiate), 2.3 Cas particuliers, 2. Le parcours, étape par étape, 3. Où passe l'argent, 4.10 Données personnelles (+25 more)
+
+### Community 94 - "clerk-user-payload.ts"
+Cohesion: 0.67
+Nodes (5): clerkProfileFromBapiUser(), clerkProfileFromUserJson(), fullNameFromClerkUser(), primaryEmailFromClerkUser(), primaryPhoneFromClerkUser()
+
+### Community 95 - "ReferentialsController"
+Cohesion: 0.14
+Nodes (13): Commune, detailOf(), isCommuneList(), isTimeout(), byLabel(), ReferentialsController, ApiOkResponse, ApiOperation (+5 more)
+
+### Community 96 - "HealthController"
 Cohesion: 0.24
-Nodes (7): HealthController, ApiOkResponse, ApiOperation, ApiTags, Controller, Get, HealthCheck
+Nodes (7): HealthController, ApiOkResponse, ApiOperation, ApiTags, Get, SkipThrottle, HealthCheck
 
-### Community 97 - "Payments Module & Stripe Webhooks"
-Cohesion: 0.20
-Nodes (8): PaymentsModule, Module, StripeWebhooksController, ApiExcludeController, ApiTags, Controller, StripeWebhooksModule, Module
+### Community 97 - "StripeWebhooksService"
+Cohesion: 0.14
+Nodes (12): StripeWebhooksController, ApiExcludeController, ApiTags, HttpCode, Post, Req, SkipThrottle, StripeWebhooksModule (+4 more)
 
-### Community 98 - "SAP Profile DTO"
-Cohesion: 0.22
-Nodes (10): SapProfileDto, ApiProperty, ApiPropertyOptional, IsIn, IsOptional, IsString, Length, ValidateIf (+2 more)
+### Community 98 - "UpdateMeSapProfileDto"
+Cohesion: 0.14
+Nodes (14): SAP_DECLARATION_TYPES, SAP_EXTERNAL_STATUSES, SapProfileDto, ApiProperty, ApiPropertyOptional, IsBoolean, IsIn, IsNotEmpty (+6 more)
 
-### Community 99 - "Jest Config"
+### Community 99 - "jest"
 Cohesion: 0.22
 Nodes (9): jest, collectCoverageFrom, coverageDirectory, moduleFileExtensions, rootDir, testEnvironment, testRegex, transform (+1 more)
 
-### Community 100 - "Chef Profile DTO"
-Cohesion: 0.22
-Nodes (9): ChefProfileFieldsDto, ApiProperty, ApiPropertyOptional, IsInt, IsOptional, IsString, Length, Max (+1 more)
+### Community 100 - "ChefProfileFieldsDto"
+Cohesion: 0.17
+Nodes (12): ChefProfileFieldsDto, ApiProperty, ApiPropertyOptional, ArrayUnique, IsArray, IsIn, IsInt, IsOptional (+4 more)
 
-### Community 101 - "Chef Onboarding Migration"
-Cohesion: 0.25
-Nodes (6): Dossier status derived from documents, never stored as input, Append-only chef_documents owned by the chef profile from first upload, Legacy tables renamed aside to *_legacy, not dropped, "audit_log", "chef_applications", "chef_documents"
+### Community 101 - "20260920120000_chef_onboarding/migration.sql"
+Cohesion: 0.29
+Nodes (5): Append-only chef_documents owned by the chef profile from first upload, Legacy tables renamed aside to *_legacy, not dropped, "audit_log", "chef_applications", "chef_documents"
 
-### Community 103 - "TS Build Config"
+### Community 103 - "tsconfig.build.json"
 Cohesion: 0.25
 Nodes (7): compilerOptions, rootDir, tsBuildInfoFile, exclude, extends, include, ./tsconfig.json
 
-### Community 104 - "Countries Referential"
-Cohesion: 0.38
+### Community 104 - "countries.ts"
+Cohesion: 0.32
 Nodes (5): ALPHA2_TO_NUMERIC, COUNTRIES_TOTAL, country(), COUNTRY_CODES, frenchNames
 
-### Community 105 - "Stripe Connect DTOs"
-Cohesion: 0.48
-Nodes (6): SepaMandateSetupIntentDto, SepaMandateStatusDto, StripeConnectLinkDto, StripeConnectStatusDto, ApiProperty, ApiPropertyOptional
+### Community 105 - "contract-documents.ts"
+Cohesion: 0.21
+Nodes (29): ASSETS, brandDocument(), brandHeader(), COLOR, FONT, footer(), label, LOGO (+21 more)
 
-### Community 106 - "Docker CI Workflow"
+### Community 106 - "build-run-push job"
 Cohesion: 0.33
 Nodes (5): Docker image workflow (GitHub Actions), build-run-push job, Publish image to GHCR on pushes and tags, never on PRs, Smoke test: migrate, boot, /health and /ready against a throwaway Postgres, docker-entrypoint.sh script
 
-### Community 107 - "Bookings & Shopping Modules"
-Cohesion: 0.40
-Nodes (4): BookingsModule, Module, ShoppingListsModule, Module
+### Community 107 - "QuotesService"
+Cohesion: 0.18
+Nodes (6): QuoteView, Viewer, notFound(), QuotesService, Injectable, ChefIdentity
 
-### Community 108 - "Booking Read DTO"
-Cohesion: 0.40
-Nodes (3): BookingReadDto, ApiProperty, UserRoleEnum
+### Community 110 - "bookings.service.ts"
+Cohesion: 0.09
+Nodes (23): HHMM, PARIS, parisHhmm(), parisOffsetMs(), parisToday(), Caller, changedKeys(), HOLD_MS (+15 more)
 
-### Community 109 - "Messaging Notifier Cron"
-Cohesion: 0.40
-Nodes (3): MessagingNotifierCron, Cron, Injectable
+### Community 112 - "commission-policy.ts"
+Cohesion: 0.15
+Nodes (16): EarningsInput, RATES, ACCEPTED_OFFER, commissionFor(), commissionForPayment(), CommissionPolicyDb, hasDeal(), OfferDeal (+8 more)
 
-### Community 110 - "Payments Controller"
-Cohesion: 0.33
-Nodes (5): PaymentsController, ApiBearerAuth, ApiTags, Controller, UseGuards
-
-### Community 111 - "CMS Removal & KYC Notes"
-Cohesion: 0.50
-Nodes (4): CMS removal (content-cms module, CmsPage model, cms_pages table), KYC files in a private Supabase Storage bucket with signed upload and read, Dish, menu and profile photos on Cloudflare R2, presigned and moderated, Third-party services (Clerk, Cronofy, Brevo, Stripe, Google Maps, Cloudflare R2, Supabase Storage)
-
-### Community 112 - "Commission Calculation"
-Cohesion: 0.60
-Nodes (3): CommissionBreakdown, CommissionRates, computeCommission()
-
-### Community 113 - "Payments SAP SEPA Migration"
+### Community 113 - "20260831120000_payments_sap_sepa_foundations/migration.sql"
 Cohesion: 0.50
 Nodes (3): "commissions", "sap_profiles", "sepa_mandates"
 
-### Community 114 - "CORS Smoke Test"
-Cohesion: 0.50
-Nodes (3): PingController, Controller, Get
+### Community 114 - ".ensurePersistedFromClerk"
+Cohesion: 0.09
+Nodes (21): AllergiesController, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiOperation, ApiTags, ApiUnprocessableEntityResponse, Delete (+13 more)
 
-### Community 115 - "Env Validation"
-Cohesion: 0.50
-Nodes (3): envValidationSchema, Add Brevo template workflow, joi
+### Community 115 - "env.validation.ts"
+Cohesion: 0.33
+Nodes (5): CLERK_SECRET_KEY_PATTERN, envValidationSchema, REQUIRED, Add Brevo template workflow, joi
 
-### Community 116 - "Gateway Auth Handler"
-Cohesion: 0.50
-Nodes (3): ConnectedSocket, MessageBody, SubscribeMessage
+### Community 116 - "ApiBookingId"
+Cohesion: 0.22
+Nodes (19): MeBookingsController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam (+11 more)
 
-### Community 117 - "Redis Module"
+### Community 117 - "redis.module.ts"
 Cohesion: 0.50
 Nodes (3): RedisModule, Global, Module
 
-### Community 118 - "Audit Module"
+### Community 118 - "AuditModule"
 Cohesion: 0.67
 Nodes (3): AuditModule, Global, Module
 
-### Community 119 - "Integrations Module"
+### Community 119 - "IntegrationsModule"
 Cohesion: 0.67
 Nodes (3): IntegrationsModule, Global, Module
 
+### Community 132 - "CreateQuoteDto"
+Cohesion: 0.14
+Nodes (28): TimeSlot, AcceptOfferDto, CreateQuoteDto, CreateQuoteOfferDto, DeclineDto, EditableQuoteFieldsDto, VALID, ApiProperty (+20 more)
+
+### Community 133 - "QuoteOffersService"
+Cohesion: 0.12
+Nodes (10): isUniqueViolation(), offerNotFound(), QuoteOffersService, Cron, Injectable, SentryCron, LoadedQuote, day() (+2 more)
+
+### Community 134 - "ApiClerkAuthResponses"
+Cohesion: 0.21
+Nodes (19): ApiClerkAuthResponses(), ChefBookingsController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse (+11 more)
+
+### Community 135 - ".feed"
+Cohesion: 0.10
+Nodes (22): ChefCalendarFeedController, PublicCalendarFeedController, ApiBearerAuth, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse, ApiNotFoundResponse, ApiOkResponse (+14 more)
+
+### Community 136 - "content.errors.ts"
+Cohesion: 0.13
+Nodes (23): aiFormatInvalid(), allergenConflict(), allergensUnverified(), allergiesNotDeclared(), healthConsentRequired(), limitReached(), menuFrozen(), shoppingByClient() (+15 more)
+
+### Community 137 - ".outcome"
+Cohesion: 0.17
+Nodes (21): AdminUrssafController, BookingPaymentsController, requestId(), ApiBearerAuth, ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse (+13 more)
+
+### Community 138 - "booking-reschedules.service.ts"
+Cohesion: 0.15
+Nodes (20): answeredMeanwhile(), Booking, BOOKING_SELECT, BookingReschedulesService, contactOf(), endFor(), nameOf(), notFound() (+12 more)
+
+### Community 139 - ".addBlock"
+Cohesion: 0.12
+Nodes (19): AgendaService, Injectable, ChefAgendaController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse (+11 more)
+
+### Community 140 - "availability.dto.ts"
+Cohesion: 0.19
+Nodes (26): AgendaQueryDto, AgendaSummaryQueryDto, AvailabilityExceptionDto, ChefSlotsQueryDto, PublicSlotsQueryDto, ScheduleDto, TimeBlockDto, ApiProperty (+18 more)
+
+### Community 141 - "CommissionDebitsService"
+Cohesion: 0.14
+Nodes (5): addDays(), CommissionDebitsService, isUniqueViolation(), targetDate(), Injectable
+
+### Community 142 - ".retryDebit"
+Cohesion: 0.14
+Nodes (21): CommissionInvoicesController, resolvePeriod(), toCommissionInvoiceDto(), ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+13 more)
+
+### Community 143 - "class-transformer"
+Cohesion: 0.18
+Nodes (23): ApplicationAddressDto, ApplicationCompanyDto, ApplicationConsentDto, ApplicationIdentityDto, CompanySapDto, InterventionCityDto, InterventionZoneDto, ApiProperty (+15 more)
+
+### Community 144 - "contact.dto.ts"
+Cohesion: 0.11
+Nodes (21): CONTACT_RATE_LIMIT, CONTACT_SOURCES, CONTACT_STATUSES, ContactSource, DEFAULT_CONTACT_SUBJECT, ListContactMessagesQueryDto, ReplyContactMessageDto, SETTABLE_CONTACT_STATUSES (+13 more)
+
+### Community 145 - "booking-documents.service.ts"
+Cohesion: 0.15
+Nodes (16): stackOf(), addressOf(), BookingDocumentsService, chefNameOf(), CONTRACT_SELECT, ContractRow, Cron, Injectable (+8 more)
+
+### Community 146 - "me-bookings.controller.ts"
+Cohesion: 0.16
+Nodes (17): ApiGeoResponses(), ICS_EXAMPLE, PHOTOS_EXAMPLE, ADMIN_CLIENT, ADMIN_DETAIL_EXAMPLE, ADMIN_ITEM_EXAMPLE, BATCH_COOKER_ONLY, BOOKING_DETAIL_EXAMPLE (+9 more)
+
+### Community 147 - "quote.rules.ts"
+Cohesion: 0.13
+Nodes (19): AWAITING_CHEF, CLOSED, DUPLICATE_WINDOW_MS, MAX_NET_CENTS, MAX_OPEN_REQUESTS, MAX_VALIDITY_DAYS, MIN_NET_CENTS, MIN_VALIDITY_DAYS (+11 more)
+
+### Community 148 - "Deploy LF-BackEnd on Railway"
+Cohesion: 0.09
+Nodes (23): 1. Create the service, 2. Environment variables, 3. Database URLs (Supabase), 4. Public domain & API URLs, 4b. Logs and debugging, 4c. Scheduled jobs, 5. Deploy flow, 6. Local Docker vs Railway (+15 more)
+
+### Community 149 - ".sendTemplate"
+Cohesion: 0.16
+Nodes (5): amountOrEmpty(), BookingsMailer, euros(), firstName(), Injectable
+
+### Community 150 - "BookingPaymentsService"
+Cohesion: 0.16
+Nodes (5): afterTaxCredit(), BookingPaymentsService, Injectable, advanceAccepted(), bookingCoverage
+
+### Community 151 - "ListItemDto"
+Cohesion: 0.15
+Nodes (22): BookingSupplementsDto, ChefTierLabelsDto, ChefTiersDto, ListItemDto, RecipeProfilesDto, ReheatModesDto, ApiProperty, ArrayMaxSize (+14 more)
+
+### Community 152 - ".update"
+Cohesion: 0.16
+Nodes (16): UpdateServiceOfferDto, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiNoContentResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation (+8 more)
+
+### Community 153 - "1. Site client (`batchcooking-web`)"
+Cohesion: 0.09
+Nodes (21): 0. Le contrat d'API à brancher, 1. Site client (`batchcooking-web`), 2. Console admin (`admin-dashboard`), 3. Après l'API du lot 6 : Budget Courses et empreinte (P2), 4. À faire hors front, 5. Recette, A1 — Les batch cookers (P1), A2 — Le détail d'une réservation (P0 pour la rétractation) (+13 more)
+
+### Community 154 - ".create"
+Cohesion: 0.17
+Nodes (15): AdminBookingsController, ApiBearerAuth, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags (+7 more)
+
+### Community 155 - "Plan d'audit de sécurité — LF-BackEnd"
+Cohesion: 0.10
+Nodes (20): 0. Cadre & base de références, 1.1 Failles de logique métier (le risque n°1 ici), 1.2 Injections, 1. Stratégie de test — failles logiques & injections, 2. Simulation d'attaque — Top 3 cibles (pentest théorique), 3. Audit de configuration, 4. Audit de gestion des secrets, 5. Bilan de sécurité (synthèse noir / rouge / orange) (+12 more)
+
+### Community 156 - "Evolution Register — Payments (Stripe CB, Connect, commissions, SAP/SEPA foundations)"
+Cohesion: 0.10
+Nodes (20): Change Log, Changed elsewhere, Configuration Evolution, Data model evolution, Documentation Evolution, Enums, Evolution Register — Payments (Stripe CB, Connect, commissions, SAP/SEPA foundations), File Evolution (+12 more)
+
+### Community 157 - "booking-audiences.controller.spec.ts"
+Cohesion: 0.13
+Nodes (10): CalendarFeedService, FEED_IN_USE_MS, feedInUse(), hashOf(), BOOKING, FeedRow, STATUS_LABEL, Injectable (+2 more)
+
+### Community 158 - "StatsService"
+Cohesion: 0.18
+Nodes (11): StatsController, ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags, Get, UseGuards, StatsModule (+3 more)
+
+### Community 159 - "3. Endpoints"
+Cohesion: 0.11
+Nodes (19): 1. Model in one paragraph, 2. Prerequisites per role, 3. Endpoints, 4. Webhook — `POST /webhooks/stripe`, 5. Commission arithmetic, 6. Configuration, 7. Data model, 8. Known limitations (+11 more)
+
+### Community 160 - "global-throttler.smoke.spec.ts"
+Cohesion: 0.17
+Nodes (9): GLOBAL_THROTTLER, GlobalThrottlerGuard, build(), Injectable, SmokeModule, Module, ipSeenBehind(), trustRailwayEdge() (+1 more)
+
+### Community 161 - "CatalogService"
+Cohesion: 0.17
+Nodes (7): CatalogService, isNotFound(), isUniqueViolation(), menuWeekNotFound(), onMenu(), Injectable, weekTaken()
+
+### Community 162 - "classification.rules.ts"
+Cohesion: 0.14
+Nodes (15): ALL_YEAR, CatalogEntry, ChefVersion, Classification, classify(), DECLARED_DIET_CODES, DECLARED_DIETS, linkedIds() (+7 more)
+
+### Community 163 - "quote-offers.service.ts"
+Cohesion: 0.19
+Nodes (11): ACTIVE_OFFER, MAX_DAYS_AHEAD, NOW, OFFER, QuotesMailer, SLOT_LABEL, Injectable, closing() (+3 more)
+
+### Community 164 - ".replace"
+Cohesion: 0.19
+Nodes (12): ChefAvailabilityController, ApiBearerAuth, ApiConflictResponse, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags (+4 more)
+
+### Community 165 - "service-offers.service.ts"
+Cohesion: 0.27
+Nodes (12): bookingAmounts(), DEFAULT_SUPPLEMENT_RULES, reprice(), shoppingFee(), supplementRulesInForce(), Supplements, supplementsFor(), supplementsTotal() (+4 more)
+
+### Community 166 - "PaymentsService"
+Cohesion: 0.27
+Nodes (7): CommissionBreakdown, CheckoutSessionDto, PaymentIntentDto, ApiProperty, setup(), PaymentsService, Injectable
+
+### Community 167 - "chef-legal.views.ts"
+Cohesion: 0.18
+Nodes (12): CHEF_LEGAL_SELECT, CHEF_LEGAL_STATUSES, ChefLegalGap, chefLegalIdentity, ChefLegalRow, ChefLegalStatus, EMPTY, FULL (+4 more)
+
+### Community 168 - "[1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02)"
+Cohesion: 0.13
+Nodes (14): [1.4.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.3.0...v1.4.0) (2026-10-31), [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02), [1.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.4.0...v1.5.0) (2026-11-02), [2.0.0](https://github.com/LabsFood/LF-BackEnd/compare/v1.5.0...v2.0.0) (2026-11-09), ⚠ BREAKING CHANGES, Bug Fixes, Bug Fixes, Bug Fixes (+6 more)
+
+### Community 169 - "/lf-security-audit"
+Cohesion: 0.13
+Nodes (14): Baseline connue (2026-10-20) — un run est un DIFF vs ceci, Checklist tests dynamiques (pour l'humain, env de test uniquement), Garde-fous (NON négociables), /lf-security-audit, Phase 0 — Cartographie (toujours), Phase 1 — Authentification & bootstrap  (⚫ Cible 1), Phase 2 — Autorisation objet/fonction  (🟠 Cible 2 — anti-régression), Phase 3 — Webhooks & secrets (+6 more)
+
+### Community 170 - "contract-documents.spec.ts"
+Cohesion: 0.19
+Nodes (10): textOf(), cgvPath(), cgvPdf(), flat(), InvoiceLine, formatMoney(), PaymentInvoiceSnapshot, SNAPSHOT (+2 more)
+
+### Community 171 - "WeekMenusQueryDto"
+Cohesion: 0.18
+Nodes (14): ChefShowcaseQueryDto, ApiPropertyOptional, ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsOptional (+6 more)
+
+### Community 172 - "booking-payments.dto.ts"
+Cohesion: 0.24
+Nodes (13): DecideUrssafLinkDto, RequestUrssafLinkDto, SettleBookingDto, SimulateUrssafOutcomeDto, ApiProperty, ApiPropertyOptional, IsIn, IsOptional (+5 more)
+
+### Community 173 - "fiscal-attestations.service.ts"
+Cohesion: 0.15
+Nodes (11): attestationExclusion(), AttestationPayment, ECESU_ATTESTATION_NOTE, isPlatformAttestable(), CHEF_A, CHEF_B, CHEF_UNDECLARED, CLIENT (+3 more)
+
+### Community 174 - "Clerk identity + Supabase/Prisma app data"
+Cohesion: 0.14
+Nodes (14): 1. Clerk → Postgres (primary, ongoing), 2. Postgres → Clerk (migration / demo, one-off), 3. Request-time upsert (first sign-in), Admin provisioning (Backend API), Backfill for accounts the webhook never saw, Clerk identity + Supabase/Prisma app data, Code map, Dashboard / frontend contract (+6 more)
+
+### Community 175 - "Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine"
+Cohesion: 0.14
+Nodes (14): CESU lifecycle, Configuration, Explicitly out of scope, File Evolution, Mixed CESU + card, Open before production, Prefinanced CESU (e-CESU first) + the SEPA commission-debit engine, Routes added (+6 more)
+
+### Community 176 - "ContactService"
+Cohesion: 0.21
+Nodes (5): Contact forms: stored first, emailed second, ContactService, firstNameOf(), notFound(), Injectable
+
+### Community 177 - ".slots"
+Cohesion: 0.15
+Nodes (11): PublicAvailabilityController, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiUnprocessableEntityResponse, Get (+3 more)
+
+### Community 178 - "admin-chefs.dto.ts"
+Cohesion: 0.15
+Nodes (11): METROPOLITAN_REGIONS, CHEF_SORTS, CHEF_STATE_FILTERS, CHEF_STATE_HELP, CHEF_STATES, ChefState, ChefStateFilter, REGION_CODES (+3 more)
+
+### Community 179 - "admin-chefs.service.ts"
+Cohesion: 0.19
+Nodes (12): BookingCounts, CHEF_SELECT, ChefRow, CONTENT_COUNTS, LIVE_ACCOUNT, REGION_LABEL, stateOf(), StoredCity (+4 more)
+
+### Community 180 - "F19 - Page "Notre Concept" CMS"
+Cohesion: 0.15
+Nodes (12): Acceptance Criteria, API Contract Draft, Current Codebase Finding, Data Model Proposal, Existing Files To Modify, F19 - Page "Notre Concept" CMS, Feature Source, `GET /content/concept` (+4 more)
+
+### Community 181 - "CreateCheckoutSessionDto"
+Cohesion: 0.17
+Nodes (12): CreateCheckoutSessionDto, CreatePaymentIntentDto, FiscalAttestationProviderDto, ApiPropertyOptional, IsIn, IsInt, IsOptional, IsPositive (+4 more)
+
+### Community 182 - "CreateServiceOfferDto"
+Cohesion: 0.24
+Nodes (12): CreateServiceOfferDto, OfferPriceQueryDto, ApiProperty, ApiPropertyOptional, IsBoolean, IsInt, IsOptional, IsString (+4 more)
+
+### Community 183 - "ServiceOffersService"
+Cohesion: 0.32
+Nodes (4): ServiceOffersService, Injectable, unprocessable(), view()
+
+### Community 184 - "In-house batch cooker calendar"
+Cohesion: 0.17
+Nodes (12): Context, Cross-check against the batchcooking-web agenda, Decided (2026-10-15), For the front team (LF-0074 and what follows), Implementation notes (where the code differs from the text above), In-house batch cooker calendar, Migrations (written, never applied by me), Order and verification (+4 more)
+
+### Community 185 - "Supabase Postgres connection (LF-BackEnd)"
+Cohesion: 0.17
+Nodes (12): Behavior in this repo, Env file location, Environment variables, Partially applied migrations, Prisma baseline (existing TypeORM databases), Prisma commands (ORM 7), Railway production, Supabase Postgres connection (LF-BackEnd) (+4 more)
+
+### Community 186 - "Controller"
+Cohesion: 0.25
+Nodes (7): Controller, AdminServiceOffersController, PublicServiceOffersController, ServiceOffersController, ApiBearerAuth, ApiTags, UseGuards
+
+### Community 187 - "ics.ts"
+Cohesion: 0.33
+Nodes (7): where(), icsCalendar(), IcsEvent, icsFold(), icsText(), icsUtc(), RFC-5545
+
+### Community 188 - "ConfirmUploadDto"
+Cohesion: 0.29
+Nodes (11): ConfirmUploadDto, CreateUploadUrlDto, DecideDocumentDto, ApiProperty, ApiPropertyOptional, IsDateString, IsIn, IsInt (+3 more)
+
+### Community 189 - "payment-invoices.rules.ts"
+Cohesion: 0.38
+Nodes (7): formatInvoiceNumber(), InvoiceBookingFacts, invoiceLines(), invoiceNumberPrefix(), invoiceYear(), parseTemplate(), BOOKING
+
+### Community 190 - "AdminChefsService"
+Cohesion: 0.33
+Nodes (4): Batch cookers in the back office (LF-0164, GET /admin/chefs), AdminChefsService, STATE_WHERE, Injectable
+
+### Community 191 - "UrssafGateway"
+Cohesion: 0.22
+Nodes (5): UrssafGatewayMode, Injectable, UrssafGateway, UrssafPaymentRequest, UrssafTransmission
+
+### Community 192 - "quote.views.ts"
+Cohesion: 0.31
+Nodes (8): AssignedChef, dateOnly(), LoadedOffer, QUOTE_INCLUDE, offer(), quote(), toOfferView(), toQuoteView()
+
+### Community 193 - "UpdateChefLegalDto"
+Cohesion: 0.20
+Nodes (10): ChefLegalDto, ApiProperty, ApiPropertyOptional, IsIn, IsOptional, IsString, IsUrl, Length (+2 more)
+
+### Community 194 - "Role-segmented bookings, batch cooker availability and Cronofy"
+Cohesion: 0.20
+Nodes (8): Assumptions to confirm, Context, Files, Implementation notes (where the code differs from this plan), Migrations (written only, never applied by me), Role-segmented bookings, batch cooker availability and Cronofy, Status, Verification
+
+### Community 195 - "catalog.module.ts"
+Cohesion: 0.25
+Nodes (7): AuthModule, Global, Module, CatalogModule, Module, DishesModule, Module
+
+### Community 196 - "recipe-document.ts"
+Cohesion: 0.25
+Nodes (7): labelOf(), number, RecipeDocumentInput, INPUT, STORAGE_METHODS, Stored, watermark()
+
+### Community 197 - "CreateAdminUserDto"
+Cohesion: 0.25
+Nodes (9): CreateAdminUserDto, ApiProperty, ApiPropertyOptional, IsEmail, IsIn, IsOptional, IsString, UpdateUserRoleDto (+1 more)
+
+### Community 198 - "overrides"
+Cohesion: 0.25
+Nodes (8): glob, js-yaml, overrides, fastify, @nestjs/cli, @nestjs/swagger, @typescript-eslint/typescript-estree, minimatch
+
+### Community 199 - "swagger.ts"
+Cohesion: 0.39
+Nodes (6): TAG_DESCRIPTIONS, buildOpenApiDocument(), GUIDE, schemaOf(), Paths, withSchemasFromExamples()
+
+### Community 200 - "client-onboarding.rules.ts"
+Cohesion: 0.32
+Nodes (6): clientOnboarding(), ClientOnboardingFacts, ClientOnboardingStep, filled(), DONE, NOTHING
+
+### Community 201 - "templates.test.mjs"
+Cohesion: 0.25
+Nodes (5): Brevo template security rules, declared(), FIXTURES, RULES, SIGN_IN_EMAILS
+
+### Community 202 - "Phase C: Cronofy (connect, free/busy, events), data center `de`"
+Cohesion: 0.25
+Nodes (8): API client: `src/integrations/cronofy.service.ts`, Booking integration, Calendar module: `src/modules/calendar/`, Config and fix, Frontend dependency (batchcooking-web; NEVER touch it unless you ask), Phase C: Cronofy (connect, free/busy, events), data center `de`, Prisma, Token encryption: `src/common/crypto/secret-box.ts`
+
+### Community 203 - "Phase D1: the agenda, fitted to the page"
+Cohesion: 0.25
+Nodes (8): Closed days stop requests, not counter-proposals, Errors, Logs, Phase D1: the agenda, fitted to the page, Routes (tag `chefBookings`, `ClerkAuthGuard`, approved batch cooker), Schema (migration `20261015120000_agenda`), Tests, Working hours (`/chef/availability`), fitted to how the page edits
+
+### Community 204 - "Rapport d'audit sécurité — LF-BackEnd — 2026-10-24 (run `--quick`)"
+Cohesion: 0.25
+Nodes (7): Bilan ⚫🔴🟠 (inchangé), Checklist tests dynamiques (humain, env de test uniquement) — non exécutée ici, Contrôles de régression Phase 0/2 (routes nouvelles ou modifiées depuis `b370f11`), Hors cibles, vus dans le diff (🟢, ne pas casser), Rapport d'audit sécurité — LF-BackEnd — 2026-10-24 (run `--quick`), Résultat : ✅ 0 régression — les 3 cibles sont INCHANGÉES (toujours ouvertes), ⚠️ À vérifier côté opérations (hors code)
+
+### Community 205 - "ListAdminChefsQueryDto"
+Cohesion: 0.29
+Nodes (7): ListAdminChefsQueryDto, ApiPropertyOptional, IsIn, IsOptional, IsString, MaxLength, Transform
+
+### Community 206 - "chef-profile.dto.ts"
+Cohesion: 0.29
+Nodes (4): ISO_639_1, LANGUAGE_CODES, languageNames, LANGUAGES
+
+### Community 207 - "Phase A: role-segmented bookings"
+Cohesion: 0.29
+Nodes (7): Controllers, e-CESU proof of payment (payments module), Phase A: role-segmented bookings, Routes, Service: `bookings.service.ts`, Status rules: `bookings/domain/booking-status.ts`, Views, DTOs and other Phase A edits
+
+### Community 208 - "Phase B: working hours and computed availability (no Cronofy needed)"
+Cohesion: 0.29
+Nodes (7): Domain, How long a pending booking holds its slot: `BookingsService.expireUnpaid`, Not included, Phase B: working hours and computed availability (no Cronofy needed), Prisma, Routes, Service: `calendar/availability.service.ts`
+
+### Community 209 - "Phase L: error handling and logging, for every phase below"
+Cohesion: 0.29
+Nodes (7): L1. Request context, L2. One logger, structured, L3. One exception filter, L4. Rules every phase follows, L5. Shipping logs (not built now), L6. Retrofitting Phases A and B, Phase L: error handling and logging, for every phase below
+
+### Community 210 - "booking-reschedules.service.spec.ts"
+Cohesion: 0.53
+Nodes (4): booking(), hoursAhead(), NOW, proposal()
+
+### Community 211 - "Phase S: a temporary `disputed` status"
+Cohesion: 0.33
+Nodes (6): Code, Errors and logs, Phase S: a temporary `disputed` status, Rules, Tests, Why "temporary" stays in the database
+
+### Community 212 - "Rapport d'audit sécurité — LF-BackEnd — 2026-10-20 (run `--quick`)"
+Cohesion: 0.33
+Nodes (5): Bilan ⚫🔴🟠 (inchangé), Checklist tests dynamiques (humain, env de test uniquement) — non exécutée ici, Contrôles de régression Phase 0/2, Rapport d'audit sécurité — LF-BackEnd — 2026-10-20 (run `--quick`), Résultat : ✅ 0 régression — état courant = baseline
+
+### Community 213 - "20260905120000_payments_cesu_commission_debits/migration.sql"
+Cohesion: 0.40
+Nodes (4): "cesu_settlements", "commission_debits", "commission_invoices", "stripe_event_logs"
+
+### Community 214 - "RoutesController"
+Cohesion: 0.50
+Nodes (3): RoutesController, Get, SkipThrottle
+
+### Community 215 - "Phase D1b: what clients see"
+Cohesion: 0.40
+Nodes (5): Errors and logs, Phase D1b: what clients see, Public availability without an offer id, `slotsLeft` from the agenda (FLOW-02 §5.1), Tests
+
+### Community 216 - "20261014130000_chef_availability/migration.sql"
+Cohesion: 0.67
+Nodes (3): "chef_availability_exceptions", "chef_working_hours", "chef_profiles"
+
+### Community 217 - "ListAdminClientsQueryDto"
+Cohesion: 0.50
+Nodes (4): ListAdminClientsQueryDto, ApiPropertyOptional, IsEnum, IsOptional
+
 ## Ambiguous Edges - Review These
-- `Redis optional (in-process fallback for messaging rate limit and events)` → `lf-api-nestjs README (apps/)`  [AMBIGUOUS]
-  apps/README.md · relation: conceptually_related_to
 - `Contact received admin email (BREVO_TPL_CONTACT_RECEIVED_ADMIN)` → `labsfood-web service (port 3007)`  [AMBIGUOUS]
   local-dev/docker-compose.yml · relation: conceptually_related_to
-- `In-house messaging module` → `Stream API env vars (STREAM_API_KEY/SECRET/APP_ID)`  [AMBIGUOUS]
+- `Stream API env vars (STREAM_API_KEY/SECRET/APP_ID)` → `In-house messaging module`  [AMBIGUOUS]
   local-dev/docker-compose.yml · relation: conceptually_related_to
-- `Clerk authentication decision` → `POST /auth/register public sign-up`  [AMBIGUOUS]
-  docs/architecture.md · relation: conceptually_related_to
-- `In-house messaging (modules/messaging, Stream dropped)` → `Railway deployment (apps/Dockerfile + railway.toml)`  [AMBIGUOUS]
-  docs/deploy/railway.md · relation: conceptually_related_to
-- `POST /chef-applications candidature sign-up` → `E11 Main site / admin-only domains`  [AMBIGUOUS]
-  docs/evolution/platform-spec-alignment-evolution.md · relation: conceptually_related_to
-- `Railway deployment (apps/Dockerfile + railway.toml)` → `Object storage: R2 for public media, Supabase Storage for private docs, S3 dropped`  [AMBIGUOUS]
-  docs/deploy/railway.md · relation: conceptually_related_to
-- `Booking reference generator LF-<year>-NNNN` → `E2 Bookings lifecycle (spec states)`  [AMBIGUOUS]
-  docs/evolution/platform-spec-alignment-evolution.md · relation: conceptually_related_to
-- `E3 Catalog` → `Module -> spec traceability table`  [AMBIGUOUS]
-  docs/evolution/platform-spec-alignment-evolution.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **368 isolated node(s):** `$schema`, `collection`, `sourceRoot`, `deleteOutDir`, `tsConfigPath` (+363 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 856 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
-=======
-## Communities (105 total, 54 thin omitted)
-
-### Community 0 - "app.module.ts"
-Cohesion: 0.23
-Nodes (9): AuthModule, Module, AppConfig, configLoader(), BookingsModule, Module, HealthModule, Module (+1 more)
-
-### Community 1 - "prismaNamespace.ts"
-Cohesion: 0.01
-Nodes (177): AnyNull, Args, At, AtLeast, AtLoose, AtStrict, AvailabilitySlotScalarFieldEnum, BatchPayload (+169 more)
-
-### Community 2 - "Booking.ts"
-Cohesion: 0.01
-Nodes (164): AggregateBooking, Booking$bookingMealsArgs, Booking$formuleArgs, Booking$paymentsArgs, Booking$shoppingListArgs, BookingAggregateArgs, BookingAvgAggregateInputType, BookingAvgAggregateOutputType (+156 more)
-
-### Community 3 - "ChefProfile.ts"
-Cohesion: 0.01
-Nodes (154): AggregateChefProfile, BoolFieldUpdateOperationsInput, ChefProfile$availabilitySlotsArgs, ChefProfile$bookingsArgs, ChefProfile$commissionInvoicesArgs, ChefProfile$commissionsArgs, ChefProfile$sapProfileArgs, ChefProfile$sepaMandateArgs (+146 more)
-
-### Community 4 - "commonInputTypes.ts"
-Cohesion: 0.02
-Nodes (131): BigIntFilter, BigIntWithAggregatesFilter, BoolFilter, BoolWithAggregatesFilter, DateTimeFilter, DateTimeNullableFilter, DateTimeNullableWithAggregatesFilter, DateTimeWithAggregatesFilter (+123 more)
-
-### Community 5 - "User.ts"
-Cohesion: 0.02
-Nodes (128): AggregateUser, DateTimeFieldUpdateOperationsInput, EnumUserRoleFieldUpdateOperationsInput, GetUserAggregateType, GetUserGroupByPayload, NullableStringFieldUpdateOperationsInput, StringFieldUpdateOperationsInput, User$bookingsAsClientArgs (+120 more)
-
-### Community 6 - "integrations.module.ts"
-Cohesion: 0.12
-Nodes (9): BrevoService, Injectable, IntegrationsModule, Module, StreamService, Injectable, StripeService, Injectable (+1 more)
-
-### Community 7 - "Commission.ts"
-Cohesion: 0.02
-Nodes (109): AggregateCommission, Commission$commissionInvoiceArgs, CommissionAggregateArgs, CommissionAvgAggregateInputType, CommissionAvgAggregateOutputType, CommissionAvgOrderByAggregateInput, CommissionCountAggregateInputType, CommissionCountAggregateOutputType (+101 more)
-
-### Community 8 - "CommissionInvoice.ts"
-Cohesion: 0.02
-Nodes (107): AggregateCommissionInvoice, CommissionInvoice$commissionsArgs, CommissionInvoice$debitsArgs, CommissionInvoiceAggregateArgs, CommissionInvoiceAvgAggregateInputType, CommissionInvoiceAvgAggregateOutputType, CommissionInvoiceAvgOrderByAggregateInput, CommissionInvoiceCountAggregateInputType (+99 more)
-
-### Community 9 - "package.json"
-Cohesion: 0.10
-Nodes (19): author, description, keywords, license, name, private, version, class-transformer (+11 more)
-
-### Community 10 - "Payment.ts"
-Cohesion: 0.02
-Nodes (102): AggregatePayment, EnumPaymentMethodFieldUpdateOperationsInput, EnumPaymentStatusFieldUpdateOperationsInput, GetPaymentAggregateType, GetPaymentGroupByPayload, Payment$cesuSettlementArgs, Payment$commissionArgs, PaymentAggregateArgs (+94 more)
-
-### Community 11 - "Meal.ts"
-Cohesion: 0.02
-Nodes (96): AggregateMeal, EnumMealStatusFieldUpdateOperationsInput, GetMealAggregateType, GetMealGroupByPayload, Meal$bookingMealsArgs, Meal$menuWeeksArgs, MealAggregateArgs, MealAvgAggregateInputType (+88 more)
-
-### Community 12 - "BookingMeal.ts"
-Cohesion: 0.02
-Nodes (95): AggregateBookingMeal, BookingMealAggregateArgs, BookingMealAvgAggregateInputType, BookingMealAvgAggregateOutputType, BookingMealAvgOrderByAggregateInput, BookingMealBookingIdMealIdCompoundUniqueInput, BookingMealCountAggregateInputType, BookingMealCountAggregateOutputType (+87 more)
-
-### Community 13 - "ServiceOffer.ts"
-Cohesion: 0.02
-Nodes (94): AggregateServiceOffer, GetServiceOfferAggregateType, GetServiceOfferGroupByPayload, ServiceOffer$bookingsArgs, ServiceOfferAggregateArgs, ServiceOfferAvgAggregateInputType, ServiceOfferAvgAggregateOutputType, ServiceOfferAvgOrderByAggregateInput (+86 more)
-
-### Community 14 - "CesuSettlement.ts"
-Cohesion: 0.02
-Nodes (89): AggregateCesuSettlement, CesuSettlement$confirmedByArgs, CesuSettlementAggregateArgs, CesuSettlementCountAggregateInputType, CesuSettlementCountAggregateOutputType, CesuSettlementCountArgs, CesuSettlementCountOrderByAggregateInput, CesuSettlementCreateArgs (+81 more)
-
-### Community 15 - "MenuWeekMeal.ts"
-Cohesion: 0.02
-Nodes (89): AggregateMenuWeekMeal, GetMenuWeekMealAggregateType, GetMenuWeekMealGroupByPayload, MenuWeekMealAggregateArgs, MenuWeekMealCountAggregateInputType, MenuWeekMealCountAggregateOutputType, MenuWeekMealCountArgs, MenuWeekMealCountOrderByAggregateInput (+81 more)
-
-### Community 16 - "ClientProfile.ts"
-Cohesion: 0.02
-Nodes (83): AggregateClientProfile, ClientProfileAggregateArgs, ClientProfileAvgAggregateInputType, ClientProfileAvgAggregateOutputType, ClientProfileAvgOrderByAggregateInput, ClientProfileCountAggregateInputType, ClientProfileCountAggregateOutputType, ClientProfileCountArgs (+75 more)
-
-### Community 17 - "Quote.ts"
-Cohesion: 0.02
-Nodes (82): AggregateQuote, EnumQuoteStatusFieldUpdateOperationsInput, GetQuoteAggregateType, GetQuoteGroupByPayload, QuoteAggregateArgs, QuoteAvgAggregateInputType, QuoteAvgAggregateOutputType, QuoteAvgOrderByAggregateInput (+74 more)
-
-### Community 18 - "ShoppingList.ts"
-Cohesion: 0.02
-Nodes (82): AggregateShoppingList, GetShoppingListAggregateType, GetShoppingListGroupByPayload, ShoppingList$itemsArgs, ShoppingListAggregateArgs, ShoppingListCountAggregateInputType, ShoppingListCountAggregateOutputType, ShoppingListCountArgs (+74 more)
-
-### Community 19 - "CommissionDebit.ts"
-Cohesion: 0.02
-Nodes (80): AggregateCommissionDebit, CommissionDebitAggregateArgs, CommissionDebitAvgAggregateInputType, CommissionDebitAvgAggregateOutputType, CommissionDebitAvgOrderByAggregateInput, CommissionDebitCountAggregateInputType, CommissionDebitCountAggregateOutputType, CommissionDebitCountArgs (+72 more)
-
-### Community 20 - "BookingsController"
-Cohesion: 0.13
-Nodes (13): ApiBearerAuth, ApiTags, ClerkAuthGuard, ClerkUser, decodeUnverifiedJwt(), Injectable, BookingsController, Controller (+5 more)
-
-### Community 21 - "Formule.ts"
-Cohesion: 0.03
-Nodes (78): AggregateFormule, Formule$bookingsArgs, FormuleAggregateArgs, FormuleAvgAggregateInputType, FormuleAvgAggregateOutputType, FormuleAvgOrderByAggregateInput, FormuleCountAggregateInputType, FormuleCountAggregateOutputType (+70 more)
-
-### Community 22 - "MenuWeek.ts"
-Cohesion: 0.03
-Nodes (77): AggregateMenuWeek, GetMenuWeekAggregateType, GetMenuWeekGroupByPayload, MenuWeek$mealsArgs, MenuWeekAggregateArgs, MenuWeekAvgAggregateInputType, MenuWeekAvgAggregateOutputType, MenuWeekAvgOrderByAggregateInput (+69 more)
-
-### Community 23 - "CmsPage.ts"
-Cohesion: 0.03
-Nodes (74): AggregateCmsPage, CmsPage$updatedByArgs, CmsPageAggregateArgs, CmsPageCountAggregateInputType, CmsPageCountAggregateOutputType, CmsPageCountArgs, CmsPageCountOrderByAggregateInput, CmsPageCreateArgs (+66 more)
-
-### Community 24 - "AvailabilitySlot.ts"
-Cohesion: 0.03
-Nodes (73): AggregateAvailabilitySlot, AvailabilitySlotAggregateArgs, AvailabilitySlotCountAggregateInputType, AvailabilitySlotCountAggregateOutputType, AvailabilitySlotCountArgs, AvailabilitySlotCountOrderByAggregateInput, AvailabilitySlotCreateArgs, AvailabilitySlotCreateInput (+65 more)
-
-### Community 25 - "ShoppingItem.ts"
-Cohesion: 0.03
-Nodes (73): AggregateShoppingItem, GetShoppingItemAggregateType, GetShoppingItemGroupByPayload, ShoppingItemAggregateArgs, ShoppingItemCountAggregateInputType, ShoppingItemCountAggregateOutputType, ShoppingItemCountArgs, ShoppingItemCountOrderByAggregateInput (+65 more)
-
-### Community 26 - "SapProfile.ts"
-Cohesion: 0.03
-Nodes (69): AggregateSapProfile, EnumSapDeclarationTypeFieldUpdateOperationsInput, EnumSapExternalStatusFieldUpdateOperationsInput, GetSapProfileAggregateType, GetSapProfileGroupByPayload, SapProfileAggregateArgs, SapProfileCountAggregateInputType, SapProfileCountAggregateOutputType (+61 more)
-
-### Community 27 - "SepaMandate.ts"
-Cohesion: 0.03
-Nodes (68): AggregateSepaMandate, EnumSepaMandateStatusFieldUpdateOperationsInput, GetSepaMandateAggregateType, GetSepaMandateGroupByPayload, SepaMandateAggregateArgs, SepaMandateCountAggregateInputType, SepaMandateCountAggregateOutputType, SepaMandateCountArgs (+60 more)
-
-### Community 28 - "typeorm_migrations.ts"
-Cohesion: 0.03
-Nodes (59): AggregateTypeorm_migrations, BigIntFieldUpdateOperationsInput, GetTypeorm_migrationsAggregateType, GetTypeorm_migrationsGroupByPayload, Typeorm_migrationsAggregateArgs, Typeorm_migrationsAvgAggregateInputType, Typeorm_migrationsAvgAggregateOutputType, typeorm_migrationsAvgOrderByAggregateInput (+51 more)
-
-### Community 29 - "StripeEventLog.ts"
-Cohesion: 0.04
-Nodes (52): AggregateStripeEventLog, GetStripeEventLogAggregateType, GetStripeEventLogGroupByPayload, StripeEventLogAggregateArgs, StripeEventLogCountAggregateInputType, StripeEventLogCountAggregateOutputType, StripeEventLogCountArgs, StripeEventLogCountOrderByAggregateInput (+44 more)
-
-### Community 30 - "enums.ts"
-Cohesion: 0.04
-Nodes (44): AvailabilitySlot, Booking, BookingMeal, CesuSettlement, ChefProfile, ClientProfile, CmsPage, Commission (+36 more)
-
-### Community 31 - "prismaNamespaceBrowser.ts"
-Cohesion: 0.05
-Nodes (37): AnyNull, AvailabilitySlotScalarFieldEnum, BookingMealScalarFieldEnum, BookingScalarFieldEnum, CesuSettlementScalarFieldEnum, ChefProfileScalarFieldEnum, ClientProfileScalarFieldEnum, CmsPageScalarFieldEnum (+29 more)
-
-### Community 33 - "LF BackEnd"
-Cohesion: 0.07
-Nodes (23): api-nestjs, Run locally (without Docker), Run with Compose, Architecture — Phase 1, Authentication (Phase 1), Data model (Phase 1 baseline), Integrations (Phase 1), Runtime flow (+15 more)
-
-### Community 34 - "get_settings"
-Cohesion: 0.10
-Nodes (16): get_settings(), Return process-wide Settings, cached so env is parsed only once., BrevoClient, Brevo (transactional email) placeholder client., Whether a Brevo API key was loaded from env., CronofyClient, Cronofy placeholder client., Whether both Cronofy OAuth client credentials are present. (+8 more)
-
-### Community 35 - "client.ts"
-Cohesion: 0.07
-Nodes (26): AvailabilitySlot, Booking, BookingMeal, CesuSettlement, ChefProfile, ClientProfile, CmsPage, Commission (+18 more)
-
-### Community 36 - "models/__init__.py"
-Cohesion: 0.16
-Nodes (16): Emit migrations as SQL against the configured URL without opening a connection., Run migrations against a live database connection (standard path)., run_migrations_offline(), run_migrations_online(), Base, Labs Food FastAPI booking service., Booking, BookingStatus (+8 more)
-
-### Community 37 - "compilerOptions"
-Cohesion: 0.09
-Nodes (21): compilerOptions, allowSyntheticDefaultImports, baseUrl, declaration, emitDecoratorMetadata, esModuleInterop, experimentalDecorators, forceConsistentCasingInFileNames (+13 more)
-
-### Community 49 - "main.ts"
-Cohesion: 0.33
-Nodes (4): AppModule, Module, @nestjs/core, @nestjs/platform-fastify
-
-### Community 63 - "bookings.py"
-Cohesion: 0.17
-Nodes (15): get_db(), Session, FastAPI dependency that yields a scoped SQLAlchemy session per request., BookingCreate, BookingRead, create_booking(), list_bookings(), ClerkUser (+7 more)
-
-### Community 64 - "nest-cli.json"
-Cohesion: 0.13
-Nodes (14): collection, compilerOptions, assets, deleteOutDir, plugins, tsConfigPath, watchAssets, webpack (+6 more)
-
-### Community 65 - "health.py"
-Cohesion: 0.21
-Nodes (10): create_app(), Build and configure the FastAPI application (CORS, routers, OpenAPI)., health(), get, Session, Liveness probe: returns ``ok`` as long as the process is serving., Readiness probe: verifies Postgres and Redis connectivity., ready() (+2 more)
-
-### Community 66 - "clerk.py"
-Cohesion: 0.24
-Nodes (9): ClerkUser, _extract_bearer(), Clerk authentication stub. Phase 1 implementation verifies the presence of a…, Return the raw token from an ``Authorization: Bearer ...`` header or 401., Protect a route by requiring a Clerk Bearer token and returning its claims., require_clerk_user(), Parse CORS_ORIGINS env string into a clean list of allowed origins., Settings (+1 more)
-
-### Community 68 - "dependencies"
-Cohesion: 0.18
-Nodes (11): dependencies, class-transformer, class-validator, @fastify/helmet, @nestjs/common, @nestjs/config, @nestjs/core, @nestjs/platform-fastify (+3 more)
-
-### Community 71 - "class.ts"
-Cohesion: 0.22
-Nodes (3): config, LogOptions, PrismaClientConstructor
-
-### Community 72 - "devDependencies"
-Cohesion: 0.25
-Nodes (8): devDependencies, @nestjs/cli, @nestjs/schematics, @nestjs/testing, ts-node, tsconfig-paths, @types/node, typescript
-
-### Community 73 - "scripts"
-Cohesion: 0.29
-Nodes (7): scripts, build, lint, start, start:dev, start:prod, test
-
-### Community 83 - "0001_init.sql"
-Cohesion: 0.73
-Nodes (5): availability_slots, bookings, provider_profiles, service_offers, users
-
-### Community 84 - "0001_init.py"
-Cohesion: 0.40
-Nodes (4): downgrade(), Revert the Phase 1 schema in reverse dependency order., Create the Phase 1 core schema: users, providers, offers, slots, bookings., upgrade()
-
-### Community 86 - "HealthController"
-Cohesion: 0.50
-Nodes (3): HealthController, Controller, Get
-
-### Community 97 - "read_thisUser"
-Cohesion: 0.50
-Nodes (4): ClerkUser, get, Return the authenticated Clerk user's identifiers (protected sample route)., read_thisUser()
-
-### Community 98 - "api-fastapi"
-Cohesion: 0.50
-Nodes (3): api-fastapi, Run locally (without Docker), Run with Compose (recommended)
-
-## Knowledge Gaps
-- **2693 isolated node(s):** `lf-api-fastapi`, `$schema`, `collection`, `sourceRoot`, `deleteOutDir` (+2688 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 3336 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **54 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
->>>>>>> main
+- **897 isolated node(s):** `$schema`, `collection`, `sourceRoot`, `deleteOutDir`, `tsConfigPath` (+892 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1623 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-<<<<<<< HEAD
-- **What is the exact relationship between `Redis optional (in-process fallback for messaging rate limit and events)` and `lf-api-nestjs README (apps/)`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `Contact received admin email (BREVO_TPL_CONTACT_RECEIVED_ADMIN)` and `labsfood-web service (port 3007)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `In-house messaging module` and `Stream API env vars (STREAM_API_KEY/SECRET/APP_ID)`?**
+- **What is the exact relationship between `Stream API env vars (STREAM_API_KEY/SECRET/APP_ID)` and `In-house messaging module`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `Clerk authentication decision` and `POST /auth/register public sign-up`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `In-house messaging (modules/messaging, Stream dropped)` and `Railway deployment (apps/Dockerfile + railway.toml)`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `POST /chef-applications candidature sign-up` and `E11 Main site / admin-only domains`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **What is the exact relationship between `Railway deployment (apps/Dockerfile + railway.toml)` and `Object storage: R2 for public media, Supabase Storage for private docs, S3 dropped`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-=======
-- **Why does `MenuWeekMealDelegate` connect `MenuWeekMealDelegate` to `MenuWeekMeal.ts`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
-- **Why does `QuoteDelegate` connect `QuoteDelegate` to `Quote.ts`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
-- **Why does `AvailabilitySlotDelegate` connect `AvailabilitySlotDelegate` to `AvailabilitySlot.ts`?**
-  _High betweenness centrality (0.014) - this node is a cross-community bridge._
-- **What connects `lf-api-fastapi`, `$schema`, `collection` to the rest of the system?**
-  _2693 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `prismaNamespace.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.011235955056179775 - nodes in this community are weakly interconnected._
-- **Should `Booking.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.012121212121212121 - nodes in this community are weakly interconnected._
-- **Should `ChefProfile.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.012903225806451613 - nodes in this community are weakly interconnected._
->>>>>>> main
+- **Why does `@nestjs/common` connect `@nestjs/common` to `UsersService`, `CurrentClerkUser`, `ApiAdminAuthResponses`, `chef-onboarding.rules.ts`, `content.errors.ts`, `moderation.service.ts`, `booking-reschedules.service.ts`, `vitrine.service.ts`, `suggestions.service.ts`, `messaging.gateway.ts`, `booking-documents.service.ts`, `me-bookings.controller.ts`, `package.json`, `dishes.test-helpers.ts`, `admin-conversations.controller.ts`, `dishes.service.ts`, `booking-withdrawals.service.ts`, `R2StorageService`, `ClerkUser`, `booking-audiences.controller.spec.ts`, `StatsService`, `global-throttler.smoke.spec.ts`, `PrismaService`, `quote-offers.service.ts`, `menus.service.ts`, `KycStorageService`, `service-offers.service.ts`, `allowed-origins.ts`, `messaging.service.ts`, `fiscal-attestations.service.ts`, `availability.service.ts`, `contact.service.ts`, `chef-applications.service.ts`, `app.module.ts`, `admin-chefs.service.ts`, `dishes.rules.ts`, `class-validator`, `chef-documents.controller.ts`, `payment-invoices.rules.ts`, `public-users.controller.ts`, `cesu-payments.service.ts`, `UrssafGateway`, `clerk-webhooks.controller.ts`, `catalog.module.ts`, `sepa-mandates.controller.ts`, `withdrawal.rules.ts`, `swagger.ts`, `platform-settings.service.ts`, `recipes.rules.ts`, `allergies.rules.ts`, `booking-reschedules.service.spec.ts`, `main.ts`, `messaging.service.spec.ts`, `StripeWebhooksService`, `bookings.service.ts`, `redis.module.ts`?**
+  _High betweenness centrality (0.191) - this node is a cross-community bridge._
+- **Why does `ClerkUser` connect `ClerkUser` to `.reply`, `CurrentClerkUser`, `ApiAdminAuthResponses`, `.reapply`, `ApiClerkAuthResponses`, `.feed`, `MeContentController`, `moderation.service.ts`, `.outcome`, `.addBlock`, `.setZones`, `.chefIdentity`, `.retryDebit`, `me-bookings.controller.ts`, `Body`, `.updateMeal`, `AdminContentController`, `admin-conversations.controller.ts`, `.update`, `.create`, `R2StorageService`, `AdminConversationsController`, `Query`, `StatsService`, `.decideDocument`, `.replace`, `.submit`, `.confirm`, `chef-documents.controller.ts`, `PaymentInvoicesService`, `sepa-mandates.controller.ts`, `.deleteUser`, `platform-settings.service.ts`, `CesuPaymentsService`, `.createCheckoutSession`, `.ensurePersistedFromClerk`, `ApiBookingId`?**
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+- **Why does `AGENTS.md (development and architecture instructions)` connect `AGENTS.md (development and architecture instructions)` to `Analysis: one account, two spaces (client and chef switcher)`, `20260920120000_chef_onboarding/migration.sql`, `messaging.service.ts`, `.chef`, `stack.md`, `ContactService`, `messaging.service.spec.ts`, `env-files.ts`, `AdminChefsService`?**
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+- **What connects `$schema`, `collection`, `sourceRoot` to the rest of the system?**
+  _897 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `UsersService` be split into smaller, more focused modules?**
+  _Cohesion score 0.038623823433950016 - nodes in this community are weakly interconnected._

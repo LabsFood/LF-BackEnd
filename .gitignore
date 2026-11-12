@@ -53,3 +53,8 @@ dump.rdb
 
 # Added by ggshield
 .cache_ggshield
+
+# graphify: track only the graph and its report
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
