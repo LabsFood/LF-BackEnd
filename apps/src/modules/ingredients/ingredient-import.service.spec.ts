@@ -86,6 +86,8 @@ describe('IngredientImportService (Recettes §7.4)', () => {
       'admin-1',
     );
     expect(result).toMatchObject({ created: 1, updated: 1, unchanged: 0, errors: [] });
+    // Ruling R25: a simulation wrote nothing, so it updated no id.
+    expect(result.updatedIds).toEqual([]);
     expect(catalogIngredient.create).not.toHaveBeenCalled();
     expect(catalogIngredient.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
@@ -139,6 +141,8 @@ describe('IngredientImportService (Recettes §7.4)', () => {
       userId: 'admin-1',
     });
     expect(result.propagation).toEqual(FIGURES);
+    // Ruling R25: the console replays the propagation for these ids when `failed > 0`.
+    expect(result.updatedIds).toEqual(['ing-1']);
   });
 
   it('replaying the same file after an import leaves everything unchanged, no write', async () => {

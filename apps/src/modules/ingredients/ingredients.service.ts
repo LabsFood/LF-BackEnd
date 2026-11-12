@@ -26,6 +26,27 @@ import {
   PropagationResult,
 } from './ingredient-propagation.service';
 
+/** Ruling R25: a private entry's chef, by name only (never an e-mail or other personal data). */
+const WITH_CHEF = {
+  chefProfile: { select: { id: true, displayName: true } },
+} as const;
+
+type Chef = { id: string; displayName: string };
+
+/** The admin shape of an entry: `chef` in place of the joined profile, null when common. */
+function withChef<T extends object>(row: T) {
+  const { chefProfile, ...rest } = row as T & { chefProfile?: Chef | null };
+  return {
+    ...rest,
+    chef: chefProfile
+      ? { id: chefProfile.id, displayName: chefProfile.displayName }
+      : null,
+  };
+}
+
+/** The most dishes `dishes()` lists. */
+const DISHES_LIMIT = 200;
+
 /** A search shows a short list to pick from, never the whole table (every list has a cap). */
 const SEARCH_LIMIT = 20;
 
@@ -86,13 +107,14 @@ export class IngredientsService {
     const [rows, total] = await Promise.all([
       this.prisma.catalogIngredient.findMany({
         where,
+        include: WITH_CHEF,
         orderBy: { name: 'asc' },
         skip: bounds.skip,
         take: bounds.take,
       }),
       this.prisma.catalogIngredient.count({ where }),
     ]);
-    return { data: rows, meta: buildPaginationMeta(bounds, total) };
+    return { data: rows.map(withChef), meta: buildPaginationMeta(bounds, total) };
   }
 
   /**
@@ -132,7 +154,8 @@ export class IngredientsService {
       subjectType: 'catalog_ingredient',
       subjectId: row.id,
     });
-    return row;
+    // Created common: no chef.
+    return withChef(row);
   }
 
   /**
@@ -153,7 +176,7 @@ export class IngredientsService {
     const normalized = data.normalizedName as string | undefined;
     if (normalized) await this.assertNameFree(normalized, id);
     const row = await this.prisma.catalogIngredient
-      .update({ where: { id }, data })
+      .update({ where: { id }, data, include: WITH_CHEF })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw new NotFoundException('Ingredient not found.');
         return this.nameTaken(error, normalized, id);
@@ -171,7 +194,7 @@ export class IngredientsService {
     const propagation = carried
       ? await this.propagation.propagate([id], { type: 'admin', userId: adminUserId })
       : null;
-    return { ingredient: row, propagation };
+    return { ingredient: withChef(row), propagation };
   }
 
   /**
@@ -208,7 +231,8 @@ export class IngredientsService {
       subjectId: id,
     });
     await this.tellAuthor(entry.createdByUserId, 'ingredient_validated', id);
-    return { ingredient: row, propagation: null as PropagationResult | null };
+    // It left its chef: common now.
+    return { ingredient: withChef(row), propagation: null as PropagationResult | null };
   }
 
   /**
@@ -240,6 +264,7 @@ export class IngredientsService {
           reviewedAt: new Date(),
           reviewedByUserId: adminUserId,
         },
+        include: WITH_CHEF,
       })
       .catch((error: unknown) => {
         if (isNotFound(error)) throw notPending();
@@ -260,7 +285,7 @@ export class IngredientsService {
       { from: id, to: intoId },
     );
     await this.tellAuthor(entry.createdByUserId, 'ingredient_merged', id);
-    return { ingredient: row, propagation };
+    return { ingredient: withChef(row), propagation };
   }
 
   /**
@@ -298,6 +323,43 @@ export class IngredientsService {
       // Lab's Food recipes count as dishes, with no chef.
       chefs: new Set(dishes.flatMap((dish) => dish.chefProfileId ?? [])).size,
       verifiedDishes: dishes.filter((dish) => dish.allergensVerifiedAt !== null).length,
+    };
+  }
+
+  /**
+   * Ruling R25: the dishes whose lines link the entry (or an entry merged into it),
+   * with their chef, by name, 200 at most, `total` counting them all.
+   */
+  async dishes(id: string) {
+    const entry = await this.prisma.catalogIngredient.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!entry) throw new NotFoundException('Ingredient not found.');
+    const where = dishesLinking([id, ...(await mergedInto(this.prisma, [id]))]);
+    const [rows, total] = await Promise.all([
+      this.prisma.meal.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          allergensVerifiedAt: true,
+          chefProfile: { select: { id: true, displayName: true } },
+        },
+        orderBy: { name: 'asc' },
+        take: DISHES_LIMIT,
+      }),
+      this.prisma.meal.count({ where }),
+    ]);
+    return {
+      data: rows.map(({ chefProfile, ...dish }) => ({
+        ...dish,
+        chef: chefProfile
+          ? { id: chefProfile.id, displayName: chefProfile.displayName }
+          : null,
+      })),
+      total,
     };
   }
 

@@ -16,6 +16,7 @@ function harness(chefProfileId: string | null) {
     search: jest.fn(async (..._a: unknown[]) => []),
     impact: jest.fn(async (_id: string) => ({ dishes: 3, chefs: 2, verifiedDishes: 1 })),
     propagate: jest.fn(async (_id: string, _adminId: string) => FIGURES),
+    dishes: jest.fn(async (_id: string) => ({ data: [], total: 0 })),
     validate: jest.fn(async (..._a: unknown[]) => ({
       ingredient: { id: 'p-1' },
       propagation: null,
@@ -158,5 +159,26 @@ describe('IngredientsController import (Recettes §7.4)', () => {
       IngredientsController.prototype.import,
     );
     expect(guards).toEqual([ClerkAuthGuard, AdminGuard]);
+  });
+});
+
+describe('IngredientsController dishes (ruling R25)', () => {
+  it('answers the dishes of the service', async () => {
+    const { ingredients, controller } = harness(null);
+    await expect(controller.dishes('ing-1')).resolves.toEqual({ data: [], total: 0 });
+    expect(ingredients.dishes).toHaveBeenCalledWith('ing-1');
+  });
+
+  it('is for admins only, and takes a UUID only', () => {
+    expect(
+      Reflect.getMetadata(GUARDS_METADATA, IngredientsController.prototype.dishes),
+    ).toEqual([ClerkAuthGuard, AdminGuard]);
+    const args = Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      IngredientsController,
+      'dishes',
+    ) as Record<string, { data?: string; pipes: unknown[] }>;
+    const id = Object.values(args).find((arg) => arg.data === 'id');
+    expect(id?.pipes).toEqual([ParseUUIDPipe]);
   });
 });

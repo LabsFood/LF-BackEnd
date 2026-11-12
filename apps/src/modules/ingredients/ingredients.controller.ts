@@ -55,6 +55,7 @@ const INGREDIENT_EXAMPLE = {
   status: 'active',
   private: false,
   reviewedAt: null,
+  chef: null,
   createdAt: '2026-11-02T09:00:00.000Z',
   updatedAt: '2026-11-02T09:00:00.000Z',
 };
@@ -103,7 +104,9 @@ export class IngredientsController {
     description:
       'Recettes §5.1: every entry, private ones included, by name, paginated. `search` ' +
       'filters on a name or another name; `status`, `aisle`, `incomplete=true` (no aisle, ' +
-      'or allergens neither listed nor "none") and `reviewed=true|false` narrow it.',
+      'or allergens neither listed nor "none") and `reviewed=true|false` narrow it. ' +
+      'Each entry carries `chef` (`{ id, displayName }` for a chef’s private entry, ' +
+      '`null` for a common one), also in the create, update, validate and merge answers.',
   })
   @ApiOkResponse({
     description: '`{ data, meta }`.',
@@ -129,8 +132,9 @@ export class IngredientsController {
       '(`line` 1 is the header). It writes nothing while there is an error. Confirmed, ' +
       'it matches each row by its normalized name: a new name is created (common, ' +
       'active), a changed entry is updated and carried into the recipes (§7.3, the ' +
-      'figures summed in `propagation`; replay `failed` dishes with `POST ' +
-      '/admin/ingredients/:id/propagate`), an identical one is left. Row by row: if a ' +
+      'figures summed in `propagation`; `updatedIds` lists the entries updated ' +
+      '(empty in a simulation), to replay `failed` dishes with `POST ' +
+      '/admin/ingredients/:id/propagate` for each), an identical one is left. Row by row: if a ' +
       'write fails the run stops with that error (`line: 0`), and the same file can be ' +
       'sent again. Recorded in the audit log.',
   })
@@ -141,6 +145,7 @@ export class IngredientsController {
       updated: 12,
       unchanged: 8,
       errors: [{ line: 14, message: 'rayon: « cave » n’est pas dans la liste.' }],
+      updatedIds: ['0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c11'],
       propagation: PROPAGATION_EXAMPLE,
     },
   })
@@ -241,6 +246,39 @@ export class IngredientsController {
   @ApiAdminAuthResponses()
   impact(@Param('id', ParseUUIDPipe) id: string) {
     return this.ingredients.impact(id);
+  }
+
+  @Get('admin/ingredients/:id/dishes')
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'List the dishes linking an ingredient',
+    description:
+      'Ruling R25: the dishes whose lines link the ingredient, or an ingredient merged ' +
+      'into it, by name, 200 at most (`total` counts them all). Each carries its ' +
+      '`status`, `allergensVerifiedAt` and `chef` (`{ id, displayName }`, `null` for a ' +
+      'Lab’s Food recipe). Reads only.',
+  })
+  @ApiOkResponse({
+    description: '`{ data, total }`.',
+    example: {
+      data: [
+        {
+          id: '5b1e7c2a-8d3f-4a6b-9c0d-1e2f3a4b5c6d',
+          name: 'Curry de légumes',
+          chef: { id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', displayName: 'Chez Marie' },
+          status: 'published',
+          allergensVerifiedAt: '2026-11-02T09:00:00.000Z',
+        },
+      ],
+      total: 1,
+    },
+  })
+  @ApiNotFoundResponse({ description: 'No such ingredient.' })
+  @ApiAdminAuthResponses()
+  dishes(@Param('id', ParseUUIDPipe) id: string) {
+    return this.ingredients.dishes(id);
   }
 
   @Post('admin/ingredients/:id/propagate')

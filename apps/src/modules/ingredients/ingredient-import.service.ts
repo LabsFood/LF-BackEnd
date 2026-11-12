@@ -14,6 +14,8 @@ export interface ImportReport {
   updated: number;
   unchanged: number;
   errors: { line: number; message: string }[];
+  /** Ruling R25: the entries written, to replay their propagation when `failed > 0`. */
+  updatedIds: string[];
   propagation: PropagationResult;
 }
 
@@ -78,6 +80,7 @@ export class IngredientImportService {
       updated: plan.filter((p) => p.action === 'update').length,
       unchanged: plan.filter((p) => p.action === 'unchanged').length,
       errors,
+      updatedIds: [],
       propagation: none(),
     };
     if (!options.confirm || errors.length > 0) return report;
@@ -97,6 +100,7 @@ export class IngredientImportService {
             adminUserId,
           );
           report.updated++;
+          report.updatedIds.push(step.id);
           if (propagation) {
             for (const key of Object.keys(
               report.propagation,

@@ -40,6 +40,7 @@ function harness() {
   };
   const meal = {
     findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
+    count: jest.fn(async (_args?: unknown) => 0),
     update: jest.fn(async (_args?: unknown) => ({})),
   };
   const platformSetting = { findUnique: jest.fn(async (_args?: unknown) => null) };
@@ -287,11 +288,13 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.update).toHaveBeenLastCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: ['gluten'], allergensNone: false },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
     await service.update('ing-1', { allergensNone: true }, 'a');
     expect(catalogIngredient.update).toHaveBeenLastCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: [], allergensNone: true },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
   });
 
@@ -303,6 +306,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.update).toHaveBeenLastCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: ['gluten', 'milk'], allergensNone: false },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
 
     propagation.propagate.mockClear();
@@ -315,6 +319,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.update).toHaveBeenLastCalledWith({
       where: { id: 'ing-1' },
       data: { allergens: ['gluten', 'milk'], allergensNone: false },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
     expect(propagation.propagate).not.toHaveBeenCalled();
   });
@@ -333,6 +338,7 @@ describe('IngredientsService (Recettes §4.10)', () => {
     expect(catalogIngredient.update).toHaveBeenCalledWith({
       where: { id: 'ing-1' },
       data: { status: 'inactive' },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
   });
 
@@ -715,6 +721,7 @@ describe('IngredientsService.merge (Recettes §7.2)', () => {
         reviewedAt: expect.any(Date),
         reviewedByUserId: 'admin-1',
       },
+      include: { chefProfile: { select: { id: true, displayName: true } } },
     });
     expect(result.ingredient).toMatchObject({ status: 'merged', mergedIntoId: 'ing-1' });
     expect(propagation.propagate).toHaveBeenCalledWith(
@@ -847,5 +854,152 @@ describe('IngredientsService.search keeps private ingredients private', () => {
     expect(await ids('chef-1')).toEqual(['ing-1', 'mine']);
     expect(await ids('chef-2')).toEqual(['ing-1', 'theirs']);
     expect(await ids(null)).toEqual(['ing-1']);
+  });
+});
+
+// Ruling R25: the validation queue shows each private entry's chef and its dishes.
+describe('IngredientsService chef and dishes (ruling R25)', () => {
+  const CHEF = { id: 'chef-1', displayName: 'Chez Marie' };
+  const PRIVATE = {
+    ...TOMATE,
+    id: 'p-1',
+    chefProfileId: 'chef-1',
+    status: 'pending',
+    chefProfile: { ...CHEF, user: { email: 'secret@x.fr' } },
+  };
+
+  it('lists with the chef in the same query, null for a common entry', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockResolvedValue([PRIVATE, TOMATE]);
+
+    const page = await service.list({ page: 1, limit: 50 });
+
+    expect(catalogIngredient.findMany).toHaveBeenCalledTimes(1);
+    expect(catalogIngredient.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { chefProfile: { select: { id: true, displayName: true } } },
+      }),
+    );
+    expect(page.data[0].chef).toEqual(CHEF);
+    expect(page.data[1].chef).toBeNull();
+    expect(JSON.stringify(page.data)).not.toContain('secret@x.fr');
+    expect(page.data[0]).not.toHaveProperty('chefProfile');
+  });
+
+  it('answers the chef on update and merge, null on create and validate', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.update.mockResolvedValue(PRIVATE as never);
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...PRIVATE,
+      createdByUserId: null,
+    });
+
+    const updated = await service.update('p-1', { name: 'Tomate' }, 'admin-1');
+    expect(updated.ingredient.chef).toEqual(CHEF);
+    expect(catalogIngredient.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        include: { chefProfile: { select: { id: true, displayName: true } } },
+      }),
+    );
+
+    catalogIngredient.findUnique
+      .mockResolvedValueOnce({ ...PRIVATE, createdByUserId: null })
+      .mockResolvedValueOnce({ id: 'ing-1', status: 'active', chefProfileId: null });
+    const merged = await service.merge('p-1', 'ing-1', 'admin-1');
+    expect(merged.ingredient.chef).toEqual(CHEF);
+    expect(JSON.stringify(merged)).not.toContain('secret@x.fr');
+
+    catalogIngredient.update.mockResolvedValue(TOMATE);
+    const created = await service.create({ name: 'Tomate' }, 'admin-1');
+    expect(created.chef).toBeNull();
+    catalogIngredient.findUnique.mockResolvedValue({
+      ...PRIVATE,
+      createdByUserId: null,
+    });
+    const validated = await service.validate('p-1', 'admin-1');
+    expect(validated.ingredient.chef).toBeNull();
+  });
+
+  describe('dishes', () => {
+    const dish = (id: string, name: string, chef: typeof CHEF | null) => ({
+      id,
+      name,
+      status: 'published',
+      allergensVerifiedAt: chef ? new Date('2026-11-01T00:00:00.000Z') : null,
+      chefProfile: chef,
+    });
+
+    it('lists the dishes of two chefs and a Lab’s Food recipe, merged entries included', async () => {
+      const { catalogIngredient, meal, service } = harness();
+      catalogIngredient.findMany.mockResolvedValue([{ id: 'ing-old' }]);
+      meal.count.mockResolvedValue(3);
+      meal.findMany.mockResolvedValue([
+        dish('d-1', 'Curry', CHEF),
+        dish('d-2', 'Ratatouille', { id: 'chef-2', displayName: 'Chez Paul' }),
+        dish('d-3', 'Soupe', null),
+      ]);
+
+      const result = await service.dishes('ing-1');
+
+      expect(meal.findMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { ingredients: { array_contains: [{ catalogIngredientId: 'ing-1' }] } },
+            { ingredients: { array_contains: [{ catalogIngredientId: 'ing-old' }] } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          allergensVerifiedAt: true,
+          chefProfile: { select: { id: true, displayName: true } },
+        },
+        orderBy: { name: 'asc' },
+        take: 200,
+      });
+      expect(result.total).toBe(3);
+      expect(result.data).toEqual([
+        {
+          id: 'd-1',
+          name: 'Curry',
+          chef: CHEF,
+          status: 'published',
+          allergensVerifiedAt: new Date('2026-11-01T00:00:00.000Z'),
+        },
+        expect.objectContaining({
+          id: 'd-2',
+          chef: { id: 'chef-2', displayName: 'Chez Paul' },
+        }),
+        {
+          id: 'd-3',
+          name: 'Soupe',
+          chef: null,
+          status: 'published',
+          allergensVerifiedAt: null,
+        },
+      ]);
+    });
+
+    it('caps at 200 and counts the whole', async () => {
+      const { meal, service } = harness();
+      meal.findMany.mockResolvedValue(
+        Array.from({ length: 200 }, (_, i) => dish(`d-${i}`, `D${i}`, CHEF)),
+      );
+      meal.count.mockResolvedValue(350);
+
+      const result = await service.dishes('ing-1');
+
+      expect(result.data).toHaveLength(200);
+      expect(result.total).toBe(350);
+    });
+
+    it('answers 404 for an unknown ingredient', async () => {
+      const { catalogIngredient, meal, service } = harness();
+      catalogIngredient.findUnique.mockResolvedValue(null);
+
+      await expect(service.dishes('nope')).rejects.toBeInstanceOf(NotFoundException);
+      expect(meal.findMany).not.toHaveBeenCalled();
+    });
   });
 });
