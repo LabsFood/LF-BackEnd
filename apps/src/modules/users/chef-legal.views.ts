@@ -63,8 +63,9 @@ export interface ChefLegalIdentity {
   vat: string | null;
   /** The SAP declaration number, when there is one: not a gap without. */
   sapNumber: string | null;
-  insurance: { insurer: string; coverage: string } | null;
-  mediator: { name: string; url: string } | null;
+  /** Text, never an object: both consoles print each field as is. */
+  insurance: string | null;
+  mediator: string | null;
   contact: string;
   missing: ChefLegalGap[];
 }
@@ -87,11 +88,11 @@ export function chefLegalIdentity(row: ChefLegalRow): ChefLegalIdentity {
     sapNumber: row.sapDeclarationNumber ?? row.sapProfile?.novaCode ?? null,
     insurance:
       row.insurerName && row.insuranceCoverage
-        ? { insurer: row.insurerName, coverage: row.insuranceCoverage }
+        ? `${row.insurerName}, ${row.insuranceCoverage}`
         : null,
     mediator:
       row.mediatorName && row.mediatorUrl
-        ? { name: row.mediatorName, url: row.mediatorUrl }
+        ? `${row.mediatorName} (${row.mediatorUrl})`
         : null,
     contact: CONTACT,
   };
@@ -128,10 +129,8 @@ export function legalIdentityLines(
     identity.vat,
     identity.sapNumber &&
       `Déclaration de services à la personne n° ${identity.sapNumber}`,
-    identity.insurance &&
-      `Assurance professionnelle : ${identity.insurance.insurer}, ${identity.insurance.coverage}`,
-    identity.mediator &&
-      `Médiateur de la consommation : ${identity.mediator.name} (${identity.mediator.url})`,
+    identity.insurance && `Assurance professionnelle : ${identity.insurance}`,
+    identity.mediator && `Médiateur de la consommation : ${identity.mediator}`,
     `Contact : ${identity.contact.charAt(0).toLowerCase()}${identity.contact.slice(1)}`,
   ].filter((line): line is string => Boolean(line));
 }

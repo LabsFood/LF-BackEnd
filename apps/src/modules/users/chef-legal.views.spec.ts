@@ -1,6 +1,7 @@
 import {
   chefLegalIdentity,
   legalIdentityLines,
+  publicChefLegalIdentity,
   type ChefLegalRow,
 } from './chef-legal.views';
 
@@ -43,11 +44,19 @@ describe('chefLegalIdentity', () => {
       businessAddress: '5 rue du Marché, 93100 Montreuil',
       vat: 'TVA non applicable, article 293 B du CGI',
       sapNumber: 'SAP443061841',
-      insurance: { insurer: 'MAAF Pro', coverage: 'RC Pro, 2 000 000 € par sinistre' },
-      mediator: { name: 'CM2C', url: 'https://www.cm2c.net' },
+      insurance: 'MAAF Pro, RC Pro, 2 000 000 € par sinistre',
+      mediator: 'CM2C (https://www.cm2c.net)',
       contact: 'Par la messagerie de Lab’s Food',
       missing: [],
     });
+  });
+
+  // The consoles print each field as is: an object here crashed the admin
+  // batch cooker page (Sentry ADMIN-DASHBOARD-2).
+  it('gives the client every field as text', () => {
+    for (const value of Object.values(publicChefLegalIdentity(FULL))) {
+      expect(typeof value).toBe('string');
+    }
   });
 
   it('lists what is missing, never inventing it', () => {
