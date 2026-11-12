@@ -693,13 +693,6 @@ export class UsersService {
   }
 
   /**
-   * Reads the chef's own SAP declaration (`GET /me/chef-profile/sap`).
-   * Returns `null` when the chef has not declared yet; a user without a chef profile
-   * is a `ConflictException`, same as on write.
-   */
-  async getSapProfileByClerkUserId(clerkUserId: string) {
-    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
-  /**
    * `PATCH /me/chef-profile/zones`: an approved batch cooker replaces their own
    * zones, with the candidature's rules (regions, towns against the official commune
    * base). A candidate awaiting approval changes them on the candidature instead.
@@ -748,6 +741,13 @@ export class UsersService {
     return updated;
   }
 
+  /**
+   * Reads the chef's own SAP declaration (`GET /me/chef-profile/sap`).
+   * Returns `null` when the chef has not declared yet; a user without a chef profile
+   * is a `ConflictException`, same as on write.
+   */
+  async getSapProfileByClerkUserId(clerkUserId: string) {
+    const chefProfile = await this.requireOwnChefProfile(clerkUserId);
     return this.prisma.sapProfile.findUnique({
       where: { chefProfileId: chefProfile.id },
     });
