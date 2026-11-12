@@ -78,10 +78,11 @@ export type RepriseLine = Omit<LineInput, 'hiddenFromClient'> & {
 };
 
 /**
- * Recettes §9, one line. A line already linked is kept as it is. An unlinked one is
+ * Recettes §9, one line. A line already linked keeps its link. An unlinked one is
  * linked when its match key names exactly one common entry, never by approximation;
  * otherwise it goes to verification with its original words in `rawText`. So does a
- * line, linked or not, whose quantity is no number ("1/2"). The unit
+ * line, linked or not, whose quantity is no number ("1/2"), and (§6.4, I3) one
+ * whose quantity is missing or not above 0 on a unit other than `to_taste`. The unit
  * is converted either way, and a unit that cannot be converted sends the line to
  * verification (`toLineInput`). Only an explicit `hiddenFromClient` is kept (§5.2):
  * without one, salt or oil end up hidden from the client by their entry.
@@ -94,15 +95,23 @@ export function repriseLine(raw: unknown, index: Map<string, string>): RepriseLi
     hiddenFromClient:
       typeof value.hiddenFromClient === 'boolean' ? value.hiddenFromClient : undefined,
   };
-  if (line.catalogIngredientId) return line;
-
   // The stored words, not the ones `toLineInput` rebuilt for an unknown unit.
   const kept = typeof value.rawText === 'string' ? value.rawText.trim() || null : null;
+  // I3: lot 2 took a 0, and an empty quantity reads as 0 or nothing. Replay-safe: the
+  // line stays to verify until the chef gives a quantity.
+  const noQuantity =
+    !line.toVerify && line.unit !== 'to_taste' && !(line.qty !== null && line.qty > 0);
+  if (line.catalogIngredientId) {
+    return noQuantity
+      ? { ...line, toVerify: true, rawText: kept ?? originalText(value, line.name) }
+      : line;
+  }
+
   const id = index.get(matchKey(line.name));
   const linked = id ? { ...line, catalogIngredientId: id } : { ...line, toVerify: true };
   // A quantity that is not a number ("1/2", "1,5") became null: linked or not, the
   // line waits for the chef with the words as typed.
-  return linked.toVerify || unreadableQuantity(value, line.unit)
+  return linked.toVerify || noQuantity || unreadableQuantity(value, line.unit)
     ? { ...linked, toVerify: true, rawText: kept ?? originalText(value, line.name) }
     : linked;
 }

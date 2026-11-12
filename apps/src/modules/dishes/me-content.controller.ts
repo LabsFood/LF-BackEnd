@@ -360,7 +360,9 @@ export class MeContentController {
       '`problems` (`readiness` on the dish says the same beforehand): name, type, ' +
       'portions, cooking time, an ingredient, none still to verify ' +
       '(`INGREDIENT_TO_VERIFY`), each linked to the common list (`INGREDIENT_NOT_LINKED`) ' +
-      'and complete (`INGREDIENT_INCOMPLETE`), a step, each typed (`STEP_TYPE_MISSING`), ' +
+      'and complete (`INGREDIENT_INCOMPLETE`), each with a quantity above 0 and a unit ' +
+      'unless `to_taste` (`VALIDATION_FAILED` on `recipe.ingredients[i].qty` or ' +
+      '`.unit`), a step, each typed (`STEP_TYPE_MISSING`), ' +
       'storage, reheating, allergens confirmed since the last ingredient change ' +
       '(`ALLERGENS_UNVERIFIED`), and a photo (`PHOTO_MISSING`). Origin and equipment are ' +
       'never asked.\n\n' +

@@ -219,6 +219,58 @@ describe('repriseLine (Recettes §9)', () => {
     ).toMatchObject({ toVerify: true, unit: null, rawText: 'une belle poignée' });
   });
 
+  // I3 / R33: §6.4 asks a quantity above 0 on every unit but to_taste. Lot 2 took a 0,
+  // and a line without one would be served as ready to a form that cannot hold it.
+  it.each([
+    ['0', 0, '0 g Farine'],
+    ['null', null, 'g Farine'],
+    ['negative', -1, '-1 g Farine'],
+    ['whitespace', '  ', 'g Farine'],
+  ])(
+    'sends an already linked line with a %s quantity to verification',
+    (_l, qty, words) => {
+      expect(
+        repriseLine(
+          { name: 'Farine', qty, unit: 'g', catalogIngredientId: 'cat-farine' },
+          INDEX,
+        ),
+      ).toMatchObject({
+        catalogIngredientId: 'cat-farine',
+        toVerify: true,
+        rawText: words,
+      });
+    },
+  );
+
+  it('sends a line it links with a quantity of 0 to verification, still linked', () => {
+    expect(repriseLine({ name: 'Tomates', qty: 0, unit: 'pièce' }, INDEX)).toMatchObject({
+      catalogIngredientId: 'cat-tomate',
+      unit: 'piece',
+      toVerify: true,
+      rawText: '0 pièce Tomates',
+    });
+  });
+
+  it('keeps the words a linked line with no quantity already has, and leaves to_taste alone', () => {
+    expect(
+      repriseLine(
+        {
+          name: 'Farine',
+          unit: 'g',
+          catalogIngredientId: 'cat-farine',
+          rawText: 'farine',
+        },
+        INDEX,
+      ),
+    ).toMatchObject({ toVerify: true, rawText: 'farine' });
+    expect(
+      repriseLine(
+        { name: 'Sel', qty: null, unit: 'to_taste', catalogIngredientId: 'cat-sel' },
+        INDEX,
+      ),
+    ).toMatchObject({ toVerify: false, rawText: null });
+  });
+
   it('keeps the original words an unlinked line already has', () => {
     expect(
       repriseLine(

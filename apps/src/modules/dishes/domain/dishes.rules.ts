@@ -241,6 +241,20 @@ export function readiness(dish: ReadinessDish) {
         message: 'This ingredient lacks the details needed to compute allergens.',
       });
     }
+    // §6.4: a quantity above 0 and a unit, except `to_taste`, with the messages of
+    // `lineInputProblems`. Saves are checked there; this reads legacy lines too (lot 2
+    // took a 0). A line to verify is already asked for, with its own fields.
+    if (!line.toVerify) {
+      if (line.unit === null) missing(`${field}.unit`, 'The unit is required');
+      if (line.unit !== 'to_taste' && !(line.qty !== null && line.qty > 0)) {
+        missing(
+          `${field}.qty`,
+          line.qty === null
+            ? 'The quantity is required'
+            : 'The quantity must be above zero',
+        );
+      }
+    }
   });
 
   const steps = readSteps(dish.steps);

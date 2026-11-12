@@ -166,6 +166,57 @@ describe('readiness (Recettes §4.11)', () => {
     ]);
   });
 
+  // §6.4: each line with a quantity above 0 and a unit, except `to_taste`. Lot 2 took
+  // a 0 (`@Min(0)`), and legacy lines may hold anything: readiness reads what is stored.
+  describe('quantity and unit of each line (I3)', () => {
+    const problemsOf = (qty: unknown, unit = 'g') =>
+      readiness({ ...DISH, ingredients: [ail, { ...ail, name: 'Farine', qty, unit }] })
+        .problems;
+
+    it.each([
+      ['null', null, 'The quantity is required'],
+      ['0', 0, 'The quantity must be above zero'],
+      ['negative', -2, 'The quantity must be above zero'],
+      ['whitespace', '   ', 'The quantity must be above zero'],
+    ])('a %s quantity is a problem on its field', (_label, qty, message) => {
+      expect(problemsOf(qty)).toEqual([
+        {
+          code: 'VALIDATION_FAILED',
+          field: 'recipe.ingredients[1].qty',
+          message,
+        },
+      ]);
+    });
+
+    it('a missing quantity is a problem on every unit but to_taste', () => {
+      expect(problemsOf(undefined, 'piece')).toEqual([
+        expect.objectContaining({ field: 'recipe.ingredients[1].qty' }),
+      ]);
+      expect(problemsOf(null, 'to_taste')).toEqual([]);
+      expect(problemsOf(0, 'to_taste')).toEqual([]);
+    });
+
+    it('a positive quantity with its unit passes, a legacy unit read through its code', () => {
+      expect(problemsOf(0.5, 'kg')).toEqual([]);
+      expect(problemsOf('250', 'grammes')).toEqual([]);
+    });
+
+    it('a line to verify is asked once, as to verify', () => {
+      const result = readiness({
+        ...DISH,
+        ingredients: [
+          { ...ail, qty: null, unit: null, toVerify: true, rawText: '1/2 ail' },
+        ],
+      });
+      expect(result.problems).toEqual([
+        expect.objectContaining({
+          code: 'INGREDIENT_TO_VERIFY',
+          field: 'recipe.ingredients[0]',
+        }),
+      ]);
+    });
+  });
+
   it('asks whether the dish can be frozen', () => {
     const result = readiness({ ...DISH, storage: { method: 'fridge', days: 3 } });
     expect(result.problems).toEqual([
