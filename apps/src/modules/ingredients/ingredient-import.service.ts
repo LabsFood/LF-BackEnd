@@ -31,6 +31,8 @@ const sameSet = (a: unknown, b: unknown) =>
  * names, diets and months are sets; the allergens are in annex order on both sides.
  */
 function differs(data: Record<string, unknown>, stored: Existing): boolean {
+  // I2: a lot 2 entry has no key yet; writing it is a change, whatever else the row says.
+  if (stored.normalizedName === null) return true;
   return Object.entries(data).some(([key, value]) => {
     if (key === 'normalizedName') return false;
     if (key === 'aliases' || key === 'diets' || key === 'seasonMonths') {
@@ -136,17 +138,32 @@ export class IngredientImportService {
     return report;
   }
 
-  /** What each row would do, against the common, non-merged entries of the same name. */
+  /**
+   * What each row would do, against the common, non-merged entries of the same name.
+   * I2: a lot 2 entry whose `normalized_name` is still NULL (the reprise fills it,
+   * after the import in the go-live order, spec §12) is matched by its name
+   * normalized here, and updated in place rather than duplicated. A stored key wins
+   * over such an entry; between two of them, the oldest.
+   */
   private async plan(rows: CatalogIngredientDto[]) {
     if (rows.length === 0) return [];
+    const wanted = new Set(rows.map((row) => normalizeName(row.name)));
     const stored = (await this.prisma.catalogIngredient.findMany({
       where: {
-        normalizedName: { in: rows.map((row) => normalizeName(row.name)) },
         chefProfileId: null,
         status: { not: 'merged' },
+        OR: [{ normalizedName: { in: [...wanted] } }, { normalizedName: null }],
       },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })) as unknown as Existing[];
-    const byName = new Map(stored.map((entry) => [entry.normalizedName, entry]));
+    const byName = new Map<string, Existing>();
+    for (const entry of stored.filter((e) => e.normalizedName !== null)) {
+      byName.set(entry.normalizedName as string, entry);
+    }
+    for (const entry of stored.filter((e) => e.normalizedName === null)) {
+      const key = normalizeName(String(entry.name));
+      if (wanted.has(key) && !byName.has(key)) byName.set(key, entry);
+    }
     const steps: (
       | { action: 'create'; row: CatalogIngredientDto }
       | { action: 'update' | 'unchanged'; row: CatalogIngredientDto; id: string }

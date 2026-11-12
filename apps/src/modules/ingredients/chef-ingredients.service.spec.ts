@@ -39,7 +39,12 @@ const VALID = { name: ' Harissa maison ', aisle: 'epices', allergens: ['mustard'
 function harness() {
   const catalogIngredient = {
     findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
-    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => [MINE]),
+    // I2: the name check also reads the common rows whose key is NULL; MINE's is stored.
+    findMany: jest.fn(async (args?: unknown): Promise<unknown[]> =>
+      (args as { where?: { normalizedName?: unknown } })?.where?.normalizedName === null
+        ? []
+        : [MINE],
+    ),
     findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => MINE),
     count: jest.fn(async (_args?: unknown) => 0),
     create: jest.fn(async ({ data }: { data: object }) => ({ ...MINE, ...data })),

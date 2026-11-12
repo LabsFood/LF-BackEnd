@@ -210,14 +210,31 @@ export class IngredientsService {
   async update(id: string, payload: UpdateCatalogIngredientDto, adminUserId: string) {
     const before = (await this.prisma.catalogIngredient.findUnique({
       where: { id },
-      select: { ...CARRIED, chefProfileId: true, status: true },
-    })) as (Carried & { chefProfileId: string | null; status: string }) | null;
+      select: { ...CARRIED, chefProfileId: true, status: true, normalizedName: true },
+    })) as
+      | (Carried & {
+          chefProfileId: string | null;
+          status: string;
+          normalizedName: string | null;
+        })
+      | null;
     if (!before) throw new NotFoundException('Ingredient not found.');
     if (payload.status !== undefined) assertCommon(before);
     const data = await this.toWrite(payload);
     if (payload.status !== undefined) data.status = payload.status;
-    const normalized = data.normalizedName as string | undefined;
-    if (normalized) await this.assertNameFree(normalized, id);
+    // I2: a lot 2 entry's key is NULL until the reprise fills it; its name gives it.
+    const ownKey = before.normalizedName ?? normalizeName(before.name);
+    let normalized = data.normalizedName as string | undefined;
+    // A name that keeps the entry's own key creates no duplicate: only a new key is
+    // checked (the unique index still guards the stored ones).
+    if (normalized && normalized !== ownKey) await this.assertNameFree(normalized, id);
+    if (!normalized && before.normalizedName === null && ownKey) {
+      // I2: any write fills a legacy key, unless another entry holds it: then it stays
+      // NULL for the reprise to report, and the admin's edit still lands.
+      if (!(await this.nameHolder(ownKey, id))) {
+        data.normalizedName = normalized = ownKey;
+      }
+    }
     const row = await this.prisma.catalogIngredient
       .update({ where: { id }, data, include: WITH_CHEF })
       .catch((error: unknown) => {
@@ -467,16 +484,35 @@ export class IngredientsService {
 
   /** The same name twice, in another case or accents, would split the computed diets. */
   async assertNameFree(normalizedName: string, except?: string) {
+    const taken = await this.nameHolder(normalizedName, except);
+    if (taken) throw alreadyListed(taken);
+  }
+
+  /**
+   * The common, non-merged entry holding this name, if any: by its stored key, or
+   * (I2) a lot 2 entry whose key is still NULL, by its name normalized here. The
+   * go-live order imports the list before the reprise fills those keys (spec §12).
+   */
+  async nameHolder(
+    normalizedName: string,
+    except?: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const scope = {
+      chefProfileId: null,
+      status: { not: 'merged' },
+      ...(except && { id: { not: except } }),
+    };
     const taken = await this.prisma.catalogIngredient.findFirst({
-      where: {
-        normalizedName,
-        chefProfileId: null,
-        status: { not: 'merged' },
-        ...(except && { id: { not: except } }),
-      },
+      where: { normalizedName, ...scope },
       select: { id: true, name: true },
     });
-    if (taken) throw alreadyListed(taken);
+    if (taken) return taken;
+    const legacy = (await this.prisma.catalogIngredient.findMany({
+      where: { normalizedName: null, ...scope },
+      select: { id: true, name: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })) as { id: string; name: string }[];
+    return legacy.find((row) => normalizeName(row.name) === normalizedName) ?? null;
   }
 
   /** The unique index answered first (a race): the same 409, with the entry that won. */

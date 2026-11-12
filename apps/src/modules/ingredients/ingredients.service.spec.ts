@@ -29,9 +29,17 @@ const TOMATE = {
   updatedAt: new Date('2026-11-02T09:00:00.000Z'),
 };
 
+/** I2: the name check also reads the rows whose key is NULL; TOMATE's is stored. */
+const keyedOnly = (rows: Record<string, unknown>[]) => (args?: unknown) =>
+  (args as { where?: { normalizedName?: unknown } })?.where?.normalizedName === null
+    ? rows.filter((row) => row.normalizedName === null)
+    : rows;
+
 function harness() {
   const catalogIngredient = {
-    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => [TOMATE]),
+    findMany: jest.fn(async (args?: unknown): Promise<unknown[]> =>
+      keyedOnly([TOMATE])(args),
+    ),
     findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
     findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => TOMATE),
     count: jest.fn(async (_args?: unknown) => 1),
@@ -556,17 +564,30 @@ describe('IngredientsService (Recettes §4.10)', () => {
   it('excludes the entry itself from the uniqueness check when renaming it', async () => {
     const { catalogIngredient, service } = harness();
 
-    await service.update('ing-1', { name: 'TOMATE' }, 'a');
+    await service.update('ing-1', { name: 'Tomate cerise' }, 'a');
 
     expect(catalogIngredient.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          normalizedName: 'tomate',
+          normalizedName: 'tomate cerise',
           id: { not: 'ing-1' },
         }),
       }),
     );
     expect(catalogIngredient.update).toHaveBeenCalled();
+  });
+
+  it('a rename keeping its own key (case, accents) needs no name check', async () => {
+    const { catalogIngredient, service } = harness();
+
+    await service.update('ing-1', { name: 'TOMATE' }, 'a');
+
+    expect(catalogIngredient.findFirst).not.toHaveBeenCalled();
+    expect(catalogIngredient.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ name: 'TOMATE', normalizedName: 'tomate' }),
+      }),
+    );
   });
 });
 
@@ -1057,5 +1078,95 @@ describe('IngredientsService chef and dishes (ruling R25)', () => {
       await expect(service.dishes('nope')).rejects.toBeInstanceOf(NotFoundException);
       expect(meal.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+// I2: lot 2 rows carry no normalized_name until the reprise fills it, and the go-live
+// order runs the import first. The API matches them by their name, normalized here.
+describe('IngredientsService legacy names (I2)', () => {
+  const LEGACY = {
+    id: 'legacy-1',
+    name: 'Crème  fraîche',
+    normalizedName: null,
+    createdAt: new Date('2026-01-01T09:00:00.000Z'),
+  };
+
+  /** The NULL-key rows of the common, non-merged scope, as the database filters them. */
+  const legacyTable = (rows: Record<string, unknown>[]) => async (args?: unknown) => {
+    const where = (args as { where?: { normalizedName?: unknown; id?: { not: string } } })
+      ?.where;
+    if (!where || where.normalizedName !== null) return [];
+    return rows.filter((row) => !where.id || row.id !== where.id.not);
+  };
+
+  it('a name a legacy entry holds answers 409, accents, case and spaces ignored', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockImplementation(legacyTable([LEGACY]));
+
+    const error = await service
+      .create(
+        { name: 'creme FRAICHE', aisle: 'cremerie', allergens: ['milk'] },
+        'admin-1',
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      code: 'INGREDIENT_ALREADY_LISTED',
+      ingredient: { id: 'legacy-1', name: 'Crème  fraîche' },
+    });
+    expect(catalogIngredient.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { normalizedName: null, chefProfileId: null, status: { not: 'merged' } },
+      }),
+    );
+    expect(catalogIngredient.create).not.toHaveBeenCalled();
+  });
+
+  it('another legacy name does not block, nor the entry itself on its own save', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockImplementation(legacyTable([LEGACY]));
+
+    await service.create({ name: 'Crème épaisse', allergens: ['milk'] }, 'admin-1');
+    expect(catalogIngredient.create).toHaveBeenCalledTimes(1);
+
+    catalogIngredient.findUnique.mockResolvedValue({ ...TOMATE, ...LEGACY });
+    await service.update('legacy-1', { name: 'Crème fraîche' }, 'admin-1');
+    expect(catalogIngredient.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'legacy-1' },
+        data: expect.objectContaining({ normalizedName: 'creme fraiche' }),
+      }),
+    );
+  });
+
+  it('an admin save of a legacy entry fills its normalized_name, when the name is free', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockImplementation(legacyTable([LEGACY]));
+    catalogIngredient.findUnique.mockResolvedValue({ ...TOMATE, ...LEGACY });
+
+    await service.update('legacy-1', { aisle: 'cremerie' }, 'admin-1');
+
+    expect(catalogIngredient.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'legacy-1' },
+        data: expect.objectContaining({
+          aisle: 'cremerie',
+          normalizedName: 'creme fraiche',
+        }),
+      }),
+    );
+  });
+
+  it('a taken name stays NULL on such a save: the edit lands, the reprise reports it', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockImplementation(legacyTable([LEGACY]));
+    catalogIngredient.findUnique.mockResolvedValue({ ...TOMATE, ...LEGACY });
+    catalogIngredient.findFirst.mockResolvedValue({ id: 'ing-9', name: 'Crème fraîche' });
+
+    await service.update('legacy-1', { aisle: 'cremerie' }, 'admin-1');
+
+    const { data } = catalogIngredient.update.mock.calls[0][0] as { data: object };
+    expect(data).toEqual({ aisle: 'cremerie' });
   });
 });
