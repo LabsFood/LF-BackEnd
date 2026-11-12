@@ -253,7 +253,7 @@ Les prestations déjà validées gardent leur version (lot 2). L'opération est 
 - Format : séparateur `;`, listes séparées par `|`, booléens `oui`/`non`.
 - Colonnes : `nom`, `autres_noms`, `rayon`, `allergenes`, `aucun_allergene`, `regimes`, `mois`, `base`, `doute` (ce qui mérite une attention particulière à la relecture, non importé).
 - L'import se fait dans la console. Il simule d'abord (créés, mis à jour, inchangés, erreurs par ligne), et n'écrit rien s'il y a une erreur. Une fois confirmé, il met à jour un ingrédient existant par son `normalized_name` ; une mise à jour passe par le report du §7.3.
-- Limites : 2 Mo et 2 000 lignes.
+- Limites : 500 000 caractères et 2 000 lignes (R29 : la limite de 1 Mio du corps d'une requête rendait 2 Mo inatteignables).
 - LAB'S FOOD relit chaque ingrédient sur l'environnement de développement. La mise en production attend que tout soit relu.
 
 ## 8. API

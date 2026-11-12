@@ -30,13 +30,14 @@ describe('ImportIngredientsDto (Recettes §7.4)', () => {
     ['confirm "true"', { csv: 'x', confirm: 'true' }],
     ['confirm 1', { csv: 'x', confirm: 1 }],
     ['no csv', { confirm: true }],
-    ['a csv above 2,000,000 characters', { csv: 'a'.repeat(2_000_001) }],
+    // Ruling R29: Fastify's 1 MiB body limit made 2,000,000 unreachable.
+    ['a csv above 500,000 characters', { csv: 'a'.repeat(500_001) }],
     ['an unknown field', { csv: 'x', dryRun: true }],
   ])('refuses %s with a 400', async (_label, value) => {
     await expect(body(value)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('accepts a csv of exactly 2,000,000 characters', async () => {
-    await expect(body({ csv: 'a'.repeat(2_000_000) })).resolves.toBeDefined();
+  it('accepts a csv of exactly 500,000 characters', async () => {
+    await expect(body({ csv: 'a'.repeat(500_000) })).resolves.toBeDefined();
   });
 });

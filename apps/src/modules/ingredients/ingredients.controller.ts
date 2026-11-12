@@ -145,12 +145,13 @@ export class IngredientsController {
   @ApiOperation({
     summary: 'Import the common list from a CSV',
     description:
-      'Recettes §7.4: `csv` (2 MB, 2,000 lines at most) with the header `nom;autres_noms;' +
+      'Recettes §7.4: `csv` (500,000 characters, 2,000 lines at most) with the header `nom;autres_noms;' +
       'rayon;allergenes;aucun_allergene;regimes;mois;base;doute`, separator `;`, lists ' +
       'separated by `|`, booleans `oui`/`non`, `doute` ignored. Without `confirm: true` ' +
       'it only simulates: `created`, `updated`, `unchanged` and the `errors` per line ' +
       '(`line` 1 is the header). It writes nothing while there is an error. Confirmed, ' +
-      'it matches each row by its normalized name: a new name is created (common, ' +
+      'it matches each row by its normalized name (a lot 2 entry whose key is still ' +
+      'empty, by its name normalized by the API): a new name is created (common, ' +
       'active), a changed entry is updated and carried into the recipes (§7.3, the ' +
       'figures summed in `propagation`; `updatedIds` lists the entries updated ' +
       '(empty in a simulation), to replay `failed` dishes with `POST ' +
