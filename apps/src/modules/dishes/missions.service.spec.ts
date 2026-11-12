@@ -438,6 +438,28 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
     });
   });
 
+  it('lists the tasted countries alphabetically, not in the order they were tasted', async () => {
+    const { service, prisma } = missions('client');
+    prisma.booking.findMany.mockResolvedValue([
+      {
+        startsAt: new Date('2026-05-24T09:00:00Z'),
+        bookingMeals: [
+          { meal: { name: 'Pho', country: 'VN' } },
+          { meal: { name: 'Choucroute', country: 'DE' } },
+          { meal: { name: 'Mafé', country: 'SN' } },
+        ],
+      },
+    ]);
+
+    const { explored } = await service.culinaryMap('clerk');
+
+    expect(explored.map((place) => place.name)).toEqual([
+      'Allemagne',
+      'Sénégal',
+      'Viêt Nam',
+    ]);
+  });
+
   it('colours a country only for delivered prestations, keyed both ways', async () => {
     const { service, prisma } = missions('client');
     prisma.booking.findMany.mockResolvedValue([

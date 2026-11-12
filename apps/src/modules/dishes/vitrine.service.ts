@@ -224,15 +224,21 @@ export class VitrineService {
       legalIdentity: legal ? publicChefLegalIdentity(legal) : null,
       slotsLeft: slotsLeft.get(chef.id) ?? null,
       bio: chef.bio,
-      zones: zonesOf(chef).map((zone) => ({
-        regionCode: zone.regionCode,
-        regionLabel: zone.regionLabel ?? null,
-        scope: zone.scope,
-        cities: (zone.cities ?? []).map((city) => ({
-          name: city.name,
-          insee: city.insee,
-        })),
-      })),
+      zones: zonesOf(chef)
+        .map((zone) => ({
+          regionCode: zone.regionCode,
+          regionLabel: zone.regionLabel ?? null,
+          scope: zone.scope,
+          cities: (zone.cities ?? [])
+            .map((city) => ({ name: city.name, insee: city.insee }))
+            .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'fr')),
+        }))
+        .sort((a, b) =>
+          (a.regionLabel ?? a.regionCode).localeCompare(
+            b.regionLabel ?? b.regionCode,
+            'fr',
+          ),
+        ),
       ...extras.price(chef.id),
       serviceOffers,
       dishes: dishes.map(toPublicDish),

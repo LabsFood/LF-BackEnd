@@ -41,6 +41,8 @@ import {
 import { CONTRACT_TERMS } from '../bookings/domain/contract.rules';
 import { isValidSiren } from '../chef-onboarding/domain/chef-onboarding.rules';
 import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
+import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-application.dto';
+import { assertInterventionZones, sortZones } from './intervention-zones.check';
 import { UpdateChefLegalDto } from './dto/chef-legal.dto';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
 import { clientOnboarding } from './domain/client-onboarding.rules';
@@ -697,6 +699,55 @@ export class UsersService {
    */
   async getSapProfileByClerkUserId(clerkUserId: string) {
     const chefProfile = await this.requireOwnChefProfile(clerkUserId);
+  /**
+   * `PATCH /me/chef-profile/zones`: an approved batch cooker replaces their own
+   * zones, with the candidature's rules (regions, towns against the official commune
+   * base). A candidate awaiting approval changes them on the candidature instead.
+   * Journaled before and after, as the admin's change is: the zones decide who can
+   * be matched to which booking.
+   */
+  async updateOwnChefZones(clerkUserId: string, zones: InterventionZoneDto[]) {
+    const user = await this.findByClerkId(clerkUserId);
+    const profile =
+      user &&
+      (await this.prisma.chefProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true, isVerified: true, interventionZones: true },
+      }));
+    if (!user || !profile) {
+      throw new NotFoundException('No batch cooker profile for this account.');
+    }
+    if (!profile.isVerified) {
+      throw new ForbiddenException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Your zones are the candidature’s until it is approved.',
+      });
+    }
+    await assertInterventionZones(zones, this.geo);
+
+    const updated = await this.prisma.chefProfile.update({
+      where: { id: profile.id },
+      data: {
+        interventionZones: sortZones(zones) as unknown as Prisma.InputJsonValue,
+      },
+      select: { interventionZones: true },
+    });
+    this.logger.log({
+      event: 'chef.zones_changed',
+      chefProfileId: profile.id,
+      regionCodes: zones.map((zone) => zone.regionCode),
+    });
+    await this.audit.record({
+      actorType: 'chef',
+      actorUserId: user.id,
+      action: 'chef.zones_changed',
+      subjectType: 'chef_profile',
+      subjectId: profile.id,
+      metadata: { before: profile.interventionZones, after: zones },
+    });
+    return updated;
+  }
+
     return this.prisma.sapProfile.findUnique({
       where: { chefProfileId: chefProfile.id },
     });

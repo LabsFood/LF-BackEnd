@@ -149,7 +149,7 @@ export class ReferentialsController {
     },
   })
   diets() {
-    return { diets: DIETS };
+    return { diets: byLabel(DIETS) };
   }
 
   @Get('dish-categories')
@@ -184,7 +184,7 @@ export class ReferentialsController {
     schema: { example: { diets: [{ code: 'vegan', label: 'Végétalien' }] } },
   })
   computedDiets() {
-    return { diets: COMPUTED_DIETS };
+    return { diets: byLabel(COMPUTED_DIETS) };
   }
 
   @Get('step-types')

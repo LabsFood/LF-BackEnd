@@ -345,7 +345,10 @@ export class MissionsService {
         }
       }
     }
-    return { total: COUNTRIES_TOTAL, explored: [...explored.values()] };
+    const alphabetical = [...explored.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, 'fr'),
+    );
+    return { total: COUNTRIES_TOTAL, explored: alphabetical };
   }
 
   /**

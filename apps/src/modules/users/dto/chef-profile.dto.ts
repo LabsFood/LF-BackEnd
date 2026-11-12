@@ -224,8 +224,9 @@ const LANGUAGE_CODES = LANGUAGES.map((l) => l.code);
  *
  * Deliberately absent: `isActive` and `isVerified` (set at candidature approval
  * and by the dossier), `stripeAccountId` and `cronofyProfileId` (payout and
- * calendar wiring), and the SAP route and intervention zones, which were verified
- * against documents during the candidature. `avatarUrl` is on the account and set
+ * calendar wiring), and the SAP route, which was verified against documents during
+ * the candidature. The intervention zones have their own route (`PATCH
+ * /me/chef-profile/zones`). `avatarUrl` is on the account and set
  * only by the photo upload (`/me/avatar`), which checks the file. The global `ValidationPipe` runs with
  * `forbidNonWhitelisted`, so a body carrying any of them is refused rather than
  * silently stripped.

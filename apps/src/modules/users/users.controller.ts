@@ -42,6 +42,7 @@ import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
 import { ChefLegalDto, UpdateChefLegalDto } from './dto/chef-legal.dto';
+import { UpdateChefZonesDto } from './dto/admin-chefs.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import {
   SapProfileDto,
@@ -279,8 +280,8 @@ export class UsersController {
       'account. Send ' +
       'only the fields to change.\n\n' +
       'Only for an approved batch cooker: while the candidature is reviewed the account ' +
-      'is browse-only. The visibility flags, the SAP route and the zones are set at ' +
-      'approval and cannot be sent here.',
+      'is browse-only. The visibility flags and the SAP route are set at approval and ' +
+      'cannot be sent here; the zones have their own route, `PATCH /me/chef-profile/zones`.',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
@@ -299,6 +300,36 @@ export class UsersController {
     @Body() payload: UpdateMeChefProfileDto,
   ) {
     return this.users.updateOwnChefProfile(user.userId, payload);
+  }
+
+  @Patch('me/chef-profile/zones')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Change my intervention zones',
+    description:
+      'Replaces every zone, in the shape and with the rules of the candidature’s ' +
+      '`interventionZones`: at least one, metropolitan regions only, a `cities` zone ' +
+      'names its towns. Journaled. Read them back in `GET /me`, `chefProfile.interventionZones`.\n\n' +
+      'Only for an approved batch cooker: until then the zones are the candidature’s.',
+  })
+  @ApiOkResponse({ description: 'The new zones: `{ interventionZones }`.' })
+  @ApiForbiddenResponse({
+    description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+  })
+  @ApiNotFoundResponse({ description: 'This account is not a batch cooker.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a region outside metropolitan France, or a `cities` zone ' +
+      'without a city. `ZONE_CITY_UNKNOWN`: a town is not the commune its INSEE code ' +
+      'names in that region (geo.api.gouv.fr).',
+  })
+  @ApiGeoResponses()
+  @ApiClerkAuthResponses()
+  patchMeChefZones(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: UpdateChefZonesDto,
+  ) {
+    return this.users.updateOwnChefZones(user.userId, body.interventionZones);
   }
 
   @Get('me/chef-profile/sap')

@@ -1,10 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
 import {
@@ -19,9 +13,7 @@ import { feedInUse } from '../calendar/calendar-feed.service';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
 import {
   METROPOLITAN_REGIONS,
-  interventionZonesProblem,
   toWire,
-  zoneCitiesProblem,
 } from '../chef-onboarding/domain/chef-onboarding.rules';
 import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-application.dto';
 import {
@@ -30,6 +22,7 @@ import {
   ListAdminChefsQueryDto,
 } from './dto/admin-chefs.dto';
 import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
+import { assertInterventionZones } from './intervention-zones.check';
 
 const REGION_LABEL = new Map<string, string>(
   METROPOLITAN_REGIONS.map((r) => [r.code, r.label]),
@@ -231,33 +224,12 @@ export class AdminChefsService {
 
   /**
    * `PATCH /admin/chefs/{id}/zones`: replaces the zones of an approved batch cooker.
-   *
-   * Admin only, never the batch cooker: the zones were checked against documents
-   * at the candidature, and this keeps a person in that loop. Before approval the
-   * zones are the candidature's, changed there.
+   * The batch cooker does the same for themselves at `PATCH /me/chef-profile/zones`;
+   * this one is for the team acting on their behalf. Before approval the zones are
+   * the candidature's, changed there.
    */
   async setZones(id: string, zones: InterventionZoneDto[], adminClerkUserId: string) {
-    const problem = interventionZonesProblem(zones);
-    if (problem) {
-      throw new UnprocessableEntityException({
-        code: 'VALIDATION_FAILED',
-        message: problem,
-      });
-    }
-    // Against the official base, as the candidature does.
-    for (const zone of zones) {
-      if (zone.cities.length === 0) continue;
-      const unknown = zoneCitiesProblem(
-        zone,
-        await this.geo.communesByRegion(zone.regionCode),
-      );
-      if (unknown) {
-        throw new UnprocessableEntityException({
-          code: 'ZONE_CITY_UNKNOWN',
-          message: unknown,
-        });
-      }
-    }
+    await assertInterventionZones(zones, this.geo);
 
     const [chef, admin] = await Promise.all([
       this.prisma.chefProfile.findFirst({
@@ -430,8 +402,10 @@ function zonesOf(row: ChefRow) {
               dept: typeof city.dept === 'string' ? city.dept : null,
               insee: typeof city.insee === 'string' ? city.insee : null,
             }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
         : [],
-    }));
+    }))
+    .sort((a, b) => a.regionLabel.localeCompare(b.regionLabel, 'fr'));
 }
 
 function toItem(

@@ -397,6 +397,7 @@ export function isMetropolitanRegion(code: string): boolean {
 export function interventionZonesProblem(
   zones: readonly { regionCode: string; scope: string; cities: readonly unknown[] }[],
 ): string | undefined {
+  if (zones.length === 0) return 'interventionZones: at least one zone is required.';
   for (const zone of zones) {
     if (!isMetropolitanRegion(zone.regionCode)) {
       return `interventionZones: "${zone.regionCode}" is not a metropolitan region code.`;
