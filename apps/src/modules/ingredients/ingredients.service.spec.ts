@@ -404,6 +404,62 @@ describe('IngredientsService (Recettes §4.10)', () => {
     );
   });
 
+  // I1: every signed-in user may search, so a result never carries an author's or a
+  // reviewer's user id, the owner profile or the search key.
+  it('searches answer the public shape: no user ids, owner or search key', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.findMany.mockResolvedValue([
+      {
+        ...TOMATE,
+        createdByUserId: 'chef-user-9',
+        reviewedAt: new Date('2026-11-03T09:00:00.000Z'),
+        reviewedByUserId: 'admin-user-1',
+      },
+      {
+        ...TOMATE,
+        id: 'p',
+        chefProfileId: 'chef-1',
+        status: 'pending',
+        createdByUserId: 'chef-user-1',
+        reviewedAt: null,
+        reviewedByUserId: null,
+      },
+    ]);
+
+    const found = await service.search('tom', 'chef-1');
+
+    for (const row of found) {
+      for (const key of [
+        'createdByUserId',
+        'reviewedByUserId',
+        'normalizedName',
+        'mergedIntoId',
+        'chefProfileId',
+      ]) {
+        expect(row).not.toHaveProperty(key);
+      }
+      expect(Object.keys(row).filter((key) => /UserId$/.test(key))).toEqual([]);
+    }
+    expect(found[0]).toEqual({
+      id: 'ing-1',
+      name: 'Tomate',
+      aliases: ['pomme d’amour'],
+      diets: ['vegan', 'vegetarian'],
+      seasonMonths: [6, 7, 8, 9],
+      aisle: 'fruits-legumes',
+      allergens: [],
+      allergensNone: true,
+      isBasic: false,
+      status: 'active',
+      mergedInto: null,
+      private: false,
+      reviewedAt: new Date('2026-11-03T09:00:00.000Z'),
+      createdAt: TOMATE.createdAt,
+      updatedAt: TOMATE.updatedAt,
+    });
+    expect(found[1]).toMatchObject({ id: 'p', private: true });
+  });
+
   it('searches without a chef: common active entries alone', async () => {
     const { catalogIngredient, service } = harness();
     await service.search('tom', null);

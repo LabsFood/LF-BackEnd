@@ -44,6 +44,45 @@ function withChef<T extends object>(row: T) {
   };
 }
 
+/**
+ * What a chef sees of an ingredient (the Swagger example): never the author's or
+ * reviewer's user ids, the owner profile or the search key. `/me/ingredients` and
+ * `GET /ingredients` (with `private`) both answer it.
+ */
+export function toPublic(row: {
+  id: string;
+  name: string;
+  aliases: string[];
+  diets: string[];
+  seasonMonths: number[];
+  aisle: string | null;
+  allergens: string[];
+  allergensNone: boolean;
+  isBasic: boolean;
+  status: string;
+  reviewedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  mergedInto?: { id: string; name: string } | null;
+}) {
+  return {
+    id: row.id,
+    name: row.name,
+    aliases: row.aliases,
+    diets: row.diets,
+    seasonMonths: row.seasonMonths,
+    aisle: row.aisle,
+    allergens: row.allergens,
+    allergensNone: row.allergensNone,
+    isBasic: row.isBasic,
+    status: row.status,
+    mergedInto: row.mergedInto ?? null,
+    reviewedAt: row.reviewedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 /** The most dishes `dishes()` lists. */
 const DISHES_LIMIT = 200;
 
@@ -137,7 +176,11 @@ export class IngredientsService {
       orderBy: { name: 'asc' },
       take: SEARCH_LIMIT,
     });
-    return rows.map((row) => ({ ...row, private: row.chefProfileId !== null }));
+    // I1: the public shape, never the raw row (no user ids, owner or search key).
+    return rows.map((row) => ({
+      ...toPublic(row),
+      private: row.chefProfileId !== null,
+    }));
   }
 
   async create(payload: CatalogIngredientDto, adminUserId: string) {

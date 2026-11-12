@@ -60,6 +60,25 @@ const INGREDIENT_EXAMPLE = {
   updatedAt: '2026-11-02T09:00:00.000Z',
 };
 
+/** I1: what `GET /ingredients` answers, the public shape (`toPublic`) plus `private`. */
+const SEARCH_EXAMPLE = {
+  id: INGREDIENT_EXAMPLE.id,
+  name: INGREDIENT_EXAMPLE.name,
+  aliases: INGREDIENT_EXAMPLE.aliases,
+  diets: INGREDIENT_EXAMPLE.diets,
+  seasonMonths: INGREDIENT_EXAMPLE.seasonMonths,
+  aisle: INGREDIENT_EXAMPLE.aisle,
+  allergens: INGREDIENT_EXAMPLE.allergens,
+  allergensNone: INGREDIENT_EXAMPLE.allergensNone,
+  isBasic: INGREDIENT_EXAMPLE.isBasic,
+  status: INGREDIENT_EXAMPLE.status,
+  mergedInto: null,
+  private: false,
+  reviewedAt: INGREDIENT_EXAMPLE.reviewedAt,
+  createdAt: INGREDIENT_EXAMPLE.createdAt,
+  updatedAt: INGREDIENT_EXAMPLE.updatedAt,
+};
+
 const PROPAGATION_EXAMPLE = { dishes: 3, reverified: 2, chefs: 1, skipped: 0, failed: 0 };
 
 @Controller()
@@ -81,10 +100,11 @@ export class IngredientsController {
       'Recettes §4.10: up to 20 ingredients whose name contains `search` (accents ' +
       'ignored), or whose other name is exactly `search`. The common active entries, ' +
       'plus the caller’s own pending ones (`private: true`); never another chef’s. ' +
-      'Each carries its aisle, allergens, `allergensNone`, `isBasic` and `status`. A ' +
-      'recipe line links one with `catalogIngredientId`.',
+      'Each carries its aisle, allergens, `allergensNone`, `isBasic` and `status`, ' +
+      'never a user id, the owner profile or the search key. A recipe line links one ' +
+      'with `catalogIngredientId`.',
   })
-  @ApiOkResponse({ description: 'The matches, by name.', example: [INGREDIENT_EXAMPLE] })
+  @ApiOkResponse({ description: 'The matches, by name.', example: [SEARCH_EXAMPLE] })
   @ApiClerkAuthResponses()
   async search(
     @CurrentClerkUser() user: ClerkUser,
