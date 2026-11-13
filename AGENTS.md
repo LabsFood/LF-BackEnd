@@ -253,9 +253,23 @@ fact. Module: `modules/dishes/`. Spec:
 - **Recipe versions**: `meals.recipe_version` goes up on every recipe change; a
   booking pins the version it cooks from (`booking_meals.recipe_version`) and the
   content is kept in `meal_recipe_versions`, so the fiche and the shopping list
-  always agree. Pinned when `POST /me|chef|admin/bookings` creates the booking
-  (best-effort); a dish added later, or a failed pin, is pinned on first use of
-  the fiche or the shopping list.
+  always agree. Recettes lot 3: pinned, with the dish's allergens of that
+  moment (`booking_meals.allergens_snapshot`, `pinned_at`), in the same
+  transaction that writes the menu (booking created, dishes changed, a
+  conflicting dish replaced); a booking from before lot 3 is pinned on first use
+  of the fiche or the shopping list.
+- **Menu freeze (lot 3)**: from 72 h before the start the dishes no longer
+  change (`409 MENU_FROZEN`, with `frozenSince`), computed from `startsAt`.
+  The allergy-conflict replacement still goes through; an admin may still
+  change them (`menuFrozenOverride` in the audit log); the chef's re-pin is
+  refused, and checks the client's allergies again before the freeze.
+- **« À manger avant » and conservation (lot 3)**: each dish's date is the
+  prestation day plus the pinned recipe's fridge days, or the chef's
+  (`booking_meals.eat_before`, every change kept in
+  `booking_meal_date_changes`), until 24 h after the end. Past
+  `/admin/settings/fridge-alert` days (4 by default) it alerts, never blocks.
+  The client reads the conservation sheet (JSON and PDF) once `delivered`, and
+  is told then (`conservation.ready`).
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 
@@ -263,7 +277,7 @@ fact. Module: `modules/dishes/`. Spec:
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public                            | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}`                                                                                                                                                             |
 | Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`                                        |
-| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`                                                                                   |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before` |
 | Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
 | Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
 

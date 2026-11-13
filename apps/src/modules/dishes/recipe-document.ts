@@ -202,18 +202,55 @@ const labelOf = (list: readonly ListItem[], code: string) =>
 
 type Stored = Record<string, unknown> | null;
 
-/** A dish as the sheet prints it: labels from the lists, never codes. */
-export function recipeDocumentOf(
-  meal: Meal,
+/** "Réfrigérateur, 3 jours, Boîte en verre": a recipe's storage, as printed. */
+export function storageText(raw: unknown): string | null {
+  const storage = raw as Stored;
+  return storage
+    ? [
+        STORAGE_METHODS[String(storage.method)] ?? String(storage.method),
+        typeof storage.days === 'number' ? `${storage.days} jours` : null,
+        storage.container,
+      ]
+        .filter(Boolean)
+        .join(', ')
+    : null;
+}
+
+/** "Micro-ondes, 3 min. Remuer. Contenant : …": a recipe's reheating, as printed. */
+export function reheatingText(
+  raw: unknown,
   reheatModes: readonly ListItem[],
-): RecipeDocumentInput {
-  const storage = meal.storage as Stored;
-  const reheating = meal.reheating as Stored;
+): string | null {
+  const reheating = raw as Stored;
   const modes = Array.isArray(reheating?.modes)
     ? (reheating.modes as string[])
     : typeof reheating?.mode === 'string'
       ? [reheating.mode]
       : [];
+  return reheating
+    ? [
+        [
+          modes.map((code) => labelOf(reheatModes, code)).join(' ou '),
+          typeof reheating.minutes === 'number' ? `${reheating.minutes} min` : null,
+          typeof reheating.temperature === 'number'
+            ? `à ${reheating.temperature} °C`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(', '),
+        reheating.note,
+        reheating.container ? `Contenant : ${String(reheating.container)}` : null,
+      ]
+        .filter(Boolean)
+        .join('. ')
+    : null;
+}
+
+/** A dish as the sheet prints it: labels from the lists, never codes. */
+export function recipeDocumentOf(
+  meal: Meal,
+  reheatModes: readonly ListItem[],
+): RecipeDocumentInput {
   return {
     name: meal.name,
     description: meal.description,
@@ -233,32 +270,8 @@ export function recipeDocumentOf(
       ...meal.customAllergens,
     ],
     equipment: meal.equipment,
-    storage: storage
-      ? [
-          STORAGE_METHODS[String(storage.method)] ?? String(storage.method),
-          typeof storage.days === 'number' ? `${storage.days} jours` : null,
-          storage.container,
-        ]
-          .filter(Boolean)
-          .join(', ')
-      : null,
-    reheating: reheating
-      ? [
-          [
-            modes.map((code) => labelOf(reheatModes, code)).join(' ou '),
-            typeof reheating.minutes === 'number' ? `${reheating.minutes} min` : null,
-            typeof reheating.temperature === 'number'
-              ? `à ${reheating.temperature} °C`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(', '),
-          reheating.note,
-          reheating.container ? `Contenant : ${String(reheating.container)}` : null,
-        ]
-          .filter(Boolean)
-          .join('. ')
-      : null,
+    storage: storageText(meal.storage),
+    reheating: reheatingText(meal.reheating, reheatModes),
   };
 }
 

@@ -24,7 +24,9 @@ import {
   eatBeforeView,
 } from '../bookings/domain/eat-before.rules';
 import { frozenSince, isMenuFrozen } from '../bookings/domain/menu-freeze.rules';
+import { parisToday } from '../../common/paris-time';
 import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
+import { reheatModesInForce } from '../platform-settings/recipe-lists';
 import {
   menuFrozen,
   shoppingByClient,
@@ -34,6 +36,8 @@ import {
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
 import { PutDishNotesDto, PutEatBeforeDto } from './dto/mission.dto';
+import { conservationFilename, renderConservationPdf } from './conservation-document';
+import { reheatingText, storageText } from './recipe-document';
 
 type Role = 'chef' | 'admin' | 'client';
 
@@ -356,6 +360,49 @@ export class MissionsService {
       dishes,
       ...(history && { history }),
     };
+  }
+
+  /**
+   * Recettes lot 3 (LF-0272): the conservation sheet as a PDF, for the same people
+   * and on the same terms as `conservation`. Labels, never codes.
+   */
+  async conservationPdf(clerkUserId: string, bookingId: string) {
+    const [sheet, modes] = await Promise.all([
+      this.conservation(clerkUserId, bookingId),
+      reheatModesInForce(this.prisma),
+    ]);
+    const day = (ymdDay: string, withYear: boolean) =>
+      new Intl.DateTimeFormat('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        ...(withYear && { year: 'numeric' }),
+        timeZone: 'UTC',
+      }).format(new Date(`${ymdDay}T00:00:00.000Z`));
+    const sessionYmd = parisToday(sheet.startsAt).toISOString().slice(0, 10);
+    const body = await renderConservationPdf({
+      day: day(sessionYmd, true),
+      dishes: sheet.dishes.map((dish) => ({
+        name: dish.name,
+        eatBefore: dish.eatBefore.date ? day(dish.eatBefore.date, false) : null,
+        storage: storageText(dish.storage),
+        freezer:
+          dish.storage?.freezable === true
+            ? [
+                typeof dish.storage.freezerMonths === 'number'
+                  ? `Se congèle, ${dish.storage.freezerMonths} mois au plus`
+                  : 'Se congèle',
+                typeof dish.storage.thawing === 'string' ? dish.storage.thawing : null,
+              ]
+                .filter(Boolean)
+                .join('. ')
+            : null,
+        reheating: reheatingText(dish.reheating, modes),
+        chefNote:
+          [dish.notes.storage, dish.notes.reheating].filter(Boolean).join(' ') || null,
+      })),
+    });
+    return { filename: conservationFilename(sessionYmd), body };
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -19,9 +20,11 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
@@ -313,6 +316,38 @@ export class MissionsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.missions.conservation(user.userId, id);
+  }
+
+  @Get('chef-missions/:id/conservation.pdf')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Download the conservation sheet of a prestation',
+    description:
+      'Recettes lot 3 (LF-0272): the sheet as a PDF/A, one panel per dish, shortest ' +
+      'date first: until when, how to keep it, how to reheat it, the chef’s word. ' +
+      'Never quantities nor steps. Same access as the JSON sheet: the client once ' +
+      '`delivered` (`409 CONSERVATION_NOT_READY` before).',
+  })
+  @ApiMissionIdParam()
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'The PDF, as an attachment.',
+    content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
+  })
+  @ApiConflictResponse({ description: '`CONSERVATION_NOT_READY` (client).' })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  async conservationPdf(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { filename, body } = await this.missions.conservationPdf(user.userId, id);
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store');
+    return body;
   }
 
   @Get('chef-missions/:id/shopping-list')
