@@ -363,7 +363,10 @@ describe('BookingsService', () => {
         meals: [{ mealId: 'meal-1' }],
       });
 
-      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1');
+      // Recettes lot 3 (LF-0268): in the transaction that writes the menu.
+      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1', {
+        db: expect.anything(),
+      });
     });
 
     it('takes the next reference when another booking got this one first', async () => {
@@ -697,6 +700,58 @@ describe('BookingsService', () => {
     });
   });
 
+  describe('the menu freezes 72 hours before (Recettes lot 3, LF-0269)', () => {
+    const soon = () => row({ startsAt: new Date(Date.now() + 48 * 3_600_000) });
+
+    beforeEach(() => {
+      prisma.meal.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue(DECLARED);
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-2', allergens: [], allergensNone: true, allergensVerifiedAt: START },
+      ]);
+    });
+
+    it('refuses the client a change of dishes, and writes nothing', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await expect(
+        service.update('client', 'clerk_1', 'booking-1', {
+          meals: [{ mealId: 'meal-2' }],
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'MENU_FROZEN', frozenSince: expect.any(Date) },
+      });
+      expect(prisma.bookingMeal.createMany).not.toHaveBeenCalled();
+    });
+
+    it('still takes a change that leaves the dishes alone', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await service.update('client', 'clerk_1', 'booking-1', { notes: 'Digicode 12' });
+
+      expect(prisma.booking.update).toHaveBeenCalled();
+    });
+
+    it('lets an admin change a frozen menu, pins it and records the override', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await service.update('admin', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(prisma.bookingMeal.createMany).toHaveBeenCalled();
+      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1', {
+        db: expect.anything(),
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'booking.updated',
+          metadata: expect.objectContaining({ menuFrozenOverride: true }),
+        }),
+      );
+    });
+  });
+
   describe('expireUnpaid', () => {
     const NOW = new Date('2030-03-10T12:00:00.000Z');
 
@@ -915,7 +970,6 @@ describe('BookingsService', () => {
           .spyOn(Logger.prototype, level)
           .mockImplementation((...args: unknown[]) => void calls.push(args));
       }
-      lists.pinRecipes.mockRejectedValue(new Error('pin failed'));
       prisma.meal.count.mockResolvedValue(1);
 
       await service.create('client', 'clerk_1', {
@@ -947,7 +1001,6 @@ describe('BookingsService', () => {
       expect(events).toEqual(
         expect.arrayContaining([
           'booking.created',
-          'booking.recipes_not_pinned',
           'booking.updated',
           'booking.hold_reminded',
           'booking.expired',

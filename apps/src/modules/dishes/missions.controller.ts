@@ -345,12 +345,15 @@ export class MissionsController {
     description:
       'A prestation cooks from the recipe versions of when it was booked. Before it ' +
       'starts, you may move it to your current recipes: deliberately, recorded, and ' +
-      'the shopping list is recomputed (your corrections stay). Refused once it has ' +
-      'started.',
+      'the shopping list is recomputed (your corrections stay). Recettes lot 3: refused ' +
+      'from 72 hours before the start (`MENU_FROZEN`, with `frozenSince`), and when a ' +
+      'current recipe holds one of the client’s allergies (`ALLERGEN_CONFLICT`, ' +
+      '`ALLERGENS_UNVERIFIED`): the versions and allergens pinned when the menu was ' +
+      'written stay.',
   })
   @ApiMissionIdParam()
   @ApiOkResponse({ description: 'The recomputed list.', example: SHOPPING_LIST_EXAMPLE })
-  @ApiConflictResponse({ description: '`PRESTATION_STARTED`.' })
+  @ApiConflictResponse({ description: '`PRESTATION_STARTED` or `MENU_FROZEN`.' })
   @ApiForbiddenResponse(CHEF_ONLY)
   @ApiNotFoundResponse(NOT_FOUND)
   @ApiClerkAuthResponses()

@@ -17,7 +17,13 @@ import {
 } from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
-import { shoppingByClient, shoppingListFrozen } from './domain/content.errors';
+import { CLIENT_ALLERGY_SELECT, menuRefusal } from '../allergies/domain/allergies.rules';
+import { frozenSince, isMenuFrozen } from '../bookings/domain/menu-freeze.rules';
+import {
+  menuFrozen,
+  shoppingByClient,
+  shoppingListFrozen,
+} from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
 import { PutDishNotesDto } from './dto/mission.dto';
@@ -288,6 +294,26 @@ export class MissionsService {
         message: 'The prestation has started: its recipes stay as they were.',
       });
     }
+    // Recettes lot 3 (LF-0269): the client's menu is frozen 72 hours before.
+    if (isMenuFrozen(booking.startsAt)) throw menuFrozen(frozenSince(booking.startsAt));
+    // The current versions may carry an allergen the pinned ones did not: the client's
+    // allergies are checked again, as when the menu was written (lot 1).
+    const [client, quote] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: booking.clientId },
+        select: CLIENT_ALLERGY_SELECT,
+      }),
+      this.prisma.quote.findFirst({
+        where: { bookingId: booking.id },
+        select: { allergies: true },
+      }),
+    ]);
+    const refusal = menuRefusal(
+      client,
+      booking.bookingMeals.map((bm) => bm.meal),
+      quote?.allergies ?? [],
+    );
+    if (refusal) throw refusal;
     const before = booking.bookingMeals.map((bm) => ({
       mealId: bm.mealId,
       version: bm.recipeVersion,

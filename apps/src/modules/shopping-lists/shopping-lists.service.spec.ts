@@ -8,6 +8,7 @@ const meal = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
   portions: 4,
   recipeVersion: 3,
+  allergens: ['celery'],
   ingredients: [garlic],
   steps: ['Éplucher'],
   reheating: null,
@@ -87,10 +88,26 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
       create: { mealId: 'm1', version: 3, ingredients: [garlic] },
       update: {},
     });
+    // Recettes lot 3 (LF-0268): the allergens of that moment are kept with the version.
     expect(prisma.bookingMeal.update).toHaveBeenCalledWith({
       where: { bookingId_mealId: { bookingId: 'b1', mealId: 'm1' } },
-      data: { recipeVersion: 3 },
+      data: {
+        recipeVersion: 3,
+        allergensSnapshot: ['celery'],
+        pinnedAt: expect.any(Date),
+      },
     });
+  });
+
+  it('pins inside the transaction it is given, so a menu write and its pin land together', async () => {
+    const { prisma, service } = lists([
+      { mealId: 'm1', portions: 4, recipeVersion: null, meal: meal('m1') },
+    ]);
+
+    await service.pinRecipes('b1', { db: prisma as never });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.bookingMeal.update).toHaveBeenCalledTimes(1);
   });
 
   it('moves every dish to its current version on a re-pin', async () => {
@@ -101,7 +118,13 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
     await service.pinRecipes('b1', { repin: true });
 
     expect(prisma.bookingMeal.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { recipeVersion: 3 } }),
+      expect.objectContaining({
+        data: {
+          recipeVersion: 3,
+          allergensSnapshot: ['celery'],
+          pinnedAt: expect.any(Date),
+        },
+      }),
     );
   });
 

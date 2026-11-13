@@ -433,6 +433,11 @@ model BookingMeal {
   portions      Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
   recipeVersion Int?               @map("recipe_version")
+  /// Recettes lot 3 (LF-0268): the dish's allergens when its version was pinned, kept
+  /// for this prestation whatever the recipe becomes. Meaningful once `pinnedAt` is set.
+  allergensSnapshot String[]       @default([]) @map("allergens_snapshot")
+  /// When the version and the allergens were pinned: the menu was written (lot 3).
+  pinnedAt      DateTime?          @map("pinned_at") @db.Timestamptz(6)
   /// What the batch cooker says of THIS dish as cooked in THIS prestation: how to
   /// reheat it, how to keep it. Written from `cooking` on, shown to the client once
   /// the prestation is done. Beside the recipe's own advice, never replacing it.

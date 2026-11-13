@@ -265,7 +265,10 @@ export class MeBookingsController {
     summary: 'Change or cancel one of my bookings',
     description:
       'The details (time, dishes, persons, address, notes) while it is `pending`; a new ' +
-      'time must be free. `status`: `cancelled`, or `completed` once delivered.\n\n' +
+      'time must be free. `status`: `cancelled`, or `completed` once delivered. ' +
+      'Recettes lot 3: the dishes are pinned (recipe version and allergens) as they are ' +
+      'written, and no longer change from 72 hours before the start (`MENU_FROZEN`, ' +
+      'with `frozenSince`; the view says `menuFrozen`).\n\n' +
       STATUS_HELP,
   })
   @ApiBookingId()
@@ -274,7 +277,7 @@ export class MeBookingsController {
   @ApiConflictResponse({
     description:
       '`BOOKING_LOCKED`, `INVALID_TRANSITION`, `BOOKING_PAID`, `BOOKING_STARTED`, ' +
-      '`SLOT_UNAVAILABLE` or `CHANGED_MEANWHILE`.',
+      '`SLOT_UNAVAILABLE`, `MENU_FROZEN` or `CHANGED_MEANWHILE`.',
   })
   @ApiGeoResponses()
   @ApiClerkAuthResponses()

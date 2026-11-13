@@ -84,18 +84,22 @@ export class ShoppingListsService {
 
   /**
    * Pins each booked dish to the recipe version it cooks from, keeping that
-   * version's content (§9.2). Unpinned dishes take their current version; with
-   * `repin`, every dish moves to its current version. Returns what is pinned now.
+   * version's content (§9.2), and the dish's allergens of that moment (Recettes
+   * lot 3, LF-0268). Unpinned dishes take their current version; with `repin`,
+   * every dish moves to its current version. Returns what is pinned now.
    *
-   * Booking creation calls it for a booking with dishes (best-effort). The recipe
-   * sheet and the shopping list call it on first use too, which pins whatever is
-   * still unpinned: a dish added later, or a pin that failed at creation.
+   * A write of the menu (booking created or its dishes changed, a conflicting dish
+   * replaced) pins in its own transaction, passed as `db`: a recipe the chef
+   * edits afterwards never reaches the prestation. The recipe sheet and the
+   * shopping list call it on first use too, which pins whatever is still
+   * unpinned: a booking from before lot 3, or a pin that failed at creation.
    */
   async pinRecipes(
     bookingId: string,
-    options: { repin?: boolean } = {},
+    options: { repin?: boolean; db?: Prisma.TransactionClient } = {},
   ): Promise<PinnedRecipe[]> {
-    const booking = await this.prisma.booking.findUnique({
+    const db = options.db ?? this.prisma;
+    const booking = await db.booking.findUnique({
       where: { id: bookingId },
       include: { bookingMeals: { include: { meal: true } } },
     });
@@ -105,28 +109,40 @@ export class ShoppingListsService {
       (bm) => options.repin || bm.recipeVersion === null,
     );
     if (toPin.length) {
-      await this.prisma.$transaction(
-        toPin.flatMap(({ meal }) => [
-          this.prisma.mealRecipeVersion.upsert({
-            where: { mealId_version: { mealId: meal.id, version: meal.recipeVersion } },
-            create: {
-              mealId: meal.id,
-              version: meal.recipeVersion,
-              portions: meal.portions,
-              ingredients: meal.ingredients ?? [],
-              steps: meal.steps ?? [],
-              reheating: meal.reheating ?? Prisma.DbNull,
-              storage: meal.storage ?? Prisma.DbNull,
-            },
-            // Already kept by an earlier booking: its content never changes.
-            update: {},
-          }),
-          this.prisma.bookingMeal.update({
-            where: { bookingId_mealId: { bookingId, mealId: meal.id } },
-            data: { recipeVersion: meal.recipeVersion },
-          }),
-        ]),
-      );
+      const pinnedAt = new Date();
+      const writes = (tx: Prisma.TransactionClient) =>
+        toPin.reduce(
+          (done, { meal }) =>
+            done.then(async () => {
+              await tx.mealRecipeVersion.upsert({
+                where: {
+                  mealId_version: { mealId: meal.id, version: meal.recipeVersion },
+                },
+                create: {
+                  mealId: meal.id,
+                  version: meal.recipeVersion,
+                  portions: meal.portions,
+                  ingredients: meal.ingredients ?? [],
+                  steps: meal.steps ?? [],
+                  reheating: meal.reheating ?? Prisma.DbNull,
+                  storage: meal.storage ?? Prisma.DbNull,
+                },
+                // Already kept by an earlier booking: its content never changes.
+                update: {},
+              });
+              await tx.bookingMeal.update({
+                where: { bookingId_mealId: { bookingId, mealId: meal.id } },
+                data: {
+                  recipeVersion: meal.recipeVersion,
+                  allergensSnapshot: [...meal.allergens],
+                  pinnedAt,
+                },
+              });
+            }),
+          Promise.resolve(),
+        );
+      if (options.db) await writes(options.db);
+      else await this.prisma.$transaction((tx) => writes(tx));
     }
 
     const pinned = booking.bookingMeals.map((bm) => ({
@@ -136,7 +152,7 @@ export class ShoppingListsService {
       version: toPin.includes(bm) ? bm.meal.recipeVersion : bm.recipeVersion!,
     }));
     if (pinned.length === 0) return [];
-    const recipes = await this.prisma.mealRecipeVersion.findMany({
+    const recipes = await db.mealRecipeVersion.findMany({
       where: { OR: pinned.map(({ mealId, version }) => ({ mealId, version })) },
     });
     return pinned.map(({ version, ...rest }) => {

@@ -19,7 +19,18 @@ const booking = (overrides: Record<string, unknown> = {}) => ({
   startsAt: FUTURE,
   persons: 3,
   shoppingByClient: false,
-  bookingMeals: [{ mealId: 'dish-1', recipeVersion: 2 }],
+  bookingMeals: [
+    {
+      mealId: 'dish-1',
+      recipeVersion: 2,
+      meal: {
+        id: 'dish-1',
+        allergens: ['celery'],
+        allergensNone: false,
+        allergensVerifiedAt: new Date(),
+      },
+    },
+  ],
   ...overrides,
 });
 
@@ -67,6 +78,17 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
         ...data,
       })),
     },
+    // Recettes lot 3: the client's allergies, read again before a re-pin.
+    clientProfile: {
+      findUnique: jest.fn(async (): Promise<unknown> => ({
+        allergies: [],
+        customAllergies: [],
+        allergiesNone: true,
+        allergiesDeclaredAt: new Date('2026-11-01'),
+        healthConsentAt: new Date('2026-11-01'),
+      })),
+    },
+    quote: { findFirst: jest.fn(async (): Promise<unknown> => null) },
     chefProfile: {
       // By the caller's user id (who is this?) or by the booking's chef id (who to tell).
       findUnique: jest.fn(async ({ where }: { where: { id?: string } }) =>
@@ -329,6 +351,34 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'recipes.repinned', subjectId: 'b1' }),
       );
+    });
+
+    it('is refused once the menu is frozen, 72 hours before (Recettes lot 3)', async () => {
+      const soon = missions(
+        'chef',
+        booking({ startsAt: new Date(Date.now() + 48 * 3600_000) }),
+      );
+
+      await expect(soon.service.repin('clerk', 'b1')).rejects.toMatchObject({
+        response: { code: 'MENU_FROZEN' },
+      });
+      expect(soon.lists.pinRecipes).not.toHaveBeenCalled();
+    });
+
+    it('is refused when a current recipe holds an allergen the client declared', async () => {
+      const allergic = missions('chef');
+      allergic.prisma.clientProfile.findUnique.mockResolvedValue({
+        allergies: ['celery'],
+        customAllergies: [],
+        allergiesNone: false,
+        allergiesDeclaredAt: new Date('2026-11-01'),
+        healthConsentAt: new Date('2026-11-01'),
+      });
+
+      await expect(allergic.service.repin('clerk', 'b1')).rejects.toMatchObject({
+        response: { code: 'ALLERGEN_CONFLICT' },
+      });
+      expect(allergic.lists.pinRecipes).not.toHaveBeenCalled();
     });
 
     it('is refused once the prestation has started', async () => {

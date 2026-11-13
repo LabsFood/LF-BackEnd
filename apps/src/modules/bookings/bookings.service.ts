@@ -25,6 +25,7 @@ import {
 } from '../allergies/domain/allergies.rules';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
+import { menuFrozen } from '../dishes/domain/content.errors';
 import { householdPortions } from '../dishes/domain/recipes.rules';
 
 /** A dish booked for a client without a household on file. */
@@ -44,6 +45,7 @@ import {
 } from './bookings.views';
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
 import { contractConsentRequired } from './domain/contract.errors';
+import { frozenSince, isMenuFrozen } from './domain/menu-freeze.rules';
 import {
   acceptedConsents,
   chefShops,
@@ -302,35 +304,41 @@ export class BookingsService {
       formule?.priceAfterTax,
     );
     const { id } = await this.withReference(now, (reference) =>
-      this.prisma.booking.create({
-        data: {
-          reference,
-          clientId,
-          chefProfileId: offer.chefProfileId,
-          serviceOfferId: offer.id,
-          formuleId: formule?.id ?? null,
-          ...schedule(dto.startsAt, endsAt),
-          persons: dto.persons ?? null,
-          addressLine: dto.addressLine ?? null,
-          addressCity: dto.addressCity ?? null,
-          addressPostalCode: dto.addressPostalCode ?? null,
-          notes: dto.notes ?? null,
-          shoppingByClient: dto.shoppingByClient ?? false,
-          status: 'pending',
-          extraMeals: dto.extraMeals ?? 0,
-          ...amounts,
-          currency: offer.currency,
-          ...consents,
-          ...(dto.meals?.length && {
-            bookingMeals: {
-              create: dto.meals.map((meal) => ({
-                mealId: meal.mealId,
-                portions: meal.portions ?? portions,
-              })),
-            },
-          }),
-        },
-        select: { id: true },
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.booking.create({
+          data: {
+            reference,
+            clientId,
+            chefProfileId: offer.chefProfileId,
+            serviceOfferId: offer.id,
+            formuleId: formule?.id ?? null,
+            ...schedule(dto.startsAt, endsAt),
+            persons: dto.persons ?? null,
+            addressLine: dto.addressLine ?? null,
+            addressCity: dto.addressCity ?? null,
+            addressPostalCode: dto.addressPostalCode ?? null,
+            notes: dto.notes ?? null,
+            shoppingByClient: dto.shoppingByClient ?? false,
+            status: 'pending',
+            extraMeals: dto.extraMeals ?? 0,
+            ...amounts,
+            currency: offer.currency,
+            ...consents,
+            ...(dto.meals?.length && {
+              bookingMeals: {
+                create: dto.meals.map((meal) => ({
+                  mealId: meal.mealId,
+                  portions: meal.portions ?? portions,
+                })),
+              },
+            }),
+          },
+          select: { id: true },
+        });
+        // Recettes lot 3 (LF-0268): the menu is written, so each dish is pinned now,
+        // version and allergens, in the same transaction.
+        if (dto.meals?.length) await this.lists.pinRecipes(created.id, { db: tx });
+        return created;
       }),
     );
 
@@ -346,17 +354,6 @@ export class BookingsService {
       shoppingFeeCents: amounts.shoppingFeeCents,
       ms: Date.now() - now.getTime(),
     });
-    if (dto.meals?.length) {
-      // The recipe versions it cooks from, pinned now (§9.2). Best-effort.
-      await this.lists
-        .pinRecipes(id)
-        .catch((error: unknown) =>
-          this.logger.error(
-            { event: 'booking.recipes_not_pinned', bookingId: id },
-            stackOf(error),
-          ),
-        );
-    }
     if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
     if (caller.role === 'admin') {
       await this.audit.record({
@@ -424,6 +421,11 @@ export class BookingsService {
         'addressCity',
       );
     }
+
+    // Recettes lot 3 (LF-0269, R40): 72 hours before the start the dishes no longer
+    // change. A Lab's Food admin may still, for support, and it is recorded below.
+    const frozenMenuEdit = meals !== undefined && isMenuFrozen(booking.startsAt, now);
+    if (frozenMenuEdit && !admin) throw menuFrozen(frozenSince(booking.startsAt));
 
     const moving = status !== undefined && status !== booking.status;
     if (moving) await this.assertMove(caller, booking, status, now);
@@ -503,6 +505,8 @@ export class BookingsService {
               portions: meal.portions ?? portions,
             })),
           });
+          // Recettes lot 3 (LF-0268): the new menu is pinned, version and allergens.
+          await this.lists.pinRecipes(id, { db: tx });
         }
         // Only from the status read above: a payment or an admin acting meanwhile
         // is reloaded, never overwritten.
@@ -560,6 +564,8 @@ export class BookingsService {
           from: booking.status,
           to: moving ? status : booking.status,
           fields: changedKeys(dto),
+          // Recettes lot 3: the admin changed the dishes of a frozen menu.
+          ...(frozenMenuEdit && { menuFrozenOverride: true }),
         },
       });
     }
@@ -617,14 +623,17 @@ export class BookingsService {
     // The new dish alone: another dish still in conflict is replaced in its own turn.
     await this.assertAllergies(booking.clientId, [dto.to], extra);
 
-    await this.prisma.$transaction([
-      this.prisma.bookingMeal.delete({
+    // Allowed on a frozen menu (lot 1, R41): only the dish in conflict moves, and the
+    // new one is pinned at once (lot 3, LF-0268).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bookingMeal.delete({
         where: { bookingId_mealId: { bookingId: id, mealId: dto.from } },
-      }),
-      this.prisma.bookingMeal.create({
+      });
+      await tx.bookingMeal.create({
         data: { bookingId: id, mealId: dto.to, portions: from.portions },
-      }),
-    ]);
+      });
+      await this.lists.pinRecipes(id, { db: tx });
+    });
     this.logger.log({
       event: 'booking.allergy_meal_replaced',
       bookingId: id,
