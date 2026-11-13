@@ -70,6 +70,7 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
     booking: {
       findUnique: jest.fn(async () => row),
       findMany: jest.fn(async (): Promise<unknown[]> => []),
+      update: jest.fn(async (_args: unknown): Promise<unknown> => ({})),
     },
     bookingMeal: {
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -478,6 +479,61 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       await expect(
         m.service.setEatBefore('clerk', 'b1', 'dish-1', { date: '2026-11-22' }),
       ).rejects.toMatchObject({ response: { code: 'EAT_BEFORE_CLOSED' } });
+    });
+  });
+
+  describe('« Courses faites » (Recettes lot 4, LF-0284)', () => {
+    it('records the confirmation, with the receipt total when typed', async () => {
+      const m = missions('chef');
+      m.prisma.booking.update.mockResolvedValue({
+        groceriesValidatedAt: new Date('2026-11-19T15:00:00.000Z'),
+        groceriesAmountCents: 6480,
+      });
+
+      const saved = await m.service.validateGroceries('clerk', 'b1', {
+        amountCents: 6480,
+      });
+
+      expect(m.prisma.booking.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'b1' },
+          data: { groceriesValidatedAt: expect.any(Date), groceriesAmountCents: 6480 },
+        }),
+      );
+      expect(saved.groceries.amountCents).toBe(6480);
+    });
+
+    it('keeps the first date when confirmed again, and clears an amount left out', async () => {
+      const first = new Date('2026-11-19T15:00:00.000Z');
+      const m = missions('chef', booking({ groceriesValidatedAt: first }));
+      m.prisma.booking.update.mockResolvedValue({
+        groceriesValidatedAt: first,
+        groceriesAmountCents: null,
+      });
+
+      await m.service.validateGroceries('clerk', 'b1', {});
+
+      expect(m.prisma.booking.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { groceriesValidatedAt: first, groceriesAmountCents: null },
+        }),
+      );
+    });
+
+    it('is refused when the client shops, or once the dishes are delivered', async () => {
+      const byClient = missions('chef', booking({ shoppingByClient: true }));
+      await expect(
+        byClient.service.validateGroceries('clerk', 'b1', {}),
+      ).rejects.toMatchObject({
+        response: { code: 'SHOPPING_BY_CLIENT' },
+      });
+
+      const done = missions('chef', booking({ status: BookingStatus.delivered }));
+      await expect(
+        done.service.validateGroceries('clerk', 'b1', {}),
+      ).rejects.toMatchObject({
+        response: { code: 'GROCERIES_NOT_OPEN' },
+      });
     });
   });
 

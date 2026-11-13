@@ -369,4 +369,37 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
       expect(prisma.shoppingList.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('after a change of dishes (Recettes lot 4, LF-0283)', () => {
+    const later = new Date(Date.now() + 86_400_000);
+    // Not pinned yet: the first computation pins and keeps the version.
+    const dishes = [{ mealId: 'm1', portions: 4, recipeVersion: null, meal: meal('m1') }];
+
+    it('sends the recomputed list again when the client already had one', async () => {
+      const { prisma, service } = lists(dishes, [], { version: 1, sentAt: new Date() });
+      prisma.shoppingList.update.mockResolvedValue({ version: 2 } as never);
+
+      await expect(service.refreshAfterMenuChange('b1', later)).resolves.toBe(2);
+      expect(prisma.shoppingList.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { version: { increment: 1 }, sentAt: expect.any(Date) },
+        }),
+      );
+    });
+
+    it('only recomputes a list never sent, or past the deadline', async () => {
+      const never = lists(dishes);
+      await expect(never.service.refreshAfterMenuChange('b1', later)).resolves.toBeNull();
+
+      const frozen = lists(dishes, [], { version: 1, sentAt: new Date() });
+      await expect(
+        frozen.service.refreshAfterMenuChange('b1', new Date(Date.now() - 1000)),
+      ).resolves.toBeNull();
+      expect(frozen.prisma.shoppingList.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ sentAt: expect.any(Date) }),
+        }),
+      );
+    });
+  });
 });

@@ -35,7 +35,11 @@ import {
 } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
-import { PutDishNotesDto, PutEatBeforeDto } from './dto/mission.dto';
+import {
+  PutDishNotesDto,
+  PutEatBeforeDto,
+  ValidateGroceriesDto,
+} from './dto/mission.dto';
 import { conservationFilename, renderConservationPdf } from './conservation-document';
 import { reheatingText, storageText } from './recipe-document';
 
@@ -46,6 +50,13 @@ const NOTES_OPEN: BookingStatus[] = [
   BookingStatus.cooking,
   BookingStatus.delivered,
   BookingStatus.completed,
+];
+
+/** Recettes lot 4 (LF-0284): the groceries are confirmed while the prestation is ahead or under way. */
+const GROCERIES_OPEN: BookingStatus[] = [
+  BookingStatus.confirmed,
+  BookingStatus.shopping,
+  BookingStatus.cooking,
 ];
 
 /** Recettes lot 3 (LF-0272): the client reads the conservation sheet once the dishes are home. */
@@ -518,6 +529,49 @@ export class MissionsService {
   }
 
   /**
+   * Recettes lot 4 (LF-0284): « Courses faites ». The batch cooker confirms the
+   * groceries are done, with the receipt total if they wish (decision of 13/11:
+   * optional, for information; lot 6 replaces it with receipts). Confirming again
+   * replaces the amount and keeps the first date. Stops the reminder of the day
+   * before.
+   */
+  async validateGroceries(
+    clerkUserId: string,
+    bookingId: string,
+    dto: ValidateGroceriesDto,
+  ) {
+    const { booking } = await this.asChef(clerkUserId, bookingId);
+    if (booking.shoppingByClient) throw shoppingByClient();
+    if (!GROCERIES_OPEN.includes(booking.status)) {
+      throw new ConflictException({
+        code: 'GROCERIES_NOT_OPEN',
+        message:
+          'Groceries are confirmed on a prestation that is confirmed, in shopping or being cooked.',
+      });
+    }
+    const saved = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        groceriesValidatedAt: booking.groceriesValidatedAt ?? new Date(),
+        groceriesAmountCents: dto.amountCents ?? null,
+      },
+      select: { groceriesValidatedAt: true, groceriesAmountCents: true },
+    });
+    this.logger.log({
+      event: 'mission.groceries_validated',
+      bookingId,
+      withAmount: saved.groceriesAmountCents !== null,
+    });
+    return {
+      missionId: bookingId,
+      groceries: {
+        validatedAt: saved.groceriesValidatedAt,
+        amountCents: saved.groceriesAmountCents,
+      },
+    };
+  }
+
+  /**
    * §9.2 as the PRD settled it: before the prestation, the chef may move it to
    * their current recipes, deliberately. It is recorded, and the shopping list is
    * recomputed (corrections kept).
@@ -636,6 +690,8 @@ export class MissionsService {
       persons: number | null;
       startsAt: Date;
       shoppingByClient: boolean;
+      groceriesValidatedAt: Date | null;
+      groceriesAmountCents: number | null;
     },
     list: Awaited<ReturnType<ShoppingListsService['view']>>,
   ) {
@@ -646,6 +702,11 @@ export class MissionsService {
       shoppingByClient: booking.shoppingByClient,
       deadline,
       status: listStatus(list, deadline, new Date()),
+      /** Recettes lot 4: « Courses faites », and the receipt total when typed. */
+      groceries: {
+        validatedAt: booking.groceriesValidatedAt,
+        amountCents: booking.groceriesAmountCents,
+      },
       ...list,
     };
   }

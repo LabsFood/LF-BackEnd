@@ -213,6 +213,23 @@ export class ShoppingListsService {
   }
 
   /**
+   * Recettes lot 4 (LF-0283, §10.9; decision of 13/11): the menu changed. The list is
+   * recomputed, and when the client had already been sent one it goes out again at
+   * once, before the deadline only. The client's marks stay on the lines that still
+   * ask for the same quantity (`withMarks`). Answers the new send count, or null
+   * when nothing was sent again.
+   */
+  async refreshAfterMenuChange(
+    bookingId: string,
+    deadline: Date,
+  ): Promise<number | null> {
+    const before = await this.getByBookingId(bookingId);
+    await this.regenerateForBooking(bookingId);
+    if (!before || before.version === 0 || new Date() >= deadline) return null;
+    return (await this.send(bookingId)).version;
+  }
+
+  /**
    * The client's final list: their marks, checked against the list as it is inside
    * the lock. A send that lands meanwhile waits, then makes this answer out of date.
    */

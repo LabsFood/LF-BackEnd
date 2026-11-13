@@ -202,6 +202,17 @@ model Booking {
   arrivedAt             DateTime?           @map("arrived_at") @db.Timestamptz(6)
   /// When the "24 h left to pay" reminder went out, so it goes out once.
   holdReminderSentAt    DateTime?           @map("hold_reminder_sent_at") @db.Timestamptz(6)
+  /// Recettes lot 4 (LF-0284): the batch cooker confirmed the groceries are done, and
+  /// the receipt total they may have typed (for information; no payment before lot 6).
+  groceriesValidatedAt  DateTime?           @map("groceries_validated_at") @db.Timestamptz(6)
+  groceriesAmountCents  Int?                @map("groceries_amount_cents")
+  /// Recettes lot 4 (LF-0285): when each in-app reminder went out, so it goes out once.
+  /// Chef at J-4 (list not sent), client at J-2 (final list not sent back), and at the
+  /// list deadline: the client told it is frozen, the chef reminded to shop.
+  listReminderChefAt    DateTime?           @map("list_reminder_chef_at") @db.Timestamptz(6)
+  listReminderClientAt  DateTime?           @map("list_reminder_client_at") @db.Timestamptz(6)
+  listFrozenNotifiedAt  DateTime?           @map("list_frozen_notified_at") @db.Timestamptz(6)
+  groceriesReminderAt   DateTime?           @map("groceries_reminder_at") @db.Timestamptz(6)
   /// When the contract was concluded: the move to `confirmed` (full payment, or an
   /// accepted quote offer). The 14-day withdrawal period runs from here (CGV art. 15).
   concludedAt           DateTime?           @map("concluded_at") @db.Timestamptz(6)

@@ -33,6 +33,7 @@ import { TAGS } from '../../common/swagger/tags';
 import {
   PutDishNotesDto,
   PutEatBeforeDto,
+  ValidateGroceriesDto,
   PutShoppingListDto,
   RecipeSheetQueryDto,
   SubmitShoppingListDto,
@@ -439,6 +440,39 @@ export class MissionsController {
   @ApiClerkAuthResponses()
   send(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.missions.sendShoppingList(user.userId, id);
+  }
+
+  @Post('chef-missions/:id/groceries/validate')
+  @ApiTags(TAGS.missions)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm the groceries of a prestation are done',
+    description:
+      'Recettes lot 4 (LF-0284): « Courses faites ». Optionally with the receipt ' +
+      'total (`amountCents`), shown to the client and the admins for information: no ' +
+      'payment is taken before lot 6. Confirming again replaces the amount. Stops the ' +
+      'reminder of the day before. `409 SHOPPING_BY_CLIENT` when the client shops; ' +
+      '`409 GROCERIES_NOT_OPEN` unless the prestation is `confirmed`, `shopping` or ' +
+      '`cooking`. The shopping list answers carry `groceries` too.',
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({
+    description: 'The step as saved.',
+    example: {
+      missionId: 'b2f1c4d5-6e7f-4a8b-9c0d-1e2f3a4b5c6d',
+      groceries: { validatedAt: '2026-11-19T15:00:00.000Z', amountCents: 6480 },
+    },
+  })
+  @ApiConflictResponse({ description: '`SHOPPING_BY_CLIENT` or `GROCERIES_NOT_OPEN`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  validateGroceries(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: ValidateGroceriesDto,
+  ) {
+    return this.missions.validateGroceries(user.userId, id, payload);
   }
 
   @Post('me/bookings/:id/shopping-list/submit')

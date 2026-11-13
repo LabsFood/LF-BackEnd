@@ -161,3 +161,22 @@ export class PutEatBeforeDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
   date!: string | null;
 }
+
+/** Recettes lot 4 (LF-0284): the batch cooker confirms the groceries are done. */
+export class ValidateGroceriesDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 0,
+    maximum: 500_000,
+    description:
+      'The receipt total, in cents. Optional, for information only: no payment is ' +
+      'taken before lot 6. Absent or null: no amount (an amount typed earlier is ' +
+      'cleared).',
+    example: 6480,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(500_000)
+  amountCents?: number | null;
+}
