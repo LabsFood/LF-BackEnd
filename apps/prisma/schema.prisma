@@ -231,6 +231,7 @@ model Booking {
   payments              Payment[]
   paymentInvoices       PaymentInvoice[]
   photos                BookingPhoto[]
+  mealDateChanges       BookingMealDateChange[]
   reschedules           BookingReschedule[]
 
   @@index([clientId], map: "ix_bookings_client_id")
@@ -438,6 +439,12 @@ model BookingMeal {
   allergensSnapshot String[]       @default([]) @map("allergens_snapshot")
   /// When the version and the allergens were pinned: the menu was written (lot 3).
   pinnedAt      DateTime?          @map("pinned_at") @db.Timestamptz(6)
+  /// Recettes lot 3 (LF-0270): the « à manger avant » date the chef set; null: the
+  /// platform's (prestation day + the pinned recipe's fridge days).
+  eatBefore     DateTime?          @map("eat_before") @db.Date
+  eatBeforeSetAt DateTime?         @map("eat_before_set_at") @db.Timestamptz(6)
+  /// Who set it; an id only, kept even if the account goes (no foreign key).
+  eatBeforeSetByUserId String?     @map("eat_before_set_by_user_id") @db.Uuid
   /// What the batch cooker says of THIS dish as cooked in THIS prestation: how to
   /// reheat it, how to keep it. Written from `cooking` on, shown to the client once
   /// the prestation is done. Beside the recipe's own advice, never replacing it.
@@ -1799,4 +1806,20 @@ model Notification {
 
   @@index([userId, createdAt], map: "ix_notifications_user_id_created_at")
   @@map("notifications")
+}
+
+/// Recettes lot 3 (LF-0270): every « à manger avant » date a batch cooker set on a
+/// dish of a prestation, oldest first: who, when, which value (null: back to the
+/// platform's date). Ids only, never a name; kept while the booking is.
+model BookingMealDateChange {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId       String    @map("booking_id") @db.Uuid
+  mealId          String    @map("meal_id") @db.Uuid
+  value           DateTime? @db.Date
+  changedByUserId String?   @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime  @default(now()) @map("changed_at") @db.Timestamptz(6)
+  booking         Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_booking_meal_date_changes_booking_id")
+
+  @@index([bookingId, changedAt], map: "ix_booking_meal_date_changes_booking_changed")
+  @@map("booking_meal_date_changes")
 }

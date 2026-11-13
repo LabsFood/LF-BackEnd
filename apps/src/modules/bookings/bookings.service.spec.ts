@@ -6,6 +6,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -90,6 +91,7 @@ describe('BookingsService', () => {
   let lists: Record<string, jest.Mock>;
   let availability: { assertBookable: jest.Mock };
   let audit: { record: jest.Mock };
+  let notifications: { notify: jest.Mock };
   let mailer: { holdReminder: jest.Mock };
   /** The real address check, over a stubbed geo.api.gouv.fr. */
   const geo = Object.assign(new GeoService(), {
@@ -151,6 +153,7 @@ describe('BookingsService', () => {
     };
     availability = { assertBookable: jest.fn().mockResolvedValue(undefined) };
     audit = { record: jest.fn() };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     mailer = { holdReminder: jest.fn() };
     const config = {
       get: jest.fn((key: string, fallback?: unknown) =>
@@ -171,6 +174,7 @@ describe('BookingsService', () => {
       mailer as unknown as BookingsMailer,
       config as unknown as ConfigService,
       geo,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -749,6 +753,33 @@ describe('BookingsService', () => {
           metadata: expect.objectContaining({ menuFrozenOverride: true }),
         }),
       );
+    });
+  });
+
+  describe('the conservation sheet (Recettes lot 3, LF-0272)', () => {
+    it('tells the client once the chef marks the dishes delivered', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ status: 'cooking', startsAt: new Date(Date.now() - 3 * 3_600_000) }),
+      );
+
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'conservation.ready',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('tells nobody for another move', async () => {
+      prisma.booking.findFirst.mockResolvedValue(row({ status: 'pending' }));
+
+      await service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' });
+
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 

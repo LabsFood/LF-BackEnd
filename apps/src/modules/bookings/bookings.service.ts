@@ -33,6 +33,7 @@ const DEFAULT_PORTIONS = 4;
 import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -143,6 +144,7 @@ export class BookingsService {
     private readonly mailer: BookingsMailer,
     private readonly config: ConfigService,
     private readonly geo: GeoService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── By audience ───────────────────────────────────────────────────────────
@@ -543,6 +545,17 @@ export class BookingsService {
       ...(repriced && { repricedAmountTtc: fields.amountTtc ?? repriced.amountTtc }),
       ms: Date.now() - now.getTime(),
     });
+    // Recettes lot 3 (LF-0272): the dishes are home, the conservation sheet is ready.
+    if (moving && status === 'delivered') {
+      await this.notifications
+        .notify(booking.clientId, 'conservation.ready', { type: 'booking', id })
+        .catch((error: unknown) =>
+          this.logger.error(
+            { event: 'booking.conservation_not_notified', bookingId: id },
+            stackOf(error),
+          ),
+        );
+    }
     if (meals) {
       await this.lists
         .regenerateForBooking(id)

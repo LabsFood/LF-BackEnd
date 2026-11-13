@@ -33,6 +33,7 @@ import { Raw } from '../../common/dto/strict';
 import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
 import { PlatformSettingsService } from './platform-settings.service';
+import { FRIDGE_ALERT_MAX, FRIDGE_ALERT_MIN } from './fridge-alert';
 
 /** Half the client price at most: above that the setting is a typing mistake. */
 const MAX_COMMISSION_BPS = 5000;
@@ -48,6 +49,20 @@ class UpdateCommissionDto {
   @Min(0)
   @Max(MAX_COMMISSION_BPS)
   commissionBps!: number;
+}
+
+/** Recettes lot 3 (LF-0271): days in the fridge past which a dish's date alerts. */
+class FridgeAlertDto {
+  @ApiProperty({
+    minimum: FRIDGE_ALERT_MIN,
+    maximum: FRIDGE_ALERT_MAX,
+    description: 'Days in the fridge past which a dish’s « à manger avant » date alerts.',
+    example: 4,
+  })
+  @IsInt()
+  @Min(FRIDGE_ALERT_MIN)
+  @Max(FRIDGE_ALERT_MAX)
+  days!: number;
 }
 
 class BookingSupplementsDto {
@@ -335,6 +350,51 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setBookingSupplements(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/fridge-alert')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the fridge alert threshold',
+    description:
+      'Recettes lot 3 (LF-0271): past this many days in the fridge, a dish’s « à ' +
+      'manger avant » date shows an alert, never a block. 4 by default (BLK-31: to ' +
+      'confirm with the hygiene referent). `updatedAt: null`: never changed.',
+  })
+  @ApiOkResponse({
+    description: 'The threshold.',
+    example: { days: 4, updatedAt: null },
+  })
+  @ApiAdminAuthResponses()
+  fridgeAlert() {
+    return this.settings.fridgeAlert();
+  }
+
+  @Put('admin/settings/fridge-alert')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the fridge alert threshold',
+    description:
+      'From 1 to 14 days. Every view reads it from now on. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The new threshold.',
+    example: { days: 5, updatedAt: '2026-11-14T09:00:00.000Z' },
+  })
+  @ApiAdminAuthResponses()
+  async setFridgeAlert(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: FridgeAlertDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setFridgeAlert(body.days, admin.id, reqId(req));
   }
 
   @Get('admin/settings/chef-tiers')

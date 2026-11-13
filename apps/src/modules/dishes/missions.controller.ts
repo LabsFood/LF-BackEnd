@@ -29,12 +29,53 @@ import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
   PutDishNotesDto,
+  PutEatBeforeDto,
   PutShoppingListDto,
   RecipeSheetQueryDto,
   SubmitShoppingListDto,
 } from './dto/mission.dto';
 import { MissionsService } from './missions.service';
 import { DISH_ID, RECIPE_EXAMPLE } from './swagger-examples';
+
+/** Recettes lot 3: one dish on the conservation sheet. */
+const CONSERVATION_DISH_EXAMPLE = {
+  mealId: '5b1e7c2a-8d3f-4a6b-9c0d-1e2f3a4b5c6d',
+  name: 'Curry de légumes',
+  storage: {
+    method: 'fridge',
+    days: 3,
+    container: 'Boîte en verre',
+    freezable: true,
+    freezerMonths: 3,
+    thawing: 'Une nuit au réfrigérateur.',
+  },
+  reheating: { modes: ['microwave'], instructions: '3 min à 800 W.', container: null },
+  notes: { storage: 'Réfrigérateur, 3 jours maximum.', reheating: null },
+  eatBefore: {
+    date: '2026-11-23',
+    proposed: '2026-11-23',
+    setByChef: false,
+    setAt: null,
+    fridgeDays: 3,
+    fridgeAlert: false,
+  },
+};
+
+const CONSERVATION_EXAMPLE = {
+  bookingId: 'b2f1c4d5-6e7f-4a8b-9c0d-1e2f3a4b5c6d',
+  startsAt: '2026-11-20T08:00:00.000Z',
+  status: 'delivered',
+  fridgeAlertDays: 4,
+  dishes: [CONSERVATION_DISH_EXAMPLE],
+  history: [
+    {
+      mealId: CONSERVATION_DISH_EXAMPLE.mealId,
+      value: '2026-11-24',
+      changedByUserId: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+      changedAt: '2026-11-20T11:30:00.000Z',
+    },
+  ],
+};
 
 const MISSION_ID = '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88';
 
@@ -211,6 +252,67 @@ export class MissionsController {
     @Body() payload: PutDishNotesDto,
   ) {
     return this.missions.setDishNotes(user.userId, id, dishId, payload);
+  }
+
+  @Put('chef-missions/:id/dishes/:dishId/eat-before')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Set the « à manger avant » date of a dish of a prestation',
+    description:
+      'Recettes lot 3 (LF-0270). The platform proposes the prestation day plus the ' +
+      'fridge days of the recipe pinned for it; set your own date, or `null` to go ' +
+      'back to the proposed one. Open until 24 hours after the prestation ends ' +
+      '(`409 EAT_BEFORE_CLOSED` after). Every change is kept: who, when, which value. ' +
+      'Past the fridge alert threshold (4 days by default) the date shows ' +
+      '`fridgeAlert: true`, never a refusal. `422 VALIDATION_FAILED` for a day before ' +
+      'the prestation or more than 366 days after.',
+  })
+  @ApiMissionIdParam()
+  @ApiParam({
+    name: 'dishId',
+    description: 'A dish of the prestation.',
+    example: DISH_ID,
+  })
+  @ApiOkResponse({
+    description: 'The dish on the conservation sheet.',
+    example: CONSERVATION_DISH_EXAMPLE,
+  })
+  @ApiConflictResponse({ description: '`EAT_BEFORE_CLOSED`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  setEatBefore(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('dishId', ParseUUIDPipe) dishId: string,
+    @Body() payload: PutEatBeforeDto,
+  ) {
+    return this.missions.setEatBefore(user.userId, id, dishId, payload);
+  }
+
+  @Get('chef-missions/:id/conservation')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Get the conservation sheet of a prestation',
+    description:
+      'Recettes lot 3 (LF-0272, §11). Per dish, how to keep it and until when: the ' +
+      'storage and reheating advice of the recipe version pinned for this prestation, ' +
+      'the chef’s notes, and `eatBefore` (`date`, `proposed`, `setByChef`, ' +
+      '`fridgeDays`, `fridgeAlert`). Never quantities nor steps. Shortest date first. ' +
+      'For the batch cooker and admins at any time, with `history` (each date the ' +
+      'chef set: who, when, which value); for the client once the dishes are ' +
+      '`delivered` (`409 CONSERVATION_NOT_READY` before), without `history`.',
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({ description: 'The sheet.', example: CONSERVATION_EXAMPLE })
+  @ApiConflictResponse({ description: '`CONSERVATION_NOT_READY` (client).' })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  conservation(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.missions.conservation(user.userId, id);
   }
 
   @Get('chef-missions/:id/shopping-list')

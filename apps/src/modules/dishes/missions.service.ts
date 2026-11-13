@@ -18,21 +18,34 @@ import {
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { CLIENT_ALLERGY_SELECT, menuRefusal } from '../allergies/domain/allergies.rules';
+import {
+  eatBeforeOpen,
+  eatBeforeRefusal,
+  eatBeforeView,
+} from '../bookings/domain/eat-before.rules';
 import { frozenSince, isMenuFrozen } from '../bookings/domain/menu-freeze.rules';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import {
   menuFrozen,
   shoppingByClient,
   shoppingListFrozen,
+  validationFailed,
 } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
-import { PutDishNotesDto } from './dto/mission.dto';
+import { PutDishNotesDto, PutEatBeforeDto } from './dto/mission.dto';
 
 type Role = 'chef' | 'admin' | 'client';
 
 /** From the moment the chef is cooking: what was cooked is known and worth a note. */
 const NOTES_OPEN: BookingStatus[] = [
   BookingStatus.cooking,
+  BookingStatus.delivered,
+  BookingStatus.completed,
+];
+
+/** Recettes lot 3 (LF-0272): the client reads the conservation sheet once the dishes are home. */
+const CONSERVATION_FOR_CLIENT: BookingStatus[] = [
   BookingStatus.delivered,
   BookingStatus.completed,
 ];
@@ -204,6 +217,145 @@ export class MissionsService {
     });
     this.logger.log({ event: 'mission.dish_notes_saved', bookingId, dishId });
     return saved;
+  }
+
+  /**
+   * Recettes lot 3 (LF-0270): the batch cooker sets the « à manger avant » date of a
+   * dish, or goes back to the platform's (`null`), until 24 hours after the
+   * prestation ends. Each change is kept: who, when, which value.
+   */
+  async setEatBefore(
+    clerkUserId: string,
+    bookingId: string,
+    dishId: string,
+    dto: PutEatBeforeDto,
+  ) {
+    const { user, booking } = await this.asChef(clerkUserId, bookingId);
+    if (!booking.bookingMeals.some((bm) => bm.mealId === dishId)) {
+      throw new NotFoundException('This dish is not part of this prestation.');
+    }
+    if (!eatBeforeOpen(booking.endsAt)) {
+      throw new ConflictException({
+        code: 'EAT_BEFORE_CLOSED',
+        message: 'Dates are set until 24 hours after the prestation ends.',
+      });
+    }
+    const value = dto.date === null ? null : new Date(`${dto.date}T00:00:00.000Z`);
+    if (value && Number.isNaN(value.getTime())) {
+      throw validationFailed('This is not a calendar day.', { field: 'date' });
+    }
+    const refusal = value && eatBeforeRefusal(booking.startsAt, value);
+    if (refusal) throw validationFailed(refusal, { field: 'date' });
+
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.bookingMeal.update({
+        where: { bookingId_mealId: { bookingId, mealId: dishId } },
+        data: {
+          eatBefore: value,
+          eatBeforeSetAt: value ? now : null,
+          eatBeforeSetByUserId: value ? user.id : null,
+        },
+      }),
+      this.prisma.bookingMealDateChange.create({
+        data: {
+          bookingId,
+          mealId: dishId,
+          value,
+          changedByUserId: user.id,
+          changedAt: now,
+        },
+      }),
+    ]);
+    this.logger.log({
+      event: 'mission.eat_before_set',
+      bookingId,
+      dishId,
+      reset: !value,
+    });
+    const sheet = await this.conservation(clerkUserId, bookingId);
+    return sheet.dishes.find((dish) => dish.mealId === dishId)!;
+  }
+
+  /**
+   * Recettes lot 3 (LF-0270 to LF-0272, §11): the conservation sheet. Per dish, how
+   * to keep it and until when, from the recipe version pinned for this prestation
+   * and the chef's notes; never quantities nor steps. Shortest date first. The
+   * client reads it once the dishes are home (`delivered`); the chef and the admins
+   * at any time, with the history of the dates the chef set.
+   */
+  async conservation(clerkUserId: string, bookingId: string) {
+    const { booking, role } = await this.access(clerkUserId, bookingId);
+    if (role === 'client' && !CONSERVATION_FOR_CLIENT.includes(booking.status)) {
+      throw new ConflictException({
+        code: 'CONSERVATION_NOT_READY',
+        message: 'The conservation sheet is ready once the dishes are delivered.',
+      });
+    }
+    const [pinned, alertDays] = await Promise.all([
+      this.lists.pinRecipes(bookingId),
+      fridgeAlertDaysInForce(this.prisma),
+    ]);
+    const rows = new Map(booking.bookingMeals.map((bm) => [bm.mealId, bm]));
+    const dishes = pinned
+      .map(({ mealId, meal, recipe }) => {
+        const row = rows.get(mealId);
+        const storage = (recipe.storage ?? null) as Record<string, unknown> | null;
+        return {
+          mealId,
+          name: meal.name,
+          storage: storage && {
+            method: storage.method ?? null,
+            days: storage.days ?? null,
+            container: storage.container ?? null,
+            freezable: storage.freezable ?? null,
+            freezerMonths: storage.freezerMonths ?? null,
+            thawing: storage.thawing ?? null,
+          },
+          reheating: recipe.reheating ?? null,
+          notes: {
+            storage: row?.storageNote ?? null,
+            reheating: row?.reheatingNote ?? null,
+          },
+          eatBefore: eatBeforeView(
+            booking.startsAt,
+            storage,
+            {
+              eatBefore: row?.eatBefore ?? null,
+              eatBeforeSetAt: row?.eatBeforeSetAt ?? null,
+            },
+            alertDays,
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          (a.eatBefore.date ?? '9999').localeCompare(b.eatBefore.date ?? '9999') ||
+          a.name.localeCompare(b.name, 'fr'),
+      );
+    const history =
+      role === 'client'
+        ? undefined
+        : (
+            await this.prisma.bookingMealDateChange.findMany({
+              where: { bookingId },
+              orderBy: { changedAt: 'asc' },
+              take: 500,
+            })
+          ).map((change) => ({
+            mealId: change.mealId,
+            value: change.value ? change.value.toISOString().slice(0, 10) : null,
+            changedByUserId: change.changedByUserId,
+            changedAt: change.changedAt,
+          }));
+    return {
+      bookingId,
+      startsAt: booking.startsAt,
+      status: booking.status,
+      fridgeAlertDays: alertDays,
+      dishes,
+      ...(history && { history }),
+    };
   }
 
   /**

@@ -10,6 +10,7 @@ import {
 } from '../bookings/domain/pricing';
 import { validationFailed } from '../dishes/domain/content.errors';
 import { CHEF_TIERS_KEY, chefTierLabels, chefTierRules } from './chef-tiers';
+import { FRIDGE_ALERT_KEY, fridgeAlertDaysInForce } from './fridge-alert';
 import {
   aislesInForce,
   DEFAULT_RECIPE_AISLES,
@@ -123,6 +124,37 @@ export class PlatformSettingsService {
       requestId,
     });
     return { ...value, updatedAt: row.updatedAt };
+  }
+
+  /** Recettes lot 3 (LF-0271): the fridge alert threshold, `updatedAt: null` when never set. */
+  async fridgeAlert() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: FRIDGE_ALERT_KEY },
+    });
+    return {
+      days: await fridgeAlertDaysInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Read by every view from now on; nothing stored on the bookings changes. */
+  async setFridgeAlert(days: number, adminUserId: string, requestId?: string) {
+    const previous = await fridgeAlertDaysInForce(this.prisma);
+    const value = { days };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: FRIDGE_ALERT_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: FRIDGE_ALERT_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.fridge_alert_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: previous, to: days },
+      requestId,
+    });
+    return { days, updatedAt: row.updatedAt };
   }
 
   async chefTiers() {
