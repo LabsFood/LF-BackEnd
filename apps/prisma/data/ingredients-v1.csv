@@ -1,5 +1,5 @@
 nom;autres_noms;rayon;allergenes;aucun_allergene;regimes;mois;base;doute
-Oignon jaune;oignon|oignons|oignons jaunes;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
+Oignon;oignon jaune|oignons|oignons jaunes;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Oignon rouge;oignons rouges;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Oignon blanc;oignons blancs|oignon nouveau|oignons nouveaux;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;3|4|5|6|7;non;
 Cébette;cébettes|ciboule|oignon vert;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;4|5|6|7|8|9;non;
@@ -24,7 +24,7 @@ Chou rouge;;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free
 Chou-fleur;chou fleur|choux-fleurs;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;1|2|3|4|9|10|11|12;non;
 Brocoli;brocolis;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9|10|11;non;
 Chou de Bruxelles;choux de bruxelles;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;10|11|12|1|2|3;non;
-Épinard;épinards|pousses d'épinard;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;3|4|5|6|9|10|11;non;
+Épinards;épinard|pousses d'épinard;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;3|4|5|6|9|10|11;non;
 Blette;blettes|bette|bettes;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7|8|9|10;non;
 Courgette;courgettes;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;
 Aubergine;aubergines;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;
@@ -35,14 +35,14 @@ Tomate;tomates|tomate ronde;fruits-legumes;;oui;vegetarian|vegan|no-pork|pesceta
 Tomate cerise;tomates cerises;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;
 Tomate cœur de bœuf;cœur de bœuf|coeur de boeuf;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;7|8|9;non;
 Concombre;concombres;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7|8|9;non;
-Laitue;salade|salade verte|laitue pommée;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;4|5|6|7|8|9|10;non;
+Salade verte;laitue|salade|laitue pommée;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;4|5|6|7|8|9|10;non;
 Romaine;laitue romaine;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7|8|9;non;
 Mâche;doucette;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;10|11|12|1|2|3;non;
 Roquette;;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;4|5|6|7|8|9|10;non;
 Endive;endives|chicon|chicons;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;10|11|12|1|2|3|4;non;
 Radis;radis rose|radis roses;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;3|4|5|6|7|8|9;non;
-Haricot vert;haricots verts;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;
-Petit pois;petits pois|petits pois frais;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7;non;
+Haricots verts;haricot vert;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;
+Petits pois;petit pois|petits pois frais;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7;non;
 Artichaut;artichauts;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;5|6|7|8|9;non;
 Asperge verte;asperges vertes|asperge|asperges;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;4|5|6;non;
 Courge butternut;butternut|doubeurre;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;9|10|11|12|1|2;non;
@@ -72,7 +72,7 @@ Raisin;raisin blanc|raisin noir|raisin frais;fruits-legumes;;oui;vegetarian|vega
 Figue;figues|figue fraîche;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;8|9|10;non;
 Ananas;;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Mangue;mangues;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Persil plat;persil|persil frais;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;cultivé sous abri l'hiver et vendu toute l'année : laissé sans saison
+Persil;persil plat|persil frais;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;cultivé sous abri l'hiver et vendu toute l'année : laissé sans saison
 Ciboulette;;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Coriandre fraîche;coriandre|cilantro;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Basilic;basilic frais;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
@@ -97,7 +97,7 @@ Veau à blanquette;blanquette|tendron de veau|épaule de veau;boucherie;;oui;no-
 Gigot d'agneau;gigot;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
 Blanc de poulet;filet de poulet|escalope de poulet|blancs de poulet;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
 Cuisse de poulet;cuisses de poulet|pilon de poulet|haut de cuisse;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
-Poulet entier;poulet|poulet fermier;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
+Poulet;poulet entier|poulet fermier;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
 Escalope de dinde;dinde|filet de dinde;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
 Magret de canard;magret;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;
 Échine de porc;échine;boucherie;;oui;gluten-free|lactose-free;;non;
@@ -130,11 +130,11 @@ Noix de Saint-Jacques;saint-jacques|coquille saint-jacques|coquilles saint-jacqu
 Calamar;calamars|encornet|encornets;poissonnerie;molluscs;non;no-pork|pescetarian|gluten-free|lactose-free;;non;sulfites possibles sur les produits surgelés ou décongelés : à vérifier sur l'étiquette
 Surimi;bâtonnet de surimi|bâtonnets de surimi;poissonnerie;fish|eggs|gluten|crustaceans;non;no-pork|pescetarian|lactose-free;;non;composition variable : amidon de blé, blanc d'œuf, arôme contenant des crustacés selon la marque, soja parfois
 Œuf;œufs|oeufs|œuf frais|œuf de poule;cremerie;eggs;non;vegetarian|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Lait demi-écrémé;lait|lait de vache;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
+Lait;lait demi-écrémé|lait de vache;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
 Lait entier;;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
-Crème fraîche épaisse;crème fraîche|crème épaisse;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
+Crème fraîche;crème fraîche épaisse|crème épaisse;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
 Crème liquide entière;crème liquide|crème fleurette|crème entière;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
-Beurre doux;beurre;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;teneur en lactose très faible : sans lactose non coché, à trancher
+Beurre;beurre doux;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;teneur en lactose très faible : sans lactose non coché, à trancher
 Beurre demi-sel;beurre salé;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;teneur en lactose très faible : sans lactose non coché, à trancher
 Yaourt nature;yaourt|yaourts|yogourt;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
 Yaourt à la grecque;yaourt grec;cremerie;milk;non;vegetarian|no-pork|pescetarian|gluten-free;;non;
@@ -143,7 +143,7 @@ Boisson à l'avoine;lait d'avoine;cremerie;gluten;non;vegetarian|vegan|no-pork|p
 Boisson au soja;lait de soja;cremerie;soy;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Boisson à l'amande;lait d'amande;cremerie;nuts;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces d'autres fruits à coque ou de soja selon la marque
 Crème de soja;crème soja|crème végétale soja;cremerie;soy;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Tofu nature;tofu|tofu ferme;cremerie;soy;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
+Tofu;tofu nature|tofu ferme;cremerie;soy;non;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Pâte feuilletée;pâte feuilletée prête à dérouler;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;matière grasse végétale dans la plupart des marques, lait (pâte pur beurre) ou œufs possibles : à vérifier
 Pâte feuilletée pur beurre;;cremerie;gluten|milk;non;vegetarian|no-pork|pescetarian;;non;œufs possibles selon la marque
 Pâte brisée;pâte à tarte;cremerie;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;matière grasse végétale dans la plupart des marques, beurre (lait) ou œufs possibles : à vérifier, version pur beurre : voir Pâte brisée pur beurre
@@ -168,16 +168,16 @@ Pâtes sèches;pâtes|spaghetti|penne|fusilli|coquillettes|macaroni|farfalle|lin
 Pâtes aux œufs;tagliatelle|tagliatelles|nouilles aux œufs;epicerie-salee;gluten|eggs;non;vegetarian|no-pork|pescetarian|lactose-free;;non;
 Feuille de lasagne;lasagne|lasagnes|plaque de lasagne|plaques de lasagne;epicerie-salee;gluten|eggs;non;vegetarian|no-pork|pescetarian|lactose-free;;non;certaines plaques sont sans œuf selon la marque
 Nouille de riz;nouilles de riz|vermicelle de riz|vermicelles de riz;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces de gluten possibles selon la marque
-Riz blanc;riz|riz long grain;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
+Riz;riz blanc|riz long grain;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Riz basmati;basmati;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Riz à risotto;riz arborio|riz carnaroli|riz pour risotto;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Semoule de couscous;couscous|semoule|semoule de blé;epicerie-salee;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
+Semoule de blé;semoule de couscous|couscous|semoule;epicerie-salee;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
 Boulgour;bulgur|boulghour;epicerie-salee;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
 Quinoa;;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Polenta;semoule de maïs;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces de gluten possibles selon le moulin
 Épeautre;petit épeautre|grains d'épeautre;epicerie-salee;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
 Orge perlé;orge;epicerie-salee;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
-Lentille verte;lentilles|lentilles vertes|lentilles du puy;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces de céréales à gluten possibles selon le lot
+Lentilles;lentille verte|lentilles vertes|lentilles du puy;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces de céréales à gluten possibles selon le lot
 Lentille corail;lentilles corail|lentilles rouges;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;traces de céréales à gluten possibles selon le lot
 Pois chiche sec;pois chiches secs;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Haricot blanc sec;haricots blancs secs|lingot|lingots|haricot coco|haricots cocos;epicerie-salee;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
@@ -213,7 +213,7 @@ Pulpe de tomate;tomates concassées|tomate concassée|tomates en dés;conserves;
 Concentré de tomate;double concentré de tomate|purée de tomate concentrée;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Coulis de tomate;passata|purée de tomate;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Pois chiche en conserve;pois chiches cuits|pois chiches en boîte;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Haricot rouge en conserve;haricots rouges|haricots rouges cuits;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
+Haricots rouges;haricot rouge en conserve|haricots rouges cuits;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Maïs doux en conserve;maïs|maïs doux|grains de maïs;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;
 Thon en conserve;thon|thon au naturel|thon en boîte|miettes de thon;conserves;fish;non;no-pork|pescetarian|gluten-free|lactose-free;;non;
 Sardine à l'huile;sardines en boîte|sardines à l'huile;conserves;fish;non;no-pork|pescetarian|gluten-free|lactose-free;;non;
@@ -257,7 +257,7 @@ Sucre blanc;sucre|sucre en poudre|sucre semoule;epicerie-sucree;;oui;vegetarian|
 Sucre roux;cassonade|sucre de canne;epicerie-sucree;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;oui;
 Sucre glace;;epicerie-sucree;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;oui;amidon ajouté, de maïs en général, de blé rarement : à vérifier selon la marque
 Miel;;epicerie-sucree;;oui;vegetarian|no-pork|pescetarian|gluten-free|lactose-free;;non;
-Farine de blé T55;farine|farine de blé|farine t55|farine tout usage;epicerie-sucree;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;oui;
+Farine de blé;farine de blé t55|farine|farine t55|farine tout usage;epicerie-sucree;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;oui;
 Farine de blé T45;farine t45|farine pâtissière|farine fluide;epicerie-sucree;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;oui;
 Farine complète;farine t150|farine de blé complète;epicerie-sucree;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;oui;
 Farine de seigle;seigle;epicerie-sucree;gluten;non;vegetarian|vegan|no-pork|pescetarian|lactose-free;;non;
@@ -323,3 +323,7 @@ Crevette décortiquée surgelée;crevettes surgelées|crevettes décortiquées;s
 Filet de poisson blanc surgelé;poisson blanc surgelé|cabillaud surgelé|colin surgelé;surgeles;fish;non;no-pork|pescetarian|gluten-free|lactose-free;;non;
 Mélange de fruits de mer surgelé;fruits de mer surgelés|cocktail de fruits de mer;surgeles;crustaceans|molluscs|sulphites;non;no-pork|pescetarian|gluten-free|lactose-free;;non;sulfites déclarés : absents de certaines marques (E586 ou sans additif), surimi (poisson, œuf, blé) possible dans certains mélanges
 Frite surgelée;frites|frites surgelées;surgeles;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;enrobage à la farine de blé sur certaines frites : à vérifier selon la marque
+Poivron;poivrons;fruits-legumes;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;6|7|8|9;non;entrée générique reprise de la liste de départ de develop (BLK-33, 13/11) : la garder, ou la fusionner avec une variété de la liste
+Pois chiches;pois chiche;conserves;;oui;vegetarian|vegan|no-pork|pescetarian|gluten-free|lactose-free;;non;entrée générique reprise de la liste de départ de develop (BLK-33, 13/11) : la garder, ou la fusionner avec une variété de la liste
+Bœuf;boeuf;boucherie;;oui;no-pork|gluten-free|lactose-free;;non;entrée générique reprise de la liste de départ de develop (BLK-33, 13/11) : la garder, ou la fusionner avec une variété de la liste
+Porc;filet de porc|rôti de porc|roti de porc;boucherie;;oui;gluten-free|lactose-free;;non;entrée générique reprise de la liste de départ de develop (BLK-33, 13/11) : la garder, ou la fusionner avec une variété de la liste
