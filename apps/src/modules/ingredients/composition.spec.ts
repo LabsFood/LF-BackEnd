@@ -197,6 +197,64 @@ describe('compositionOf', () => {
   });
 });
 
+describe('compositionOf with a chef’s adopted versions (BLK-33)', () => {
+  const versioned = (own: unknown[]) => {
+    const { findMany } = db([
+      entry({
+        id: 'a',
+        diets: ['vegan', 'vegetarian'],
+        seasonMonths: [6, 7, 8, 9],
+        allergens: ['celery'],
+        allergensNone: false,
+      }),
+    ]);
+    const chefFindMany = jest.fn(async (_args?: unknown) => own);
+    const prisma = {
+      catalogIngredient: { findMany },
+      chefIngredient: { findMany: chefFindMany },
+    } as unknown as PrismaService;
+    return { prisma, chefFindMany };
+  };
+  const OWN = { catalogIngredientId: 'a', diets: ['vegan'], seasonMonths: [7, 8] };
+  const extras = { addedAllergens: [], customAllergens: [] };
+
+  it('takes diets and months from the chef’s version, allergens from the common entry', async () => {
+    const { prisma, chefFindMany } = versioned([OWN]);
+
+    const result = await compositionOf(
+      prisma,
+      [line({ catalogIngredientId: 'a' })],
+      extras,
+      'chef-1',
+    );
+
+    expect(chefFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { chefProfileId: 'chef-1', catalogIngredientId: { in: ['a'] } },
+      }),
+    );
+    expect(result.classification).toEqual({ diets: ['vegan'], seasonMonths: [7, 8] });
+    expect(result.ingredients[0].allergens).toEqual(['celery']);
+    expect(result.state.allergens).toEqual(['celery']);
+  });
+
+  it('reads the common list only for a Lab’s Food recipe', async () => {
+    const { prisma, chefFindMany } = versioned([OWN]);
+
+    const result = await compositionOf(
+      prisma,
+      [line({ catalogIngredientId: 'a' })],
+      extras,
+    );
+
+    expect(chefFindMany).not.toHaveBeenCalled();
+    expect(result.classification).toEqual({
+      diets: ['vegan', 'vegetarian'],
+      seasonMonths: [6, 7, 8, 9],
+    });
+  });
+});
+
 describe('assertIngredientAccess (Recettes §4.10)', () => {
   const scope = (chefProfileId: string | null, previous: string[] = []) => ({
     chefProfileId,

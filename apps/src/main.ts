@@ -1,3 +1,5 @@
+// First: Sentry has to patch modules before they load (src/instrument.ts).
+import './instrument';
 import 'reflect-metadata';
 
 import helmet from '@fastify/helmet';
@@ -13,12 +15,14 @@ import type { Http2ServerRequest } from 'node:http2';
 import { SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
+import { shouldVerifyClerkJwt } from './auth/clerk-auth.guard';
 import { registerWebhookRawBodyHook } from './auth/fastify-raw-body';
 import { AllExceptionsFilter } from './common/logging/all-exceptions.filter';
 import { AppLogger, LOG_BASE } from './common/logging/app-logger';
 import { registerRequestContext } from './common/logging/request-context';
 import { ApiValidationPipe } from './common/validation.pipe';
 import { corsOptions, resolveAllowedOrigins } from './config/allowed-origins';
+import { trustRailwayEdge } from './config/trusted-proxy';
 import { distrustCompromisedRoots } from './config/trusted-roots';
 import { buildOpenApiDocument } from './swagger';
 
@@ -72,7 +76,8 @@ async function bootstrap(): Promise<void> {
       // Honour an inbound id from the proxy so a trace survives across services.
       genReqId: (req: IncomingMessage | Http2ServerRequest) =>
         (req.headers['x-request-id'] as string | undefined)?.slice(0, 64) ?? randomUUID(),
-      trustProxy: true,
+      // Exactly one proxy, Railway's edge: see config/trusted-proxy.ts.
+      trustProxy: trustRailwayEdge,
     }),
     {
       bufferLogs: true,
@@ -82,6 +87,16 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   logger.log(`TLS: ${distrustedRoots} eMudhra (emSign) root CAs distrusted`);
   const config = app.get(ConfigService);
+  if (
+    !shouldVerifyClerkJwt(
+      config.get<string>('clerk.secretKey') ?? '',
+      config.get<string>('environment'),
+    )
+  ) {
+    logger.warn(
+      'Clerk: JWT signatures are NOT verified (local stub). Never deploy this.',
+    );
+  }
 
   const fastify = app.getHttpAdapter().getInstance();
   registerWebhookRawBodyHook(fastify);

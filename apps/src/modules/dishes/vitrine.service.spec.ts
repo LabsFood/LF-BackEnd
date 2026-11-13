@@ -30,11 +30,13 @@ function vitrine(data: {
   showcase?: unknown[];
   dishes?: unknown[];
   documents?: unknown[];
+  legal?: unknown;
 }) {
   const prisma = {
     chefProfile: {
       findMany: jest.fn(async () => data.chefs ?? []),
       findFirst: jest.fn(async () => (data.chefs ?? [])[0] ?? null),
+      findUnique: jest.fn(async () => data.legal ?? null),
     },
     chefShowcaseWeek: { findMany: jest.fn(async () => data.showcase ?? []) },
     meal: { findMany: jest.fn(async () => data.dishes ?? []) },
@@ -271,6 +273,36 @@ describe('VitrineService', () => {
       expect(dishes).toHaveLength(1);
       expect(Object.keys(dishes[0]).sort()).toEqual(PUBLIC_DISH_KEYS);
     });
+  });
+
+  it('shows the chef’s legal identity before booking, never the list of gaps', async () => {
+    const { service } = vitrine({
+      chefs: [chef('a')],
+      legal: {
+        legalName: 'Marie Dupont EI',
+        legalStatus: 'micro_entreprise',
+        siren: '443061841',
+        businessAddress: null,
+        vatRegime: 'franchise',
+        vatNumber: null,
+        insurerName: null,
+        insuranceCoverage: null,
+        mediatorName: null,
+        mediatorUrl: null,
+        sapDeclarationNumber: null,
+        sapProfile: null,
+      },
+    });
+
+    const { legalIdentity } = await service.chef('a');
+
+    expect(legalIdentity).toMatchObject({
+      name: 'Marie Dupont EI',
+      siren: '443061841',
+      vat: 'TVA non applicable, article 293 B du CGI',
+      businessAddress: null,
+    });
+    expect(legalIdentity).not.toHaveProperty('missing');
   });
 
   it('answers 404 for a chef who is not listed', async () => {

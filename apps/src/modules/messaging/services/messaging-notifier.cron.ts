@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { BrevoService } from '../../../integrations/brevo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -45,6 +46,11 @@ export class MessagingNotifierCron {
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'messaging-unread-emails' })
+  @SentryCron('messaging-unread-emails', {
+    checkinMargin: 5,
+    maxRuntime: 5,
+    failureIssueThreshold: 3,
+  })
   async run(): Promise<void> {
     // Without a template nothing can be sent: leave the rows unclaimed, so the
     // emails start the day the template is configured.

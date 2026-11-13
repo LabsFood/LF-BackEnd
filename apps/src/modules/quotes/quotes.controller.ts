@@ -40,6 +40,7 @@ import {
   ADMIN_QUOTE_FILTERS,
   CreateQuoteDto,
   CreateQuoteOfferDto,
+  AcceptOfferDto,
   DeclineDto,
   QUOTE_STATUS_HELP,
   QUOTE_STATUSES,
@@ -246,7 +247,9 @@ export class QuotesController {
       'of the offer (the ones asked, unless the batch cooker proposed others). It ' +
       'shows in `GET /bookings/me` for both. The conversation between the two opens ' +
       'and both receive a confirmation email with the recap.\n\n' +
-      'Nothing is paid here: payment comes after the prestation.',
+      'Nothing is paid here: payment comes after the prestation. Accepting ' +
+      'concludes the contract: the body carries the booking boxes ' +
+      '(`CONTRACT_CONSENT_REQUIRED`, 422, lists what is missing).',
   })
   @ApiOkResponse({ description: 'The request, with its prestation.', example: ACCEPTED })
   @ApiNotFoundResponse({ description: `${NOT_YOURS} Or no such offer.` })
@@ -264,8 +267,9 @@ export class QuotesController {
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('offerId', ParseUUIDPipe) offerId: string,
+    @Body() body: AcceptOfferDto,
   ) {
-    return this.offers.accept(user.userId, id, offerId);
+    return this.offers.accept(user.userId, id, offerId, body?.consents);
   }
 
   @Post('me/quotes/:id/offers/:offerId/decline')
@@ -317,8 +321,9 @@ export class QuotesController {
   acceptQuote(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AcceptOfferDto,
   ) {
-    return this.offers.accept(user.userId, id);
+    return this.offers.accept(user.userId, id, undefined, body?.consents);
   }
 }
 

@@ -25,7 +25,10 @@ import {
   contentNotOwned,
   offerPending,
   recipeConflict,
+  recipeNotReady,
 } from '../dishes/domain/content.errors';
+import { ReadinessDish } from '../dishes/domain/dishes.rules';
+import { publicationProblems } from '../dishes/domain/menus.rules';
 import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
@@ -81,39 +84,51 @@ export class CatalogService {
     }
     await assertProfiles(this.prisma, payload.profiles);
     const composed = await composeLines(this.prisma, null, payload, lines ?? []);
-    return this.prisma.meal.create({
-      data: {
-        createdByUserId: adminUserId,
-        name: payload.name,
-        description: payload.description,
-        imageUrl: payload.imageUrl ?? null,
-        continent: payload.continent ?? null,
-        country: payload.country ?? null,
-        // Left undefined when omitted so Prisma applies the schema defaults
-        // (portions 4, steps [], isFeatured false).
-        portions: payload.portions,
-        prepTime: payload.prepTime,
-        dietaryTags: payload.dietaryTags ?? [],
-        customDiets: payload.customDiets ?? [],
-        ...compositionColumns(composed),
-        // Recettes §4.9: an admin writes the whole form at once, so the save is the
-        // check, provided every line is known and its ingredient complete.
-        allergensVerifiedAt: composed.state.complete ? new Date() : null,
-        calories: payload.calories ?? null,
-        difficulty: payload.difficulty ?? null,
-        category: payload.category ?? null,
-        cookTime: payload.cookTime ?? null,
-        steps: payload.steps && toStepsJson(payload.steps),
-        equipment: payload.equipment,
-        declaredDiets: payload.declaredDiets,
-        profiles: payload.profiles,
-        seasonsOverride: payload.seasonsOverride,
-        reheating: toReheatingJson(payload.reheating),
-        storage: toStorageJson(payload.storage),
-        isFeatured: payload.isFeatured,
-        status: payload.status ?? MealStatus.draft,
-      },
-    });
+    const data = {
+      createdByUserId: adminUserId,
+      name: payload.name,
+      description: payload.description,
+      imageUrl: payload.imageUrl ?? null,
+      continent: payload.continent ?? null,
+      country: payload.country ?? null,
+      // Left undefined when omitted so Prisma applies the schema defaults
+      // (portions 4, steps [], isFeatured false).
+      portions: payload.portions,
+      prepTime: payload.prepTime,
+      dietaryTags: payload.dietaryTags ?? [],
+      customDiets: payload.customDiets ?? [],
+      ...compositionColumns(composed),
+      // Recettes §4.9: an admin writes the whole form at once, so the save is the
+      // check, provided every line is known and its ingredient complete.
+      allergensVerifiedAt: composed.state.complete ? new Date() : null,
+      calories: payload.calories ?? null,
+      difficulty: payload.difficulty ?? null,
+      category: payload.category ?? null,
+      cookTime: payload.cookTime ?? null,
+      steps: payload.steps && toStepsJson(payload.steps),
+      equipment: payload.equipment,
+      declaredDiets: payload.declaredDiets,
+      profiles: payload.profiles,
+      seasonsOverride: payload.seasonsOverride,
+      reheating: toReheatingJson(payload.reheating),
+      storage: toStorageJson(payload.storage),
+      isFeatured: payload.isFeatured,
+      status: payload.status ?? MealStatus.draft,
+    };
+    // Recettes §4.11: a Lab's Food meal goes online on the same terms as a chef's,
+    // under the socle's full "Prête" check (§6.4).
+    if (data.status === MealStatus.published) {
+      // Read as the row will be stored: the schema defaults fill what was left out.
+      assertPublishable({
+        ...data,
+        description: data.description ?? null,
+        portions: data.portions ?? 4,
+        steps: data.steps ?? [],
+        declaredDiets: data.declaredDiets ?? [],
+        seasonsOverride: data.seasonsOverride ?? [],
+      } as unknown as ReadinessDish);
+    }
+    return this.prisma.meal.create({ data });
   }
 
   /**
@@ -171,16 +186,27 @@ export class CatalogService {
     // version it read, so another tab's save in between answers 409 too.
     const guarded = !!current && (!!composed || readVersion !== undefined);
     const guard = guarded && current ? { lockVersion: current.lockVersion } : {};
+    const changes = CatalogService.toMealUpdateData(payload);
+    const verification = composed && {
+      ...compositionColumns(composed),
+      allergensVerifiedAt: composed.state.complete ? new Date() : null,
+    };
+    // Recettes §4.11 (develop, 11/11): a Lab's Food meal publishes only when its
+    // recipe is ready, judged on what the meal will hold after this save.
+    if (publishing && current) {
+      assertPublishable({
+        ...current,
+        ...changes,
+        ...verification,
+      } as unknown as ReadinessDish);
+    }
     let updated: Meal;
     try {
       updated = await this.prisma.meal.update({
         where: { id, ...LABS_FOOD, ...guard },
         data: {
-          ...CatalogService.toMealUpdateData(payload),
-          ...(composed && {
-            ...compositionColumns(composed),
-            allergensVerifiedAt: composed.state.complete ? new Date() : null,
-          }),
+          ...changes,
+          ...verification,
           ...(guarded && { lockVersion: { increment: 1 } }),
         },
       });
@@ -445,4 +471,10 @@ function isUniqueViolation(error: unknown): boolean {
 /** Prisma's "no row matched the `where`" (P2025). */
 function isNotFound(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
+}
+
+/** The readiness rule chefs publish under (Recettes §4.11), for the admin's meals. */
+function assertPublishable(meal: ReadinessDish): void {
+  const problems = publicationProblems(meal);
+  if (problems.length) throw recipeNotReady(problems);
 }

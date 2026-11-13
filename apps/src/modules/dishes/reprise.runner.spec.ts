@@ -252,7 +252,9 @@ function database(
     }),
   };
 
-  const client = { catalogIngredient, meal, notification };
+  // BLK-33: no chef here adopted a version of an entry.
+  const chefIngredient = { findMany: jest.fn(async (_args?: unknown) => []) };
+  const client = { catalogIngredient, chefIngredient, meal, notification };
   const $transaction = jest.fn(async (work: (tx: unknown) => Promise<unknown>) =>
     work(client),
   );

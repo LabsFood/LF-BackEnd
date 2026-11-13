@@ -50,8 +50,23 @@ function harness() {
     findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
     count: jest.fn(async (_args?: unknown) => 0),
     update: jest.fn(async (_args?: unknown) => ({})),
+    updateMany: jest.fn(async (_args?: unknown) => ({ count: 1 })),
   };
-  const platformSetting = { findUnique: jest.fn(async (_args?: unknown) => null) };
+  const platformSetting = {
+    findUnique: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    upsert: jest.fn(async (_args?: unknown) => ({})),
+  };
+  const chefIngredient = {
+    findMany: jest.fn(async (_args?: unknown): Promise<unknown[]> => []),
+    findFirst: jest.fn(async (_args?: unknown): Promise<unknown> => null),
+    count: jest.fn(async (_args?: unknown) => 0),
+    upsert: jest.fn(async ({ create }: { create: object }) => ({
+      id: 'own-1',
+      ...create,
+    })),
+    update: jest.fn(async ({ data }: { data: object }) => ({ id: 'own-1', ...data })),
+    delete: jest.fn(async (_args?: unknown) => ({})),
+  };
   const audit = { record: jest.fn(async (_entry: object) => undefined) };
   const propagation = {
     propagate: jest.fn(async (..._args: unknown[]) => ({
@@ -73,6 +88,7 @@ function harness() {
       catalogIngredient,
       meal,
       platformSetting,
+      chefIngredient,
       $transaction,
     } as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -82,6 +98,8 @@ function harness() {
   return {
     catalogIngredient,
     meal,
+    platformSetting,
+    chefIngredient,
     audit,
     propagation,
     notifications,
@@ -1328,5 +1346,152 @@ describe('IngredientsService legacy key that cannot fit (M4)', () => {
 
     const { data } = catalogIngredient.update.mock.calls[0][0] as { data: object };
     expect(data).toEqual({ isBasic: true });
+  });
+});
+
+describe('the season reminder (BLK-33)', () => {
+  it('tells the console when the list is due a review', async () => {
+    const { catalogIngredient, service } = harness();
+    catalogIngredient.count.mockResolvedValue(0);
+
+    const page = await service.list({ page: 1, limit: 50 });
+
+    expect(page.seasonReview).toMatchObject({ due: true, reason: 'empty' });
+  });
+
+  it('records that an admin reviewed the list this season, and journals it', async () => {
+    const { platformSetting, audit, service } = harness();
+
+    const review = await service.markSeasonReviewed('admin-1', 'req-1');
+
+    expect(platformSetting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { key: 'ingredients_season_review' } }),
+    );
+    expect(review).toMatchObject({ due: false, reason: null });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'catalog_ingredient.season_reviewed' }),
+    );
+  });
+});
+
+describe('a batch cooker’s adopted versions (BLK-33, kept with the socle)', () => {
+  const CHEF = 'chef-1';
+  const OWN = {
+    id: 'own-1',
+    chefProfileId: CHEF,
+    catalogIngredientId: 'ing-1',
+    name: 'Tomate cœur de bœuf',
+    aliases: [],
+    diets: ['vegan'],
+    seasonMonths: [7, 8],
+  };
+  const DISH = {
+    id: 'dish-1',
+    chefProfileId: CHEF,
+    lockVersion: 3,
+    allergens: [],
+    allergensNone: true,
+    addedAllergens: [],
+    customAllergens: [],
+    ingredients: [
+      {
+        name: 'Tomate',
+        qty: 1,
+        unit: 'kg',
+        catalogIngredientId: 'ing-1',
+        allergens: [],
+        incomplete: false,
+      },
+    ],
+  };
+
+  it('adopts a common, active entry as a copy the chef can edit', async () => {
+    const { catalogIngredient, chefIngredient, service } = harness();
+    catalogIngredient.findFirst.mockResolvedValue(TOMATE);
+
+    await service.adopt(CHEF, 'ing-1');
+
+    expect(catalogIngredient.findFirst).toHaveBeenCalledWith({
+      where: { id: 'ing-1', chefProfileId: null, status: 'active' },
+    });
+    expect(chefIngredient.upsert).toHaveBeenCalledWith({
+      where: {
+        chefProfileId_catalogIngredientId: {
+          chefProfileId: CHEF,
+          catalogIngredientId: 'ing-1',
+        },
+      },
+      update: {},
+      create: {
+        chefProfileId: CHEF,
+        catalogIngredientId: 'ing-1',
+        name: 'Tomate',
+        aliases: ['pomme d’amour'],
+        diets: ['vegan', 'vegetarian'],
+        seasonMonths: [6, 7, 8, 9],
+      },
+    });
+  });
+
+  it('refuses an entry the common list does not hold, or a private one', async () => {
+    const { chefIngredient, service } = harness();
+
+    await expect(service.adopt(CHEF, 'gone')).rejects.toMatchObject({
+      response: { code: 'INGREDIENT_NOT_FOUND' },
+    });
+    expect(chefIngredient.upsert).not.toHaveBeenCalled();
+  });
+
+  it('caps the number of entries a chef adopts', async () => {
+    const { catalogIngredient, chefIngredient, service } = harness();
+    catalogIngredient.findFirst.mockResolvedValue(TOMATE);
+    chefIngredient.count.mockResolvedValue(500);
+
+    await expect(service.adopt(CHEF, 'ing-1')).rejects.toMatchObject({
+      response: { code: 'CHEF_INGREDIENTS_LIMIT' },
+    });
+  });
+
+  it('edits only diets, months and names, and classifies the chef’s dishes from them', async () => {
+    const { chefIngredient, meal, service } = harness();
+    chefIngredient.findFirst.mockResolvedValue(OWN);
+    chefIngredient.findMany.mockResolvedValue([OWN]);
+    meal.findMany.mockResolvedValue([DISH]);
+
+    await service.updateMine(CHEF, 'own-1', {
+      seasonMonths: [8, 7],
+      allergens: ['gluten'],
+      aisle: 'cremerie',
+    });
+
+    expect(chefIngredient.update).toHaveBeenCalledWith({
+      where: { id: 'own-1' },
+      data: { seasonMonths: [7, 8] },
+    });
+    expect(meal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ chefProfileId: CHEF }),
+      }),
+    );
+    expect(meal.updateMany).toHaveBeenCalledWith({
+      where: { id: 'dish-1', chefProfileId: CHEF, lockVersion: 3 },
+      data: {
+        classification: { diets: ['vegan'], seasonMonths: [7, 8] },
+        lockVersion: { increment: 1 },
+      },
+    });
+  });
+
+  it('answers 404 for another chef’s version', async () => {
+    const { chefIngredient, service } = harness();
+
+    await expect(
+      service.updateMine(CHEF, 'theirs', { diets: [] }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.removeMine(CHEF, 'theirs')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(chefIngredient.update).not.toHaveBeenCalled();
+    expect(chefIngredient.delete).not.toHaveBeenCalled();
   });
 });

@@ -11,9 +11,12 @@ import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/paginat
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { inAnnexOrder } from '../dishes/domain/allergens.rules';
+import { readLines } from '../dishes/domain/recipe-lines.rules';
+import { composeLines } from '../dishes/dishes.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { aislesInForce } from '../platform-settings/recipe-lists';
 import { keyFits, normalizeName, withImpliedDiets } from './domain/ingredient.rules';
+import { seasonReview } from './domain/season-review.rules';
 import {
   CatalogIngredientDto,
   ListCatalogIngredientsQueryDto,
@@ -119,6 +122,12 @@ export type Carried = Prisma.CatalogIngredientGetPayload<{ select: typeof CARRIE
  * (BLK-33); a batch cooker searches it to link a recipe line, from which the
  * dish's diets, seasons and allergens are computed.
  */
+/** Entries one batch cooker may adopt (every list has a cap). */
+export const CHEF_INGREDIENTS_CAP = 500;
+
+/** When the admin last confirmed the list fits the season (BLK-33). */
+const SEASON_REVIEW_KEY = 'ingredients_season_review';
+
 @Injectable()
 export class IngredientsService {
   private readonly logger = new Logger(IngredientsService.name);
@@ -158,7 +167,7 @@ export class IngredientsService {
     const where: Prisma.CatalogIngredientWhereInput = filters.length
       ? { AND: filters }
       : {};
-    const [rows, total] = await Promise.all([
+    const [rows, total, reviewedAt] = await Promise.all([
       this.prisma.catalogIngredient.findMany({
         where,
         include: WITH_CHEF,
@@ -167,8 +176,201 @@ export class IngredientsService {
         take: bounds.take,
       }),
       this.prisma.catalogIngredient.count({ where }),
+      this.lastSeasonReview(),
     ]);
-    return { data: rows.map(withChef), meta: buildPaginationMeta(bounds, total) };
+    // BLK-33: the reminder judges the whole common list, whatever the filters.
+    const listSize = filters.length
+      ? await this.prisma.catalogIngredient.count({ where: { chefProfileId: null } })
+      : total;
+    return {
+      data: rows.map(withChef),
+      meta: buildPaginationMeta(bounds, total),
+      seasonReview: seasonReview(new Date(), reviewedAt, listSize),
+    };
+  }
+
+  /** The admin confirms the list fits the season: the reminder goes until the next one. */
+  async markSeasonReviewed(adminUserId: string, requestId?: string) {
+    const now = new Date();
+    await this.prisma.platformSetting.upsert({
+      where: { key: SEASON_REVIEW_KEY },
+      update: { value: { reviewedAt: now.toISOString() }, updatedByUserId: adminUserId },
+      create: {
+        key: SEASON_REVIEW_KEY,
+        value: { reviewedAt: now.toISOString() },
+        updatedByUserId: adminUserId,
+      },
+    });
+    const review = seasonReview(
+      now,
+      now,
+      await this.prisma.catalogIngredient.count({ where: { chefProfileId: null } }),
+    );
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'catalog_ingredient.season_reviewed',
+      subjectType: 'platform_setting',
+      metadata: { season: review.season },
+      requestId,
+    });
+    return review;
+  }
+
+  private async lastSeasonReview(): Promise<Date | null> {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: SEASON_REVIEW_KEY },
+    });
+    const at = (row?.value as { reviewedAt?: unknown } | null)?.reviewedAt;
+    return typeof at === 'string' ? new Date(at) : null;
+  }
+
+  /** BLK-33: the entries a batch cooker adopted, by name. */
+  listMine(chefProfileId: string) {
+    return this.prisma.chefIngredient.findMany({
+      where: { chefProfileId },
+      orderBy: { name: 'asc' },
+      take: CHEF_INGREDIENTS_CAP,
+    });
+  }
+
+  /**
+   * BLK-33, kept with the socle (13/11): copies an entry of the common list into the
+   * chef's own list, to edit. Only a common, active entry is adopted: a chef's own
+   * pending ingredient is already theirs to edit (`PATCH /me/ingredients/:id`). The
+   * copy classifies like the original, so no dish changes. Adopting twice returns the
+   * chef's version as it is.
+   */
+  async adopt(chefProfileId: string, catalogIngredientId: string) {
+    const entry = await this.prisma.catalogIngredient.findFirst({
+      where: { id: catalogIngredientId, chefProfileId: null, status: 'active' },
+    });
+    if (!entry) throw ingredientNotFound();
+    if (
+      (await this.prisma.chefIngredient.count({ where: { chefProfileId } })) >=
+      CHEF_INGREDIENTS_CAP
+    ) {
+      throw new UnprocessableEntityException({
+        code: 'CHEF_INGREDIENTS_LIMIT',
+        message: `A batch cooker keeps at most ${CHEF_INGREDIENTS_CAP} ingredients of their own.`,
+        limit: CHEF_INGREDIENTS_CAP,
+      });
+    }
+    const row = await this.prisma.chefIngredient.upsert({
+      where: {
+        chefProfileId_catalogIngredientId: { chefProfileId, catalogIngredientId },
+      },
+      update: {},
+      create: {
+        chefProfileId,
+        catalogIngredientId,
+        name: entry.name,
+        aliases: entry.aliases,
+        diets: entry.diets,
+        seasonMonths: entry.seasonMonths,
+      },
+    });
+    this.logger.log({
+      event: 'chef_ingredient.adopted',
+      chefProfileId,
+      catalogIngredientId,
+    });
+    return row;
+  }
+
+  /**
+   * Only the fields sent change, among name, other names, diets and months: a chef's
+   * version never touches allergens, aisle or anything a line copies (BLK-33). The
+   * chef's dishes linking it are classified again.
+   */
+  async updateMine(
+    chefProfileId: string,
+    id: string,
+    payload: UpdateCatalogIngredientDto,
+  ) {
+    const own = await this.ownVersion(chefProfileId, id);
+    const data = toChefVersionWrite(payload);
+    const row = await this.prisma.chefIngredient.update({ where: { id }, data });
+    const reclassified =
+      data.diets !== undefined || data.seasonMonths !== undefined
+        ? await this.reclassifyChef(chefProfileId, own.catalogIngredientId)
+        : 0;
+    this.logger.log({
+      event: 'chef_ingredient.updated',
+      chefProfileId,
+      chefIngredientId: id,
+      fields: Object.keys(data),
+      reclassified,
+    });
+    return row;
+  }
+
+  /** Back to the common entry: the chef's dishes linking it are classified from it. */
+  async removeMine(chefProfileId: string, id: string) {
+    const own = await this.ownVersion(chefProfileId, id);
+    await this.prisma.chefIngredient.delete({ where: { id } });
+    const reclassified = await this.reclassifyChef(
+      chefProfileId,
+      own.catalogIngredientId,
+    );
+    this.logger.log({
+      event: 'chef_ingredient.removed',
+      chefProfileId,
+      chefIngredientId: id,
+      reclassified,
+    });
+  }
+
+  /** Someone else's version is reported missing, never revealed. */
+  private async ownVersion(chefProfileId: string, id: string) {
+    const own = await this.prisma.chefIngredient.findFirst({
+      where: { id, chefProfileId },
+    });
+    if (!own) {
+      throw new NotFoundException({
+        code: 'CHEF_INGREDIENT_NOT_FOUND',
+        message: 'No such ingredient in your list.',
+      });
+    }
+    return own;
+  }
+
+  /**
+   * The chef's dishes linking the entry get their diets and months again, from the
+   * composition every save uses (Recettes §6.1, BLK-33). Only `classification` is
+   * written, never the lines or the allergens, and `lockVersion` moves on so a form
+   * opened before reloads (Recettes §8.1). A dish saved in between is skipped: its
+   * save already composed it from the chef's version as it stands.
+   */
+  private async reclassifyChef(
+    chefProfileId: string,
+    catalogIngredientId: string,
+  ): Promise<number> {
+    const meals = await this.prisma.meal.findMany({
+      where: {
+        chefProfileId,
+        ingredients: { array_contains: [{ catalogIngredientId }] },
+      },
+    });
+    let written = 0;
+    for (const meal of meals) {
+      const composed = await composeLines(
+        this.prisma,
+        meal,
+        {},
+        readLines(meal.ingredients),
+        chefProfileId,
+      );
+      const { count } = await this.prisma.meal.updateMany({
+        where: { id: meal.id, chefProfileId, lockVersion: meal.lockVersion },
+        data: {
+          classification: composed.classification ?? Prisma.DbNull,
+          lockVersion: { increment: 1 },
+        },
+      });
+      written += count;
+    }
+    return written;
   }
 
   /**
@@ -740,4 +942,31 @@ export const alreadyListed = (existing?: { id: string; name: string }) =>
     code: 'INGREDIENT_ALREADY_LISTED',
     message: 'An ingredient of this name is already in the list.',
     ...(existing && { ingredient: { id: existing.id, name: existing.name } }),
+  });
+
+/** A chef's version of an entry (BLK-33): trimmed names, aliases folded, months sorted. */
+function toChefVersionWrite(payload: UpdateCatalogIngredientDto) {
+  const data: {
+    name?: string;
+    aliases?: string[];
+    diets?: string[];
+    seasonMonths?: number[];
+  } = {};
+  if (payload.name !== undefined) data.name = payload.name.trim();
+  if (payload.aliases !== undefined) {
+    data.aliases = [
+      ...new Set(payload.aliases.map((a) => a.trim().toLowerCase()).filter(Boolean)),
+    ];
+  }
+  if (payload.diets !== undefined) data.diets = [...new Set(payload.diets)];
+  if (payload.seasonMonths !== undefined) {
+    data.seasonMonths = [...new Set(payload.seasonMonths)].sort((a, b) => a - b);
+  }
+  return data;
+}
+
+const ingredientNotFound = () =>
+  new NotFoundException({
+    code: 'INGREDIENT_NOT_FOUND',
+    message: 'No such ingredient in the common list.',
   });

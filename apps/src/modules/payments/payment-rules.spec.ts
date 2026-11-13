@@ -1,9 +1,26 @@
 import { commissionForPayment, type CommissionPolicyDb } from './commission-policy';
-import { assertPayable, commissionBlockApplies, paymentPhase } from './payment-rules';
+import {
+  assertPayable,
+  commissionBlockApplies,
+  paymentPhase,
+  type ContractedBooking,
+} from './payment-rules';
 
 const NOW = new Date('2026-10-13T12:00:00Z');
 const before = new Date('2026-10-13T11:00:00Z');
 const after = new Date('2026-10-14T09:00:00Z');
+
+/** A booking made before the CGV V1: no box is asked of it. */
+const signed: ContractedBooking = {
+  startsAt: after,
+  createdAt: NOW,
+  shoppingByClient: true,
+  contractVersion: null,
+  cgvAcceptedAt: null,
+  deboursMandateAcceptedAt: null,
+  earlyExecutionRequestedAt: null,
+  serviceOffer: { shoppingIncluded: false },
+};
 
 describe('paymentPhase', () => {
   it('a confirmed prestation is paid after it took place', () => {
@@ -20,23 +37,65 @@ describe('paymentPhase', () => {
   });
 
   it('says why a booking cannot be paid', () => {
-    expect(() => assertPayable({ status: 'confirmed', endsAt: after }, NOW)).toThrow(
+    expect(() =>
+      assertPayable({ ...signed, status: 'confirmed', endsAt: after }, NOW),
+    ).toThrow(
       expect.objectContaining({
         response: expect.objectContaining({ code: 'BOOKING_NOT_DUE' }),
       }),
     );
-    expect(() => assertPayable({ status: 'cancelled' }, NOW)).toThrow(
+    expect(() => assertPayable({ ...signed, status: 'cancelled' }, NOW)).toThrow(
       expect.objectContaining({
         response: expect.objectContaining({ code: 'BOOKING_CANCELLED' }),
       }),
     );
-    expect(() => assertPayable({ status: 'completed' }, NOW)).not.toThrow();
+    expect(() => assertPayable({ ...signed, status: 'completed' }, NOW)).not.toThrow();
     // FLOW-03 §3: a dispute blocks payment, even once the prestation is over.
-    expect(() => assertPayable({ status: 'disputed', endsAt: before }, NOW)).toThrow(
+    expect(() =>
+      assertPayable({ ...signed, status: 'disputed', endsAt: before }, NOW),
+    ).toThrow(
       expect.objectContaining({
         response: expect.objectContaining({ code: 'BOOKING_DISPUTED' }),
       }),
     );
+  });
+
+  it('refuses to take money on a CGV V1 booking whose boxes are missing', () => {
+    const later = new Date('2026-12-01T12:00:00Z');
+    const v1 = { ...signed, status: 'pending' as const, createdAt: later };
+    expect(() =>
+      assertPayable({ ...v1, startsAt: new Date('2026-12-30T12:00:00Z') }, later),
+    ).toThrow(
+      expect.objectContaining({
+        status: 409,
+        response: expect.objectContaining({
+          code: 'CONTRACT_CONSENT_REQUIRED',
+          missing: ['CGV'],
+        }),
+      }),
+    );
+    // Paying now concludes the contract now: a start inside 14 days needs the request.
+    expect(() =>
+      assertPayable(
+        { ...v1, cgvAcceptedAt: later, startsAt: new Date('2026-12-05T12:00:00Z') },
+        later,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        response: expect.objectContaining({ missing: ['EARLY_EXECUTION'] }),
+      }),
+    );
+    expect(() =>
+      assertPayable(
+        {
+          ...v1,
+          cgvAcceptedAt: later,
+          earlyExecutionRequestedAt: later,
+          startsAt: new Date('2026-12-05T12:00:00Z'),
+        },
+        later,
+      ),
+    ).not.toThrow();
   });
 
   it('a cook’s unpaid commission only blocks payments that open new work', () => {

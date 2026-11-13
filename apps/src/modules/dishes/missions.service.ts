@@ -20,8 +20,16 @@ import { UsersService } from '../users/users.service';
 import { shoppingByClient, shoppingListFrozen } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
+import { PutDishNotesDto } from './dto/mission.dto';
 
 type Role = 'chef' | 'admin' | 'client';
+
+/** From the moment the chef is cooking: what was cooked is known and worth a note. */
+const NOTES_OPEN: BookingStatus[] = [
+  BookingStatus.cooking,
+  BookingStatus.delivered,
+  BookingStatus.completed,
+];
 
 /**
  * A prestation's documents (FLOW-02 §7): the fiche recette and the shopping list.
@@ -120,6 +128,7 @@ export class MissionsService {
 
     const { meal, recipe } = pinned;
     const servings = portions ?? pinned.portions;
+    const line = booking.bookingMeals.find((bm) => bm.mealId === dishId);
     return {
       missionId: booking.id,
       dish: {
@@ -141,12 +150,54 @@ export class MissionsService {
         reheating: meal.reheating,
         storage: recipe.storage,
       },
+      // What the chef wrote of this dish in this prestation: beside the advice above.
+      notes: {
+        reheating: line?.reheatingNote ?? null,
+        storage: line?.storageNote ?? null,
+      },
       version: {
         pinned: recipe.version,
         current: meal.recipeVersion,
         newerAvailable: meal.recipeVersion > recipe.version,
       },
     };
+  }
+
+  /**
+   * The chef's own words on a dish as cooked in this prestation: how to reheat it,
+   * how to keep it. Tied to the prestation (the `booking_meals` row), never to the
+   * recipe, which keeps its advice. Open once the chef is cooking; the client reads
+   * them on the fiche when the prestation is done. A field left out stays, a blank
+   * or null one is cleared.
+   */
+  async setDishNotes(
+    clerkUserId: string,
+    bookingId: string,
+    dishId: string,
+    dto: PutDishNotesDto,
+  ) {
+    const { booking } = await this.asChef(clerkUserId, bookingId);
+    if (!booking.bookingMeals.some((bm) => bm.mealId === dishId)) {
+      throw new NotFoundException('This dish is not part of this prestation.');
+    }
+    if (!NOTES_OPEN.includes(booking.status)) {
+      throw new ConflictException({
+        code: 'PRESTATION_NOT_STARTED',
+        message: 'Notes on a dish are written once the prestation is under way.',
+      });
+    }
+    const clean = (note: string | null) => note?.trim() || null;
+    const data = {
+      ...(dto.reheatingNote !== undefined && { reheatingNote: clean(dto.reheatingNote) }),
+      ...(dto.storageNote !== undefined && { storageNote: clean(dto.storageNote) }),
+    };
+    const saved = await this.prisma.bookingMeal.update({
+      where: { bookingId_mealId: { bookingId, mealId: dishId } },
+      data,
+      select: { reheatingNote: true, storageNote: true },
+    });
+    this.logger.log({ event: 'mission.dish_notes_saved', bookingId, dishId });
+    return saved;
   }
 
   /**
@@ -294,7 +345,10 @@ export class MissionsService {
         }
       }
     }
-    return { total: COUNTRIES_TOTAL, explored: [...explored.values()] };
+    const alphabetical = [...explored.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, 'fr'),
+    );
+    return { total: COUNTRIES_TOTAL, explored: alphabetical };
   }
 
   /**

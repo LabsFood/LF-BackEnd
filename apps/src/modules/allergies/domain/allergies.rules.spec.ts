@@ -5,11 +5,13 @@ import {
   allergyLabels,
   checkable,
   ClientAllergies,
+  CONSENT_WITHDRAWN,
   conflicts,
   DishAllergens,
   HEALTH_CONSENT,
   menuRefusal,
   newConflicts,
+  preferencesConsent,
   toDeclaration,
   unverifiedDishes,
 } from './allergies.rules';
@@ -287,5 +289,52 @@ describe('newConflicts', () => {
       { mealId: 'b', allergens: ['soy'] },
     ]);
     expect(newConflicts([{ mealId: 'a', allergens: ['milk'] }], [])).toEqual([]);
+  });
+});
+
+describe('preferencesConsent (politique de confidentialité V1 §5)', () => {
+  const NOW = new Date('2026-11-12T10:00:00Z');
+  const given = { healthConsentVersion: HEALTH_CONSENT.version };
+
+  it('lets a client with no preferences through, consent or not', () => {
+    expect(preferencesConsent([], { healthConsentVersion: null }, {}, NOW)).toEqual({});
+    expect(
+      preferencesConsent(undefined, { healthConsentVersion: null }, {}, NOW),
+    ).toEqual({});
+  });
+
+  it('keeps preferences under a consent already given to the current text', () => {
+    expect(preferencesConsent(['halal'], given, {}, NOW)).toEqual({});
+  });
+
+  it('refuses preferences without consent to the current text', () => {
+    expect(() =>
+      preferencesConsent(['halal'], { healthConsentVersion: 'old' }, {}, NOW),
+    ).toThrow(HttpException);
+    expect(() =>
+      preferencesConsent(
+        ['halal'],
+        { healthConsentVersion: null },
+        { consent: true, consentVersion: 'old' },
+        NOW,
+      ),
+    ).toThrow(HttpException);
+  });
+
+  it('stamps the consent ticked with the preferences', () => {
+    expect(
+      preferencesConsent(
+        ['vegetarian'],
+        { healthConsentVersion: null },
+        { consent: true, consentVersion: HEALTH_CONSENT.version },
+        NOW,
+      ),
+    ).toEqual({ healthConsentAt: NOW, healthConsentVersion: HEALTH_CONSENT.version });
+  });
+});
+
+describe('CONSENT_WITHDRAWN', () => {
+  it('erases the dietary preferences with the allergies', () => {
+    expect(CONSENT_WITHDRAWN.dietaryPreferences).toEqual([]);
   });
 });

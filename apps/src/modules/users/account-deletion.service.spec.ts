@@ -72,6 +72,21 @@ describe('AccountDeletionService', () => {
     );
   });
 
+  it('journals a self-deletion without the actor id once the row is gone', async () => {
+    users.findByClerkId.mockResolvedValue(chef);
+    users.deleteByClerkId.mockResolvedValue('deleted');
+
+    await service.deleteOwn('user_chef');
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorType: 'chef',
+        actorUserId: null,
+        subjectId: chef.id,
+      }),
+    );
+  });
+
   it('refuses while bookings are open, listing them with the side held', async () => {
     const startsAt = new Date('2026-11-04T10:00:00.000Z');
     prisma.booking.findMany.mockResolvedValue([

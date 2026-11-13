@@ -17,6 +17,18 @@ const CONNECT_READY_CHEF = {
   stripePayoutsEnabled: true,
 };
 
+/** What `assertPayable` reads of the contract, for a booking made before the CGV V1. */
+const PRE_V1_CONTRACT = {
+  startsAt: new Date('2026-10-20T09:00:00Z'),
+  createdAt: new Date('2026-10-01T09:00:00Z'),
+  shoppingByClient: false,
+  contractVersion: null,
+  cgvAcceptedAt: null,
+  deboursMandateAcceptedAt: null,
+  earlyExecutionRequestedAt: null,
+  serviceOffer: { shoppingIncluded: false },
+};
+
 const PENDING_BOOKING = {
   id: 'booking-1',
   reference: 'LF-2026-0001',
@@ -25,6 +37,8 @@ const PENDING_BOOKING = {
   priceCents: 12_500,
   currency: 'EUR',
   chefProfile: CONNECT_READY_CHEF,
+  // Made before the CGV V1: the booking boxes are not asked of it.
+  ...PRE_V1_CONTRACT,
 };
 
 describe('PaymentsService', () => {
@@ -453,7 +467,7 @@ describe('PaymentsService', () => {
       });
       expect(tx.booking.update).toHaveBeenCalledWith({
         where: { id: 'booking-1' },
-        data: { status: 'confirmed' },
+        data: { status: 'confirmed', concludedAt: expect.any(Date) },
       });
     });
 

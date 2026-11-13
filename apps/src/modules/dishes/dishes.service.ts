@@ -10,6 +10,7 @@ import { Meal, MealDifficulty, MealStatus, Prisma } from '../../generated/prisma
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   assertIngredientAccess,
+  ComposeDb,
   compositionOf,
   LineToStamp,
 } from '../ingredients/composition';
@@ -123,7 +124,7 @@ export class DishesService {
     }
     await assertProfiles(this.prisma, payload.profiles);
 
-    const composed = await composedSave(this.prisma, null, payload, lines);
+    const composed = await composedSave(this.prisma, null, payload, lines, chef.id);
     const dish = await this.prisma.meal.create({
       data: {
         ...toMealWrite(payload),
@@ -668,15 +669,22 @@ export type Composition = Awaited<ReturnType<typeof compositionOf>> & {
  * sends neither. Sent alone, the chef's allergens apply to the lines as stored.
  */
 export async function composedSave(
-  db: Pick<PrismaService, 'catalogIngredient'>,
+  db: ComposeDb,
   current: Meal | null,
   payload: ChefAllergens,
   lines?: LineToStamp[],
+  chefProfileId: string | null = current?.chefProfileId ?? null,
 ): Promise<Composition | null> {
   if (!lines && payload.addedAllergens == null && payload.customAllergens == null) {
     return null;
   }
-  return composeLines(db, current, payload, lines ?? readLines(current?.ingredients));
+  return composeLines(
+    db,
+    current,
+    payload,
+    lines ?? readLines(current?.ingredients),
+    chefProfileId,
+  );
 }
 
 /** The allergens a writer adds by hand; a chef's dish and a Lab's Food meal both send them. */
@@ -684,13 +692,16 @@ type ChefAllergens = Pick<UpdateDishDto, 'addedAllergens' | 'customAllergens'>;
 
 /**
  * The composition of `lines`, with the chef's allergens as `payload` leaves them.
- * Shared with the Lab's Food admin routes, which compose the same way.
+ * Shared with the Lab's Food admin routes, which compose the same way. The owner
+ * (`chefProfileId`, the dish's by default) decides whose adopted versions apply
+ * (BLK-33).
  */
 export async function composeLines(
-  db: Pick<PrismaService, 'catalogIngredient'>,
+  db: ComposeDb,
   current: Meal | null,
   payload: ChefAllergens,
   lines: LineToStamp[],
+  chefProfileId: string | null = current?.chefProfileId ?? null,
 ): Promise<Composition> {
   // Ruling R7: what the chef declared by hand before the socle stays, as added.
   const addedAllergens = inAnnexOrder([
@@ -700,7 +711,12 @@ export async function composeLines(
     ...(current?.addedAllergens ?? []).filter((code) => !ALLERGEN_CODES.includes(code)),
   ]);
   const customAllergens = payload.customAllergens ?? current?.customAllergens ?? [];
-  const composed = await compositionOf(db, lines, { addedAllergens, customAllergens });
+  const composed = await compositionOf(
+    db,
+    lines,
+    { addedAllergens, customAllergens },
+    chefProfileId,
+  );
   return { ...composed, addedAllergens, customAllergens };
 }
 

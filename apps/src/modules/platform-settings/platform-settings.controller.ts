@@ -342,13 +342,37 @@ export class PlatformSettingsController {
   @ApiBearerAuth()
   @UseGuards(ClerkAuthGuard, AdminGuard)
   @ApiOperation({
-    summary: 'Read the names of the chef tiers',
+    summary: 'Read the chef tiers: names, what each may do, commission',
     description:
       'The name shown for each of the four tier codes (`tier_1` to `tier_4`) set on a ' +
       'batch cooker with `PATCH /admin/chefs/{id}/tier`. `updatedAt: null`: never ' +
-      'changed, the neutral names apply ("Palier 1" to "Palier 4").',
+      'changed, the neutral names apply ("Palier 1" to "Palier 4"). `rules` says what ' +
+      'each tier may do and the commission it pays: today `tier_1` has every ' +
+      'capability at the platform commission (`decided: true`); the other tiers are ' +
+      'not decided (`decided: false`) and restrict nothing yet.',
   })
-  @ApiOkResponse({ description: 'The names.', example: CHEF_TIERS_EXAMPLE })
+  @ApiOkResponse({
+    description: 'The names and the rules.',
+    example: {
+      ...CHEF_TIERS_EXAMPLE,
+      rules: {
+        tier_1: {
+          decided: true,
+          commissionBps: 1500,
+          capabilities: [
+            { code: 'publish_dishes', label: 'Écrire et publier ses plats' },
+          ],
+        },
+        tier_2: {
+          decided: false,
+          commissionBps: 1500,
+          capabilities: [
+            { code: 'publish_dishes', label: 'Écrire et publier ses plats' },
+          ],
+        },
+      },
+    },
+  })
   @ApiAdminAuthResponses()
   chefTiers() {
     return this.settings.chefTiers();

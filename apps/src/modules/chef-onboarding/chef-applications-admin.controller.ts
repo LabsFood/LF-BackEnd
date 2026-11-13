@@ -34,6 +34,7 @@ import {
   RejectApplicationDto,
   RequestChangesDto,
 } from './dto/admin-chef-application.dto';
+import { CreateChefApplicationByAdminDto } from './dto/create-chef-application.dto';
 import { ApiDocumentTypeParam, DecideDocumentDto } from './dto/chef-document.dto';
 import { ChefApplicationsAdminService } from './services/chef-applications-admin.service';
 import { ChefApplicationsService } from './services/chef-applications.service';
@@ -72,6 +73,37 @@ export class ChefApplicationsAdminController {
   private async adminId(user: ClerkUser): Promise<string> {
     const row = await this.users.findByClerkId(user.userId);
     return row!.id;
+  }
+
+  @Post('chef-applications')
+  @ApiOperation({
+    summary: 'Open a candidature for a batch cooker',
+    description:
+      'For a batch cooker you onboard yourself: the same form as `POST /chef-applications`, ' +
+      'without the `consent` block. It creates their account, an unverified and inactive ' +
+      'profile and the candidature, then emails them a sign-in link valid 7 days. ' +
+      'Nothing is accepted on their behalf: the terms are theirs to accept when they sign in.\n\n' +
+      'The candidature then follows the usual path: documents, review, `approve`. ' +
+      '`invitation.delivered: false` means the email did not leave: use ' +
+      '`POST /admin/chef-users/{id}/resend-invitation`.',
+  })
+  @ApiCreatedResponse({
+    description: 'The candidature, its document list and whether the link left.',
+  })
+  @ApiConflictResponse({
+    description: '`EMAIL_ALREADY_USED`: this address has an account.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED` or `ZONE_CITY_UNKNOWN`: an answer breaks the rules.',
+  })
+  @ApiAdminAuthResponses()
+  async create(
+    @Body() body: CreateChefApplicationByAdminDto,
+    @CurrentClerkUser() user: ClerkUser,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.applications.submitByAdmin(body, await this.adminId(user), reqId(req));
   }
 
   @Get('chef-applications')

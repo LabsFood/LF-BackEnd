@@ -101,7 +101,10 @@ async function saved(
   lines: LineToStamp[],
   over: Record<string, unknown> = {},
 ): Promise<Dish> {
-  const db = { catalogIngredient: { findMany: findEntries(() => entries) } };
+  const db = {
+    catalogIngredient: { findMany: findEntries(() => entries) },
+    chefIngredient: { findMany: async () => [] },
+  };
   const composed = await composeLines(db as unknown as PrismaService, null, {}, lines);
   return {
     chefProfile: MARIE,
@@ -231,7 +234,9 @@ function harness(entries: Entry[], dishes: Dish[]) {
   const entry = (id: string) =>
     list.find((e) => e.id === id) as
       (Entry & { carryPendingAt?: Date | null }) | undefined;
-  const client = { meal, catalogIngredient };
+  // BLK-33: no chef here adopted a version of an entry.
+  const chefIngredient = { findMany: jest.fn(async (_args?: unknown) => []) };
+  const client = { meal, catalogIngredient, chefIngredient };
   const $transaction = jest.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
     work(client),
   );

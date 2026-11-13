@@ -391,9 +391,30 @@ export class UserWithProfileDto {
     description:
       'The consent text to show before listing allergies, and its `version`, to send back ' +
       'with `PUT /me/profile/allergies`. A draft until legal validates it.',
-    example: { version: 'brouillon-2026-11-02', text: 'J’accepte que Lab’s Food…' },
+    example: { version: '2026-11-10', text: 'J’accepte que Lab’s Food…' },
   })
   healthConsent?: { version: string; text: string };
+
+  @ApiPropertyOptional({
+    description:
+      'The booking boxes (CGV art. 5.1): their texts, the CGV `version` to send back in ' +
+      '`consents`, and `inForceFrom`, from when they are required. The early-execution ' +
+      'text is a draft until legal validates it.',
+    example: {
+      version: '1.0',
+      inForceFrom: '2026-11-20T23:00:00.000Z',
+      cgvText: "J'ai lu et j'accepte les Conditions Générales de Vente.",
+      deboursMandateText: "J'accepte le mandat de débours : …",
+      earlyExecutionText: 'Je demande que la prestation commence avant la fin…',
+    },
+  })
+  contractTerms?: {
+    version: string;
+    inForceFrom: Date;
+    cgvText: string;
+    deboursMandateText: string;
+    earlyExecutionText: string;
+  };
 
   @ApiProperty({
     type: NotificationPreferencesDto,

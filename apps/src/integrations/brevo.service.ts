@@ -38,7 +38,12 @@ export type ChefOnboardingEmail =
   | 'bookingHoldReminderClient'
   | 'bookingHoldReminderChef'
   | 'bookingRescheduleProposed'
-  | 'bookingRescheduleAnswered';
+  | 'bookingRescheduleAnswered'
+  // CGV V1: the contract on a durable medium, and an online withdrawal's
+  // acknowledgement and heads-up to the team.
+  | 'bookingContractClient'
+  | 'bookingWithdrawalAck'
+  | 'bookingWithdrawalAdmin';
 
 @Injectable()
 export class BrevoService {
@@ -94,6 +99,8 @@ export class BrevoService {
     replyTo?: { email: string; name?: string };
     /** Surfaces in the log line and in the audit row. */
     label: string;
+    /** Files sent with it, base64. The contract documents (CGV art. 2.4). */
+    attachment?: { name: string; content: string }[];
   }): Promise<{ sent: boolean; messageId?: string }> {
     if (!this.configured || !input.templateId) {
       this.logger.warn(
@@ -112,6 +119,7 @@ export class BrevoService {
           to: [input.to],
           sender: { email: this.senderEmail, name: this.senderName },
           ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          ...(input.attachment?.length ? { attachment: input.attachment } : {}),
           params: input.params ?? {},
         }),
       });

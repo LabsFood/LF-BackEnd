@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -32,8 +33,19 @@ import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { allergyCheck, HEALTH_CONSENT } from '../allergies/domain/allergies.rules';
+import {
+  allergyCheck,
+  HEALTH_CONSENT,
+  preferencesConsent,
+} from '../allergies/domain/allergies.rules';
+import { CONTRACT_TERMS } from '../bookings/domain/contract.rules';
+import { isValidSiren } from '../chef-onboarding/domain/chef-onboarding.rules';
+import { CHEF_LEGAL_SELECT, chefLegalIdentity } from './chef-legal.views';
+import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-application.dto';
+import { assertInterventionZones, sortZones } from './intervention-zones.check';
+import { UpdateChefLegalDto } from './dto/chef-legal.dto';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
+import { clientOnboarding } from './domain/client-onboarding.rules';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -223,8 +235,10 @@ export class UsersService {
       if (input.fullName !== undefined && existing.fullName !== input.fullName) {
         data.fullName = input.fullName ?? null;
       }
-      if (input.phone !== undefined && existing.phone !== input.phone) {
-        data.phone = input.phone ?? null;
+      // The phone is typed in the app (PATCH /me/profile) and never sent to Clerk:
+      // Clerk only seeds an empty one, never clears or replaces it.
+      if (input.phone && !existing.phone) {
+        data.phone = input.phone;
       }
       if (input.role !== undefined && existing.role !== input.role) {
         data.role = input.role;
@@ -422,6 +436,33 @@ export class UsersService {
     return 'anonymised';
   }
 
+  /** LF-0221: the client's "getting started" checklist, derived from what is stored. */
+  async clientOnboarding(clerkUserId: string) {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const [profile, bookings] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: {
+          addressStreet: true,
+          addressCity: true,
+          addressPostalCode: true,
+          allergiesDeclaredAt: true,
+          dietaryPreferences: true,
+          dislikes: true,
+          favorites: true,
+          spiceLevel: true,
+        },
+      }),
+      this.prisma.booking.count({ where: { clientId: user.id } }),
+    ]);
+    return clientOnboarding({
+      fullName: user.fullName,
+      phone: user.phone,
+      profile,
+      bookings,
+    });
+  }
+
   /**
    * Returns whichever profile row the user actually holds.
    *
@@ -461,6 +502,8 @@ export class UsersService {
       },
       // The text a client accepts before listing allergies (PUT /me/profile/allergies).
       healthConsent: HEALTH_CONSENT,
+      // The booking boxes (CGV art. 5.1), to send back with `consents`.
+      contractTerms: CONTRACT_TERMS,
       notificationPreferences,
     };
   }
@@ -557,10 +600,21 @@ export class UsersService {
    * `client_profiles`, which has no columns for them.
    */
   async updateProfileByClerkUserId(clerkUserId: string, payload: UpdateMeProfileDto) {
-    const { firstName, lastName, phone, ...profileFields } = payload;
+    const { firstName, lastName, phone, consent, consentVersion, ...fields } = payload;
 
     const user = await this.ensurePersistedFromClerk(clerkUserId);
     await this.assertNoConflictingProfile(user.id, 'client');
+    // Politique de confidentialité V1 §5: preferences can reveal health or religion.
+    const consentStamp = preferencesConsent(
+      fields.dietaryPreferences,
+      (await this.prisma.clientProfile.findUnique({
+        where: { userId: user.id },
+        select: { healthConsentVersion: true },
+      })) ?? { healthConsentVersion: null },
+      { consent, consentVersion },
+      new Date(),
+    );
+    const profileFields = { ...fields, ...consentStamp };
     // The town must be a commune of the postcode; the half not sent is the one on file.
     if (
       profileFields.addressCity !== undefined ||
@@ -594,6 +648,7 @@ export class UsersService {
         addressPostalCode: profileFields.addressPostalCode,
         householdAdults: profileFields.householdAdults,
         householdKids: profileFields.householdKids,
+        ...consentStamp,
       },
     });
   }
@@ -635,6 +690,55 @@ export class UsersService {
       where: { id: profile.id },
       data: profileFields,
     });
+  }
+
+  /**
+   * `PATCH /me/chef-profile/zones`: an approved batch cooker replaces their own
+   * zones, with the candidature's rules (regions, towns against the official commune
+   * base). A candidate awaiting approval changes them on the candidature instead.
+   * Journaled before and after, as the admin's change is: the zones decide who can
+   * be matched to which booking.
+   */
+  async updateOwnChefZones(clerkUserId: string, zones: InterventionZoneDto[]) {
+    const user = await this.findByClerkId(clerkUserId);
+    const profile =
+      user &&
+      (await this.prisma.chefProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true, isVerified: true, interventionZones: true },
+      }));
+    if (!user || !profile) {
+      throw new NotFoundException('No batch cooker profile for this account.');
+    }
+    if (!profile.isVerified) {
+      throw new ForbiddenException({
+        code: 'CHEF_NOT_VERIFIED',
+        message: 'Your zones are the candidature’s until it is approved.',
+      });
+    }
+    await assertInterventionZones(zones, this.geo);
+
+    const updated = await this.prisma.chefProfile.update({
+      where: { id: profile.id },
+      data: {
+        interventionZones: sortZones(zones) as unknown as Prisma.InputJsonValue,
+      },
+      select: { interventionZones: true },
+    });
+    this.logger.log({
+      event: 'chef.zones_changed',
+      chefProfileId: profile.id,
+      regionCodes: zones.map((zone) => zone.regionCode),
+    });
+    await this.audit.record({
+      actorType: 'chef',
+      actorUserId: user.id,
+      action: 'chef.zones_changed',
+      subjectType: 'chef_profile',
+      subjectId: profile.id,
+      metadata: { before: profile.interventionZones, after: zones },
+    });
+    return updated;
   }
 
   /**
@@ -755,6 +859,43 @@ export class UsersService {
    * The SAP declaration hangs off `chef_profiles`, so onboarding form 2
    * (`PATCH /me/chef-profile`) has to come first.
    */
+  /** `GET /me/chef-profile/legal`: the fields as entered, and what is still missing. */
+  async getChefLegal(clerkUserId: string) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    return this.chefLegalView(id);
+  }
+
+  /** `PATCH /me/chef-profile/legal`: CGV art. 3.2, entered by the chef. */
+  async updateChefLegal(clerkUserId: string, dto: UpdateChefLegalDto) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    if (dto.siren && !isValidSiren(dto.siren)) {
+      throw new UnprocessableEntityException({
+        code: 'VALIDATION_FAILED',
+        message: 'siren fails its Luhn key.',
+      });
+    }
+    const data = Object.fromEntries(
+      Object.entries(dto).filter(([, value]) => value !== undefined),
+    );
+    await this.prisma.chefProfile.update({ where: { id }, data });
+    this.logger.log({
+      event: 'chef.legal_updated',
+      chefProfileId: id,
+      fields: Object.keys(data),
+    });
+    return this.chefLegalView(id);
+  }
+
+  private async chefLegalView(chefProfileId: string) {
+    const row = await this.prisma.chefProfile.findUniqueOrThrow({
+      where: { id: chefProfileId },
+      select: CHEF_LEGAL_SELECT,
+    });
+    const { sapDeclarationNumber: _sap, sapProfile: _profile, ...fields } = row;
+    const identity = chefLegalIdentity(row);
+    return { ...fields, sapNumber: identity.sapNumber, missing: identity.missing };
+  }
+
   async requireOwnChefProfile(
     clerkUserId: string,
   ): Promise<{ id: string; userId: string }> {

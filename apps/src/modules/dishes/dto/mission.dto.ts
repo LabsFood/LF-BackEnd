@@ -113,3 +113,31 @@ export class SubmitShoppingListDto {
   @Type(() => ShoppingMarkDto)
   marks!: ShoppingMarkDto[];
 }
+
+export class PutDishNotesDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 500,
+    description:
+      'How to reheat this dish as cooked in this prestation. Absent: unchanged; ' +
+      'blank or null: cleared.',
+    example: 'Four à 160 °C pendant 15 min, film retiré.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reheatingNote?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 500,
+    description:
+      'How to keep this dish as cooked in this prestation. Absent: unchanged; ' +
+      'blank or null: cleared.',
+    example: 'Réfrigérateur, 3 jours maximum.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  storageNote?: string | null;
+}

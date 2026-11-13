@@ -4,7 +4,8 @@ import { CLERK_SECRET_KEY_PATTERN } from '../auth/clerk-auth.guard';
 
 export const envValidationSchema = Joi.object({
   ENVIRONMENT: Joi.string()
-    .valid('development', 'staging', 'production', 'test')
+    // Deployed: develop (`development`) and `production`. Staging was retired on 2026-11-10.
+    .valid('development', 'production', 'test')
     .default('development'),
   DEBUG: Joi.boolean().truthy('true').falsy('false').default(true),
   API_HOST: Joi.string().default('0.0.0.0'),
@@ -26,9 +27,9 @@ export const envValidationSchema = Joi.object({
 
   /**
    * Unverified-JWT fallback (see clerk-auth.guard.ts `shouldVerifyClerkJwt`) only kicks in
-   * for the local stub or a key that doesn't match `sk_(test|live)_...` — required + pattern
-   * here in production so a malformed key fails startup instead of silently disabling
-   * signature verification on every guarded route.
+   * under Jest or for the local stub with `ENVIRONMENT=development`; anywhere else a bad
+   * key makes every token fail. Required + pattern here in production so a malformed key
+   * fails startup instead of answering 401 to every guarded route.
    */
   CLERK_SECRET_KEY: Joi.string()
     .allow('')
@@ -139,6 +140,9 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_PROPOSED: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CONTRACT_CLIENT: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ACK: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
@@ -149,6 +153,13 @@ export const envValidationSchema = Joi.object({
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
     .optional(),
   LOG_JSON: Joi.boolean().truthy('true').falsy('false').optional(),
+  /** Error reporting (src/instrument.ts). Unset = Sentry off. A typo fails startup here. */
+  SENTRY_DSN: Joi.string()
+    .uri({ scheme: ['https'] })
+    .allow('')
+    .optional(),
+  /** Sentry environment when it differs from ENVIRONMENT: `develop` on the develop API. */
+  SENTRY_ENVIRONMENT: Joi.string().valid('develop', 'production').optional(),
 
   /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),

@@ -1,11 +1,18 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { AllergenState, allergenStateOf } from '../dishes/domain/allergens.rules';
-import { Classification, classify } from '../dishes/domain/classification.rules';
+import {
+  Classification,
+  classify,
+  withChefVersions,
+} from '../dishes/domain/classification.rules';
 import { validationFailed } from '../dishes/domain/content.errors';
 import { LineInput, StoredLine } from '../dishes/domain/recipe-lines.rules';
 import { isEntryComplete } from './domain/ingredient.rules';
 
 type Db = Pick<PrismaService, 'catalogIngredient'>;
+
+/** What a composition reads: the common list, and a chef's adopted versions (BLK-33). */
+export type ComposeDb = Pick<PrismaService, 'catalogIngredient' | 'chefIngredient'>;
 
 /** A line as a DTO may send it: `hiddenFromClient` can be left out (the entry decides). */
 export type LineToStamp = Omit<LineInput, 'hiddenFromClient'> & {
@@ -140,11 +147,17 @@ export function stampLines(
 /**
  * Recettes §4.8 / §6: the stamped lines of a recipe with its allergen state and
  * its classification, the three results a save writes together.
+ *
+ * BLK-33 (kept with the socle, 13/11): a chef's dish takes the diets and months of
+ * the entries that chef adopted, from their own version; everything else, and the
+ * allergens always, from the common entry. A Lab's Food recipe
+ * (`chefProfileId` null) reads the common list only.
  */
 export async function compositionOf(
-  db: Db,
+  db: ComposeDb,
   lines: LineToStamp[],
   extras: { addedAllergens: string[]; customAllergens: string[] },
+  chefProfileId: string | null = null,
 ): Promise<{
   ingredients: StoredLine[];
   state: AllergenState;
@@ -158,12 +171,19 @@ export async function compositionOf(
     extras.addedAllergens,
     extras.customAllergens,
   );
-  const catalog = new Map(
-    [...entries.values()].map((e) => [
-      e.id,
-      { id: e.id, diets: e.diets, seasonMonths: e.seasonMonths },
-    ]),
-  );
+  const common = [...entries.values()].map((e) => ({
+    id: e.id,
+    diets: e.diets,
+    seasonMonths: e.seasonMonths,
+  }));
+  const own =
+    chefProfileId && common.length
+      ? await db.chefIngredient.findMany({
+          where: { chefProfileId, catalogIngredientId: { in: common.map((e) => e.id) } },
+          select: { catalogIngredientId: true, diets: true, seasonMonths: true },
+        })
+      : [];
+  const catalog = withChefVersions(common, own);
   return {
     ingredients,
     state,

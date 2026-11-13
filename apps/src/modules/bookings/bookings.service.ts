@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
@@ -42,6 +43,15 @@ import {
   toBookingListItem,
 } from './bookings.views';
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
+import { contractConsentRequired } from './domain/contract.errors';
+import {
+  acceptedConsents,
+  chefShops,
+  consentsAuditMetadata,
+  contractGaps,
+  mergeConsents,
+  type ContractState,
+} from './domain/contract.rules';
 import {
   bookingAmounts,
   reprice,
@@ -53,6 +63,7 @@ import {
   AdminBookingsQueryDto,
   AdminUpdateBookingDto,
   BookingMealDto,
+  ContractConsentsDto,
   ReplaceMealDto,
   NewBookingDto,
 } from './dto/bookings.dto';
@@ -251,6 +262,24 @@ export class BookingsService {
       portions = await this.householdPortions(clientId, dto.meals);
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
+    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+
+    // CGV art. 5.1: the client's boxes come with the booking. A batch cooker or an
+    // admin cannot tick them: the client does, before paying (`assertPayable`).
+    const consents: ContractState = acceptedConsents(
+      caller.role === 'client' ? dto.consents : undefined,
+      now,
+    );
+    if (caller.role === 'client') {
+      const missing = contractGaps(consents, {
+        chefShops: chefShops(offer, { shoppingByClient: dto.shoppingByClient ?? false }),
+        startsAt: dto.startsAt,
+        // Paid at the end of the hold at the latest: the 14 days start no later.
+        latestConclusion: new Date(now.getTime() + HOLD_MS),
+        bookedAt: now,
+      });
+      if (missing.length) throw contractConsentRequired(missing, 'booking');
+    }
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
     // An admin books on support's word: the override is audited below.
@@ -291,6 +320,7 @@ export class BookingsService {
           extraMeals: dto.extraMeals ?? 0,
           ...amounts,
           currency: offer.currency,
+          ...consents,
           ...(dto.meals?.length && {
             bookingMeals: {
               create: dto.meals.map((meal) => ({
@@ -327,6 +357,7 @@ export class BookingsService {
           ),
         );
     }
+    if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
     if (caller.role === 'admin') {
       await this.audit.record({
         actorType: 'admin',
@@ -620,6 +651,11 @@ export class BookingsService {
    * cancellation only touches a booking still unpaid and `pending`.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'bookings-unpaid-hold' })
+  @SentryCron('bookings-unpaid-hold', {
+    checkinMargin: 10,
+    maxRuntime: 10,
+    failureIssueThreshold: 2,
+  })
   async expireUnpaid(
     now: Date = new Date(),
   ): Promise<{ reminded: number; expired: number }> {
@@ -705,7 +741,79 @@ export class BookingsService {
     }
   }
 
+  /**
+   * The client ticks the booking boxes on a `pending` booking: one a batch cooker or
+   * an admin made for them, or one whose time or shopping changed since. Boxes
+   * already ticked stay as they were; every box still needed must be ticked now.
+   */
+  async consent(clerkUserId: string, id: string, dto: ContractConsentsDto) {
+    const caller = await this.caller('client', clerkUserId);
+    const now = new Date();
+    const booking = await this.prisma.booking.findFirst({
+      where: { id, ...this.scope(caller) },
+      select: {
+        status: true,
+        startsAt: true,
+        createdAt: true,
+        shoppingByClient: true,
+        contractVersion: true,
+        cgvAcceptedAt: true,
+        deboursMandateAcceptedAt: true,
+        earlyExecutionRequestedAt: true,
+        serviceOffer: { select: { shoppingIncluded: true } },
+      },
+    });
+    if (!booking) throw notFound();
+    if (booking.status !== 'pending') {
+      throw new ConflictException({
+        code: 'BOOKING_LOCKED',
+        message: 'Only a pending booking takes the booking boxes.',
+      });
+    }
+
+    const consents = mergeConsents(booking, acceptedConsents(dto, now));
+    const missing = contractGaps(consents, {
+      chefShops: chefShops(booking.serviceOffer, booking),
+      startsAt: booking.startsAt,
+      latestConclusion: new Date(
+        Math.max(now.getTime(), booking.createdAt.getTime() + HOLD_MS),
+      ),
+      bookedAt: booking.createdAt,
+    });
+    if (missing.length) throw contractConsentRequired(missing, 'booking');
+
+    await this.prisma.booking
+      .update({ where: { id, status: 'pending' }, data: consents })
+      .catch(changedMeanwhile);
+    if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
+    return this.view(caller, id);
+  }
+
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /** The proof of the boxes ticked: who, when, under which version and texts. */
+  private async recordConsents(
+    userId: string,
+    bookingId: string,
+    consents: ContractState,
+  ) {
+    this.logger.log({
+      event: 'booking.consents_recorded',
+      bookingId,
+      version: consents.contractVersion,
+      cgv: Boolean(consents.cgvAcceptedAt),
+      deboursMandate: Boolean(consents.deboursMandateAcceptedAt),
+      earlyExecution: Boolean(consents.earlyExecutionRequestedAt),
+    });
+    await this.audit.record({
+      actorType: 'client',
+      actorUserId: userId,
+      action: 'booking.consents',
+      subjectType: 'booking',
+      subjectId: bookingId,
+      metadata: consentsAuditMetadata(consents),
+    });
+  }
 
   private async caller(role: Audience, clerkUserId: string): Promise<Caller> {
     if (role === 'chef') {

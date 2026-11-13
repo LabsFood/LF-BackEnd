@@ -10,7 +10,9 @@ import { shortName } from '../messaging/domain/messaging.rules';
 import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from '../payments/chef-cesu-info';
 import { ACCEPTED_OFFER } from '../payments/commission-policy';
 import type { CommissionRates } from '../payments/commission.util';
+import { CHEF_LEGAL_SELECT, publicChefLegalIdentity } from '../users/chef-legal.views';
 import { bookingEarnings } from './domain/earnings';
+import { withdrawalFor, type WithdrawableBooking } from './domain/withdrawal.rules';
 
 /**
  * How a booking is shown, per audience. One query per list: everything a row
@@ -93,6 +95,16 @@ export const BOOKING_DETAIL_INCLUDE = {
   photos: { orderBy: { takenAt: 'asc' } },
   // A new time waiting for an answer: one at most.
   reschedules: { where: { status: 'pending' }, take: 1, select: RESCHEDULE_VIEW },
+  // CGV art. 3.2: the client reads who they contract with.
+  chefProfile: {
+    select: {
+      ...CHEF_CESU_INFO_SELECT,
+      ...CHEF_LEGAL_SELECT,
+      sapProfile: {
+        select: { ...CHEF_CESU_INFO_SELECT.sapProfile.select, novaCode: true },
+      },
+    },
+  },
 } satisfies Prisma.BookingInclude;
 
 type ListRow = Prisma.BookingGetPayload<{ include: typeof BOOKING_LIST_INCLUDE }>;
@@ -172,6 +184,8 @@ export function toBookingListItem(
         .map((payment) => payment.method),
     ),
     paidCents: paid.reduce((sum, payment) => sum + payment.amountTtc, 0),
+    /** Set when the client withdrew online (CGV art. 15): the booking is `cancelled`. */
+    withdrawnAt: booking.withdrawnAt,
     ...(audience !== 'client' &&
       rates &&
       bookingEarnings({ ...booking, offer: booking.quote?.offers[0] ?? null }, rates)),
@@ -205,5 +219,96 @@ export function toBookingDetail(
     }),
     // A client paying in CESU first adds the batch cooker on their issuer's portal.
     ...(audience === 'client' && { chefCesu: toChefCesuInfo(booking.chefProfile) }),
+    /** The boxes ticked and when the contract was concluded (CGV art. 5.1). */
+    contract: {
+      version: booking.contractVersion,
+      cgvAcceptedAt: booking.cgvAcceptedAt,
+      deboursMandateAcceptedAt: booking.deboursMandateAcceptedAt,
+      earlyExecutionRequestedAt: booking.earlyExecutionRequestedAt,
+      concludedAt: booking.concludedAt,
+    },
+    ...(audience !== 'chef' && {
+      chef: {
+        id: booking.chefProfile.id,
+        displayName: booking.chefProfile.displayName,
+        legalIdentity: publicChefLegalIdentity(booking.chefProfile),
+      },
+      withdrawal: withdrawalView(booking, paidOf(booking), new Date()),
+      /** The contract documents, at `GET /me/bookings/{id}/documents/{kind}`. */
+      documents: bookingDocuments(booking),
+    }),
   };
+}
+
+const paidOf = (booking: ListRow) =>
+  booking.payments
+    .filter((payment) => payment.status === 'succeeded')
+    .reduce((sum, payment) => sum + payment.amountTtc, 0);
+
+/**
+ * The « Se rétracter » button (CGV art. 15.2): offered while `open`, until
+ * `availableUntil`. Once sent: when, and what remains due and to refund.
+ * `null` before the contract is concluded: a pending booking is simply cancelled.
+ */
+export function withdrawalView(
+  booking: WithdrawableBooking & { withdrawalDueCents: number | null },
+  paidCents: number,
+  now: Date,
+) {
+  const rule = withdrawalFor(booking, paidCents, now);
+  if (booking.withdrawnAt) {
+    const due = booking.withdrawalDueCents;
+    return {
+      open: false,
+      refusal: rule.refusal,
+      availableUntil: rule.availableUntil,
+      submittedAt: booking.withdrawnAt,
+      amountDueCents: due,
+      // What is left to give back: an admin refunding brings it down.
+      refundCents: due === null ? null : Math.max(0, paidCents - due),
+    };
+  }
+  if (!booking.concludedAt) return null;
+  return {
+    open: rule.refusal === null,
+    refusal: rule.refusal,
+    availableUntil: rule.availableUntil,
+    submittedAt: null,
+    amountDueCents: rule.dueCents,
+    refundCents: rule.refundCents,
+  };
+}
+
+export type BookingDocumentKind = 'cgv' | 'withdrawal-form' | 'debours-mandate';
+
+/** The documents of a booking's contract, each a PDF the client can download. */
+export function bookingDocuments(booking: {
+  reference: string | null;
+  id: string;
+  contractVersion: string | null;
+  concludedAt: Date | null;
+  deboursMandateAcceptedAt: Date | null;
+}): { kind: BookingDocumentKind; filename: string }[] {
+  const ref = booking.reference ?? booking.id;
+  return [
+    ...(booking.contractVersion
+      ? [
+          {
+            kind: 'cgv' as const,
+            filename: `CGV-LabsFood-v${booking.contractVersion}.pdf`,
+          },
+        ]
+      : []),
+    ...(booking.contractVersion || booking.concludedAt
+      ? [
+          {
+            kind: 'withdrawal-form' as const,
+            filename: `formulaire-retractation-${ref}.pdf`,
+          },
+        ]
+      : []),
+    ...(booking.deboursMandateAcceptedAt
+      ? [{ kind: 'debours-mandate' as const, filename: `mandat-debours-${ref}.pdf` }]
+      : []),
+  ];
 }

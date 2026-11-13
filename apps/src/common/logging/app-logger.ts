@@ -1,4 +1,5 @@
 import { ConsoleLogger, LogLevel } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { hostname } from 'node:os';
 
 import { currentRequest } from './request-context';
@@ -29,6 +30,45 @@ export const stackOf = (error: unknown): string | undefined =>
 const isEvent = (message: unknown): message is Record<string, unknown> =>
   typeof message === 'object' && message !== null && !Array.isArray(message);
 
+/** Some lines still quote a recipient (Brevo): never let one reach Sentry. */
+const redactEmails = (text: string): string =>
+  text.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]');
+
+/**
+ * Sends an error line to Sentry. A no-op until `instrument.ts` has a `SENTRY_DSN`.
+ *
+ * Nest hands the stack over as a string, so an Error is rebuilt around it: Sentry
+ * reads its frames and groups by where it broke, not by a message that holds ids.
+ */
+function reportError(message: unknown, params: unknown[], ownContext?: string): void {
+  const texts = params.filter((p): p is string => typeof p === 'string');
+  const stack = texts.find((text) => text.includes('\n    at '));
+  // `new Logger('X').error(...)` passes its context last.
+  const context = texts.filter((text) => text !== stack).at(-1) ?? ownContext;
+  const request = currentRequest();
+
+  let error: Error;
+  if (message instanceof Error) {
+    error = message;
+  } else {
+    const what = isEvent(message)
+      ? String(message.event ?? message.message)
+      : String(message);
+    error = new Error(
+      redactEmails(stack ? `${what} (${stack.split('\n', 1)[0]})` : what),
+    );
+    error.name = context ?? 'Error';
+    if (stack) error.stack = redactEmails(stack);
+  }
+
+  Sentry.captureException(error, {
+    tags: { requestId: request?.requestId, route: request?.route },
+    user: request?.userId ? { id: request.userId } : undefined,
+    // Event fields are ids, codes and counts by AppLogger's rule: safe to send.
+    extra: isEvent(message) && !(message instanceof Error) ? message : undefined,
+  });
+}
+
 /**
  * Nest's JSON logger plus the request it ran in and the deployment it came from.
  *
@@ -39,6 +79,18 @@ const isEvent = (message: unknown): message is Record<string, unknown> =>
  * codes, counts and durations only.
  */
 export class AppLogger extends ConsoleLogger {
+  /**
+   * Every `logger.error` in the app lands here: the 5xx of `AllExceptionsFilter`,
+   * the failures services catch and only log (commission debits, invoices, cron
+   * jobs…) and Nest's own WebSocket errors. Reporting from this one place means no
+   * call site has to know about Sentry. `warn` and below are never reported, so
+   * business refusals (409, 422, 429) stay out.
+   */
+  override error(message: unknown, ...params: unknown[]): void {
+    super.error(message, ...params);
+    reportError(message, params, this.context);
+  }
+
   protected override getJsonLogObject(message: unknown, options: JsonOptions) {
     const line = super.getJsonLogObject(message, options);
     const request = currentRequest();

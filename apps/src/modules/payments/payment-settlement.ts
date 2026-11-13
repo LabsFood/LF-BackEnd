@@ -71,9 +71,10 @@ export async function settlePayment(
   // is paid late must not silently come back to life.
   const bookingConfirmed = fullyCovered && booking.status === 'pending';
   if (bookingConfirmed) {
+    // The contract is concluded now: the 14-day withdrawal period starts here.
     await db.booking.update({
       where: { id: booking.id },
-      data: { status: 'confirmed' },
+      data: { status: 'confirmed', concludedAt: new Date() },
     });
   }
 

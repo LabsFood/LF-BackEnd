@@ -96,7 +96,14 @@ export class AccountDeletionService {
       actorUserId: by.actorUserId,
       self: by.actorUserId === user.id,
     });
-    await this.audit.record(this.entry(user, by, { outcome }));
+    // A hard-deleted actor cannot be the FK target of `audit_log.actor_user_id`: the
+    // insert would fail (P2003) and the journal line would be lost. Their id stays in
+    // `subjectId`, and `actorType` still says who asked.
+    const gone = outcome === 'deleted' && by.actorUserId === user.id;
+    await this.audit.record({
+      ...this.entry(user, by, { outcome }),
+      ...(gone && { actorUserId: null }),
+    });
     return { id: user.id, outcome };
   }
 

@@ -427,6 +427,14 @@ export class ChefApplicationsAdminService {
           interventionZones: application.interventionZones as Prisma.InputJsonValue,
           sapPath: application.sapPath,
           sapDeclarationNumber: application.sapDeclarationNumber,
+          // CGV art. 3.2 identity, prefilled from what the dossier proves. The
+          // address is the chef's to enter: the candidature's is often their home.
+          ...(application.companySiret && {
+            siren: application.companySiret.slice(0, 9),
+          }),
+          ...(application.companyLegalForm === 'micro' && {
+            legalStatus: 'micro_entreprise',
+          }),
         },
       });
       // The dossier's SAP route is the chef's declaration: without this row the admin

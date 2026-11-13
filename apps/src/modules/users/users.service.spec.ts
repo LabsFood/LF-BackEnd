@@ -50,7 +50,7 @@ describe('UsersService', () => {
     getClient: jest.Mock;
   };
   let config: { get: jest.Mock };
-  let geo: GeoService & { communesByPostcode: jest.Mock };
+  let geo: GeoService & { communesByPostcode: jest.Mock; communesByRegion: jest.Mock };
   let service: UsersService;
 
   beforeEach(() => {
@@ -95,6 +95,9 @@ describe('UsersService', () => {
             '75002': [{ nom: 'Paris', code: '75056', codeDepartement: '75' }],
             '93100': [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }],
           })[code] ?? [],
+      ),
+      communesByRegion: jest.fn(async (code: string) =>
+        code === '84' ? [{ nom: 'Lyon', code: '69123', codeDepartement: '69' }] : [],
       ),
     });
     service = new UsersService(
@@ -272,6 +275,31 @@ describe('UsersService', () => {
           phone: '+33601020304',
         },
       });
+    });
+
+    // The number is typed in the app (PATCH /me/profile) and never pushed to Clerk:
+    // Clerk only seeds an empty one, or every request would undo the save.
+    it.each([
+      ['has no phone', null],
+      ['has another phone', '+33699999999'],
+    ])('keeps the phone typed in the app when Clerk %s', async (_label, clerkPhone) => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: '+33612345678',
+        role: UserRole.client,
+      });
+
+      await service.upsertFromClerk({
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: clerkPhone,
+      });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
     it('does not change role on update when role is omitted', async () => {
@@ -790,6 +818,129 @@ describe('UsersService', () => {
     it('updates the vetting flags of a profile that predates candidatures', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(profile());
       prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', isActive: true });
+      describe('updateOwnChefZones', () => {
+        const LYON = [
+          {
+            regionCode: '84',
+            regionLabel: 'Auvergne-Rhône-Alpes',
+            scope: 'cities' as const,
+            cities: [{ name: 'Lyon', dept: '69', insee: '69123' }],
+          },
+        ];
+        const IDF = [
+          {
+            regionCode: '11',
+            regionLabel: 'Île-de-France',
+            scope: 'region' as const,
+            cities: [],
+          },
+        ];
+
+        beforeEach(() => {
+          prisma.user.findUnique.mockResolvedValue({
+            id: 'user-1',
+            clerkUserId: 'user_1',
+          });
+          prisma.chefProfile.findUnique.mockResolvedValue({
+            id: 'chef-1',
+            isVerified: true,
+            interventionZones: IDF,
+          });
+          prisma.chefProfile.update.mockResolvedValue({
+            id: 'chef-1',
+            interventionZones: LYON,
+          });
+        });
+
+        it('replaces the zones, and journals before and after under the batch cooker', async () => {
+          await service.updateOwnChefZones('user_1', LYON);
+
+          expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+            where: { id: 'chef-1' },
+            data: { interventionZones: LYON },
+            select: { interventionZones: true },
+          });
+          expect(audit.record).toHaveBeenCalledWith(
+            expect.objectContaining({
+              actorType: 'chef',
+              actorUserId: 'user-1',
+              action: 'chef.zones_changed',
+              subjectId: 'chef-1',
+              metadata: { before: IDF, after: LYON },
+            }),
+          );
+        });
+
+        it('keeps the zones alphabetical: regions by label, towns by name', async () => {
+          const city = (name: string) => ({ name, dept: '69', insee: '69123' });
+          const unsorted = [
+            {
+              ...LYON[0],
+              regionLabel: 'Île-de-France',
+              regionCode: '11',
+              scope: 'region' as const,
+              cities: [],
+            },
+            { ...LYON[0], cities: [{ ...city('Lyon') }] },
+          ];
+          await service.updateOwnChefZones('user_1', unsorted);
+
+          const [{ data }] = prisma.chefProfile.update.mock.calls[0] as [
+            { data: { interventionZones: { regionLabel: string }[] } },
+          ];
+          expect(data.interventionZones.map((z) => z.regionLabel)).toEqual([
+            'Auvergne-Rhône-Alpes',
+            'Île-de-France',
+          ]);
+        });
+
+        it.each([
+          ['a region outside metropolitan France', [{ ...LYON[0], regionCode: '01' }]],
+          ['a cities zone with no city', [{ ...LYON[0], cities: [] }]],
+          ['no zone at all', []],
+        ])('refuses %s, writing nothing', async (_label, zones) => {
+          await expect(service.updateOwnChefZones('user_1', zones)).rejects.toMatchObject(
+            {
+              status: 422,
+              response: { code: 'VALIDATION_FAILED' },
+            },
+          );
+          expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+        });
+
+        it('refuses a town that is not the commune of its INSEE code', async () => {
+          const marseille = [
+            { ...LYON[0], cities: [{ name: 'Marseille', dept: '13', insee: '13055' }] },
+          ];
+          await expect(
+            service.updateOwnChefZones('user_1', marseille),
+          ).rejects.toMatchObject({
+            status: 422,
+            response: { code: 'ZONE_CITY_UNKNOWN' },
+          });
+          expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+        });
+
+        it('refuses a candidate awaiting approval: their zones are the candidature’s', async () => {
+          prisma.chefProfile.findUnique.mockResolvedValue({
+            id: 'chef-1',
+            isVerified: false,
+            interventionZones: IDF,
+          });
+          await expect(service.updateOwnChefZones('user_1', LYON)).rejects.toMatchObject({
+            status: 403,
+            response: { code: 'CHEF_NOT_VERIFIED' },
+          });
+          expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+        });
+
+        it('answers 404 for an account that is not a batch cooker', async () => {
+          prisma.chefProfile.findUnique.mockResolvedValue(null);
+          await expect(service.updateOwnChefZones('user_1', LYON)).rejects.toBeInstanceOf(
+            NotFoundException,
+          );
+        });
+      });
 
       await service.setChefVerification('chef-1', { isVerified: true, isActive: true });
 

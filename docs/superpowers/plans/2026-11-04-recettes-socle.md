@@ -44,7 +44,7 @@
 
 ### Task 2 : schéma et migration
 
-**Files :** Modify `prisma/schema.prisma` (`CatalogIngredient`, `Meal`, relations sur `ChefProfile` et `User`) ; Create `prisma/migrations/20261105100000_recipes_socle/migration.sql`.
+**Files :** Modify `prisma/schema.prisma` (`CatalogIngredient`, `Meal`, relations sur `ChefProfile` et `User`) ; Create `prisma/migrations/20261113100000_recipes_socle/migration.sql` (renommée le 13/11 pour passer après la migration de départ de BLK-33).
 
 **Produces :** `CatalogIngredient.{normalizedName: String?, aisle: String?, allergens: String[], allergensNone: Boolean, isBasic: Boolean, chefProfileId: String?, status: String, mergedIntoId: String?, createdByUserId: String?, reviewedAt: DateTime?, reviewedByUserId: String?}` ; `Meal.{addedAllergens: String[], conditionalAllergens: String[], lockVersion: Int}`.
 

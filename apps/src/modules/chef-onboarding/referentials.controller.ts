@@ -1,8 +1,12 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Header, NotFoundException, Param } from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 
 import { TAGS } from '../../common/swagger/tags';
-import { METROPOLITAN_REGIONS } from './domain/chef-onboarding.rules';
+import { GeoService } from '../../integrations/geo.service';
+import {
+  isMetropolitanRegion,
+  METROPOLITAN_REGIONS,
+} from './domain/chef-onboarding.rules';
 import {
   ALLERGENS,
   COMPUTED_DIETS,
@@ -22,9 +26,23 @@ import { LANGUAGES } from '../users/dto/chef-profile.dto';
  */
 export { METROPOLITAN_REGIONS };
 
+/** A dropdown reads alphabetically; French collation puts « Île » under I. */
+const byLabel = <T extends { label: string }>(rows: readonly T[]): T[] =>
+  [...rows].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 @ApiTags(TAGS.referentials)
 @Controller('referentials')
 export class ReferentialsController {
+  /** One entry per metropolitan region (13 at most): a commune list changes yearly. */
+  private readonly communesCache = new Map<
+    string,
+    { at: number; rows: Promise<{ name: string; insee: string; department: string }[]> }
+  >();
+
+  constructor(private readonly geo: GeoService) {}
+
   @Get('regions')
   @ApiOperation({
     summary: 'List the regions a batch cooker can cover',
@@ -46,7 +64,48 @@ export class ReferentialsController {
     },
   })
   regions() {
-    return { regions: METROPOLITAN_REGIONS };
+    return { regions: byLabel(METROPOLITAN_REGIONS) };
+  }
+
+  @Get('regions/:code/communes')
+  @Header('Cache-Control', 'public, max-age=86400')
+  @ApiOperation({
+    summary: 'List every commune of a region',
+    description:
+      'All the communes of a metropolitan region (code from `GET /referentials/regions`), ' +
+      'alphabetical, from the official commune base. `name` and `insee` are what ' +
+      '`interventionZones[].cities` takes. Kept 24 h in memory, so a region is fetched ' +
+      'upstream once a day. 404 `REGION_NOT_FOUND` for any other code, 502/504 ' +
+      '`GEO_UNAVAILABLE` when the official base fails. Public.',
+  })
+  @ApiParam({ name: 'code', example: '11' })
+  @ApiOkResponse({
+    description: 'Every commune, as name, INSEE code and department.',
+    schema: {
+      example: { communes: [{ name: 'Arpajon', insee: '91021', department: '91' }] },
+    },
+  })
+  async communes(@Param('code') code: string) {
+    if (!isMetropolitanRegion(code)) {
+      throw new NotFoundException({
+        code: 'REGION_NOT_FOUND',
+        message: `"${code}" is not a metropolitan region code; see GET /referentials/regions.`,
+      });
+    }
+    const hit = this.communesCache.get(code);
+    if (hit && Date.now() - hit.at < DAY_MS) return { communes: await hit.rows };
+
+    const rows = this.geo
+      .communesByRegion(code)
+      .then((communes) =>
+        communes
+          .map((c) => ({ name: c.nom, insee: c.code, department: c.codeDepartement }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+      );
+    this.communesCache.set(code, { at: Date.now(), rows });
+    // A failure must not be remembered for a day: drop it so the next visitor retries.
+    rows.catch(() => this.communesCache.delete(code));
+    return { communes: await rows };
   }
 
   @Get('allergens')
@@ -91,7 +150,7 @@ export class ReferentialsController {
     },
   })
   diets() {
-    return { diets: DIETS };
+    return { diets: byLabel(DIETS) };
   }
 
   @Get('dish-categories')
@@ -153,7 +212,7 @@ export class ReferentialsController {
     schema: { example: { diets: [{ code: 'vegan', label: 'Végétalien' }] } },
   })
   computedDiets() {
-    return { diets: COMPUTED_DIETS };
+    return { diets: byLabel(COMPUTED_DIETS) };
   }
 
   @Get('step-types')
@@ -198,6 +257,6 @@ export class ReferentialsController {
     },
   })
   languages() {
-    return { languages: LANGUAGES };
+    return { languages: byLabel(LANGUAGES) };
   }
 }

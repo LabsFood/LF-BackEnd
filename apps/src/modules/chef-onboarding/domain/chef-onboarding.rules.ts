@@ -327,13 +327,20 @@ export function lockingDocuments(
  * deliberately out of scope — it changes the refusal rate, not the flow.
  */
 export function isValidSiret(siret: string): boolean {
-  if (!/^\d{14}$/.test(siret)) return false;
+  return /^\d{14}$/.test(siret) && passesLuhn(siret);
+}
 
+/** SIREN: the SIRET without its establishment number, 9 digits passing Luhn. */
+export function isValidSiren(siren: string): boolean {
+  return /^\d{9}$/.test(siren) && passesLuhn(siren);
+}
+
+function passesLuhn(digits: string): boolean {
   let sum = 0;
-  for (let i = 0; i < 14; i += 1) {
+  for (let i = 0; i < digits.length; i += 1) {
     // Rightmost digit is never doubled; every second digit leftward is.
-    const doubled = (14 - i) % 2 === 0;
-    let digit = Number(siret[i]) * (doubled ? 2 : 1);
+    const doubled = (digits.length - i) % 2 === 0;
+    let digit = Number(digits[i]) * (doubled ? 2 : 1);
     if (digit > 9) digit -= 9;
     sum += digit;
   }
@@ -390,6 +397,7 @@ export function isMetropolitanRegion(code: string): boolean {
 export function interventionZonesProblem(
   zones: readonly { regionCode: string; scope: string; cities: readonly unknown[] }[],
 ): string | undefined {
+  if (zones.length === 0) return 'interventionZones: at least one zone is required.';
   for (const zone of zones) {
     if (!isMetropolitanRegion(zone.regionCode)) {
       return `interventionZones: "${zone.regionCode}" is not a metropolitan region code.`;

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -26,6 +27,13 @@ import { CreateQuoteOfferDto } from './dto/quote.dto';
 import { LoadedQuote, QuoteView } from './quote.views';
 import { QuotesMailer } from './quotes.mailer';
 import { ChefIdentity, QuotesService } from './quotes.service';
+import { contractConsentRequired } from '../bookings/domain/contract.errors';
+import {
+  acceptedConsents,
+  consentsAuditMetadata,
+  contractGaps,
+  type ConsentsInput,
+} from '../bookings/domain/contract.rules';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VALIDITY_DAYS = 7;
@@ -144,6 +152,7 @@ export class QuoteOffersService {
     clerkUserId: string,
     quoteId: string,
     offerId?: string,
+    consentsInput?: ConsentsInput,
   ): Promise<QuoteView> {
     const user = await this.quotes.me(clerkUserId);
     const quote = await this.quotes.loadForClient(user.id, quoteId);
@@ -167,6 +176,16 @@ export class QuoteOffersService {
       });
     }
     const window = slotWindow(day, slot);
+    // CGV art. 5.1: accepting concludes the contract now, so the boxes come with it.
+    // A custom prestation has no shopping by the batch cooker: no débours mandate.
+    const consents = acceptedConsents(consentsInput, now);
+    const missing = contractGaps(consents, {
+      chefShops: false,
+      startsAt: window.startsAt,
+      latestConclusion: now,
+      bookedAt: now,
+    });
+    if (missing.length) throw contractConsentRequired(missing, 'booking');
     const address = [
       quote.addressLine,
       [quote.addressPostalCode, quote.addressCity].filter(Boolean).join(' '),
@@ -219,6 +238,8 @@ export class QuoteOffersService {
             startsAt: window.startsAt,
             endsAt: window.endsAt,
             status: 'confirmed',
+            concludedAt: now,
+            ...consents,
             priceCents: offer.clientPriceCents,
             amountTtc: offer.clientPriceCents,
             amountAfterTax: offer.afterTaxCreditCents,
@@ -251,11 +272,23 @@ export class QuoteOffersService {
       subjectId: quote.id,
       metadata: { offerId: offer.id, bookingId },
     });
+    if (consents.contractVersion) {
+      await this.audit.record({
+        actorType: 'client',
+        actorUserId: user.id,
+        action: 'booking.consents',
+        subjectType: 'booking',
+        subjectId: bookingId,
+        metadata: consentsAuditMetadata(consents),
+      });
+    }
     void this.afterAcceptance(quote, offer, {
       bookingId,
       day,
       slot,
       address,
+      // The contract email (bookings-contract-mail) is then the client's confirmation.
+      contract: consents.contractVersion !== null,
     });
     return this.quotes.view(await this.quotes.load(quoteId), 'client');
   }
@@ -290,6 +323,11 @@ export class QuoteOffersService {
    * each update only touches rows still in the state it expects.
    */
   @Cron(CronExpression.EVERY_10_MINUTES, { name: 'quote-offers-expiry' })
+  @SentryCron('quote-offers-expiry', {
+    checkinMargin: 5,
+    maxRuntime: 5,
+    failureIssueThreshold: 3,
+  })
   async expireDue(): Promise<number> {
     try {
       const due = await this.prisma.quoteOffer.findMany({
@@ -435,7 +473,13 @@ export class QuoteOffersService {
   private async afterAcceptance(
     quote: LoadedQuote,
     offer: LoadedQuote['offers'][number],
-    ctx: { bookingId: string; day: Date; slot: TimeSlot; address: string },
+    ctx: {
+      bookingId: string;
+      day: Date;
+      slot: TimeSlot;
+      address: string;
+      contract: boolean;
+    },
   ): Promise<void> {
     try {
       await this.messaging.ensurePair(quote.clientId, offer.chefProfileId);
@@ -473,6 +517,7 @@ export class QuoteOffersService {
         afterTaxCreditCents: offer.afterTaxCreditCents,
         netCents: offer.netCents,
         conditions: offer.conditions,
+        clientCopy: !ctx.contract,
       });
     } catch (error) {
       this.logger.error(

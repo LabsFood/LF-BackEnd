@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -265,3 +265,12 @@ export class CreateChefApplicationDto {
   @Type(() => ApplicationConsentDto)
   consent!: ApplicationConsentDto;
 }
+
+/**
+ * Body of `POST /admin/chef-applications`: the same form, filled in by an admin for
+ * the batch cooker. No `consent` block: an admin cannot accept the terms for someone
+ * else, so the stored proof says nothing was accepted.
+ */
+export class CreateChefApplicationByAdminDto extends OmitType(CreateChefApplicationDto, [
+  'consent',
+] as const) {}

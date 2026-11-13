@@ -1,6 +1,6 @@
 {
   "name": "lf-api-nestjs",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Labs Food NestJS + Fastify booking service (primary API).",
   "scripts": {
@@ -40,7 +40,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1139.0",
     "@clerk/backend": "^3.4.14",
     "@fastify/helmet": "^12.0.1",
-    "@fastify/static": "^10.1.7",
+    "@fastify/static": "^10.1.10",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
@@ -53,6 +53,7 @@
     "@nestjs/websockets": "^11.2.7",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
+    "@sentry/nestjs": "^11.11.0",
     "@supabase/supabase-js": "^2.106.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -126,6 +127,12 @@
     "fastify": "^5.12.7",
     "@nestjs/swagger": {
       "js-yaml": "^5.4.1"
+    },
+    "@nestjs/cli": {
+      "glob": "^14.0.2"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
     }
   }
 }

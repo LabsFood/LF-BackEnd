@@ -16,7 +16,7 @@ import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
 import { advanceAccepted, cesuAccepted } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
-import { assertPayable, paymentPhase } from './payment-rules';
+import { assertPayable, CONTRACT_SELECT, paymentPhase } from './payment-rules';
 import {
   assertNoPendingCesu,
   bookingCoverage,
@@ -584,6 +584,7 @@ export class BookingPaymentsService {
         chefProfile: {
           include: { sapProfile: true, sepaMandate: { select: { status: true } } },
         },
+        serviceOffer: CONTRACT_SELECT.serviceOffer,
       },
     });
     if (!booking) throw new NotFoundException('Booking not found.');

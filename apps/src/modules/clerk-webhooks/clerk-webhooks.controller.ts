@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 
 import {
@@ -30,6 +31,8 @@ function buildWebhookHeaders(req: FastifyRequest): Headers {
 
 @ApiTags('webhooks')
 @ApiExcludeController()
+// Clerk (Svix) delivers in bursts from a few IPs; the signature is the gate here.
+@SkipThrottle({ global: true })
 @Controller('webhooks')
 export class ClerkWebhooksController {
   constructor(private readonly clerkWebhooks: ClerkWebhooksService) {}

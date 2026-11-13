@@ -31,11 +31,14 @@ import {
 /** What the reprise reads and writes. A plain Prisma client fits. */
 export type RepriseDb = Pick<
   PrismaService,
-  'catalogIngredient' | 'meal' | 'notification' | '$transaction'
+  'catalogIngredient' | 'chefIngredient' | 'meal' | 'notification' | '$transaction'
 >;
 
 /** What one meal is read and written through: the client, or its transaction. */
-type Tx = Pick<PrismaService, 'catalogIngredient' | 'meal' | 'notification'>;
+type Tx = Pick<
+  PrismaService,
+  'catalogIngredient' | 'chefIngredient' | 'meal' | 'notification'
+>;
 
 export type RepriseMailer = Pick<
   DishesMailer,

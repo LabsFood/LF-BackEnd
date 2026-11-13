@@ -67,6 +67,26 @@ model ChefProfile {
   /// Service-a-la-personne declaration route, carried over from the candidature.
   sapPath                SapPath?                    @map("sap_path")
   sapDeclarationNumber   String?                     @map("sap_declaration_number") @db.VarChar(16)
+  /// CGV art. 3.2: the identity shown to a client before any booking. Entered by the
+  /// chef (`PATCH /me/chef-profile/legal`); `siren` and `legalStatus` are prefilled
+  /// at approval. Shown as far as filled: a gap never blocks a booking (2026-11-11).
+  /// Company name, or « Prénom Nom EI ».
+  legalName              String?                     @map("legal_name") @db.VarChar(160)
+  /// One of `CHEF_LEGAL_STATUSES` (users/chef-legal.views.ts).
+  legalStatus            String?                     @map("legal_status") @db.VarChar(32)
+  siren                  String?                     @db.VarChar(9)
+  /// The professional address, published as is: never copied from the candidature,
+  /// which is often the chef's home.
+  businessAddress        String?                     @map("business_address") @db.VarChar(255)
+  /// `franchise` (« TVA non applicable, article 293 B du CGI ») or `subject`.
+  vatRegime              String?                     @map("vat_regime") @db.VarChar(16)
+  vatNumber              String?                     @map("vat_number") @db.VarChar(16)
+  insurerName            String?                     @map("insurer_name") @db.VarChar(120)
+  /// What the professional insurance covers, as the chef words it.
+  insuranceCoverage      String?                     @map("insurance_coverage") @db.VarChar(255)
+  /// The chef's own consumer mediator (CGV art. 23.2), not Lab's Food's.
+  mediatorName           String?                     @map("mediator_name") @db.VarChar(160)
+  mediatorUrl            String?                     @map("mediator_url") @db.VarChar(255)
   /// Set by the daily dossier job when a blocking document expires, cleared when a
   /// valid one is deposited. Distinguishes an automatic suspension from an admin
   /// deactivation: only an automatic one may be undone automatically.
@@ -103,6 +123,7 @@ model ChefProfile {
   workingHours           ChefWorkingHour[]
   availabilityExceptions ChefAvailabilityException[]
   timeBlocks             ChefTimeBlock[]
+  ingredients            ChefIngredient[]
   calendarFeed           ChefCalendarFeed?
 
   @@map("chef_profiles")
@@ -181,6 +202,23 @@ model Booking {
   arrivedAt             DateTime?           @map("arrived_at") @db.Timestamptz(6)
   /// When the "24 h left to pay" reminder went out, so it goes out once.
   holdReminderSentAt    DateTime?           @map("hold_reminder_sent_at") @db.Timestamptz(6)
+  /// When the contract was concluded: the move to `confirmed` (full payment, or an
+  /// accepted quote offer). The 14-day withdrawal period runs from here (CGV art. 15).
+  concludedAt           DateTime?           @map("concluded_at") @db.Timestamptz(6)
+  /// The CGV version the client accepted (`CONTRACT_TERMS.version`), and when.
+  contractVersion       String?             @map("contract_version") @db.VarChar(16)
+  cgvAcceptedAt         DateTime?           @map("cgv_accepted_at") @db.Timestamptz(6)
+  /// The débours mandate box (CGV art. 10.12), ticked apart from the CGV.
+  deboursMandateAcceptedAt DateTime?        @map("debours_mandate_accepted_at") @db.Timestamptz(6)
+  /// The express request to start before the withdrawal period ends (art. 15.3).
+  earlyExecutionRequestedAt DateTime?       @map("early_execution_requested_at") @db.Timestamptz(6)
+  /// When the contract email (CGV and withdrawal form attached) went out.
+  contractMailSentAt    DateTime?           @map("contract_mail_sent_at") @db.Timestamptz(6)
+  /// An online withdrawal: when it was sent, what remains due (null: an admin sets
+  /// it), and when its acknowledgement email went out.
+  withdrawnAt           DateTime?           @map("withdrawn_at") @db.Timestamptz(6)
+  withdrawalDueCents    Int?                @map("withdrawal_due_cents")
+  withdrawalAckSentAt   DateTime?           @map("withdrawal_ack_sent_at") @db.Timestamptz(6)
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals          BookingMeal[]
@@ -395,6 +433,11 @@ model BookingMeal {
   portions      Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
   recipeVersion Int?               @map("recipe_version")
+  /// What the batch cooker says of THIS dish as cooked in THIS prestation: how to
+  /// reheat it, how to keep it. Written from `cooking` on, shown to the client once
+  /// the prestation is done. Beside the recipe's own advice, never replacing it.
+  reheatingNote String?            @map("reheating_note") @db.VarChar(500)
+  storageNote   String?            @map("storage_note") @db.VarChar(500)
   booking       Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
   meal          Meal               @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
   /// The kept version this prestation cooks from; it can never be lost while pinned.
@@ -972,12 +1015,34 @@ model CatalogIngredient {
   mergedFrom       CatalogIngredient[] @relation("CatalogIngredientMerge")
   createdBy        User?               @relation("CatalogIngredientCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_catalog_ingredients_created_by_user_id")
   reviewedBy       User?               @relation("CatalogIngredientReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_catalog_ingredients_reviewed_by_user_id")
+  chefVersions     ChefIngredient[]
 
   // The partial unique indexes (common name, private pending name) and the CHECKs
   // live in the migration: Prisma cannot express them.
   @@index([chefProfileId], map: "ix_catalog_ingredients_chef_profile_id")
   @@index([status], map: "ix_catalog_ingredients_status")
   @@map("catalog_ingredients")
+}
+
+/// BLK-33: a batch cooker's own version of an entry of the common list, adopted
+/// and edited. Their dishes are classified from it; everyone else's from the
+/// common entry. Removing it falls back on the common entry.
+model ChefIngredient {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId       String            @map("chef_profile_id") @db.Uuid
+  catalogIngredientId String            @map("catalog_ingredient_id") @db.Uuid
+  name                String            @db.VarChar(120)
+  aliases             String[]          @default([])
+  diets               String[]          @default([])
+  seasonMonths        Int[]             @default([]) @map("season_months")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile         ChefProfile       @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_ingredients_chef_profile_id")
+  catalogIngredient   CatalogIngredient @relation(fields: [catalogIngredientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_chef_ingredients_catalog_ingredient_id")
+
+  @@unique([chefProfileId, catalogIngredientId], map: "uq_chef_ingredients_chef_catalog")
+  @@index([catalogIngredientId], map: "ix_chef_ingredients_catalog_ingredient_id")
+  @@map("chef_ingredients")
 }
 
 model MealRecipeVersion {

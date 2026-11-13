@@ -1,0 +1,66 @@
+name: Restore protected branches
+
+# Stand-in for branch protection, which the Free plan on a private repo does not
+# offer. If main or develop is deleted, put it back at the commit it pointed to
+# (read from the repository activity log). It does not stop a deletion, it makes
+# one cheap to undo.
+#
+# - `delete` fires within seconds of a branch deletion. Like every workflow
+#   triggered by this event it runs from the default branch (develop). Git refuses
+#   to delete the default branch, so develop itself cannot take the workflow down.
+# - The daily schedule is the backstop for a missed event.
+# - Restoring with GITHUB_TOKEN does not start other workflows: no image build and
+#   no release run on the restored commit.
+
+on:
+  delete:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the ref, read the activity log
+
+concurrency:
+  group: restore-branches
+  cancel-in-progress: false
+
+env:
+  PROTECTED: main develop
+
+jobs:
+  restore:
+    # A `delete` run for any other branch or a tag has nothing to do.
+    if: >-
+      github.event_name != 'delete' ||
+      (github.event.ref_type == 'branch' && contains(fromJSON('["main","develop"]'), github.event.ref))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Recreate missing branches
+        run: |
+          failed=0
+          for branch in $PROTECTED; do
+            if out=$(gh api "repos/$REPO/git/ref/heads/$branch" 2>&1); then
+              echo "$branch: present"
+              continue
+            fi
+            case "$out" in
+              *"HTTP 404"*) ;;
+              *) echo "::error::$branch: cannot tell whether it exists: $out"; failed=1; continue ;;
+            esac
+
+            sha=$(gh api "repos/$REPO/activity?ref=refs/heads/$branch&activity_type=branch_deletion&per_page=1" --jq '.[0].before // empty')
+            if [ -z "$sha" ]; then
+              echo "::error::$branch is missing and no deletion is on record: restore it by hand"
+              failed=1
+              continue
+            fi
+
+            gh api -X POST "repos/$REPO/git/refs" -f "ref=refs/heads/$branch" -f "sha=$sha" --silent
+            echo "::warning::$branch was deleted and has been restored at $sha"
+          done
+          exit $failed

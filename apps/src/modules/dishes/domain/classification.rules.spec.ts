@@ -1,4 +1,4 @@
-import { classify, unlinkedLines } from './classification.rules';
+import { classify, unlinkedLines, withChefVersions } from './classification.rules';
 
 const tomate = {
   id: 't',
@@ -54,5 +54,28 @@ describe('classify (Recettes §4.8)', () => {
     const hiver = { id: 'h', diets: [], seasonMonths: [12, 1] };
     const cat = new Map([tomate, hiver].map((i) => [i.id, i]));
     expect(classify([line('t'), line('h')], cat)?.seasonMonths).toEqual([]);
+  });
+});
+
+// BLK-33 (2026-11-10): a batch cooker may adopt an entry of the common list and
+// edit it; their own dishes are then classified from their version.
+describe('withChefVersions', () => {
+  it('reads the chef’s version of an entry they adopted, the common one otherwise', () => {
+    const own = [{ catalogIngredientId: 't', diets: ['vegan'], seasonMonths: [7] }];
+
+    const merged = withChefVersions([tomate, riz], own);
+
+    expect(merged.get('t')).toEqual({ id: 't', diets: ['vegan'], seasonMonths: [7] });
+    expect(merged.get('r')).toEqual(riz);
+    expect(classify([line('t'), line('r')], merged)).toEqual({
+      diets: ['vegan'],
+      seasonMonths: [7],
+    });
+  });
+
+  it('ignores a version of an entry the common list no longer holds', () => {
+    const own = [{ catalogIngredientId: 'gone', diets: [], seasonMonths: [] }];
+
+    expect(withChefVersions([riz], own).has('gone')).toBe(false);
   });
 });

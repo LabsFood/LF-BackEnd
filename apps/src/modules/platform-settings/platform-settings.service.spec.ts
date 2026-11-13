@@ -148,7 +148,7 @@ describe('PlatformSettingsService', () => {
     it('names the four tiers neutrally until an admin renames them', async () => {
       const { service } = harness();
 
-      expect(await service.chefTiers()).toEqual({
+      expect(await service.chefTiers()).toMatchObject({
         labels: {
           tier_1: 'Palier 1',
           tier_2: 'Palier 2',
@@ -157,6 +157,26 @@ describe('PlatformSettingsService', () => {
         },
         updatedAt: null,
       });
+    });
+
+    // BLK-26 (2026-11-10): tier 1 has every privilege at the platform commission;
+    // tiers 2 to 4 are not decided and restrict nothing yet.
+    it('says what each tier may do and the commission it pays', async () => {
+      const { rules } = await harness().service.chefTiers();
+
+      expect(rules.tier_1).toEqual({
+        decided: true,
+        commissionBps: 1500,
+        capabilities: expect.arrayContaining([
+          expect.objectContaining({ code: 'publish_dishes' }),
+          expect.objectContaining({ code: 'receive_bookings' }),
+        ]),
+      });
+      for (const tier of ['tier_2', 'tier_3', 'tier_4'] as const) {
+        expect(rules[tier].decided).toBe(false);
+        expect(rules[tier].capabilities).toEqual(rules.tier_1.capabilities);
+        expect(rules[tier].commissionBps).toBe(1500);
+      }
     });
 
     it('reads the saved labels, and falls back on the default for a missing or blank one', async () => {

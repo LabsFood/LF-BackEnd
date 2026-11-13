@@ -10,6 +10,8 @@ import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { AdminBookingsController } from './admin-bookings.controller';
 import { BookingPhotosService } from './booking-photos.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
+import { BookingDocumentsService } from './booking-documents.service';
+import { BookingWithdrawalsService } from './booking-withdrawals.service';
 import { BookingsService } from './bookings.service';
 import { ChefBookingsController } from './chef-bookings.controller';
 import { MeBookingsController } from './me-bookings.controller';
@@ -53,6 +55,8 @@ describe('Bookings by audience (routes)', () => {
         { provide: BookingPhotosService, useValue: {} },
         { provide: CalendarFeedService, useValue: feeds },
         { provide: BookingReschedulesService, useValue: reschedules },
+        { provide: BookingWithdrawalsService, useValue: {} },
+        { provide: BookingDocumentsService, useValue: {} },
         { provide: ShoppingListsService, useValue: {} },
         { provide: PrismaService, useValue: { user: { findUnique: findUser } } },
       ],

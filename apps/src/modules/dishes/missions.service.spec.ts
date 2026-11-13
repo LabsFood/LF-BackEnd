@@ -15,7 +15,7 @@ const booking = (overrides: Record<string, unknown> = {}) => ({
   id: 'b1',
   chefProfileId: 'chef-1',
   clientId: 'client-1',
-  status: BookingStatus.confirmed,
+  status: BookingStatus.confirmed as BookingStatus,
   startsAt: FUTURE,
   persons: 3,
   shoppingByClient: false,
@@ -59,6 +59,13 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
     booking: {
       findUnique: jest.fn(async () => row),
       findMany: jest.fn(async (): Promise<unknown[]> => []),
+    },
+    bookingMeal: {
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        reheatingNote: null,
+        storageNote: null,
+        ...data,
+      })),
     },
     chefProfile: {
       // By the caller's user id (who is this?) or by the booking's chef id (who to tell).
@@ -183,6 +190,132 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
     await expect(
       missions('chef').service.recipeSheet('clerk', 'b1', 'other-dish'),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('reheating and storage notes belong to the prestation, not to the recipe', () => {
+    const cooking = () =>
+      booking({
+        status: BookingStatus.cooking,
+        bookingMeals: [
+          { mealId: 'dish-1', recipeVersion: 2, reheatingNote: null, storageNote: null },
+        ],
+      });
+
+    it('saves what the chef wrote for this dish of this prestation, trimmed', async () => {
+      const { service, prisma } = missions('chef', cooking());
+
+      const saved = await service.setDishNotes('clerk', 'b1', 'dish-1', {
+        reheatingNote: '  Four 160 °C, 15 min, film retiré ',
+        storageNote: 'Réfrigérateur, 3 jours',
+      });
+
+      expect(prisma.bookingMeal.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { bookingId_mealId: { bookingId: 'b1', mealId: 'dish-1' } },
+          data: {
+            reheatingNote: 'Four 160 °C, 15 min, film retiré',
+            storageNote: 'Réfrigérateur, 3 jours',
+          },
+        }),
+      );
+      expect(saved).toEqual({
+        reheatingNote: 'Four 160 °C, 15 min, film retiré',
+        storageNote: 'Réfrigérateur, 3 jours',
+      });
+    });
+
+    it('clears a note sent blank or null, and leaves the one not sent alone', async () => {
+      const { service, prisma } = missions('chef', cooking());
+
+      await service.setDishNotes('clerk', 'b1', 'dish-1', { reheatingNote: '   ' });
+      expect(prisma.bookingMeal.update.mock.calls[0][0].data).toEqual({
+        reheatingNote: null,
+      });
+
+      await service.setDishNotes('clerk', 'b1', 'dish-1', { storageNote: null });
+      expect(prisma.bookingMeal.update.mock.calls[1][0].data).toEqual({
+        storageNote: null,
+      });
+    });
+
+    it('is open once the chef is cooking, and still after', async () => {
+      for (const status of [
+        BookingStatus.cooking,
+        BookingStatus.delivered,
+        BookingStatus.completed,
+      ]) {
+        const { service } = missions('chef', { ...cooking(), status });
+        await expect(
+          service.setDishNotes('clerk', 'b1', 'dish-1', { storageNote: 'Frigo' }),
+        ).resolves.toBeDefined();
+      }
+    });
+
+    it('is refused before the prestation: nothing was cooked yet', async () => {
+      for (const status of [
+        BookingStatus.pending,
+        BookingStatus.confirmed,
+        BookingStatus.shopping,
+        BookingStatus.cancelled,
+      ]) {
+        const { service, prisma } = missions('chef', { ...cooking(), status });
+        const error = await service
+          .setDishNotes('clerk', 'b1', 'dish-1', { storageNote: 'Frigo' })
+          .catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(ConflictException);
+        expect(codeOf(error).code).toBe('PRESTATION_NOT_STARTED');
+        expect(prisma.bookingMeal.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('lets only the chef of the prestation write them', async () => {
+      for (const who of ['admin', 'client'] as const) {
+        const error = await missions(who, cooking())
+          .service.setDishNotes('clerk', 'b1', 'dish-1', { storageNote: 'Frigo' })
+          .catch((e: unknown) => e);
+        expect(codeOf(error).code).toBe('CONTENT_NOT_OWNED');
+      }
+    });
+
+    it('answers 404 for a dish that is not part of the prestation', async () => {
+      await expect(
+        missions('chef', cooking()).service.setDishNotes('clerk', 'b1', 'other-dish', {
+          storageNote: 'Frigo',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('shows them on the fiche beside the recipe advice, which they do not replace', async () => {
+      const row = booking({
+        status: BookingStatus.completed,
+        bookingMeals: [
+          {
+            mealId: 'dish-1',
+            recipeVersion: 2,
+            reheatingNote: 'Four 160 °C',
+            storageNote: 'Frigo, 3 jours',
+          },
+        ],
+      });
+
+      const sheet = await missions('client', row).service.recipeSheet(
+        'clerk',
+        'b1',
+        'dish-1',
+      );
+
+      expect(sheet.notes).toEqual({
+        reheating: 'Four 160 °C',
+        storage: 'Frigo, 3 jours',
+      });
+      expect(sheet.recipe).toHaveProperty('reheating');
+      expect(sheet.recipe).toHaveProperty('storage');
+    });
+
+    it('shows no notes for a prestation where the chef wrote none', async () => {
+      const sheet = await missions('chef').service.recipeSheet('clerk', 'b1', 'dish-1');
+      expect(sheet.notes).toEqual({ reheating: null, storage: null });
+    });
   });
 
   describe('re-pinning', () => {
@@ -327,6 +460,28 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
 
       expect(lists.view).toHaveBeenCalledWith('b1', { forClient: false });
     });
+  });
+
+  it('lists the tasted countries alphabetically, not in the order they were tasted', async () => {
+    const { service, prisma } = missions('client');
+    prisma.booking.findMany.mockResolvedValue([
+      {
+        startsAt: new Date('2026-05-24T09:00:00Z'),
+        bookingMeals: [
+          { meal: { name: 'Pho', country: 'VN' } },
+          { meal: { name: 'Choucroute', country: 'DE' } },
+          { meal: { name: 'Mafé', country: 'SN' } },
+        ],
+      },
+    ]);
+
+    const { explored } = await service.culinaryMap('clerk');
+
+    expect(explored.map((place) => place.name)).toEqual([
+      'Allemagne',
+      'Sénégal',
+      'Viêt Nam',
+    ]);
   });
 
   it('colours a country only for delivered prestations, keyed both ways', async () => {
