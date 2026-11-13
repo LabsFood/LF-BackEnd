@@ -74,8 +74,12 @@ const CONSERVATION_EXAMPLE = {
     {
       mealId: CONSERVATION_DISH_EXAMPLE.mealId,
       value: '2026-11-24',
-      changedByUserId: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
       changedAt: '2026-11-20T11:30:00.000Z',
+      changedBy: {
+        id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+        name: 'Chez Marie',
+        role: 'chef',
+      },
     },
   ],
 };
@@ -302,8 +306,9 @@ export class MissionsController {
       'storage and reheating advice of the recipe version pinned for this prestation, ' +
       'the chef’s notes, and `eatBefore` (`date`, `proposed`, `setByChef`, ' +
       '`fridgeDays`, `fridgeAlert`). Never quantities nor steps. Shortest date first. ' +
-      'For the batch cooker and admins at any time, with `history` (each date the ' +
-      'chef set: who, when, which value); for the client once the dishes are ' +
+      'For the batch cooker and admins at any time, with `history` (each date set: ' +
+      'when, which value, and `changedBy`: name, id and role for an admin, the role ' +
+      'only for the batch cooker); for the client once the dishes are ' +
       '`delivered` (`409 CONSERVATION_NOT_READY` before), without `history`.',
   })
   @ApiMissionIdParam()

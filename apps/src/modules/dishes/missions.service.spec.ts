@@ -95,6 +95,7 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
       create: jest.fn((args: unknown) => args),
       findMany: jest.fn(async (): Promise<unknown[]> => []),
     },
+    user: { findMany: jest.fn(async (): Promise<unknown[]> => []) },
     $transaction: jest.fn(async (writes: unknown[]) => writes),
     chefProfile: {
       // By the caller's user id (who is this?) or by the booking's chef id (who to tell).
@@ -425,6 +426,40 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
         fridgeDays: 6,
         fridgeAlert: true,
       });
+    });
+
+    it('names who set a date for an admin, and only the role for the chef', async () => {
+      const change = {
+        mealId: 'dish-1',
+        value: new Date('2026-11-24T00:00:00.000Z'),
+        changedByUserId: 'chef-user',
+        changedAt: new Date('2026-11-20T11:30:00.000Z'),
+      };
+      const chefAccount = {
+        id: 'chef-user',
+        fullName: 'Marie Dupont',
+        role: UserRole.client,
+        chefProfile: { displayName: 'Chez Marie' },
+      };
+
+      const admin = missions('admin', cooked());
+      withStorage(admin);
+      admin.prisma.bookingMealDateChange.findMany.mockResolvedValue([change]);
+      admin.prisma.user.findMany.mockResolvedValue([chefAccount]);
+      const forAdmin = await admin.service.conservation('clerk', 'b1');
+      expect(forAdmin.history?.[0]).toEqual({
+        mealId: 'dish-1',
+        value: '2026-11-24',
+        changedAt: change.changedAt,
+        changedBy: { id: 'chef-user', name: 'Chez Marie', role: 'chef' },
+      });
+
+      const chef = missions('chef', cooked());
+      withStorage(chef);
+      chef.prisma.bookingMealDateChange.findMany.mockResolvedValue([change]);
+      chef.prisma.user.findMany.mockResolvedValue([chefAccount]);
+      const forChef = await chef.service.conservation('clerk', 'b1');
+      expect(forChef.history?.[0].changedBy).toEqual({ role: 'chef' });
     });
 
     it('refuses a day before the prestation', async () => {

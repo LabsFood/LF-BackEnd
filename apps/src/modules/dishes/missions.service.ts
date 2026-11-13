@@ -338,20 +338,7 @@ export class MissionsService {
           a.name.localeCompare(b.name, 'fr'),
       );
     const history =
-      role === 'client'
-        ? undefined
-        : (
-            await this.prisma.bookingMealDateChange.findMany({
-              where: { bookingId },
-              orderBy: { changedAt: 'asc' },
-              take: 500,
-            })
-          ).map((change) => ({
-            mealId: change.mealId,
-            value: change.value ? change.value.toISOString().slice(0, 10) : null,
-            changedByUserId: change.changedByUserId,
-            changedAt: change.changedAt,
-          }));
+      role === 'client' ? undefined : await this.dateHistory(bookingId, role);
     return {
       bookingId,
       startsAt: booking.startsAt,
@@ -360,6 +347,56 @@ export class MissionsService {
       dishes,
       ...(history && { history }),
     };
+  }
+
+  /**
+   * Recettes lot 3 (LF-0270, LF-0276): each date set on a dish, oldest first. An
+   * admin reads who set it, by name and role (decision of 13/11); the batch cooker
+   * reads the role only, never an id nor a name.
+   */
+  private async dateHistory(bookingId: string, role: Role) {
+    const changes = await this.prisma.bookingMealDateChange.findMany({
+      where: { bookingId },
+      orderBy: { changedAt: 'asc' },
+      take: 500,
+    });
+    const ids = [...new Set(changes.flatMap((c) => c.changedByUserId ?? []))];
+    const people = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            fullName: true,
+            role: true,
+            chefProfile: { select: { displayName: true } },
+          },
+        })
+      : [];
+    const byId = new Map(people.map((p) => [p.id, p]));
+    return changes.map((change) => {
+      const who = change.changedByUserId ? byId.get(change.changedByUserId) : undefined;
+      // A batch cooker who is also an admin still set the date as the batch cooker.
+      const as: 'chef' | 'admin' | null = !who
+        ? null
+        : who.chefProfile
+          ? 'chef'
+          : who.role === UserRole.admin
+            ? 'admin'
+            : null;
+      return {
+        mealId: change.mealId,
+        value: change.value ? change.value.toISOString().slice(0, 10) : null,
+        changedAt: change.changedAt,
+        changedBy:
+          role === 'admin'
+            ? {
+                id: change.changedByUserId,
+                name: who?.chefProfile?.displayName ?? who?.fullName ?? null,
+                role: as,
+              }
+            : { role: as },
+      };
+    });
   }
 
   /**
