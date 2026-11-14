@@ -34,6 +34,7 @@ import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
 import { PlatformSettingsService } from './platform-settings.service';
 import { FRIDGE_ALERT_MAX, FRIDGE_ALERT_MIN } from './fridge-alert';
+import { GROCERIES_BOUNDS } from './groceries';
 
 /** Half the client price at most: above that the setting is a typing mistake. */
 const MAX_COMMISSION_BPS = 5000;
@@ -49,6 +50,33 @@ class UpdateCommissionDto {
   @Min(0)
   @Max(MAX_COMMISSION_BPS)
   commissionBps!: number;
+}
+
+/** Recettes lot 6, groundwork: the Budget Courses cap and the advised forfait courses. */
+class GroceriesDto {
+  @ApiProperty({
+    minimum: GROCERIES_BOUNDS.budgetMaxCents.min,
+    maximum: GROCERIES_BOUNDS.budgetMaxCents.max,
+    description: 'The most a client may set as their Budget Courses, in cents.',
+    example: 10_000,
+  })
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.budgetMaxCents.min)
+  @Max(GROCERIES_BOUNDS.budgetMaxCents.max)
+  budgetMaxCents!: number;
+
+  @ApiProperty({
+    minimum: GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.min,
+    maximum: GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.max,
+    description:
+      'The forfait courses a batch cooker is advised to charge at least, in cents. ' +
+      'A recommendation: a lower fee is never refused.',
+    example: 1_500,
+  })
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.min)
+  @Max(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.max)
+  recommendedShoppingFeeMinCents!: number;
 }
 
 /** Recettes lot 3 (LF-0271): days in the fridge past which a dish's date alerts. */
@@ -350,6 +378,60 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setBookingSupplements(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/groceries')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the grocery amounts',
+    description:
+      'Recettes lot 6, groundwork: the Budget Courses cap (100 € by default) and the ' +
+      'forfait courses advised to batch cookers (15 € by default). Both are also in ' +
+      '`GET /pricing-rules` (`groceries`). `updatedAt: null`: never changed.',
+  })
+  @ApiOkResponse({
+    description: 'The amounts.',
+    example: {
+      budgetMaxCents: 10_000,
+      recommendedShoppingFeeMinCents: 1_500,
+      updatedAt: null,
+    },
+  })
+  @ApiAdminAuthResponses()
+  groceries() {
+    return this.settings.groceries();
+  }
+
+  @Put('admin/settings/groceries')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the grocery amounts',
+    description:
+      'Both values, every time. Read by the forms from now on; nothing stored on a ' +
+      'booking or an offer changes. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The new amounts.',
+    example: {
+      budgetMaxCents: 12_000,
+      recommendedShoppingFeeMinCents: 1_500,
+      updatedAt: '2026-11-15T09:00:00.000Z',
+    },
+  })
+  @ApiAdminAuthResponses()
+  async setGroceries(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: GroceriesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setGroceries(body, admin.id, reqId(req));
   }
 
   @Get('admin/settings/fridge-alert')

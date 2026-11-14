@@ -227,4 +227,60 @@ describe('PlatformSettingsService', () => {
       expect(result).toEqual({ labels, updatedAt: UPDATED_AT });
     });
   });
+
+  describe('grocery amounts (Recettes lot 6, groundwork)', () => {
+    it('answers 100 € and 15 € until an admin changes them, in the pricing rules too', async () => {
+      const { service } = harness();
+
+      expect(await service.groceries()).toEqual({
+        budgetMaxCents: 10_000,
+        recommendedShoppingFeeMinCents: 1_500,
+        updatedAt: null,
+      });
+      expect((await service.pricingRules()).groceries).toEqual({
+        budgetMaxCents: 10_000,
+        recommendedShoppingFeeMinCents: 1_500,
+      });
+    });
+
+    it('reads what is saved, each value falling back when out of bounds', async () => {
+      const { service } = harness({
+        budgetMaxCents: 12_000,
+        recommendedShoppingFeeMinCents: -5,
+      });
+
+      expect(await service.groceries()).toMatchObject({
+        budgetMaxCents: 12_000,
+        recommendedShoppingFeeMinCents: 1_500,
+      });
+    });
+
+    it('saves both values and journals before and after', async () => {
+      const { service, prisma, audit } = harness();
+      const rules = { budgetMaxCents: 12_000, recommendedShoppingFeeMinCents: 2_000 };
+
+      await service.setGroceries(rules, 'admin-1', 'req-1');
+
+      expect(prisma.platformSetting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { key: 'groceries' } }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'settings.groceries_changed',
+          metadata: {
+            from: { budgetMaxCents: 10_000, recommendedShoppingFeeMinCents: 1_500 },
+            to: rules,
+          },
+        }),
+      );
+    });
+  });
+
+  describe('fridge alert (Recettes lot 3)', () => {
+    it('is 4 days until an admin sets another value between 1 and 14', async () => {
+      expect((await harness().service.fridgeAlert()).days).toBe(4);
+      expect((await harness({ days: 6 }).service.fridgeAlert()).days).toBe(6);
+      expect((await harness({ days: 40 }).service.fridgeAlert()).days).toBe(4);
+    });
+  });
 });

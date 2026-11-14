@@ -13,7 +13,7 @@ const SNAPSHOT: PaymentInvoiceSnapshot = {
   amountTtcCents: 20_000,
   lines: [
     { label: 'Batch cooking 4 repas', amountCents: 18_500 },
-    { label: 'Courses', amountCents: 1_500 },
+    { label: 'Forfait courses', amountCents: 1_500 },
   ],
   seller: {
     displayName: 'Chef Amina',

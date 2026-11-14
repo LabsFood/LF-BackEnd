@@ -131,7 +131,7 @@ describe('PaymentInvoicesService', () => {
         booking: { address: '12 rue de la Paix, 69002 Lyon' },
         lines: [
           { label: 'Batch cooking 4 repas', amountCents: 18_500 },
-          { label: 'Courses', amountCents: 1_500 },
+          { label: 'Forfait courses', amountCents: 1_500 },
         ],
       });
     });
