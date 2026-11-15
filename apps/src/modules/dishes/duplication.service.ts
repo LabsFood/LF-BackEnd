@@ -115,8 +115,12 @@ function dishCopy(source: Meal, chef: ChefContext): Prisma.MealUncheckedCreateIn
     calories: source.calories,
     dietaryTags: source.dietaryTags,
     customDiets: source.customDiets,
+    // Recettes §8.1: the computed allergens and the lines stamped with them, as they
+    // are; the copy's own saves compose them again.
     allergens: source.allergens,
     allergensNone: source.allergensNone,
+    addedAllergens: source.addedAllergens,
+    conditionalAllergens: source.conditionalAllergens,
     customAllergens: source.customAllergens,
     ingredients: source.ingredients ?? [],
     steps: source.steps ?? [],

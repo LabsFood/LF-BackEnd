@@ -24,6 +24,8 @@ model User {
   deletedAt                DateTime?                 @map("deleted_at") @db.Timestamptz(6)
   bookingsAsClient         Booking[]                 @relation("BookingClient")
   paymentInvoices          PaymentInvoice[]
+  catalogIngredientsCreated  CatalogIngredient[] @relation("CatalogIngredientCreatedBy")
+  catalogIngredientsReviewed CatalogIngredient[] @relation("CatalogIngredientReviewedBy")
   reschedulesProposed      BookingReschedule[]       @relation("BookingRescheduleProposer")
   chefProfile              ChefProfile?
   clientProfile            ClientProfile?
@@ -116,6 +118,7 @@ model ChefProfile {
   commissions            Commission[]
   commissionInvoices     CommissionInvoice[]
   paymentInvoices        PaymentInvoice[]
+  catalogIngredients     CatalogIngredient[]
   urssafLinks            UrssafLink[]
   workingHours           ChefWorkingHour[]
   availabilityExceptions ChefAvailabilityException[]
@@ -228,6 +231,7 @@ model Booking {
   payments              Payment[]
   paymentInvoices       PaymentInvoice[]
   photos                BookingPhoto[]
+  mealDateChanges       BookingMealDateChange[]
   reschedules           BookingReschedule[]
 
   @@index([clientId], map: "ix_bookings_client_id")
@@ -329,6 +333,13 @@ model Meal {
   /// The recipe's version: +1 on every change to ingredients, steps, reheating,
   /// storage or portions. A booking pins the version it was cooked from (§9.2).
   recipeVersion          Int                 @default(1) @map("recipe_version")
+  /// Recettes socle §5.3: allergens the chef adds by hand, on top of the ones the
+  /// ingredients bring. Codes of the 14; kept inside `allergens`.
+  addedAllergens         String[]            @default([]) @map("added_allergens")
+  /// Computed: allergens brought only by optional lines, not added by the chef.
+  conditionalAllergens   String[]            @default([]) @map("conditional_allergens")
+  /// +1 on every save; a write carrying an older value is rejected (stale edit).
+  lockVersion            Int                 @default(0) @map("lock_version")
   /// Recettes R6: the recipe changed since its last version. A version is made,
   /// and kept in meal_recipe_versions, once the recipe is "Prête" again or when the
   /// allergens are confirmed; saving a draft never makes one.
@@ -423,6 +434,17 @@ model BookingMeal {
   portions      Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
   recipeVersion Int?               @map("recipe_version")
+  /// Recettes lot 3 (LF-0268): the dish's allergens when its version was pinned, kept
+  /// for this prestation whatever the recipe becomes. Meaningful once `pinnedAt` is set.
+  allergensSnapshot String[]       @default([]) @map("allergens_snapshot")
+  /// When the version and the allergens were pinned: the menu was written (lot 3).
+  pinnedAt      DateTime?          @map("pinned_at") @db.Timestamptz(6)
+  /// Recettes lot 3 (LF-0270): the « à manger avant » date the chef set; null: the
+  /// platform's (prestation day + the pinned recipe's fridge days).
+  eatBefore     DateTime?          @map("eat_before") @db.Date
+  eatBeforeSetAt DateTime?         @map("eat_before_set_at") @db.Timestamptz(6)
+  /// Who set it; an id only, kept even if the account goes (no foreign key).
+  eatBeforeSetByUserId String?     @map("eat_before_set_by_user_id") @db.Uuid
   /// What the batch cooker says of THIS dish as cooked in THIS prestation: how to
   /// reheat it, how to keep it. Written from `cooking` on, shown to the client once
   /// the prestation is done. Beside the recipe's own advice, never replacing it.
@@ -961,18 +983,56 @@ model ChefShowcaseWeek {
 /// What each ingredient suits (diets) and when it is in season. No allergens and
 /// no purchase units in this release.
 model CatalogIngredient {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name         String   @unique(map: "uq_catalog_ingredients_name") @db.VarChar(120)
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String              @db.VarChar(120)
+  /// `name` folded (lowercase, no accents), the key of the name uniqueness. Filled
+  /// by the API and the backfill, so null on rows not yet migrated.
+  normalizedName   String?             @map("normalized_name") @db.VarChar(120)
+  /// Shopping aisle the ingredient belongs to; free label, optional.
+  aisle            String?             @db.VarChar(40)
   /// Other names, folded to lowercase: what a chef may type instead.
-  aliases      String[] @default([])
+  aliases          String[]            @default([])
   /// Codes of COMPUTED_DIETS (dishes.rules.ts) the ingredient suits.
-  diets        String[] @default([])
+  diets            String[]            @default([])
   /// Months 1 to 12; empty: not seasonal, in season all year.
-  seasonMonths Int[]    @default([]) @map("season_months")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  chefVersions ChefIngredient[]
+  seasonMonths     Int[]               @default([]) @map("season_months")
+  /// Codes of the 14 regulated allergens the ingredient contains (ALLERGEN_CODES).
+  allergens        String[]            @default([])
+  /// "No allergen", said explicitly: an empty `allergens` alone means "not filled
+  /// in". A CHECK in the migration forbids it next to a listed allergen.
+  allergensNone    Boolean             @default(false) @map("allergens_none")
+  /// Pantry staple (salt, oil, water...): a recipe line may hide it from the client.
+  isBasic          Boolean             @default(false) @map("is_basic")
+  /// Owner of a private ingredient; null: the common list, managed by the admin.
+  chefProfileId    String?             @map("chef_profile_id") @db.Uuid
+  /// `active`, `pending` (a chef's ingredient waiting for review), `inactive` or
+  /// `merged`. Enforced by a CHECK in the migration, not a Postgres enum.
+  status           String              @default("active") @db.VarChar(16)
+  /// The common ingredient this one was merged into; set when `status` is `merged`.
+  mergedIntoId     String?             @map("merged_into_id") @db.Uuid
+  /// Who created the row: a chef for a private ingredient, an admin otherwise.
+  createdByUserId  String?             @map("created_by_user_id") @db.Uuid
+  /// When the admin reviewed a pending ingredient.
+  reviewedAt       DateTime?           @map("reviewed_at") @db.Timestamptz(6)
+  reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  /// Ruling R28: set in the same transaction as a change that must be carried into the
+  /// recipes (Recettes §7.3), cleared only when a carry or a replay of the entry ends
+  /// with no failed dish. Set: some dishes may still hold the entry as it was (a run
+  /// cut short, or failed dishes); the console offers the replay.
+  carryPendingAt   DateTime?           @map("carry_pending_at") @db.Timestamptz(6)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile      ChefProfile?        @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_catalog_ingredients_chef_profile_id")
+  mergedInto       CatalogIngredient?  @relation("CatalogIngredientMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_catalog_ingredients_merged_into_id")
+  mergedFrom       CatalogIngredient[] @relation("CatalogIngredientMerge")
+  createdBy        User?               @relation("CatalogIngredientCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_catalog_ingredients_created_by_user_id")
+  reviewedBy       User?               @relation("CatalogIngredientReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_catalog_ingredients_reviewed_by_user_id")
+  chefVersions     ChefIngredient[]
 
+  // The partial unique indexes (common name, private pending name) and the CHECKs
+  // live in the migration: Prisma cannot express them.
+  @@index([chefProfileId], map: "ix_catalog_ingredients_chef_profile_id")
+  @@index([status], map: "ix_catalog_ingredients_status")
   @@map("catalog_ingredients")
 }
 
@@ -1746,4 +1806,20 @@ model Notification {
 
   @@index([userId, createdAt], map: "ix_notifications_user_id_created_at")
   @@map("notifications")
+}
+
+/// Recettes lot 3 (LF-0270): every « à manger avant » date a batch cooker set on a
+/// dish of a prestation, oldest first: who, when, which value (null: back to the
+/// platform's date). Ids only, never a name; kept while the booking is.
+model BookingMealDateChange {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId       String    @map("booking_id") @db.Uuid
+  mealId          String    @map("meal_id") @db.Uuid
+  value           DateTime? @db.Date
+  changedByUserId String?   @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime  @default(now()) @map("changed_at") @db.Timestamptz(6)
+  booking         Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_booking_meal_date_changes_booking_id")
+
+  @@index([bookingId, changedAt], map: "ix_booking_meal_date_changes_booking_changed")
+  @@map("booking_meal_date_changes")
 }

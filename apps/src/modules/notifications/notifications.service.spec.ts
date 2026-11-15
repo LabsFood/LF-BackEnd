@@ -54,6 +54,28 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('writes through the transaction it is given, so it lands with the change it reports', async () => {
+    const { prisma, service } = harness();
+    const tx = { notification: { create: jest.fn(async () => row()) } };
+
+    await service.notify(
+      'user-1',
+      'recipe_allergens_changed',
+      { type: 'meal', id: 'dish-1' },
+      tx as unknown as PrismaService,
+    );
+
+    expect(tx.notification.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'recipe_allergens_changed',
+        subjectType: 'meal',
+        subjectId: 'dish-1',
+      },
+    });
+    expect(prisma.notification.create).not.toHaveBeenCalled();
+  });
+
   it("lists the caller's own notifications, newest first, with the unread count", async () => {
     const { prisma, service } = harness();
 

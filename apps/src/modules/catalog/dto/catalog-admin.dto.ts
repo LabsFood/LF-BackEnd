@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -19,6 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { Raw } from '../../../common/dto/strict';
 import {
   MealContinent,
   MealDifficulty,
@@ -50,6 +52,7 @@ export class CreateMealDto {
     description: 'Display name of the dish.',
     example: 'Poulet yassa',
   })
+  @Raw()
   @IsString()
   @Length(1, 255)
   name!: string;
@@ -60,6 +63,7 @@ export class CreateMealDto {
     example: 'Poulet mariné au citron et aux oignons, riz blanc.',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(2000)
   description?: string;
@@ -69,6 +73,7 @@ export class CreateMealDto {
     description: 'Preparation time in minutes.',
     example: 45,
   })
+  @Raw()
   @IsInt()
   @Min(1)
   prepTime!: number;
@@ -80,6 +85,7 @@ export class CreateMealDto {
     example: ['halal'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(DIET_CODES, { each: true })
   dietaryTags?: string[];
@@ -90,6 +96,7 @@ export class CreateMealDto {
     example: [],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -99,26 +106,21 @@ export class CreateMealDto {
   @ApiPropertyOptional({
     enum: ALLERGEN_CODES,
     isArray: true,
+    maxItems: 14,
     description:
-      'Which of the 14 regulated allergens the meal contains, from ' +
-      '`GET /referentials/allergens`.',
-    example: ['milk'],
+      'Regulated allergens added on top of the computed ones (Recettes §6.1): the ' +
+      'recipe lines bring the rest, read them in `allergens`. Labels in ' +
+      '`GET /referentials/allergens`. The meal no longer takes `allergens` or ' +
+      '`allergensNone`: they are computed.',
+    example: ['celery'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
+  @ArrayMaxSize(14)
+  @ArrayUnique()
   @IsIn(ALLERGEN_CODES, { each: true })
-  allergens?: string[];
-
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      '`true` when the meal contains none of the 14 regulated allergens. A batch ' +
-      'cooker who adopts this meal cannot publish it without this or `allergens`.',
-    example: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  allergensNone?: boolean;
+  addedAllergens?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -126,6 +128,7 @@ export class CreateMealDto {
     example: [],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -152,6 +155,7 @@ export class CreateMealDto {
     example: 'main',
   })
   @IsOptional()
+  @Raw()
   @IsIn(DISH_CATEGORY_CODES)
   category?: string | null;
 
@@ -161,6 +165,7 @@ export class CreateMealDto {
     example: 30,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   cookTime?: number | null;
@@ -187,6 +192,7 @@ export class CreateMealDto {
       'https://your-project-ref.supabase.co/storage/v1/object/public/meal-images/poulet-yassa.jpg',
   })
   @IsOptional()
+  @Raw()
   @IsUrl({
     protocols: ['http', 'https'],
     require_protocol: true,
@@ -200,6 +206,7 @@ export class CreateMealDto {
     example: MealContinent.africa,
   })
   @IsOptional()
+  @Raw()
   @IsEnum(MealContinent)
   continent?: MealContinent | null;
 
@@ -210,6 +217,7 @@ export class CreateMealDto {
     example: 'SN',
   })
   @IsOptional()
+  @Raw()
   @IsISO31661Alpha2()
   country?: string | null;
 
@@ -220,6 +228,7 @@ export class CreateMealDto {
     example: 4,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(1)
   portions?: number;
@@ -230,6 +239,7 @@ export class CreateMealDto {
     example: 620,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   calories?: number | null;
@@ -240,6 +250,7 @@ export class CreateMealDto {
     example: MealDifficulty.medium,
   })
   @IsOptional()
+  @Raw()
   @IsEnum(MealDifficulty)
   difficulty?: MealDifficulty | null;
 
@@ -260,6 +271,7 @@ export class CreateMealDto {
     description: 'Recettes §4.8: the diets declared, not computable (halal, kosher).',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(['halal', 'kosher'], { each: true })
   declaredDiets?: string[];
@@ -269,6 +281,7 @@ export class CreateMealDto {
     description: 'Codes from `GET /referentials/recipe-profiles`.',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -280,6 +293,7 @@ export class CreateMealDto {
     description: 'Months in season set instead of the computed ones; `[]` for none.',
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(12)
   @IsInt({ each: true })
@@ -293,6 +307,7 @@ export class CreateMealDto {
     example: ['Cocotte en fonte'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
@@ -305,6 +320,7 @@ export class CreateMealDto {
     example: false,
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   isFeatured?: boolean;
 
@@ -316,11 +332,27 @@ export class CreateMealDto {
   })
   @IsOptional()
   // Not `suspended`: that one is for moderating a batch cooker's dish.
+  @Raw()
   @IsIn(MEAL_STATUSES)
   status?: MealStatus;
 }
 
-export class UpdateMealDto extends PartialType(CreateMealDto) {}
+export class UpdateMealDto extends PartialType(CreateMealDto) {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'Ruling R30, Recettes §8.1: the `lockVersion` of the meal as you read it. Sent ' +
+      'and stale, the answer is `409 RECIPE_CONFLICT` with the current `lockVersion` ' +
+      '(the body of the chef route) and nothing is written, so two tabs never ' +
+      'overwrite each other. Omitted, nothing is checked against it.',
+    example: 4,
+  })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}
 
 /**
  * Shape of a meal record as returned by the admin endpoints. Documentation only:
@@ -403,10 +435,46 @@ export class MealResponseDto {
   @ApiProperty({ type: [String], example: ['halal'] })
   dietaryTags!: string[];
 
-  @ApiProperty({ type: [String], example: ['milk'] })
+  @ApiProperty({
+    type: [String],
+    description:
+      'Computed from the recipe lines plus `addedAllergens` (Recettes §6.1); never written directly.',
+    example: ['milk'],
+  })
   allergens!: string[];
 
-  @ApiProperty({ example: false })
+  @ApiProperty({
+    type: [String],
+    description: 'Allergens only optional lines bring; still listed in `allergens`.',
+    example: [],
+  })
+  conditionalAllergens!: string[];
+
+  @ApiProperty({ type: [String], description: 'Allergens added by hand.', example: [] })
+  addedAllergens!: string[];
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'array', items: { type: 'string' } },
+    description:
+      'Ruling R30, Recettes §6.1 and §8.1: per allergen code, the names of the lines ' +
+      'that bring it. An allergen only added by hand has no entry.',
+    example: { milk: ['Beurre', 'Crème'] },
+  })
+  allergenSources!: Record<string, string[]>;
+
+  @ApiProperty({
+    example: 4,
+    description:
+      'Ruling R30, Recettes §8.1: +1 on each write of the recipe, the §7.3 carry ' +
+      'included. Send it back as `lockVersion` to save over this version only.',
+  })
+  lockVersion!: number;
+
+  @ApiProperty({
+    example: false,
+    description: 'Computed: true only when every line is known and brings nothing.',
+  })
   allergensNone!: boolean;
 
   @ApiProperty({ type: [String], example: [] })
@@ -424,14 +492,28 @@ export class MealResponseDto {
   @ApiProperty({
     type: ReheatingDto,
     nullable: true,
-    example: { mode: 'oven', temperature: 160, minutes: 15, note: null },
+    example: {
+      modes: ['oven'],
+      mode: 'oven',
+      temperature: 160,
+      minutes: 15,
+      note: null,
+      container: null,
+    },
   })
   reheating!: unknown;
 
   @ApiProperty({
     type: StorageDto,
     nullable: true,
-    example: { method: 'fridge', days: 3, container: null },
+    example: {
+      method: 'fridge',
+      days: 3,
+      container: null,
+      freezable: false,
+      freezerMonths: null,
+      thawing: null,
+    },
   })
   storage!: unknown;
 
@@ -461,7 +543,7 @@ export class MealResponseDto {
       'The ingredients, as stored: a list of `{ name, qty, unit, aisle }`. Meals ' +
       'written before this was checked may hold something else, which shopping lists ' +
       'ignore.',
-    example: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
+    example: [{ name: 'Cuisses de poulet', qty: 8, unit: 'piece', aisle: 'boucherie' }],
   })
   ingredients!: unknown;
 

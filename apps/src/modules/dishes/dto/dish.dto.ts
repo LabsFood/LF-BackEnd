@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
@@ -9,6 +10,7 @@ import {
   IsISO31661Alpha2,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUrl,
   IsUUID,
@@ -19,6 +21,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { Raw } from '../../../common/dto/strict';
+import { oneLine } from '../../../common/dto/clean-text';
+import { UNIT_CODES } from '../domain/units.rules';
 import { ALLERGEN_CODES, DIET_CODES, DISH_CATEGORY_CODES } from '../domain/dishes.rules';
 import { DECLARED_DIET_CODES } from '../domain/classification.rules';
 import { STEP_TYPE_CODES } from '../domain/recipes.rules';
@@ -31,37 +36,52 @@ const DIFFICULTIES = ['easy', 'medium', 'hard'];
  */
 export class IngredientDto {
   @ApiProperty({ maxLength: 120, example: 'Poulet fermier entier' })
+  @Raw()
+  @Transform(oneLine)
   @IsString()
   @Length(1, 120)
   name!: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     minimum: 0,
-    description: 'Quantity for the dish’s portions.',
+    maximum: 100000,
+    nullable: true,
+    description:
+      'Quantity for the dish’s portions, strictly above 0, at most 3 decimals. `null` only ' +
+      'with `to_taste` or on a line to verify.',
     example: 1.4,
   })
+  @IsOptional()
+  @Raw()
   @IsNumber({ maxDecimalPlaces: 3 })
-  @Min(0)
+  @IsPositive()
   @Max(100000)
-  qty!: number;
+  qty?: number | null;
 
-  @ApiProperty({
-    maxLength: 32,
-    description: 'Free text: `g`, `kg`, `gousse`…',
+  @ApiPropertyOptional({
+    enum: UNIT_CODES,
+    nullable: true,
+    description:
+      'One of the 14 fixed units (`GET /referentials/units`). `null` only on a line ' +
+      'to verify.',
     example: 'kg',
   })
-  @IsString()
-  @Length(1, 32)
-  unit!: string;
+  @IsOptional()
+  @Raw()
+  @IsIn(UNIT_CODES)
+  unit?: string | null;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     maxLength: 60,
-    description: 'Shop aisle, used to group the shopping list.',
+    description:
+      'Shop aisle. Ignored on a linked line: the API takes the ingredient’s own.',
     example: 'boucherie',
   })
+  @IsOptional()
+  @Raw()
   @IsString()
   @Length(1, 60)
-  aisle!: string;
+  aisle?: string;
 
   @ApiPropertyOptional({
     maxLength: 512,
@@ -70,6 +90,7 @@ export class IngredientDto {
     example: 'https://www.example.com/poulet-fermier',
   })
   @IsOptional()
+  @Raw()
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   @MaxLength(512)
   link?: string | null;
@@ -81,6 +102,7 @@ export class IngredientDto {
       'A line to verify keeps the recipe from being ready.',
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   toVerify?: boolean;
 
@@ -91,6 +113,7 @@ export class IngredientDto {
       'salt) (§4.12).',
   })
   @IsOptional()
+  @Raw()
   @IsBoolean()
   fixedQuantity?: boolean;
 
@@ -102,8 +125,71 @@ export class IngredientDto {
       'is. Diets and seasons are computed from linked lines only.',
   })
   @IsOptional()
+  @Raw()
   @IsUUID()
   catalogIngredientId?: string | null;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'The line may be left out: its allergens are then only conditional on the dish.',
+  })
+  @IsOptional()
+  @Raw()
+  @IsBoolean()
+  optional?: boolean;
+
+  @ApiPropertyOptional({ maxLength: 60, nullable: true, example: 'bio' })
+  @IsOptional()
+  @Raw()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(60)
+  precision?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 120, nullable: true, example: 'en dés' })
+  @IsOptional()
+  @Raw()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(120)
+  preparation?: string | null;
+
+  @ApiPropertyOptional({
+    maxLength: 60,
+    nullable: true,
+    description: 'The sub-recipe the line belongs to, e.g. "Sauce".',
+    example: 'Sauce',
+  })
+  @IsOptional()
+  @Raw()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(60)
+  group?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Kept on the chef’s fiche, left off the client’s. Left out, a line linked to a ' +
+      'basic ingredient (salt, oil) is hidden, any other line shown (Recettes §5.2).',
+  })
+  @IsOptional()
+  @Raw()
+  @IsBoolean()
+  hiddenFromClient?: boolean;
+
+  @ApiPropertyOptional({
+    maxLength: 200,
+    nullable: true,
+    description: 'The original text of a line to verify.',
+    example: '2 gousses d’ail',
+  })
+  @IsOptional()
+  @Raw()
+  @Transform(oneLine)
+  @IsString()
+  @MaxLength(200)
+  rawText?: string | null;
 }
 
 /**
@@ -113,10 +199,12 @@ export class IngredientDto {
 export class StepDto {
   @ApiPropertyOptional({ description: 'Ignored: the position in the list is the order.' })
   @IsOptional()
+  @Raw()
   @IsInt()
   order?: number;
 
   @ApiProperty({ maxLength: 2000, example: 'Préchauffer le four à 200 °C.' })
+  @Raw()
   @IsString()
   @Length(1, 4000)
   text!: string;
@@ -130,11 +218,13 @@ export class StepDto {
     example: 'cuisson',
   })
   @IsOptional()
+  @Raw()
   @IsIn(STEP_TYPE_CODES)
   type?: string | null;
 
   @ApiPropertyOptional({ minimum: 0, maximum: 1440, nullable: true, example: 55 })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(1440)
@@ -153,6 +243,7 @@ export class ReheatingDto {
     example: ['oven', 'microwave'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString({ each: true })
@@ -166,12 +257,14 @@ export class ReheatingDto {
     example: 'oven',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @Length(1, 40)
   mode?: string;
 
   @ApiPropertyOptional({ description: 'Degrees Celsius.', example: 160 })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(300)
@@ -179,6 +272,7 @@ export class ReheatingDto {
 
   @ApiPropertyOptional({ example: 15 })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(600)
@@ -190,6 +284,7 @@ export class ReheatingDto {
     example: "Couvrir d'un papier cuisson.",
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(300)
   note?: string;
@@ -201,6 +296,7 @@ export class ReheatingDto {
     example: 'Plat en verre',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(120)
   container?: string | null;
@@ -208,11 +304,13 @@ export class ReheatingDto {
 
 export class StorageDto {
   @ApiProperty({ maxLength: 40, example: 'fridge' })
+  @Raw()
   @IsString()
   @Length(1, 40)
   method!: string;
 
   @ApiProperty({ description: 'How many days it keeps.', example: 3 })
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(365)
@@ -220,9 +318,41 @@ export class StorageDto {
 
   @ApiPropertyOptional({ maxLength: 120, example: 'Boîte hermétique' })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(120)
   container?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'It can go in the freezer: true or false. No default: omitted, the question ' +
+      'stays unanswered and readiness asks it (Recettes §6.4).',
+    example: true,
+  })
+  @IsOptional()
+  @Raw()
+  @IsBoolean()
+  freezable?: boolean;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 24, nullable: true, example: 3 })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  freezerMonths?: number | null;
+
+  @ApiPropertyOptional({
+    maxLength: 300,
+    nullable: true,
+    description: 'How to thaw it.',
+    example: 'Une nuit au réfrigérateur.',
+  })
+  @IsOptional()
+  @Raw()
+  @IsString()
+  @MaxLength(300)
+  thawing?: string | null;
 }
 
 /**
@@ -266,6 +396,7 @@ const FREE_TEXT = { each: true } as const;
 
 export class CreateDishDto {
   @ApiProperty({ maxLength: 255, example: 'Poulet rôti aux herbes' })
+  @Raw()
   @IsString()
   @Length(1, 255)
   name!: string;
@@ -275,6 +406,7 @@ export class CreateDishDto {
     example: 'Poulet fermier rôti, thym et romarin, pommes de terre grenaille.',
   })
   @IsOptional()
+  @Raw()
   @IsString()
   @MaxLength(2000)
   description?: string | null;
@@ -286,6 +418,7 @@ export class CreateDishDto {
     example: 'FR',
   })
   @IsOptional()
+  @Raw()
   @IsISO31661Alpha2()
   country?: string | null;
 
@@ -295,17 +428,20 @@ export class CreateDishDto {
     example: 'main',
   })
   @IsOptional()
+  @Raw()
   @IsIn(DISH_CATEGORY_CODES)
   category?: string | null;
 
   @ApiPropertyOptional({ minimum: 1, default: 4, example: 3 })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(1)
   @Max(100)
   portions?: number;
 
   @ApiProperty({ minimum: 0, description: 'Preparation time, in minutes.', example: 20 })
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(1440)
@@ -317,6 +453,7 @@ export class CreateDishDto {
     example: 55,
   })
   @IsOptional()
+  @Raw()
   @IsInt()
   @Min(0)
   @Max(1440)
@@ -324,6 +461,7 @@ export class CreateDishDto {
 
   @ApiPropertyOptional({ enum: DIFFICULTIES, example: 'easy' })
   @IsOptional()
+  @Raw()
   @IsIn(DIFFICULTIES)
   difficulty?: 'easy' | 'medium' | 'hard' | null;
 
@@ -335,6 +473,7 @@ export class CreateDishDto {
     example: ['lactose-free'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(DIET_CODES, FREE_TEXT)
   diets?: string[];
@@ -347,6 +486,7 @@ export class CreateDishDto {
     example: [],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString(FREE_TEXT)
@@ -356,27 +496,20 @@ export class CreateDishDto {
   @ApiPropertyOptional({
     enum: ALLERGEN_CODES,
     isArray: true,
+    maxItems: 14,
     description:
-      'Which of the 14 regulated allergens the dish contains. Labels in ' +
+      'Regulated allergens the chef adds on top of the computed ones (the recipe ' +
+      'lines bring the rest; read them in `allergens`). Labels in ' +
       '`GET /referentials/allergens`.',
     example: ['celery'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
+  @ArrayMaxSize(14)
+  @ArrayUnique()
   @IsIn(ALLERGEN_CODES, FREE_TEXT)
-  allergens?: string[];
-
-  @ApiPropertyOptional({
-    default: false,
-    description:
-      '`true` to declare that the dish contains **none** of the 14 regulated ' +
-      'allergens. An empty `allergens` list alone does not say that, and cannot be ' +
-      'published.',
-    example: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  allergensNone?: boolean;
+  addedAllergens?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -386,6 +519,7 @@ export class CreateDishDto {
     example: ['sarrasin'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString(FREE_TEXT)
@@ -400,6 +534,7 @@ export class CreateDishDto {
     example: ['Cocotte en fonte'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(20)
   @IsString(FREE_TEXT)
@@ -415,6 +550,7 @@ export class CreateDishDto {
     example: ['halal'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @IsIn(DECLARED_DIET_CODES, FREE_TEXT)
   declaredDiets?: string[];
@@ -425,6 +561,7 @@ export class CreateDishDto {
     example: ['budget'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString(FREE_TEXT)
@@ -437,6 +574,7 @@ export class CreateDishDto {
     example: ['été', 'rapide'],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(10)
   @IsString(FREE_TEXT)
@@ -451,6 +589,7 @@ export class CreateDishDto {
     example: [6, 7, 8],
   })
   @IsOptional()
+  @Raw()
   @IsArray()
   @ArrayMaxSize(12)
   @IsInt(FREE_TEXT)
@@ -468,4 +607,49 @@ export class CreateDishDto {
   recipe?: RecipeDto;
 }
 
-export class UpdateDishDto extends PartialType(CreateDishDto) {}
+/** `POST /me/dishes/{id}/allergens/confirm`: an optional body (ruling R8). */
+export class ConfirmAllergensDto {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish whose allergens the batch cooker read. If the ' +
+      'dish changed since, the confirmation is refused, so allergens nobody saw are ' +
+      'never confirmed.',
+    example: 4,
+  })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}
+
+export class UpdateDishDto extends PartialType(CreateDishDto) {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish as you read it. A save over a newer one is ' +
+      'refused, so two screens never overwrite each other.',
+    example: 4,
+  })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}
+
+/** Recettes §8.2: the body of `POST /me/dishes/{id}/versions/{version}/restore`. */
+export class RestoreVersionDto {
+  @ApiPropertyOptional({
+    minimum: 0,
+    description:
+      'The `lockVersion` of the dish as you read it. A restore over a newer one is refused.',
+    example: 4,
+  })
+  @IsOptional()
+  @Raw()
+  @IsInt()
+  @Min(0)
+  lockVersion?: number;
+}

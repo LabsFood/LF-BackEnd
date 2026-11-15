@@ -8,6 +8,7 @@ const meal = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
   portions: 4,
   recipeVersion: 3,
+  allergens: ['celery'],
   ingredients: [garlic],
   steps: ['Éplucher'],
   reheating: null,
@@ -43,6 +44,8 @@ function lists(
       findMany: jest.fn(async () => [...kept.values()]),
     },
     bookingMeal: { update: jest.fn((args: unknown) => args) },
+    // No saved aisle list: the defaults, in store order.
+    platformSetting: { findUnique: jest.fn(async () => null) },
     shoppingList: {
       createMany: jest.fn(async () => ({ count: 0 })),
       update: jest.fn(async () => ({})),
@@ -85,10 +88,26 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
       create: { mealId: 'm1', version: 3, ingredients: [garlic] },
       update: {},
     });
+    // Recettes lot 3 (LF-0268): the allergens of that moment are kept with the version.
     expect(prisma.bookingMeal.update).toHaveBeenCalledWith({
       where: { bookingId_mealId: { bookingId: 'b1', mealId: 'm1' } },
-      data: { recipeVersion: 3 },
+      data: {
+        recipeVersion: 3,
+        allergensSnapshot: ['celery'],
+        pinnedAt: expect.any(Date),
+      },
     });
+  });
+
+  it('pins inside the transaction it is given, so a menu write and its pin land together', async () => {
+    const { prisma, service } = lists([
+      { mealId: 'm1', portions: 4, recipeVersion: null, meal: meal('m1') },
+    ]);
+
+    await service.pinRecipes('b1', { db: prisma as never });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.bookingMeal.update).toHaveBeenCalledTimes(1);
   });
 
   it('moves every dish to its current version on a re-pin', async () => {
@@ -99,7 +118,13 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
     await service.pinRecipes('b1', { repin: true });
 
     expect(prisma.bookingMeal.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { recipeVersion: 3 } }),
+      expect.objectContaining({
+        data: {
+          recipeVersion: 3,
+          allergensSnapshot: ['celery'],
+          pinnedAt: expect.any(Date),
+        },
+      }),
     );
   });
 
@@ -125,6 +150,66 @@ describe('ShoppingListsService (FLOW-02 §7)', () => {
     });
     // Under a lock on the booking's list row, so two recalculations cannot interleave.
     expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it('keeps a to_taste line in the list without quantity, merged across recipes (Recettes §4.12)', async () => {
+    const salt = { name: 'Sel', unit: 'to_taste', aisle: 'epices' };
+    const { prisma, service } = lists([
+      {
+        mealId: 'm1',
+        portions: 4,
+        recipeVersion: null,
+        meal: meal('m1', { ingredients: [garlic, salt] }),
+      },
+      {
+        mealId: 'm2',
+        portions: 2,
+        recipeVersion: null,
+        meal: meal('m2', { portions: 2, ingredients: [{ ...salt, qty: null }] }),
+      },
+    ]);
+
+    await service.regenerateForBooking('b1');
+
+    const [[{ data }]] = prisma.shoppingItem.createMany.mock.calls as unknown as [
+      [{ data: { name: string }[] }],
+    ];
+    expect(data.filter((item) => item.name === 'Sel')).toEqual([
+      expect.objectContaining({
+        name: 'Sel',
+        qty: 0,
+        unit: 'to_taste',
+        quantity: 'selon le goût',
+      }),
+    ]);
+  });
+
+  it('lists the aisles in store order, unknown ones last (Recettes §5.4)', async () => {
+    const item = (name: string, aisle: string) => ({
+      name,
+      qty: 1,
+      unit: 'g',
+      aisle,
+      quantity: '1 g',
+      edited: false,
+      removed: false,
+    });
+    const { service } = lists(
+      [],
+      [
+        item('Riz', 'epicerie-salee'),
+        item('Truc', 'Rayon libre'),
+        item('Ail', 'fruits-legumes'),
+      ],
+    );
+
+    const { groups } = await service.view('b1');
+
+    expect(groups.map((g) => g.aisle)).toEqual([
+      'fruits-legumes',
+      'epicerie-salee',
+      'Rayon libre',
+    ]);
   });
 
   it('shows corrections over the computed lines, grouped by aisle', async () => {

@@ -1,6 +1,8 @@
 import { textOf } from '../../common/pdf/pdf.test-helpers';
 import { RecipeDocumentInput, renderRecipePdf } from './recipe-document';
 
+const NO_EXTRA = { optional: false, precision: null, preparation: null, group: null };
+
 const INPUT: RecipeDocumentInput = {
   name: 'Poulet rôti aux herbes',
   description: 'Poulet fermier rôti, thym et romarin.',
@@ -10,8 +12,8 @@ const INPUT: RecipeDocumentInput = {
   cookMinutes: 55,
   version: 2,
   ingredients: [
-    { name: 'Poulet fermier', qty: 1.4, unit: 'kg', fixedQuantity: false },
-    { name: 'Laurier', qty: 2, unit: 'feuille', fixedQuantity: true },
+    { name: 'Poulet fermier', qty: 1.4, unit: 'kg', fixedQuantity: false, ...NO_EXTRA },
+    { name: 'Laurier', qty: 2, unit: 'leaf', fixedQuantity: true, ...NO_EXTRA },
   ],
   steps: [
     {
@@ -37,6 +39,7 @@ describe('renderRecipePdf (Recettes §7)', () => {
     for (const fact of [
       'Poulet rôti aux herbes',
       '1,4 kg',
+      '2 feuilles',
       'Poulet fermier',
       'quantité fixe',
       'Préchauffer le four à 200 °C.',
@@ -49,6 +52,44 @@ describe('renderRecipePdf (Recettes §7)', () => {
     ]) {
       expect(text).toContain(fact);
     }
+  });
+
+  it('prints each line as displayQuantity, preparation, precision, optional, by group (Recettes §7)', async () => {
+    const line = {
+      qty: null,
+      unit: null,
+      fixedQuantity: false,
+      optional: false,
+      precision: null,
+      preparation: null,
+      group: null,
+    };
+    const pdf = await renderRecipePdf({
+      ...INPUT,
+      ingredients: [
+        {
+          ...line,
+          name: 'Ail',
+          qty: 2,
+          unit: 'clove',
+          preparation: 'haché',
+          precision: 'bio',
+          optional: true,
+          group: 'Sauce',
+        },
+        { ...line, name: 'Sel', unit: 'to_taste' },
+        { ...line, name: 'Farine', qty: 200, unit: 'g', group: 'Pâte' },
+      ],
+    });
+    const text = textOf(pdf).replace(/\s+/g, ' ');
+
+    expect(text).toContain('2 gousses Ail, haché (bio) (facultatif)');
+    expect(text).toContain('selon le goût Sel');
+    // Lines without a group first, then each group under its label.
+    expect(text.indexOf('Sel')).toBeLessThan(text.indexOf('Sauce'));
+    expect(text.indexOf('Sauce')).toBeLessThan(text.indexOf('2 gousses Ail'));
+    expect(text.indexOf('Pâte')).toBeGreaterThan(text.indexOf('(facultatif)'));
+    expect(text).toContain('200 g Farine');
   });
 
   it('wears the LAB’S FOOD watermark on every page', async () => {

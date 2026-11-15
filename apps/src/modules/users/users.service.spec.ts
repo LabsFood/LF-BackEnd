@@ -818,6 +818,79 @@ describe('UsersService', () => {
     it('updates the vetting flags of a profile that predates candidatures', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(profile());
       prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', isActive: true });
+
+      await service.setChefVerification('chef-1', { isVerified: true, isActive: true });
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { isVerified: true, isActive: true },
+        include: { user: true },
+      });
+    });
+
+    it.each([ChefApplicationStatus.submitted, ChefApplicationStatus.rejected])(
+      'refuses to verify a candidate whose candidature is %s — approval is the only way',
+      async (status) => {
+        prisma.chefProfile.findUnique.mockResolvedValue(
+          profile({ application: { status } }),
+        );
+        await expect(
+          service.setChefVerification('chef-1', { isVerified: true }),
+        ).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'APPLICATION_NOT_APPROVED' },
+        });
+        expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('re-verifies an approved chef whose verification an admin had revoked', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ application: { status: ChefApplicationStatus.approved } }),
+      );
+      await service.setChefVerification('chef-1', { isVerified: true });
+      expect(prisma.chefProfile.update).toHaveBeenCalled();
+    });
+
+    it('refuses to put an unverified chef online', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ application: { status: ChefApplicationStatus.submitted } }),
+      );
+      await expect(
+        service.setChefVerification('chef-1', { isActive: true }),
+      ).rejects.toMatchObject({ status: 409, response: { code: 'CHEF_NOT_VERIFIED' } });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to revoke verification while leaving the chef online', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ isVerified: true, isActive: true }),
+      );
+      await expect(
+        service.setChefVerification('chef-1', { isVerified: false }),
+      ).rejects.toMatchObject({ response: { code: 'CHEF_NOT_VERIFIED' } });
+    });
+
+    it('always allows taking a chef offline', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({
+          isVerified: true,
+          isActive: true,
+          application: { status: ChefApplicationStatus.approved },
+        }),
+      );
+      await service.setChefVerification('chef-1', { isActive: false, isVerified: false });
+      expect(prisma.chefProfile.update).toHaveBeenCalled();
+    });
+
+    it('throws when the chef profile is missing', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      await expect(
+        service.setChefVerification('missing', { isActive: true }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('updateOwnChefZones', () => {
     const LYON = [
       {
@@ -931,79 +1004,6 @@ describe('UsersService', () => {
       await expect(service.updateOwnChefZones('user_1', LYON)).rejects.toBeInstanceOf(
         NotFoundException,
       );
-    });
-  });
-
-
-      await service.setChefVerification('chef-1', { isVerified: true, isActive: true });
-
-      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
-        where: { id: 'chef-1' },
-        data: { isVerified: true, isActive: true },
-        include: { user: true },
-      });
-    });
-
-    it.each([ChefApplicationStatus.submitted, ChefApplicationStatus.rejected])(
-      'refuses to verify a candidate whose candidature is %s — approval is the only way',
-      async (status) => {
-        prisma.chefProfile.findUnique.mockResolvedValue(
-          profile({ application: { status } }),
-        );
-        await expect(
-          service.setChefVerification('chef-1', { isVerified: true }),
-        ).rejects.toMatchObject({
-          status: 409,
-          response: { code: 'APPLICATION_NOT_APPROVED' },
-        });
-        expect(prisma.chefProfile.update).not.toHaveBeenCalled();
-      },
-    );
-
-    it('re-verifies an approved chef whose verification an admin had revoked', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        profile({ application: { status: ChefApplicationStatus.approved } }),
-      );
-      await service.setChefVerification('chef-1', { isVerified: true });
-      expect(prisma.chefProfile.update).toHaveBeenCalled();
-    });
-
-    it('refuses to put an unverified chef online', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        profile({ application: { status: ChefApplicationStatus.submitted } }),
-      );
-      await expect(
-        service.setChefVerification('chef-1', { isActive: true }),
-      ).rejects.toMatchObject({ status: 409, response: { code: 'CHEF_NOT_VERIFIED' } });
-      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
-    });
-
-    it('refuses to revoke verification while leaving the chef online', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        profile({ isVerified: true, isActive: true }),
-      );
-      await expect(
-        service.setChefVerification('chef-1', { isVerified: false }),
-      ).rejects.toMatchObject({ response: { code: 'CHEF_NOT_VERIFIED' } });
-    });
-
-    it('always allows taking a chef offline', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(
-        profile({
-          isVerified: true,
-          isActive: true,
-          application: { status: ChefApplicationStatus.approved },
-        }),
-      );
-      await service.setChefVerification('chef-1', { isActive: false, isVerified: false });
-      expect(prisma.chefProfile.update).toHaveBeenCalled();
-    });
-
-    it('throws when the chef profile is missing', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue(null);
-      await expect(
-        service.setChefVerification('missing', { isActive: true }),
-      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 

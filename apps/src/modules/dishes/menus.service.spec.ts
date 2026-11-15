@@ -91,7 +91,7 @@ describe('MenusService', () => {
       h.menu.findUnique.mockResolvedValue(
         menuRow({}, [
           readyDishRow({ id: 'd1' }),
-          readyDishRow({ id: 'd2', allergens: [] }),
+          readyDishRow({ id: 'd2', description: null }),
         ]),
       );
 

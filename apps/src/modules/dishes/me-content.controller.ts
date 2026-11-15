@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -33,11 +34,17 @@ import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { ParseVersionPipe } from '../../common/pipes/version-param.pipe';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { DishesService } from './dishes.service';
 import { DuplicationService } from './duplication.service';
-import { CreateDishDto, UpdateDishDto } from './dto/dish.dto';
+import {
+  ConfirmAllergensDto,
+  CreateDishDto,
+  RestoreVersionDto,
+  UpdateDishDto,
+} from './dto/dish.dto';
 import {
   CreateMenuDto,
   PutShowcaseWeeksDto,
@@ -53,16 +60,20 @@ import {
   photoStepsHelp,
 } from './dto/photo.dto';
 import { MenusService } from './menus.service';
+import { RecipeVersionsService } from './recipe-versions.service';
 import { SuggestionsService } from './suggestions.service';
 import {
   CHEF_NOT_VERIFIED_EXAMPLE,
   CONTENT_NOT_OWNED_EXAMPLE,
   DISH_EXAMPLE,
   DISH_ID,
+  DUPLICATE_INGREDIENT_LINE_EXAMPLE,
+  INGREDIENT_NOT_LINKED_EXAMPLE,
   MENU_EXAMPLE,
   MENU_ID,
   MENU_NOT_PUBLISHABLE_EXAMPLE,
   PUBLISH_REFUSED_EXAMPLE,
+  RECIPE_CONFLICT_EXAMPLE,
   SHOWCASE_EXAMPLE,
   CONSENT_REQUIRED_EXAMPLE,
   SUGGESTIONS_EXAMPLE,
@@ -109,6 +120,7 @@ export class MeContentController {
     private readonly suggestions: SuggestionsService,
     private readonly photos: ContentPhotosService,
     private readonly duplication: DuplicationService,
+    private readonly versions: RecipeVersionsService,
   ) {}
 
   @Get('dishes')
@@ -133,14 +145,18 @@ export class MeContentController {
     description:
       'Creates a `draft`: nothing is public until `POST /me/dishes/{id}/publish`.\n\n' +
       '- Only `name` and `prepMinutes` are required to save a draft.\n' +
-      '- `allergens` takes ids from `GET /referentials/allergens`, `diets` from ' +
-      '`GET /referentials/diets`. Anything else goes in `customAllergens` or ' +
-      '`customDiets`.\n' +
-      '- `allergensNone: true` says the dish has none of the 14 regulated allergens. ' +
-      'It cannot be combined with a listed allergen.\n' +
+      '- Allergens are computed from the recipe lines linked to the common ingredient ' +
+      'list (Recettes §6.1): the dish returns them in `allergens`, `conditionalAllergens` ' +
+      'and `allergensNone`, never sent. `addedAllergens` adds regulated ones on top, ids ' +
+      'from `GET /referentials/allergens`; none can be taken away.\n' +
+      '- `diets` takes ids from `GET /referentials/diets`. Anything else goes in ' +
+      '`customAllergens` or `customDiets`.\n' +
+      '- Each `recipe.ingredients` line is checked: a unit among the 14, a quantity ' +
+      'above 0 unless `to_taste` or to verify, a linked ingredient the batch cooker may ' +
+      'use. A linked line takes the name, aisle and allergens of its ingredient.\n' +
       '- `recipe` stays private: the public site never shows it.\n\n' +
       'Example: `{ "name": "Poulet rôti aux herbes", "prepMinutes": 20, "country": "FR", ' +
-      '"allergens": ["celery"] }`.',
+      '"addedAllergens": ["celery"] }`.',
   })
   @ApiCreatedResponse({
     description: 'The new draft.',
@@ -148,8 +164,12 @@ export class MeContentController {
   })
   @ApiUnprocessableEntityResponse({
     description:
-      '`VALIDATION_FAILED`: the declaration contradicts itself, for example ' +
-      '`allergensNone` next to a listed allergen, or "gluten" typed as free text.',
+      '`VALIDATION_FAILED`: "gluten" typed as free text next to the list, an ingredient ' +
+      'line that breaks the rules or links an ingredient this batch cooker cannot use ' +
+      '(`errors` names the line). `DUPLICATE_INGREDIENT_LINE`: two lines of the same ' +
+      'group link the same ingredient with the same precision (`lines` groups their ' +
+      'indexes).',
+    example: DUPLICATE_INGREDIENT_LINE_EXAMPLE,
   })
   @ApiForbiddenResponse(NOT_VERIFIED)
   @ApiNotFoundResponse({ description: 'This account has no batch cooker profile.' })
@@ -172,6 +192,91 @@ export class MeContentController {
     return this.dishes.get(user.userId, id);
   }
 
+  @Get('dishes/:id/versions')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'List the versions of one of my dishes',
+    description:
+      'Recettes §8.2: the frozen versions of the recipe, newest first. `bookings` counts ' +
+      'the bookings that pin each one; `current` marks the version the dish is at.',
+  })
+  @ApiDishIdParam()
+  @ApiOkResponse({
+    description: 'The versions.',
+    example: [
+      { version: 2, createdAt: '2026-11-01T09:00:00.000Z', bookings: 3, current: true },
+      { version: 1, createdAt: '2026-10-01T08:00:00.000Z', bookings: 0, current: false },
+    ],
+  })
+  @ApiNotFoundResponse({ description: 'No such dish among mine.' })
+  @ApiClerkAuthResponses()
+  listVersions(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.versions.list(user.userId, id);
+  }
+
+  @Get('dishes/:id/versions/:version')
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Read one version of one of my dishes',
+    description:
+      'Recettes §8.2: its portions, ingredients, steps, reheating and storage.',
+  })
+  @ApiDishIdParam()
+  @ApiParam({ name: 'version', description: 'The version number.', example: 1 })
+  @ApiOkResponse({ description: 'The version.' })
+  @ApiNotFoundResponse({ description: 'No such dish among mine, or no such version.' })
+  @ApiClerkAuthResponses()
+  getVersion(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('version', ParseVersionPipe) version: number,
+  ) {
+    return this.versions.get(user.userId, id, version);
+  }
+
+  @Post('dishes/:id/versions/:version/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags(TAGS.chefContent)
+  @ApiOperation({
+    summary: 'Restore a version into one of my dishes',
+    description:
+      'Recettes §8.2: copies the version into the dish, then the rules of a normal save ' +
+      'apply (`PATCH /me/dishes/{id}`): allergens computed again, verification cleared ' +
+      'if they changed, `versionPending`, and a new version if the recipe is "Prête". ' +
+      'History is never erased. A line linked to an ingredient merged since then is ' +
+      'repointed to its replacement; one whose ingredient is gone becomes a line to ' +
+      'verify.',
+  })
+  @ApiDishIdParam()
+  @ApiParam({ name: 'version', description: 'The version number.', example: 1 })
+  @ApiBody({ type: RestoreVersionDto, required: false })
+  @ApiOkResponse({ description: 'The updated dish.', example: DISH_EXAMPLE })
+  @ApiConflictResponse({
+    description:
+      '`RECIPE_CONFLICT`: the dish changed since this `lockVersion` was read. Reload it.',
+    example: RECIPE_CONFLICT_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: the restored recipe breaks a rule of a save (`errors` names ' +
+      'the line), or a limit is reached.',
+    example: DUPLICATE_INGREDIENT_LINE_EXAMPLE,
+  })
+  @ApiForbiddenResponse(NOT_VERIFIED)
+  @ApiNotFoundResponse({ description: 'No such dish among mine, or no such version.' })
+  @ApiClerkAuthResponses()
+  restoreVersion(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('version', ParseVersionPipe) version: number,
+    @Body() payload: RestoreVersionDto,
+  ) {
+    return this.versions.restore(user.userId, id, version, payload?.lockVersion);
+  }
+
   @Patch('dishes/:id')
   @ApiTags(TAGS.chefContent)
   @ApiOperation({
@@ -179,13 +284,35 @@ export class MeContentController {
     description:
       'Send only the fields to change; `null` empties `description`, `country`, ' +
       '`category`, `cookMinutes` or `difficulty`. A `recipe` replaces the whole ' +
-      'recipe.\n\n' +
-      'A published dish stays published.',
+      'recipe, its lines checked as on `POST /me/dishes`.\n\n' +
+      '- Send back the `lockVersion` the dish was read with: if it changed since (another ' +
+      'screen, or Lab’s Food correcting an ingredient), the answer is ' +
+      '`409 RECIPE_CONFLICT` with the current `lockVersion`, and nothing is written. ' +
+      'Each save moves it on by one.\n' +
+      '- `allergens`, `conditionalAllergens` and `allergensNone` are computed again ' +
+      'from the lines and `addedAllergens`. An allergen declared by hand before they ' +
+      'were computed is never dropped: it is kept in `addedAllergens`, from where the ' +
+      'batch cooker may remove it. A line added, removed or relinked, a line that ' +
+      'becomes optional or stops being so, or a change to the allergens, clears ' +
+      '`allergensVerifiedAt`, even one confirmed after this dish was read: confirm ' +
+      'them again (`POST /me/dishes/{id}/allergens/confirm`). A quantity does not.\n' +
+      '- A published dish stays published, even if the recipe is no longer "Prête"; it ' +
+      'cannot be booked until its allergens are confirmed.',
   })
   @ApiDishIdParam()
   @ApiOkResponse({ description: 'The updated dish.', example: DISH_EXAMPLE })
+  @ApiConflictResponse({
+    description:
+      '`RECIPE_CONFLICT`: the dish changed since this `lockVersion` was read. Reload it.',
+    example: RECIPE_CONFLICT_EXAMPLE,
+  })
   @ApiUnprocessableEntityResponse({
-    description: '`VALIDATION_FAILED`: the declaration would contradict itself.',
+    description:
+      '`VALIDATION_FAILED`: a free text repeats an entry of the lists, or an ingredient ' +
+      'line breaks the rules or links an ingredient this batch cooker cannot use ' +
+      '(`errors` names the line). `DUPLICATE_INGREDIENT_LINE`: the same ingredient on ' +
+      'two lines (`lines`).',
+    example: DUPLICATE_INGREDIENT_LINE_EXAMPLE,
   })
   @ApiForbiddenResponse(NOT_OWNED)
   @ApiNotFoundResponse({ description: 'No dish with this id.' })
@@ -232,10 +359,13 @@ export class MeContentController {
       'have a short description, else `422 RECIPE_NOT_READY` with every point in ' +
       '`problems` (`readiness` on the dish says the same beforehand): name, type, ' +
       'portions, cooking time, an ingredient, none still to verify ' +
-      '(`INGREDIENT_TO_VERIFY`), a step, each typed (`STEP_TYPE_MISSING`), storage, ' +
-      'reheating, allergens declared (`ALLERGENS_REQUIRED`) and confirmed since the ' +
-      'last ingredient change (`ALLERGENS_UNVERIFIED`). Origin and equipment are never ' +
-      'asked; a missing photo is a warning only, for now.\n\n' +
+      '(`INGREDIENT_TO_VERIFY`), each linked to the common list (`INGREDIENT_NOT_LINKED`) ' +
+      'and complete (`INGREDIENT_INCOMPLETE`), each with a quantity above 0 and a unit ' +
+      'unless `to_taste` (`VALIDATION_FAILED` on `recipe.ingredients[i].qty` or ' +
+      '`.unit`), a step, each typed (`STEP_TYPE_MISSING`), ' +
+      'storage, reheating, allergens confirmed since the last ingredient change ' +
+      '(`ALLERGENS_UNVERIFIED`), and a photo (`PHOTO_MISSING`). Origin and equipment are ' +
+      'never asked.\n\n' +
       'Publishing a published dish changes nothing.',
   })
   @ApiDishIdParam()
@@ -312,27 +442,57 @@ export class MeContentController {
   @ApiOperation({
     summary: 'Confirm the allergens of one of my dishes',
     description:
-      'Recettes §4.9: the batch cooker confirms the allergens declared match the ' +
-      'ingredients. Sets `allergensVerifiedAt`, needed for the dish to be ready and to ' +
-      'be booked. Adding, removing or renaming an ingredient clears it again; a ' +
-      'quantity does not.\n\n' +
-      '`422 ALLERGENS_REQUIRED` while nothing is declared: `allergens` empty and ' +
-      '`allergensNone` false.',
+      'Recettes §4.9: the batch cooker confirms the allergens computed from the ' +
+      'ingredients, plus the ones they added, are right. Sets `allergensVerifiedAt`, ' +
+      'needed for the dish to be ready and to be booked. Adding, removing or changing ' +
+      'an ingredient, or a change to the allergens, clears it again; a quantity does ' +
+      'not. A confirmation never moves `lockVersion`.\n\n' +
+      '- The allergens are computed again from the common ingredient list as it is ' +
+      'now. If that gives something other than what the dish shows (lines never ' +
+      'computed, an ingredient corrected since), the new result is saved unconfirmed, ' +
+      '`lockVersion` moves on, and the answer is `409 RECIPE_CONFLICT` with it: reload ' +
+      'the dish, check the allergens and confirm again.\n' +
+      '- The body is optional. Send `{ "lockVersion": 4 }`, the one the allergens were ' +
+      'read with: if the dish changed since (another screen, Lab’s Food correcting an ' +
+      'ingredient), the answer is `409 RECIPE_CONFLICT` with the current `lockVersion` ' +
+      'and nothing is confirmed. With or without it, a change landing during the ' +
+      'confirmation answers the same 409.\n' +
+      '- `422 VALIDATION_FAILED` while the recipe has no ingredient.\n' +
+      '- `422 INGREDIENT_NOT_LINKED` while a line is not linked to the common list, or ' +
+      'links an ingredient still to complete: `lines` gives their indexes.\n' +
+      '- `422 VALIDATION_FAILED` with `allergens` while an allergen code is not one of ' +
+      'the 14 regulated ones (a legacy or renamed code): it must be corrected first.',
   })
   @ApiDishIdParam()
+  @ApiBody({ type: ConfirmAllergensDto, required: false })
   @ApiOkResponse({
     description: 'The dish, with `allergensVerifiedAt`.',
     example: DISH_EXAMPLE,
   })
-  @ApiUnprocessableEntityResponse({ description: 'Nothing is declared yet.' })
+  @ApiConflictResponse({
+    description:
+      '`RECIPE_CONFLICT` with the current `lockVersion`: the dish changed since it was ' +
+      'read, or its allergens were just computed again and differ. Nothing is ' +
+      'confirmed: reload it and check the allergens again.',
+    example: RECIPE_CONFLICT_EXAMPLE,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The allergens cannot be confirmed yet: no ingredient (`VALIDATION_FAILED`), a ' +
+      'line not linked or incomplete (`INGREDIENT_NOT_LINKED`, with `lines`), or a code ' +
+      'outside the 14 (`VALIDATION_FAILED`, with `allergens`).',
+    example: INGREDIENT_NOT_LINKED_EXAMPLE,
+  })
   @ApiForbiddenResponse(NOT_OWNED)
   @ApiNotFoundResponse({ description: 'No dish with this id.' })
   @ApiClerkAuthResponses()
   confirmDishAllergens(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: ConfirmAllergensDto,
   ) {
-    return this.dishes.confirmAllergens(user.userId, id);
+    // A missing body arrives as `{}` (the validation pipe): `lockVersion` is optional.
+    return this.dishes.confirmAllergens(user.userId, id, payload?.lockVersion);
   }
 
   @Post('dishes/:id/unpublish')

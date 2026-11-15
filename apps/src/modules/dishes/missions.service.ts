@@ -17,16 +17,39 @@ import {
 } from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
-import { shoppingByClient, shoppingListFrozen } from './domain/content.errors';
+import { CLIENT_ALLERGY_SELECT, menuRefusal } from '../allergies/domain/allergies.rules';
+import {
+  eatBeforeOpen,
+  eatBeforeRefusal,
+  eatBeforeView,
+} from '../bookings/domain/eat-before.rules';
+import { frozenSince, isMenuFrozen } from '../bookings/domain/menu-freeze.rules';
+import { parisToday } from '../../common/paris-time';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
+import { reheatModesInForce } from '../platform-settings/recipe-lists';
+import {
+  menuFrozen,
+  shoppingByClient,
+  shoppingListFrozen,
+  validationFailed,
+} from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
 import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
-import { PutDishNotesDto } from './dto/mission.dto';
+import { PutDishNotesDto, PutEatBeforeDto } from './dto/mission.dto';
+import { conservationFilename, renderConservationPdf } from './conservation-document';
+import { reheatingText, storageText } from './recipe-document';
 
 type Role = 'chef' | 'admin' | 'client';
 
 /** From the moment the chef is cooking: what was cooked is known and worth a note. */
 const NOTES_OPEN: BookingStatus[] = [
   BookingStatus.cooking,
+  BookingStatus.delivered,
+  BookingStatus.completed,
+];
+
+/** Recettes lot 3 (LF-0272): the client reads the conservation sheet once the dishes are home. */
+const CONSERVATION_FOR_CLIENT: BookingStatus[] = [
   BookingStatus.delivered,
   BookingStatus.completed,
 ];
@@ -201,6 +224,225 @@ export class MissionsService {
   }
 
   /**
+   * Recettes lot 3 (LF-0270): the batch cooker sets the « à manger avant » date of a
+   * dish, or goes back to the platform's (`null`), until 24 hours after the
+   * prestation ends. Each change is kept: who, when, which value.
+   */
+  async setEatBefore(
+    clerkUserId: string,
+    bookingId: string,
+    dishId: string,
+    dto: PutEatBeforeDto,
+  ) {
+    const { user, booking } = await this.asChef(clerkUserId, bookingId);
+    if (!booking.bookingMeals.some((bm) => bm.mealId === dishId)) {
+      throw new NotFoundException('This dish is not part of this prestation.');
+    }
+    if (!eatBeforeOpen(booking.endsAt)) {
+      throw new ConflictException({
+        code: 'EAT_BEFORE_CLOSED',
+        message: 'Dates are set until 24 hours after the prestation ends.',
+      });
+    }
+    const value = dto.date === null ? null : new Date(`${dto.date}T00:00:00.000Z`);
+    if (value && Number.isNaN(value.getTime())) {
+      throw validationFailed('This is not a calendar day.', { field: 'date' });
+    }
+    const refusal = value && eatBeforeRefusal(booking.startsAt, value);
+    if (refusal) throw validationFailed(refusal, { field: 'date' });
+
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.bookingMeal.update({
+        where: { bookingId_mealId: { bookingId, mealId: dishId } },
+        data: {
+          eatBefore: value,
+          eatBeforeSetAt: value ? now : null,
+          eatBeforeSetByUserId: value ? user.id : null,
+        },
+      }),
+      this.prisma.bookingMealDateChange.create({
+        data: {
+          bookingId,
+          mealId: dishId,
+          value,
+          changedByUserId: user.id,
+          changedAt: now,
+        },
+      }),
+    ]);
+    this.logger.log({
+      event: 'mission.eat_before_set',
+      bookingId,
+      dishId,
+      reset: !value,
+    });
+    const sheet = await this.conservation(clerkUserId, bookingId);
+    return sheet.dishes.find((dish) => dish.mealId === dishId)!;
+  }
+
+  /**
+   * Recettes lot 3 (LF-0270 to LF-0272, §11): the conservation sheet. Per dish, how
+   * to keep it and until when, from the recipe version pinned for this prestation
+   * and the chef's notes; never quantities nor steps. Shortest date first. The
+   * client reads it once the dishes are home (`delivered`); the chef and the admins
+   * at any time, with the history of the dates the chef set.
+   */
+  async conservation(clerkUserId: string, bookingId: string) {
+    const { booking, role } = await this.access(clerkUserId, bookingId);
+    if (role === 'client' && !CONSERVATION_FOR_CLIENT.includes(booking.status)) {
+      throw new ConflictException({
+        code: 'CONSERVATION_NOT_READY',
+        message: 'The conservation sheet is ready once the dishes are delivered.',
+      });
+    }
+    const [pinned, alertDays] = await Promise.all([
+      this.lists.pinRecipes(bookingId),
+      fridgeAlertDaysInForce(this.prisma),
+    ]);
+    const rows = new Map(booking.bookingMeals.map((bm) => [bm.mealId, bm]));
+    const dishes = pinned
+      .map(({ mealId, meal, recipe }) => {
+        const row = rows.get(mealId);
+        const storage = (recipe.storage ?? null) as Record<string, unknown> | null;
+        return {
+          mealId,
+          name: meal.name,
+          storage: storage && {
+            method: storage.method ?? null,
+            days: storage.days ?? null,
+            container: storage.container ?? null,
+            freezable: storage.freezable ?? null,
+            freezerMonths: storage.freezerMonths ?? null,
+            thawing: storage.thawing ?? null,
+          },
+          reheating: recipe.reheating ?? null,
+          notes: {
+            storage: row?.storageNote ?? null,
+            reheating: row?.reheatingNote ?? null,
+          },
+          eatBefore: eatBeforeView(
+            booking.startsAt,
+            storage,
+            {
+              eatBefore: row?.eatBefore ?? null,
+              eatBeforeSetAt: row?.eatBeforeSetAt ?? null,
+            },
+            alertDays,
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          (a.eatBefore.date ?? '9999').localeCompare(b.eatBefore.date ?? '9999') ||
+          a.name.localeCompare(b.name, 'fr'),
+      );
+    const history =
+      role === 'client' ? undefined : await this.dateHistory(bookingId, role);
+    return {
+      bookingId,
+      startsAt: booking.startsAt,
+      status: booking.status,
+      fridgeAlertDays: alertDays,
+      dishes,
+      ...(history && { history }),
+    };
+  }
+
+  /**
+   * Recettes lot 3 (LF-0270, LF-0276): each date set on a dish, oldest first. An
+   * admin reads who set it, by name and role (decision of 13/11); the batch cooker
+   * reads the role only, never an id nor a name.
+   */
+  private async dateHistory(bookingId: string, role: Role) {
+    const changes = await this.prisma.bookingMealDateChange.findMany({
+      where: { bookingId },
+      orderBy: { changedAt: 'asc' },
+      take: 500,
+    });
+    const ids = [...new Set(changes.flatMap((c) => c.changedByUserId ?? []))];
+    const people = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            fullName: true,
+            role: true,
+            chefProfile: { select: { displayName: true } },
+          },
+        })
+      : [];
+    const byId = new Map(people.map((p) => [p.id, p]));
+    return changes.map((change) => {
+      const who = change.changedByUserId ? byId.get(change.changedByUserId) : undefined;
+      // A batch cooker who is also an admin still set the date as the batch cooker.
+      const as: 'chef' | 'admin' | null = !who
+        ? null
+        : who.chefProfile
+          ? 'chef'
+          : who.role === UserRole.admin
+            ? 'admin'
+            : null;
+      return {
+        mealId: change.mealId,
+        value: change.value ? change.value.toISOString().slice(0, 10) : null,
+        changedAt: change.changedAt,
+        changedBy:
+          role === 'admin'
+            ? {
+                id: change.changedByUserId,
+                name: who?.chefProfile?.displayName ?? who?.fullName ?? null,
+                role: as,
+              }
+            : { role: as },
+      };
+    });
+  }
+
+  /**
+   * Recettes lot 3 (LF-0272): the conservation sheet as a PDF, for the same people
+   * and on the same terms as `conservation`. Labels, never codes.
+   */
+  async conservationPdf(clerkUserId: string, bookingId: string) {
+    const [sheet, modes] = await Promise.all([
+      this.conservation(clerkUserId, bookingId),
+      reheatModesInForce(this.prisma),
+    ]);
+    const day = (ymdDay: string, withYear: boolean) =>
+      new Intl.DateTimeFormat('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        ...(withYear && { year: 'numeric' }),
+        timeZone: 'UTC',
+      }).format(new Date(`${ymdDay}T00:00:00.000Z`));
+    const sessionYmd = parisToday(sheet.startsAt).toISOString().slice(0, 10);
+    const body = await renderConservationPdf({
+      day: day(sessionYmd, true),
+      dishes: sheet.dishes.map((dish) => ({
+        name: dish.name,
+        eatBefore: dish.eatBefore.date ? day(dish.eatBefore.date, false) : null,
+        storage: storageText(dish.storage),
+        freezer:
+          dish.storage?.freezable === true
+            ? [
+                typeof dish.storage.freezerMonths === 'number'
+                  ? `Se congèle, ${dish.storage.freezerMonths} mois au plus`
+                  : 'Se congèle',
+                typeof dish.storage.thawing === 'string' ? dish.storage.thawing : null,
+              ]
+                .filter(Boolean)
+                .join('. ')
+            : null,
+        reheating: reheatingText(dish.reheating, modes),
+        chefNote:
+          [dish.notes.storage, dish.notes.reheating].filter(Boolean).join(' ') || null,
+      })),
+    });
+    return { filename: conservationFilename(sessionYmd), body };
+  }
+
+  /**
    * §7's shopping list, for the chef, the admins and the booking's client. The
    * client starts again from their last answer while they can still send it; once
    * frozen, they see what counts, like everyone else.
@@ -288,6 +530,26 @@ export class MissionsService {
         message: 'The prestation has started: its recipes stay as they were.',
       });
     }
+    // Recettes lot 3 (LF-0269): the client's menu is frozen 72 hours before.
+    if (isMenuFrozen(booking.startsAt)) throw menuFrozen(frozenSince(booking.startsAt));
+    // The current versions may carry an allergen the pinned ones did not: the client's
+    // allergies are checked again, as when the menu was written (lot 1).
+    const [client, quote] = await Promise.all([
+      this.prisma.clientProfile.findUnique({
+        where: { userId: booking.clientId },
+        select: CLIENT_ALLERGY_SELECT,
+      }),
+      this.prisma.quote.findFirst({
+        where: { bookingId: booking.id },
+        select: { allergies: true },
+      }),
+    ]);
+    const refusal = menuRefusal(
+      client,
+      booking.bookingMeals.map((bm) => bm.meal),
+      quote?.allergies ?? [],
+    );
+    if (refusal) throw refusal;
     const before = booking.bookingMeals.map((bm) => ({
       mealId: bm.mealId,
       version: bm.recipeVersion,

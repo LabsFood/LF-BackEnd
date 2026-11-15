@@ -13,6 +13,7 @@ import {
   DIETS,
   DISH_CATEGORIES,
 } from '../dishes/domain/dishes.rules';
+import { UNITS } from '../dishes/domain/units.rules';
 import { STEP_TYPES } from '../dishes/domain/recipes.rules';
 import { LANGUAGES } from '../users/dto/chef-profile.dto';
 
@@ -155,21 +156,48 @@ export class ReferentialsController {
   @Get('dish-categories')
   @ApiOperation({
     summary: 'List the dish categories',
-    description: 'Where a dish sits in a meal, for `category`. Public.',
+    description: 'The seven dish types (Recettes §4.1), for `category`. Public.',
   })
   @ApiOkResponse({
     description: 'Every category, as code and label.',
     schema: {
       example: {
         categories: [
+          { code: 'main', label: 'Plat complet' },
           { code: 'starter', label: 'Entrée' },
-          { code: 'main', label: 'Plat' },
+          { code: 'soup', label: 'Soupe' },
+          { code: 'side', label: 'Accompagnement' },
+          { code: 'dessert', label: 'Dessert' },
+          { code: 'breakfast', label: 'Petit-déjeuner ou goûter' },
+          { code: 'sauce', label: 'Sauce ou base' },
         ],
       },
     },
   })
   categories() {
     return { categories: DISH_CATEGORIES };
+  }
+
+  @Get('units')
+  @ApiOperation({
+    summary: 'List the units of a recipe line',
+    description:
+      'The 14 units an ingredient line takes in `unit` (Recettes §4.12), with the ' +
+      'label shown for one and the `plural` shown from two. Public.',
+  })
+  @ApiOkResponse({
+    description: 'Every unit, as code, label and plural.',
+    schema: {
+      example: {
+        units: [
+          { code: 'g', label: 'g', plural: 'g' },
+          { code: 'clove', label: 'gousse', plural: 'gousses' },
+        ],
+      },
+    },
+  })
+  units() {
+    return { units: UNITS };
   }
 
   @Get('computed-diets')

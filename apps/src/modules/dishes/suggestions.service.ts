@@ -386,8 +386,11 @@ async function copyDish(tx: Tx, chef: ChefContext, source: Meal) {
       calories: source.calories,
       dietaryTags: source.dietaryTags,
       customDiets: source.customDiets,
+      // Recettes §8.1: the computed allergens and the stamped lines, as they are.
       allergens: source.allergens,
       allergensNone: source.allergensNone,
+      addedAllergens: source.addedAllergens,
+      conditionalAllergens: source.conditionalAllergens,
       customAllergens: source.customAllergens,
       ingredients: source.ingredients ?? [],
       steps: source.steps ?? [],

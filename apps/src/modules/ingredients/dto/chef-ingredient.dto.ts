@@ -1,0 +1,33 @@
+import { ApiProperty, OmitType, PartialType } from '@nestjs/swagger';
+import { IsString, Length } from 'class-validator';
+import { Raw } from '../../../common/dto/strict';
+import { CatalogIngredientDto } from './ingredient.dto';
+
+/**
+ * Recettes §7.1: an ingredient a chef adds when the common list lacks one. The
+ * fields of a common entry, the aisle now required. The allergens (or "none") are
+ * required too, checked by the service (400): "not filled in" is no answer for an
+ * allergen. Status, owner and review are never the chef's to send.
+ */
+export class ChefIngredientDto extends OmitType(CatalogIngredientDto, [
+  'aisle',
+] as const) {
+  @ApiProperty({
+    maxLength: 60,
+    description:
+      'The supermarket aisle: a code of the list in force. `422` when it is not in it.',
+    example: 'epicerie',
+  })
+  @Raw()
+  @IsString()
+  @Length(1, 60)
+  aisle!: string;
+}
+
+/**
+ * Any part of an own pending ingredient (Recettes §7.1). I4: a field may be left
+ * out, never sent as null (400, never a 500).
+ */
+export class UpdateChefIngredientDto extends PartialType(ChefIngredientDto, {
+  skipNullProperties: false,
+}) {}

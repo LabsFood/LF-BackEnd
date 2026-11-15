@@ -19,7 +19,18 @@ const booking = (overrides: Record<string, unknown> = {}) => ({
   startsAt: FUTURE,
   persons: 3,
   shoppingByClient: false,
-  bookingMeals: [{ mealId: 'dish-1', recipeVersion: 2 }],
+  bookingMeals: [
+    {
+      mealId: 'dish-1',
+      recipeVersion: 2,
+      meal: {
+        id: 'dish-1',
+        allergens: ['celery'],
+        allergensNone: false,
+        allergensVerifiedAt: new Date(),
+      },
+    },
+  ],
   ...overrides,
 });
 
@@ -45,7 +56,7 @@ const PINNED = {
     ingredients: [{ name: 'Ail', qty: 3, unit: 'gousse', aisle: 'fruits-legumes' }],
     steps: ['Éplucher'],
     reheating: null,
-    storage: null,
+    storage: null as unknown,
   },
 };
 
@@ -67,6 +78,25 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
         ...data,
       })),
     },
+    // Recettes lot 3: the client's allergies, read again before a re-pin.
+    clientProfile: {
+      findUnique: jest.fn(async (): Promise<unknown> => ({
+        allergies: [],
+        customAllergies: [],
+        allergiesNone: true,
+        allergiesDeclaredAt: new Date('2026-11-01'),
+        healthConsentAt: new Date('2026-11-01'),
+      })),
+    },
+    quote: { findFirst: jest.fn(async (): Promise<unknown> => null) },
+    // Recettes lot 3: the fridge threshold (none saved: the default) and the date history.
+    platformSetting: { findUnique: jest.fn(async (): Promise<unknown> => null) },
+    bookingMealDateChange: {
+      create: jest.fn((args: unknown) => args),
+      findMany: jest.fn(async (): Promise<unknown[]> => []),
+    },
+    user: { findMany: jest.fn(async (): Promise<unknown[]> => []) },
+    $transaction: jest.fn(async (writes: unknown[]) => writes),
     chefProfile: {
       // By the caller's user id (who is this?) or by the booking's chef id (who to tell).
       findUnique: jest.fn(async ({ where }: { where: { id?: string } }) =>
@@ -149,6 +179,30 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       { name: 'Ail', qty: 6, unit: 'gousse', aisle: 'fruits-legumes' },
     ]);
     expect(sheet.version).toEqual({ pinned: 2, current: 3, newerAvailable: true });
+  });
+
+  it('rounds each line by its unit (Recettes §4.12)', async () => {
+    const { service, lists } = missions('chef');
+    lists.pinRecipes.mockResolvedValue([
+      {
+        ...PINNED,
+        recipe: {
+          ...PINNED.recipe,
+          ingredients: [
+            { name: 'Ail', qty: 1, unit: 'clove', aisle: 'fruits-legumes' },
+            { name: 'Sel', qty: 2.5, unit: 'g', aisle: 'epices' },
+          ],
+        },
+      },
+    ]);
+
+    // 3 portions -> 4: 1.33 cloves go up to 2, 3.33 g keeps one decimal.
+    const sheet = await service.recipeSheet('clerk', 'b1', 'dish-1', 4);
+
+    expect(sheet.recipe.ingredients).toEqual([
+      expect.objectContaining({ name: 'Ail', qty: 2 }),
+      expect.objectContaining({ name: 'Sel', qty: 3.3 }),
+    ]);
   });
 
   it('never hands a chef another chef’s recipe through a prestation', async () => {
@@ -294,6 +348,139 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
     });
   });
 
+  describe('« à manger avant » and the conservation sheet (Recettes lot 3)', () => {
+    // Cooked on 20/11 in Paris; the recipe keeps 3 days in the fridge.
+    const cooked = (overrides: Record<string, unknown> = {}) =>
+      booking({
+        status: BookingStatus.delivered,
+        startsAt: new Date('2026-11-20T08:00:00.000Z'),
+        endsAt: new Date('2026-11-20T11:00:00.000Z'),
+        ...overrides,
+      });
+    const withStorage = (m: ReturnType<typeof missions>) =>
+      m.lists.pinRecipes.mockResolvedValue([
+        {
+          ...PINNED,
+          recipe: { ...PINNED.recipe, storage: { method: 'fridge', days: 3 } },
+        },
+      ]);
+
+    beforeEach(() => jest.useFakeTimers({ now: new Date('2026-11-20T12:00:00.000Z') }));
+    afterEach(() => jest.useRealTimers());
+
+    it('proposes the prestation day plus the fridge days, and shows it to the client once delivered', async () => {
+      const m = missions('client', cooked());
+      withStorage(m);
+
+      const sheet = await m.service.conservation('clerk', 'b1');
+
+      expect(sheet.dishes[0].eatBefore).toMatchObject({
+        date: '2026-11-23',
+        setByChef: false,
+        fridgeDays: 3,
+        fridgeAlert: false,
+      });
+      expect(sheet).not.toHaveProperty('history');
+    });
+
+    it('keeps the sheet from the client before the dishes are delivered', async () => {
+      const m = missions('client', cooked({ status: BookingStatus.cooking }));
+
+      await expect(m.service.conservation('clerk', 'b1')).rejects.toMatchObject({
+        response: { code: 'CONSERVATION_NOT_READY' },
+      });
+    });
+
+    it('records the chef’s date and who set it, and alerts past 4 days', async () => {
+      const m = missions('chef', cooked());
+      withStorage(m);
+      m.prisma.booking.findUnique.mockResolvedValueOnce(cooked()).mockResolvedValueOnce(
+        cooked({
+          bookingMeals: [
+            {
+              ...cooked().bookingMeals[0],
+              eatBefore: new Date('2026-11-26T00:00:00.000Z'),
+              eatBeforeSetAt: new Date(),
+            },
+          ],
+        }),
+      );
+
+      const dish = await m.service.setEatBefore('clerk', 'b1', 'dish-1', {
+        date: '2026-11-26',
+      });
+
+      expect(m.prisma.bookingMeal.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eatBefore: new Date('2026-11-26T00:00:00.000Z'),
+            eatBeforeSetByUserId: 'chef-user',
+          }),
+        }),
+      );
+      expect(m.prisma.bookingMealDateChange.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ mealId: 'dish-1', changedByUserId: 'chef-user' }),
+      });
+      expect(dish.eatBefore).toMatchObject({
+        setByChef: true,
+        fridgeDays: 6,
+        fridgeAlert: true,
+      });
+    });
+
+    it('names who set a date for an admin, and only the role for the chef', async () => {
+      const change = {
+        mealId: 'dish-1',
+        value: new Date('2026-11-24T00:00:00.000Z'),
+        changedByUserId: 'chef-user',
+        changedAt: new Date('2026-11-20T11:30:00.000Z'),
+      };
+      const chefAccount = {
+        id: 'chef-user',
+        fullName: 'Marie Dupont',
+        role: UserRole.client,
+        chefProfile: { displayName: 'Chez Marie' },
+      };
+
+      const admin = missions('admin', cooked());
+      withStorage(admin);
+      admin.prisma.bookingMealDateChange.findMany.mockResolvedValue([change]);
+      admin.prisma.user.findMany.mockResolvedValue([chefAccount]);
+      const forAdmin = await admin.service.conservation('clerk', 'b1');
+      expect(forAdmin.history?.[0]).toEqual({
+        mealId: 'dish-1',
+        value: '2026-11-24',
+        changedAt: change.changedAt,
+        changedBy: { id: 'chef-user', name: 'Chez Marie', role: 'chef' },
+      });
+
+      const chef = missions('chef', cooked());
+      withStorage(chef);
+      chef.prisma.bookingMealDateChange.findMany.mockResolvedValue([change]);
+      chef.prisma.user.findMany.mockResolvedValue([chefAccount]);
+      const forChef = await chef.service.conservation('clerk', 'b1');
+      expect(forChef.history?.[0].changedBy).toEqual({ role: 'chef' });
+    });
+
+    it('refuses a day before the prestation', async () => {
+      const m = missions('chef', cooked());
+
+      await expect(
+        m.service.setEatBefore('clerk', 'b1', 'dish-1', { date: '2026-11-19' }),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED', field: 'date' } });
+      expect(m.prisma.bookingMeal.update).not.toHaveBeenCalled();
+    });
+
+    it('closes 24 hours after the prestation ends', async () => {
+      jest.setSystemTime(new Date('2026-11-21T11:00:00.000Z'));
+      const m = missions('chef', cooked());
+
+      await expect(
+        m.service.setEatBefore('clerk', 'b1', 'dish-1', { date: '2026-11-22' }),
+      ).rejects.toMatchObject({ response: { code: 'EAT_BEFORE_CLOSED' } });
+    });
+  });
+
   describe('re-pinning', () => {
     it('moves to the current recipes before the prestation, recorded', async () => {
       const { service, lists, audit } = missions('chef');
@@ -305,6 +492,34 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'recipes.repinned', subjectId: 'b1' }),
       );
+    });
+
+    it('is refused once the menu is frozen, 72 hours before (Recettes lot 3)', async () => {
+      const soon = missions(
+        'chef',
+        booking({ startsAt: new Date(Date.now() + 48 * 3600_000) }),
+      );
+
+      await expect(soon.service.repin('clerk', 'b1')).rejects.toMatchObject({
+        response: { code: 'MENU_FROZEN' },
+      });
+      expect(soon.lists.pinRecipes).not.toHaveBeenCalled();
+    });
+
+    it('is refused when a current recipe holds an allergen the client declared', async () => {
+      const allergic = missions('chef');
+      allergic.prisma.clientProfile.findUnique.mockResolvedValue({
+        allergies: ['celery'],
+        customAllergies: [],
+        allergiesNone: false,
+        allergiesDeclaredAt: new Date('2026-11-01'),
+        healthConsentAt: new Date('2026-11-01'),
+      });
+
+      await expect(allergic.service.repin('clerk', 'b1')).rejects.toMatchObject({
+        response: { code: 'ALLERGEN_CONFLICT' },
+      });
+      expect(allergic.lists.pinRecipes).not.toHaveBeenCalled();
     });
 
     it('is refused once the prestation has started', async () => {

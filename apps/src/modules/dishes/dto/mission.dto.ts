@@ -9,7 +9,9 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
+  ValidateIf,
   MaxLength,
   Min,
   ValidateNested,
@@ -140,4 +142,22 @@ export class PutDishNotesDto {
   @IsString()
   @MaxLength(500)
   storageNote?: string | null;
+}
+
+/** Recettes lot 3 (LF-0270): the « à manger avant » date of a dish of a prestation. */
+export class PutEatBeforeDto {
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date',
+    description:
+      'A Paris calendar day, `YYYY-MM-DD`, from the prestation day to 366 days after. ' +
+      '`null`: back to the platform’s date (prestation day + the fridge days of the ' +
+      'recipe).',
+    example: '2026-11-23',
+  })
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
+  date!: string | null;
 }

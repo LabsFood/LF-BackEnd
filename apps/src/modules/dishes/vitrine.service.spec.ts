@@ -231,6 +231,7 @@ describe('VitrineService', () => {
       'allergensNone',
       'category',
       'computedDiets',
+      'conditionalAllergens',
       'continent',
       'country',
       'customAllergens',

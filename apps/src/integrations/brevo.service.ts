@@ -18,6 +18,10 @@ export type ChefOnboardingEmail =
   // an admin took one of the chef's dishes or menus down.
   | 'sourceChanged'
   | 'contentSuspended'
+  // Recettes §5.5: a common-list change cleared the verification of a chef's
+  // dishes (§7.3); a chef's recipes moved to the new form (§9).
+  | 'recipeAllergensChanged'
+  | 'recipesMigrated'
   // Messaging: someone has messages they have not opened.
   | 'newMessage'
   // Contact forms: the heads-up to the team, and the team's answer to the sender.

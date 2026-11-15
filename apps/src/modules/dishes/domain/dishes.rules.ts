@@ -4,6 +4,7 @@
  * tests next to this file.
  */
 
+import { readLines } from './recipe-lines.rules';
 import { readSteps } from './recipes.rules';
 
 export interface ReferenceItem {
@@ -61,11 +62,17 @@ export const COMPUTED_DIET_CODES = COMPUTED_DIETS.map((d) => d.code);
 
 /** Where a dish sits in a meal, in the order of one. */
 export const DISH_CATEGORIES: readonly ReferenceItem[] = [
+  { code: 'main', label: 'Plat complet' },
   { code: 'starter', label: 'Entrée' },
-  { code: 'main', label: 'Plat' },
+  { code: 'soup', label: 'Soupe' },
   { code: 'side', label: 'Accompagnement' },
   { code: 'dessert', label: 'Dessert' },
+  { code: 'breakfast', label: 'Petit-déjeuner ou goûter' },
+  { code: 'sauce', label: 'Sauce ou base' },
 ];
+
+/** Fridge storage beyond this many days raises the `FRIDGE_LONG` alert (§4.11). */
+export const FRIDGE_ALERT_DAYS = 4;
 
 export const ALLERGEN_CODES = ALLERGENS.map((a) => a.code);
 export const DIET_CODES = DIETS.map((d) => d.code);
@@ -75,27 +82,31 @@ export const DISH_CATEGORY_CODES = DISH_CATEGORIES.map((c) => c.code);
 export interface PublishProblem {
   code:
     | 'VALIDATION_FAILED'
-    | 'ALLERGENS_REQUIRED'
     | 'ALLERGENS_UNVERIFIED'
     | 'INGREDIENT_TO_VERIFY'
+    | 'INGREDIENT_NOT_LINKED'
+    | 'INGREDIENT_INCOMPLETE'
+    | 'DECLARED_DIET_NOT_ALLOWED'
     | 'STEP_TYPE_MISSING'
-    | 'PHOTO_MISSING';
+    | 'PHOTO_MISSING'
+    | 'NO_COMMON_SEASON'
+    | 'FRIDGE_LONG';
   field: string;
   message: string;
 }
 
-/** The fields a public dish can never lose. */
+/**
+ * The fields a public dish can never lose. Allergens are not among them: they are
+ * computed from the lines (Recettes §6.1).
+ */
 export interface PublishableDish {
   name: string;
   portions: number;
-  allergens: string[];
-  allergensNone: boolean;
 }
 
 /**
- * What a published dish must keep through an edit: a name, portions, an allergen
- * declaration. Publishing itself asks for more, see `readiness`. The country of
- * origin is optional since Recettes lot 2 ("Non spécifié").
+ * What a published dish must keep through an edit: a name and portions. Publishing
+ * itself asks for more, see `readiness`.
  */
 export function publishProblems(dish: PublishableDish): PublishProblem[] {
   const problems: PublishProblem[] = [];
@@ -111,17 +122,6 @@ export function publishProblems(dish: PublishableDish): PublishProblem[] {
       code: 'VALIDATION_FAILED',
       field: 'portions',
       message: 'A dish serves at least one portion.',
-    });
-  }
-  // Free-text allergens never count: the 14 regulated ones must be answered, even
-  // if only to say "none of them".
-  if (dish.allergens.length === 0 && !dish.allergensNone) {
-    problems.push({
-      code: 'ALLERGENS_REQUIRED',
-      field: 'allergens',
-      message:
-        'Declare the allergens: list them, or confirm the dish contains none of the 14 ' +
-        'regulated allergens (`allergensNone: true`).',
     });
   }
   return problems;
@@ -166,7 +166,7 @@ export function declarationProblems(state: DeclarationState): string[] {
   for (const value of state.customAllergens) {
     if (duplicatesReference(value, ALLERGENS)) {
       problems.push(
-        `"${value}" is a regulated allergen: tick it in \`allergens\` instead.`,
+        `"${value}" is a regulated allergen: tick it in \`addedAllergens\` instead.`,
       );
     }
   }
@@ -189,6 +189,10 @@ export interface ReadinessDish extends PublishableDish {
   storage: unknown;
   reheating: unknown;
   allergensVerifiedAt: Date | null;
+  declaredDiets: string[];
+  /** The stored `{ diets, seasonMonths }`, or null while not computed. */
+  classification: unknown;
+  seasonsOverride?: number[];
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -196,8 +200,8 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * Recettes §4.11, computed and never stored. `problems` keep the recipe from being
- * "Prête"; `toPublish` adds what publishing needs on top; `warnings` block nothing
- * yet (a real photo is required, not blocking at first: BLK-32). Origin and
+ * "Prête"; `toPublish` adds what publishing needs (description, a visible ingredient,
+ * the photo); `warnings` block nothing. Origin and
  * equipment are never asked. Every point at once, each naming its field.
  */
 export function readiness(dish: ReadinessDish) {
@@ -212,16 +216,44 @@ export function readiness(dish: ReadinessDish) {
     missing('cookMinutes', 'The cooking time is missing: 0 for a dish not cooked.');
   }
 
-  const ingredients = Array.isArray(dish.ingredients) ? dish.ingredients : [];
-  if (ingredients.length === 0)
-    missing('recipe.ingredients', 'Add at least one ingredient.');
-  ingredients.forEach((line, i) => {
-    if (isObject(line) && line.toVerify === true) {
+  const lines = readLines(dish.ingredients);
+  if (lines.length === 0) missing('recipe.ingredients', 'Add at least one ingredient.');
+  lines.forEach((line, i) => {
+    const field = `recipe.ingredients[${i}]`;
+    if (line.toVerify) {
       problems.push({
         code: 'INGREDIENT_TO_VERIFY',
-        field: `recipe.ingredients[${i}]`,
+        field,
         message: 'This ingredient is still to verify.',
       });
+    }
+    if (!line.catalogIngredientId) {
+      problems.push({
+        code: 'INGREDIENT_NOT_LINKED',
+        field,
+        message: 'Link this ingredient to the common list.',
+      });
+    }
+    if (line.incomplete) {
+      problems.push({
+        code: 'INGREDIENT_INCOMPLETE',
+        field,
+        message: 'This ingredient lacks the details needed to compute allergens.',
+      });
+    }
+    // §6.4: a quantity above 0 and a unit, except `to_taste`, with the messages of
+    // `lineInputProblems`. Saves are checked there; this reads legacy lines too (lot 2
+    // took a 0). A line to verify is already asked for, with its own fields.
+    if (!line.toVerify) {
+      if (line.unit === null) missing(`${field}.unit`, 'The unit is required');
+      if (line.unit !== 'to_taste' && !(line.qty !== null && line.qty > 0)) {
+        missing(
+          `${field}.qty`,
+          line.qty === null
+            ? 'The quantity is required'
+            : 'The quantity must be above zero',
+        );
+      }
     }
   });
 
@@ -245,21 +277,44 @@ export function readiness(dish: ReadinessDish) {
   ) {
     missing('recipe.storage', 'Say how the dish keeps: how, and for how many days.');
   }
+  if (storage && typeof storage.freezable !== 'boolean') {
+    missing('recipe.storage.freezable', 'Say whether the dish can be frozen.');
+  } else if (storage?.freezable === true) {
+    if (typeof storage.freezerMonths !== 'number') {
+      missing('recipe.storage.freezerMonths', 'Say for how many months it freezes.');
+    }
+    if (typeof storage.thawing !== 'string' || !storage.thawing.trim()) {
+      missing('recipe.storage.thawing', 'Say how to thaw it.');
+    }
+  }
+
   const reheating = isObject(dish.reheating) ? dish.reheating : null;
   const modes = Array.isArray(reheating?.modes) ? reheating.modes : [];
   if (modes.length === 0 && typeof reheating?.mode !== 'string') {
     missing('recipe.reheating', 'Choose how to reheat it.');
   }
+  if (reheating && (typeof reheating.note !== 'string' || !reheating.note.trim())) {
+    missing('recipe.reheating.note', 'Add a reheating note.');
+  }
 
-  if (dish.allergens.length === 0 && !dish.allergensNone) {
+  // Halal and kosher cannot be computed, but it cannot contradict the ingredients: no pork.
+  const computedDiets =
+    isObject(dish.classification) && Array.isArray(dish.classification.diets)
+      ? dish.classification.diets
+      : [];
+  if (
+    dish.declaredDiets.some((diet) => diet === 'halal' || diet === 'kosher') &&
+    !computedDiets.includes('no-pork')
+  ) {
     problems.push({
-      code: 'ALLERGENS_REQUIRED',
-      field: 'allergens',
-      message:
-        'Declare the allergens: list them, or confirm the dish contains none of the 14 ' +
-        'regulated allergens (`allergensNone: true`).',
+      code: 'DECLARED_DIET_NOT_ALLOWED',
+      field: 'declaredDiets',
+      message: 'Halal or kosher needs ingredients without pork.',
     });
-  } else if (!dish.allergensVerifiedAt) {
+  }
+
+  // Allergens are computed from the lines; only their confirmation is asked.
+  if (!dish.allergensVerifiedAt) {
     problems.push({
       code: 'ALLERGENS_UNVERIFIED',
       field: 'allergens',
@@ -275,12 +330,43 @@ export function readiness(dish: ReadinessDish) {
       message: 'A short description is needed to publish.',
     });
   }
-  const warnings: PublishProblem[] = [];
+  if (lines.length > 0 && lines.every((line) => line.hiddenFromClient)) {
+    toPublish.push({
+      code: 'VALIDATION_FAILED',
+      field: 'recipe.ingredients',
+      message: 'At least one ingredient must be visible to the client.',
+    });
+  }
   if (!dish.imageUrl) {
-    warnings.push({
+    toPublish.push({
       code: 'PHOTO_MISSING',
       field: 'imageUrl',
       message: 'A real photo of the dish is required, not a generated image.',
+    });
+  }
+
+  const warnings: PublishProblem[] = [];
+  if (
+    isObject(dish.classification) &&
+    Array.isArray(dish.classification.seasonMonths) &&
+    dish.classification.seasonMonths.length === 0 &&
+    !dish.seasonsOverride?.length
+  ) {
+    warnings.push({
+      code: 'NO_COMMON_SEASON',
+      field: 'classification',
+      message: 'The ingredients share no season: choose the seasons by hand.',
+    });
+  }
+  if (
+    storage?.method === 'fridge' &&
+    typeof storage.days === 'number' &&
+    storage.days > FRIDGE_ALERT_DAYS
+  ) {
+    warnings.push({
+      code: 'FRIDGE_LONG',
+      field: 'recipe.storage',
+      message: `Fridge storage beyond ${FRIDGE_ALERT_DAYS} days: check it is safe.`,
     });
   }
   return { ready: problems.length === 0, problems, toPublish, warnings };

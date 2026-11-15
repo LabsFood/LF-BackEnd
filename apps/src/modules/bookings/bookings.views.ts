@@ -12,6 +12,7 @@ import { ACCEPTED_OFFER } from '../payments/commission-policy';
 import type { CommissionRates } from '../payments/commission.util';
 import { CHEF_LEGAL_SELECT, publicChefLegalIdentity } from '../users/chef-legal.views';
 import { bookingEarnings } from './domain/earnings';
+import { menuFreeze } from './domain/menu-freeze.rules';
 import { withdrawalFor, type WithdrawableBooking } from './domain/withdrawal.rules';
 
 /**
@@ -157,11 +158,16 @@ export function toBookingListItem(
     /** `verified` only when nothing is left to check by hand; the reasons say what is. */
     allergyCheck: check.allergyCheck,
     allergyCheckReasons: check.allergyCheckReasons,
+    // Recettes lot 3 (LF-0269): computed from `startsAt`, never stored.
+    ...menuFreeze(booking.startsAt),
     meals: booking.bookingMeals.map((line) => ({
       mealId: line.mealId,
       name: line.meal.name,
       portions: line.portions,
       recipeVersion: line.recipeVersion,
+      /** Lot 3 (LF-0268): the allergens kept for this prestation; null until pinned. */
+      allergensSnapshot: line.pinnedAt ? line.allergensSnapshot : null,
+      pinnedAt: line.pinnedAt,
     })),
     client: {
       id: booking.client.id,

@@ -79,7 +79,11 @@ describe('AccountDeletionService', () => {
     await service.deleteOwn('user_chef');
 
     expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ actorType: 'chef', actorUserId: null, subjectId: chef.id }),
+      expect.objectContaining({
+        actorType: 'chef',
+        actorUserId: null,
+        subjectId: chef.id,
+      }),
     );
   });
 

@@ -127,15 +127,18 @@ export function checkable(client: ClientAllergies, extra: string[] = []) {
 
 /**
  * Dishes the client cannot be checked against: their allergens are not verified
- * since the last ingredient change (Recettes §4.9), or they declare neither
- * allergens nor "none".
+ * since the last ingredient change (Recettes §4.9).
+ *
+ * Verification alone decides (ruling R27). Since the recipe socle, `allergensVerifiedAt`
+ * is set only on a complete composition (the chef's confirm, a complete Lab's Food save)
+ * and every allergen change clears it; legacy verified rows came from lot 2's confirm,
+ * which required a declaration. So `allergens = []` with `allergensNone = false` no
+ * longer means "never declared": it is a dish whose only allergens are free text, or a
+ * legacy "none" dish kept verified by the reprise while a line waits for its entry to be
+ * completed (§4, §9). Both stay bookable.
  */
 export const unverifiedDishes = (dishes: DishAllergens[]) =>
-  dishes
-    .filter(
-      (d) => !d.allergensVerifiedAt || (d.allergens.length === 0 && !d.allergensNone),
-    )
-    .map((d) => d.id);
+  dishes.filter((d) => !d.allergensVerifiedAt).map((d) => d.id);
 
 export const conflicts = (codes: string[], dishes: DishAllergens[]): Conflict[] =>
   dishes
