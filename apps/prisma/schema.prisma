@@ -1255,6 +1255,11 @@ model Payment {
   id                      String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   bookingId               String          @map("booking_id") @db.Uuid
   method                  PaymentMethod   @default(cb)
+  /// Recettes lot 6: what the payment is for. `service`: the prestation, with the
+  /// forfait courses and the supplements (invoiced, tax credit). `courses`: the
+  /// groceries themselves (off the invoice, no commission, no tax credit). What is
+  /// left to pay, the fiscal attestation and the CESU guard count `service` only.
+  purpose                 PaymentPurpose  @default(service)
   status                  PaymentStatus   @default(pending)
   amountTtc               Int             @map("amount_ttc")
   currency                String          @default("EUR") @db.VarChar(3)
@@ -1275,7 +1280,8 @@ model Payment {
   invoice                 PaymentInvoice?
 
   /// `uq_payments_live_cesu_booking_id` — a partial unique index on
-  /// (booking_id) WHERE method = 'cesu' AND status <> 'failed' — also guards this table.
+  /// (booking_id) WHERE method = 'cesu' AND status <> 'failed' AND purpose = 'service' —
+  /// also guards this table.
   /// Prisma cannot express a partial index, so it lives only in the migration; do not
   /// "reconcile" the schema by dropping it.
   @@index([bookingId], map: "ix_payments_booking_id")
@@ -1539,6 +1545,14 @@ enum PaymentMethod {
   cesu
 
   @@map("payment_method")
+}
+
+/// Recettes lot 6: a payment is for the service or for the groceries.
+enum PaymentPurpose {
+  service
+  courses
+
+  @@map("payment_purpose")
 }
 
 /// Order matches the stored Postgres labels: pending -> succeeded (Stripe settled) ->

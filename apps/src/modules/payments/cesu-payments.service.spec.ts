@@ -720,7 +720,7 @@ describe('CesuPaymentsService', () => {
       await service.getBookingPaymentStatus('clerk_1', 'booking-1');
 
       expect(prisma.payment.aggregate).toHaveBeenCalledWith({
-        where: { bookingId: 'booking-1', status: 'succeeded' },
+        where: { bookingId: 'booking-1', status: 'succeeded', purpose: 'service' },
         _sum: { amountTtc: true },
       });
     });

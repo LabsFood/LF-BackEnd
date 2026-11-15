@@ -279,6 +279,14 @@ fact. Module: `modules/dishes/`. Spec:
   booking): chef at J-4 while the list is not sent, client at J-2 while their
   final list is not back, and at the deadline the client is told the list is
   frozen and the chef reminded to shop.
+- **Lot 6 groundwork (no money flow yet)**: `payments.purpose` is `service`
+  (the prestation, forfait courses and supplements) or `courses` (the groceries
+  themselves). Nothing creates a `courses` payment yet; what is left to pay, the
+  fiscal attestation, the booking views and the CESU guard count `service` only.
+  The other payment reads (invoices, payouts, refunds) get their filter with lot 6
+  itself. `GET/PUT /admin/settings/groceries`: the Budget Courses cap (100 €) and
+  the advised forfait courses (15 €), also in `GET /pricing-rules`. The fee is
+  named « Forfait courses » on invoices.
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 

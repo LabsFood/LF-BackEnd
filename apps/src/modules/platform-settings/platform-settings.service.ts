@@ -11,6 +11,7 @@ import {
 import { validationFailed } from '../dishes/domain/content.errors';
 import { CHEF_TIERS_KEY, chefTierLabels, chefTierRules } from './chef-tiers';
 import { FRIDGE_ALERT_KEY, fridgeAlertDaysInForce } from './fridge-alert';
+import { GROCERIES_KEY, GroceriesRules, groceriesInForce } from './groceries';
 import {
   aislesInForce,
   DEFAULT_RECIPE_AISLES,
@@ -53,7 +54,12 @@ export class PlatformSettingsService {
   }
 
   async pricingRules() {
-    return { commissionBps: await this.commissionBps(), taxCreditBps: TAX_CREDIT_BPS };
+    return {
+      commissionBps: await this.commissionBps(),
+      taxCreditBps: TAX_CREDIT_BPS,
+      // Recettes lot 6: the offer form advises this forfait courses, the client form caps the budget.
+      groceries: await groceriesInForce(this.prisma),
+    };
   }
 
   async commission() {
@@ -119,6 +125,40 @@ export class PlatformSettingsService {
       actorType: 'admin',
       actorUserId: adminUserId,
       action: 'settings.booking_supplements_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: { ...previous }, to: value },
+      requestId,
+    });
+    return { ...value, updatedAt: row.updatedAt };
+  }
+
+  /** Recettes lot 6, groundwork: the grocery amounts, `updatedAt: null` when never set. */
+  async groceries() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: GROCERIES_KEY },
+    });
+    return {
+      ...(await groceriesInForce(this.prisma)),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Read by the forms from now on; nothing stored on a booking or an offer changes. */
+  async setGroceries(rules: GroceriesRules, adminUserId: string, requestId?: string) {
+    const previous = await groceriesInForce(this.prisma);
+    const value = {
+      budgetMaxCents: rules.budgetMaxCents,
+      recommendedShoppingFeeMinCents: rules.recommendedShoppingFeeMinCents,
+    };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: GROCERIES_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: GROCERIES_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.groceries_changed',
       subjectType: 'platform_setting',
       metadata: { from: { ...previous }, to: value },
       requestId,

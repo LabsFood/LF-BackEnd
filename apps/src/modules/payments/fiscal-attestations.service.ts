@@ -198,6 +198,8 @@ export class FiscalAttestationsService {
     return this.prisma.payment.findMany({
       where: {
         status: 'succeeded',
+        // Recettes lot 6: the tax credit is on the service, never on the groceries.
+        purpose: 'service',
         // `paidAt`, not `createdAt`: an intent created on 31 December and settled on
         // 1 January belongs to the later tax year.
         paidAt: {

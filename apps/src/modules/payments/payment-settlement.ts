@@ -99,7 +99,8 @@ export async function coveredAmount(
   bookingId: string,
 ): Promise<number> {
   const covered = await db.payment.aggregate({
-    where: { bookingId, status: 'succeeded' },
+    // Recettes lot 6: what is left to pay counts the service only, never the groceries.
+    where: { bookingId, status: 'succeeded', purpose: 'service' },
     _sum: { amountTtc: true },
   });
   return covered._sum.amountTtc ?? 0;
@@ -115,7 +116,7 @@ export async function assertNoPendingCesu(
   bookingId: string,
 ): Promise<void> {
   const pending = await db.payment.count({
-    where: { bookingId, method: 'cesu', status: 'pending' },
+    where: { bookingId, method: 'cesu', status: 'pending', purpose: 'service' },
   });
   if (pending > 0) {
     throw new ConflictException({

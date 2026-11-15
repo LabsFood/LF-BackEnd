@@ -41,8 +41,9 @@ export const BOOKING_LIST_INCLUDE = {
   serviceOffer: { select: { id: true, name: true } },
   formule: { select: { id: true, name: true } },
   // Money that came in, or a declaration waiting for its answer.
+  // Recettes lot 6: the service only; groceries are paid apart.
   payments: {
-    where: { status: { in: ['pending', 'succeeded'] } },
+    where: { status: { in: ['pending', 'succeeded'] }, purpose: 'service' },
     select: {
       method: true,
       status: true,
