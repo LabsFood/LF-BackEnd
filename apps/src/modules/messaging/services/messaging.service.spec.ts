@@ -95,6 +95,7 @@ describe('MessagingService', () => {
   let prisma: {
     conversationParticipant: { findUnique: jest.Mock; update: jest.Mock };
     booking: { findMany: jest.Mock };
+    quote: { findMany: jest.Mock };
     message: { findFirst: jest.Mock; findMany: jest.Mock };
     clientProfile: { findUnique: jest.Mock };
     $transaction: jest.Mock;
@@ -129,6 +130,7 @@ describe('MessagingService', () => {
     prisma = {
       conversationParticipant: { findUnique: jest.fn(), update: jest.fn() },
       booking: { findMany: jest.fn().mockResolvedValue([booking('confirmed', 100)]) },
+      quote: { findMany: jest.fn().mockResolvedValue([]) },
       message: {
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
@@ -184,6 +186,67 @@ describe('MessagingService', () => {
         service.sendMessage('clerk_1', CONVERSATION, { body: 'Bonjour' }),
       ).rejects.toThrow(NotFoundException);
       expect(tx.message.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('opening from a custom request (15/11)', () => {
+    let ensurePair: jest.SpyInstance;
+    beforeEach(() => {
+      (prisma as unknown as Record<string, unknown>).quote = {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+      };
+      (prisma as unknown as Record<string, unknown>).chefProfile = {
+        findUnique: jest.fn().mockResolvedValue({ id: 'chef-profile' }),
+      };
+      ensurePair = jest.spyOn(service, 'ensurePair').mockResolvedValue(CONVERSATION);
+      asParticipant(conversation(), 'client');
+    });
+    const quote = () =>
+      (prisma as unknown as { quote: { findFirst: jest.Mock } }).quote.findFirst;
+
+    it('opens the pair thread for the client or the batch cooker of the request', async () => {
+      quote().mockResolvedValue({
+        clientId: CLIENT,
+        assignedChefUserId: CHEF_USER,
+        status: 'quoted',
+      });
+
+      await service.openForQuote('clerk_1', 'quote-1');
+
+      expect(quote()).toHaveBeenCalledWith({
+        where: {
+          id: 'quote-1',
+          assignedChefUserId: { not: null },
+          OR: [
+            { clientId: expect.any(String) },
+            { assignedChefUserId: expect.any(String) },
+          ],
+        },
+        select: { clientId: true, assignedChefUserId: true, status: true },
+      });
+      expect(ensurePair).toHaveBeenCalledWith(CLIENT, 'chef-profile');
+    });
+
+    it("answers 404 for a request that is not the caller's", async () => {
+      quote().mockResolvedValue(null);
+
+      await expect(service.openForQuote('clerk_1', 'quote-1')).rejects.toMatchObject({
+        response: { code: 'QUOTE_NOT_FOUND' },
+      });
+      expect(ensurePair).not.toHaveBeenCalled();
+    });
+
+    it('refuses a withdrawn request', async () => {
+      quote().mockResolvedValue({
+        clientId: CLIENT,
+        assignedChefUserId: CHEF_USER,
+        status: 'cancelled',
+      });
+
+      await expect(service.openForQuote('clerk_1', 'quote-1')).rejects.toMatchObject({
+        response: { code: 'QUOTE_CLOSED' },
+      });
     });
   });
 
@@ -253,6 +316,33 @@ describe('MessagingService', () => {
         service.sendMessage('clerk_1', CONVERSATION, { body: 'Bonjour' }),
       ).rejects.toThrow(ConflictException);
       expect(tx.message.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps the thread open while a custom request is still discussed (15/11)', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      const loaded = conversation();
+      prisma.quote.findMany.mockResolvedValue([
+        { clientId: loaded.clientId, assignedChefUserId: loaded.chefProfile!.user.id },
+      ]);
+      asParticipant(loaded, 'client');
+
+      await service.sendMessage('clerk_1', CONVERSATION, {
+        body: 'Le gâteau contient-il des œufs ?',
+      });
+
+      expect(prisma.quote.findMany).toHaveBeenCalledWith({
+        where: {
+          status: { in: ['submitted', 'in_review', 'quoted', 'declined'] },
+          OR: [
+            {
+              clientId: loaded.clientId,
+              assignedChefUserId: loaded.chefProfile!.user.id,
+            },
+          ],
+        },
+        select: { clientId: true, assignedChefUserId: true },
+      });
+      expect(tx.message.create).toHaveBeenCalled();
     });
 
     it('refuses a message with neither text nor file', async () => {

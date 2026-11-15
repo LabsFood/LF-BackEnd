@@ -134,6 +134,7 @@ describe('BookingsService', () => {
         createMany: jest.fn(),
         delete: jest.fn(),
         create: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       $transaction: jest.fn(),
     } as never;
@@ -817,6 +818,48 @@ describe('BookingsService', () => {
       await service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' });
 
       expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('express dishes of a custom prestation (15/11)', () => {
+    beforeEach(() => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ status: 'cooking', startsAt: new Date(Date.now() - 3 * 3_600_000) }),
+      );
+    });
+
+    it('asks the batch cooker to keep or drop them once delivered', async () => {
+      prisma.bookingMeal.count.mockResolvedValue(1);
+      prisma.booking.findUnique.mockResolvedValue({
+        chefProfile: { userId: 'chef-user-1' },
+      });
+
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(prisma.bookingMeal.count).toHaveBeenCalledWith({
+        where: {
+          bookingId: 'booking-1',
+          meal: { expressQuoteId: { not: null }, expressDecision: null },
+        },
+      });
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'chef-user-1',
+        'express_dish.decide',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('asks nothing when no express dish waits', async () => {
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(notifications.notify).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'express_dish.decide',
+        expect.anything(),
+      );
     });
   });
 

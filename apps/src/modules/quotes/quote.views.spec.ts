@@ -1,6 +1,6 @@
 import { LoadedQuote, toQuoteView } from './quote.views';
 
-const offer = (status: string) => ({
+const offer = (status: string, dishes: unknown[] = []) => ({
   id: `offer-${status}`,
   status,
   netCents: 17_000,
@@ -15,6 +15,7 @@ const offer = (status: string) => ({
   decidedAt: null,
   declineReason: null,
   createdAt: new Date('2026-10-20T00:00:00Z'),
+  dishes,
 });
 
 const quote = (over: Record<string, unknown> = {}) =>
@@ -35,6 +36,7 @@ const quote = (over: Record<string, unknown> = {}) =>
       fullName: 'Sophie Marchand',
       email: 'sophie@exemple.fr',
       phone: '+33600000000',
+      clientProfile: null,
     },
     offers: [offer('sent'), offer('declined')],
     booking: null,
@@ -80,5 +82,116 @@ describe('toQuoteView', () => {
 
     expect(view.activeOffer).toBeNull();
     expect(view.offers).toHaveLength(1);
+  });
+
+  describe('dishes of an offer', () => {
+    const dish = (over: Record<string, unknown> = {}) => ({
+      meal: {
+        id: 'dish-1',
+        name: 'Chili sin carne',
+        description: null,
+        imageUrl: null,
+        allergens: [],
+        allergensNone: true,
+        allergensVerifiedAt: new Date('2026-10-01T00:00:00Z'),
+        expressQuoteId: null,
+        ...over,
+      },
+      menu: null,
+    });
+    const declared = {
+      allergies: ['eggs'],
+      customAllergies: [],
+      allergiesNone: false,
+      allergiesDeclaredAt: new Date('2026-10-01T00:00:00Z'),
+    };
+
+    it('has no warning when the offer carries no dish', () => {
+      const view = toQuoteView(quote(), null, 'client');
+      expect(view.activeOffer?.dishes).toEqual([]);
+      expect(view.activeOffer?.allergy).toBeNull();
+    });
+
+    it('says verified when every dish is verified and none meets an allergy', () => {
+      const view = toQuoteView(
+        quote({
+          offers: [offer('sent', [dish()])],
+          client: {
+            id: 'u1',
+            fullName: 'S',
+            email: null,
+            phone: null,
+            clientProfile: declared,
+          },
+        }),
+        null,
+        'client',
+      );
+      expect(view.activeOffer?.allergy).toEqual({
+        check: 'verified',
+        reasons: [],
+        conflicts: [],
+      });
+    });
+
+    it('warns on an express dish (never verified) and names the allergen it brings', () => {
+      const view = toQuoteView(
+        quote({
+          offers: [
+            offer('sent', [
+              dish({
+                id: 'express-1',
+                name: 'Gâteau',
+                allergens: ['eggs', 'milk'],
+                allergensNone: false,
+                allergensVerifiedAt: null,
+                expressQuoteId: 'q1',
+              }),
+            ]),
+          ],
+          client: {
+            id: 'u1',
+            fullName: 'S',
+            email: null,
+            phone: null,
+            clientProfile: declared,
+          },
+        }),
+        null,
+        'chef',
+      );
+      expect(view.activeOffer?.dishes[0]).toMatchObject({
+        express: true,
+        allergensVerified: false,
+      });
+      expect(view.activeOffer?.allergy).toEqual({
+        check: 'unverified',
+        reasons: ['ALLERGENS_UNVERIFIED', 'ALLERGEN_CONFLICT'],
+        conflicts: [{ mealId: 'express-1', allergens: ['eggs'] }],
+      });
+    });
+
+    it('also reads the allergies written in the request', () => {
+      const view = toQuoteView(
+        quote({
+          allergies: ['Arachides'],
+          offers: [
+            offer('sent', [dish({ allergens: ['peanuts'], allergensNone: false })]),
+          ],
+          client: {
+            id: 'u1',
+            fullName: 'S',
+            email: null,
+            phone: null,
+            clientProfile: declared,
+          },
+        }),
+        null,
+        'client',
+      );
+      expect(view.activeOffer?.allergy?.conflicts).toEqual([
+        { mealId: 'dish-1', allergens: ['peanuts'] },
+      ]);
+    });
   });
 });
