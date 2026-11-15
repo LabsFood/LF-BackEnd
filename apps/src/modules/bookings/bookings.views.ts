@@ -149,6 +149,9 @@ export function toBookingListItem(
     extraPersonsCents: booking.extraPersonsCents,
     extraMealsCents: booking.extraMealsCents,
     shoppingFeeCents: booking.shoppingFeeCents,
+    /** Recettes lot 4: « Courses faites », and the receipt total the chef may have typed. */
+    groceriesValidatedAt: booking.groceriesValidatedAt,
+    groceriesAmountCents: booking.groceriesAmountCents,
     amountTtc: booking.amountTtc,
     amountAfterTax: booking.amountAfterTax,
     currency: booking.currency,
@@ -225,6 +228,15 @@ export function toBookingDetail(
     }),
     // A client paying in CESU first adds the batch cooker on their issuer's portal.
     ...(audience === 'client' && { chefCesu: toChefCesuInfo(booking.chefProfile) }),
+    // Recettes lot 4 (LF-0296): when each in-app reminder of the shopping list went out.
+    ...(audience === 'admin' && {
+      shoppingReminders: {
+        chefSendAt: booking.listReminderChefAt,
+        clientAnswerAt: booking.listReminderClientAt,
+        clientFrozenAt: booking.listFrozenNotifiedAt,
+        chefGroceriesAt: booking.groceriesReminderAt,
+      },
+    }),
     /** The boxes ticked and when the contract was concluded (CGV art. 5.1). */
     contract: {
       version: booking.contractVersion,

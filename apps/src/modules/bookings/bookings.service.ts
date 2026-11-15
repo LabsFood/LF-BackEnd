@@ -34,6 +34,7 @@ import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { shoppingDeadline } from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -556,16 +557,7 @@ export class BookingsService {
           ),
         );
     }
-    if (meals) {
-      await this.lists
-        .regenerateForBooking(id)
-        .catch((error: unknown) =>
-          this.logger.error(
-            { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
-            stackOf(error),
-          ),
-        );
-    }
+    if (meals) await this.refreshList(id, booking);
     if (admin) {
       await this.audit.record({
         actorType: 'admin',
@@ -602,6 +594,7 @@ export class BookingsService {
       select: {
         status: true,
         clientId: true,
+        startsAt: true,
         chefProfileId: true,
         quote: { select: { allergies: true } },
         bookingMeals: {
@@ -653,15 +646,37 @@ export class BookingsService {
       chefProfileId: booking.chefProfileId,
       by: caller.role,
     });
-    await this.lists
-      .regenerateForBooking(id)
-      .catch((error: unknown) =>
-        this.logger.error(
-          { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
-          stackOf(error),
-        ),
-      );
+    await this.refreshList(id, booking);
     return this.view(caller, id);
+  }
+
+  /**
+   * Recettes lot 4 (LF-0283): after a change of dishes the shopping list is
+   * recomputed, and sent again to a client who already had one, who is told.
+   * Best-effort: the menu is written, a list that failed is rebuilt on next use.
+   */
+  private async refreshList(id: string, booking: { clientId: string; startsAt: Date }) {
+    try {
+      const version = await this.lists.refreshAfterMenuChange(
+        id,
+        shoppingDeadline(booking.startsAt),
+      );
+      if (version === null) return;
+      this.logger.log({
+        event: 'shopping_list.resent_after_menu_change',
+        bookingId: id,
+        version,
+      });
+      await this.notifications.notify(booking.clientId, 'shopping_list.updated', {
+        type: 'booking',
+        id,
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
+        stackOf(error),
+      );
+    }
   }
 
   // ── The 72 h hold ─────────────────────────────────────────────────────────

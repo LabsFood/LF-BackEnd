@@ -270,6 +270,15 @@ fact. Module: `modules/dishes/`. Spec:
   `/admin/settings/fridge-alert` days (4 by default) it alerts, never blocks.
   The client reads the conservation sheet (JSON and PDF) once `delivered`, and
   is told then (`conservation.ready`).
+- **Shopping list, lot 4**: a change of dishes recomputes the list and, when the
+  client already had one, sends it again at once before the deadline
+  (`shopping_list.updated`). « Courses faites » is
+  `POST /chef-missions/:id/groceries/validate`, with an optional receipt total
+  (`bookings.groceries_validated_at`, `groceries_amount_cents`; no payment before
+  lot 6). `ShoppingRemindersCron` (hourly, in-app only, each claimed once on the
+  booking): chef at J-4 while the list is not sent, client at J-2 while their
+  final list is not back, and at the deadline the client is told the list is
+  frozen and the chef reminded to shop.
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 
@@ -277,7 +286,7 @@ fact. Module: `modules/dishes/`. Spec:
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public                            | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}`                                                                                                                                                             |
 | Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`                                        |
-| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before` |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before`, `POST .../groceries/validate` |
 | Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
 | Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
 

@@ -20,6 +20,7 @@ import { MissionsService } from './missions.service';
 import { ModerationService } from './moderation.service';
 import { RecipeVersionsService } from './recipe-versions.service';
 import { PublicVitrineController } from './public-vitrine.controller';
+import { ShoppingRemindersCron } from './shopping-reminders.cron';
 import { SuggestionsService } from './suggestions.service';
 import { VitrineService } from './vitrine.service';
 
@@ -50,6 +51,7 @@ import { VitrineService } from './vitrine.service';
     MissionsService,
     ModerationService,
     RecipeVersionsService,
+    ShoppingRemindersCron,
     SuggestionsService,
     VitrineService,
   ],

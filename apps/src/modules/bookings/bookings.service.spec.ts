@@ -150,6 +150,7 @@ describe('BookingsService', () => {
     lists = {
       pinRecipes: jest.fn().mockResolvedValue([]),
       regenerateForBooking: jest.fn().mockResolvedValue({}),
+      refreshAfterMenuChange: jest.fn().mockResolvedValue(null),
     };
     availability = { assertBookable: jest.fn().mockResolvedValue(undefined) };
     audit = { record: jest.fn() };
@@ -756,6 +757,42 @@ describe('BookingsService', () => {
     });
   });
 
+  describe('the list follows a change of dishes (Recettes lot 4, LF-0283)', () => {
+    beforeEach(() => {
+      prisma.meal.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue(DECLARED);
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-2', allergens: [], allergensNone: true, allergensVerifiedAt: START },
+      ]);
+    });
+
+    it('tells the client when a list already sent went out again', async () => {
+      lists.refreshAfterMenuChange.mockResolvedValue(2);
+
+      await service.update('client', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'shopping_list.updated',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('tells nobody when no list had been sent', async () => {
+      await service.update('client', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(lists.refreshAfterMenuChange).toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the conservation sheet (Recettes lot 3, LF-0272)', () => {
     it('tells the client once the chef marks the dishes delivered', async () => {
       prisma.booking.findFirst.mockResolvedValue(
@@ -952,7 +989,10 @@ describe('BookingsService', () => {
       expect(prisma.bookingMeal.create).toHaveBeenCalledWith({
         data: { bookingId: 'booking-1', mealId: 'meal-2', portions: 6 },
       });
-      expect(lists.regenerateForBooking).toHaveBeenCalledWith('booking-1');
+      expect(lists.refreshAfterMenuChange).toHaveBeenCalledWith(
+        'booking-1',
+        expect.any(Date),
+      );
     });
 
     it('refuses to swap a dish that is not in conflict, or for an unsafe one', async () => {
