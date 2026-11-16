@@ -908,12 +908,20 @@ export class GroceriesService {
   ) {
     const { booking } = await this.as('chef', clerkUserId, bookingId);
     await this.runOrThrow(booking.id);
-    return this.receipts.createUploadUrl(
+    const upload = await this.receipts.createUploadUrl(
       receiptPrefix(booking.id),
       RECEIPT,
       input.contentType,
       input.sizeBytes,
     );
+    // Never the storage path: the deposit names the photo by its upload id.
+    return {
+      uploadId: upload.uploadId,
+      method: upload.method,
+      url: upload.url,
+      headers: upload.headers,
+      expiresAt: upload.expiresAt,
+    };
   }
 
   /**
