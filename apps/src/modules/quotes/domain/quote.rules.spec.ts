@@ -1,4 +1,10 @@
-import { parisToday, priceOffer, slotWindow } from './quote.rules';
+import {
+  expressDecisionBlock,
+  offerDishLines,
+  parisToday,
+  priceOffer,
+  slotWindow,
+} from './quote.rules';
 
 describe('quote rules', () => {
   describe('priceOffer', () => {
@@ -46,5 +52,52 @@ describe('quote rules', () => {
     expect(parisToday(new Date('2026-07-14T23:30:00.000Z')).toISOString()).toBe(
       '2026-07-15T00:00:00.000Z',
     );
+  });
+});
+
+describe('offerDishLines', () => {
+  it('reads menus first, then dishes, then express ones, each dish once', () => {
+    expect(
+      offerDishLines({
+        menus: [
+          { id: 'm1', dishIds: ['a', 'b'] },
+          { id: 'm2', dishIds: ['b', 'c'] },
+        ],
+        dishIds: ['c', 'd'],
+        expressIds: ['x'],
+      }),
+    ).toEqual([
+      { mealId: 'a', menuId: 'm1', position: 0 },
+      { mealId: 'b', menuId: 'm1', position: 1 },
+      { mealId: 'c', menuId: 'm2', position: 2 },
+      { mealId: 'd', menuId: null, position: 3 },
+      { mealId: 'x', menuId: null, position: 4 },
+    ]);
+  });
+});
+
+describe('expressDecisionBlock', () => {
+  it('waits for an offer the client can still accept', () => {
+    expect(expressDecisionBlock({ offers: ['viewed'], bookings: [] })).toBe(
+      'OFFER_PENDING',
+    );
+  });
+
+  it('waits for a prestation still to cook', () => {
+    expect(expressDecisionBlock({ offers: ['accepted'], bookings: ['cooking'] })).toBe(
+      'PRESTATION_PENDING',
+    );
+  });
+
+  it('lets the batch cooker decide once delivered, or when no offer went through', () => {
+    expect(
+      expressDecisionBlock({ offers: ['accepted'], bookings: ['delivered'] }),
+    ).toBeNull();
+    expect(
+      expressDecisionBlock({ offers: ['declined', 'expired'], bookings: [] }),
+    ).toBeNull();
+    expect(
+      expressDecisionBlock({ offers: ['accepted'], bookings: ['cancelled'] }),
+    ).toBeNull();
   });
 });

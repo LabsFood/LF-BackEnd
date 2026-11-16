@@ -100,3 +100,69 @@ export const QUOTE_STATUS_HELP =
   'it. `accepted`: the offer was accepted and `booking` is the prestation. ' +
   '`cancelled`: withdrawn by the client. `closed`: closed by Lab’s Food without ' +
   'follow-up. `in_review`: an admin is working on it.';
+
+// ── Dishes in an offer ───────────────────────────────────────────────────────
+
+/** Dishes one offer may carry, menus' and express ones included. */
+export const MAX_OFFER_DISHES = 30;
+export const MAX_OFFER_MENUS = 5;
+/** Express dishes written in one offer. */
+export const MAX_EXPRESS_DISHES = 10;
+export const EXPRESS_NAME_MAX = 160;
+export const EXPRESS_DESCRIPTION_MAX = 1000;
+
+export interface OfferDishLine {
+  mealId: string;
+  /** The menu it came with; null when added on its own. */
+  menuId: string | null;
+  position: number;
+}
+
+/**
+ * The offer's dishes, in the order the client reads them: each menu's dishes
+ * together, then the dishes added one by one, then the express ones. A dish met
+ * twice (in a menu and on its own, or in two menus) is kept once, where first met.
+ */
+export function offerDishLines(input: {
+  menus: { id: string; dishIds: string[] }[];
+  dishIds: string[];
+  expressIds: string[];
+}): OfferDishLine[] {
+  const lines: OfferDishLine[] = [];
+  const seen = new Set<string>();
+  const add = (mealId: string, menuId: string | null) => {
+    if (seen.has(mealId)) return;
+    seen.add(mealId);
+    lines.push({ mealId, menuId, position: lines.length });
+  };
+  for (const menu of input.menus) for (const id of menu.dishIds) add(id, menu.id);
+  for (const id of input.dishIds) add(id, null);
+  for (const id of input.expressIds) add(id, null);
+  return lines;
+}
+
+/** Where an express dish stands, as the keep-or-drop decision reads it. */
+export interface ExpressUses {
+  /** Statuses of the offers it is in. */
+  offers: string[];
+  /** Statuses of the prestations it is in. */
+  bookings: string[];
+}
+
+/** Before the prestation is done, a dish may still be cooked as written. */
+const BOOKING_NOT_DONE = ['pending', 'confirmed', 'shopping', 'cooking'];
+
+/**
+ * The batch cooker keeps or drops an express dish once nothing is waiting on it:
+ * no offer the client can still accept, no prestation still to be cooked.
+ */
+export function expressDecisionBlock(
+  uses: ExpressUses,
+): 'OFFER_PENDING' | 'PRESTATION_PENDING' | null {
+  if (uses.offers.some((s) => (ACTIVE_OFFER as readonly string[]).includes(s))) {
+    return 'OFFER_PENDING';
+  }
+  if (uses.bookings.some((s) => BOOKING_NOT_DONE.includes(s)))
+    return 'PRESTATION_PENDING';
+  return null;
+}

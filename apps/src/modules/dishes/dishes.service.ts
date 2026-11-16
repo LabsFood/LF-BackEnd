@@ -82,7 +82,11 @@ export class DishesService {
   async list(clerkUserId: string) {
     const chef = await this.access.chef(clerkUserId);
     const dishes = await this.prisma.meal.findMany({
-      where: { chefProfileId: chef.id },
+      // An express dish (custom request, 15/11) joins the list once kept.
+      where: {
+        chefProfileId: chef.id,
+        OR: [{ expressQuoteId: null }, { expressDecision: 'kept' }],
+      },
       orderBy: { updatedAt: 'desc' },
     });
     return dishes.map(toDishView);
