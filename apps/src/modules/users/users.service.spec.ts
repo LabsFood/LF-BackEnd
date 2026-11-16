@@ -473,6 +473,8 @@ describe('UsersService', () => {
         firstName: 'New',
         lastName: 'User',
         skipPasswordRequirement: false,
+        // Made by an admin: the person ticked nothing, Clerk's legal check is skipped.
+        skipLegalChecks: true,
       });
       expect(createWithRoleSpy).toHaveBeenCalledWith({
         clerkUserId: 'user_clerk_new',
@@ -499,6 +501,7 @@ describe('UsersService', () => {
         service.registerClient({
           email: 'new@example.com',
           password: 'Str0ng!UniquePass',
+          legalAcceptedAt: new Date(),
         }),
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
@@ -512,6 +515,7 @@ describe('UsersService', () => {
         service.registerClient({
           email: 'taken@example.com',
           password: 'Str0ng!UniquePass',
+          legalAcceptedAt: new Date(),
         }),
       ).rejects.toBeInstanceOf(ConflictException);
 
@@ -531,10 +535,17 @@ describe('UsersService', () => {
         role: UserRole.client,
       } as never);
 
+      const acceptedAt = new Date('2026-11-11T10:00:00.000Z');
       const result = await service.registerClient({
         email: 'new@example.com',
         password: 'Str0ng!UniquePass',
+        legalAcceptedAt: acceptedAt,
       });
+
+      expect(createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ legalAcceptedAt: acceptedAt }),
+      );
+      expect(createUser.mock.calls[0][0]).not.toHaveProperty('skipLegalChecks');
 
       expect(createWithRoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({ role: UserRole.client }),
@@ -563,6 +574,7 @@ describe('UsersService', () => {
       await service.registerClient({
         email: 'new@example.com',
         password: 'Str0ng!UniquePass',
+        legalAcceptedAt: new Date(),
         role: UserRole.admin,
       } as never);
 

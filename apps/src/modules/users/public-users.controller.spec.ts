@@ -44,11 +44,13 @@ describe('PublicUsersController', () => {
     const result = await controller.register({
       email: 'new@example.com',
       password: 'Str0ng!UniquePass',
+      acceptTerms: true,
     });
 
     expect(users.registerClient).toHaveBeenCalledWith({
       email: 'new@example.com',
       password: 'Str0ng!UniquePass',
+      legalAcceptedAt: expect.any(Date),
     });
     expect(result.user.role).toBe(UserRole.client);
     expect(result.signInToken).toBe('sit_abc123');
@@ -59,12 +61,14 @@ describe('PublicUsersController', () => {
     await controller.register({
       email: 'new@example.com',
       password: 'Str0ng!UniquePass',
+      acceptTerms: true,
       role: 'admin',
     } as never);
 
     expect(users.registerClient).toHaveBeenCalledWith({
       email: 'new@example.com',
       password: 'Str0ng!UniquePass',
+      legalAcceptedAt: expect.any(Date),
     });
   });
 
@@ -76,9 +80,22 @@ describe('PublicUsersController', () => {
       const errors = await validateBody({
         email: 'new@example.com',
         password: 'Str0ng!UniquePass',
+        acceptTerms: true,
       });
       expect(errors).toHaveLength(0);
     });
+
+    it.each([[undefined], [false], ['true']])(
+      'rejects an unticked CGU box (%p)',
+      async (acceptTerms) => {
+        const errors = await validateBody({
+          email: 'new@example.com',
+          password: 'Str0ng!UniquePass',
+          acceptTerms,
+        });
+        expect(errors.map((e) => e.property)).toContain('acceptTerms');
+      },
+    );
 
     it.each([
       ['too short', 'Ab1!xyz'],
@@ -105,7 +122,12 @@ describe('PublicUsersController', () => {
       // globally configured pipe rejects it outright rather than silently dropping it.
       const error = await pipe
         .transform(
-          { email: 'new@example.com', password: 'Str0ng!UniquePass', role: 'admin' },
+          {
+            email: 'new@example.com',
+            password: 'Str0ng!UniquePass',
+            acceptTerms: true,
+            role: 'admin',
+          },
           { type: 'body', metatype: RegisterUserDto },
         )
         .then(

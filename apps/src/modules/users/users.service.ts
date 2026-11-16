@@ -83,6 +83,8 @@ export interface ProvisionAdminUserInput {
 export interface RegisterClientInput {
   email: string;
   password: string;
+  /** When the person ticked the CGU box: Clerk's legal consent requires it. */
+  legalAcceptedAt: Date;
 }
 
 /** The verified batch cooker behind a request made on `/chef/…` or `/me/chef/…`. */
@@ -305,6 +307,7 @@ export class UsersService {
   private async createClerkUserAndPersist(
     input: ProvisionAdminUserInput,
     role: UserRole,
+    legalAcceptedAt?: Date,
   ): Promise<User> {
     if (!this.clerk.configured) {
       throw new ServiceUnavailableException(
@@ -331,6 +334,9 @@ export class UsersService {
         firstName: input.firstName,
         lastName: input.lastName,
         skipPasswordRequirement: !input.password,
+        // Clerk's legal consent (CGU): when the person ticked the box, or no check for
+        // an account an admin opens on someone's behalf.
+        ...(legalAcceptedAt ? { legalAcceptedAt } : { skipLegalChecks: true }),
       });
     } catch (error) {
       this.throwMappedClerkError(error);
@@ -366,6 +372,7 @@ export class UsersService {
     const user = await this.createClerkUserAndPersist(
       { email: input.email, password: input.password },
       UserRole.client,
+      input.legalAcceptedAt,
     );
 
     const expiresInSeconds = this.config.get<number>('clerk.signInTokenTtlSeconds', 3600);
