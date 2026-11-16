@@ -144,11 +144,17 @@ export class PlatformSettingsService {
   }
 
   /** Read by the forms from now on; nothing stored on a booking or an offer changes. */
-  async setGroceries(rules: GroceriesRules, adminUserId: string, requestId?: string) {
+  async setGroceries(
+    rules: Pick<GroceriesRules, 'budgetMaxCents' | 'recommendedShoppingFeeMinCents'> &
+      Partial<GroceriesRules>,
+    adminUserId: string,
+    requestId?: string,
+  ) {
     const previous = await groceriesInForce(this.prisma);
-    const value = {
-      budgetMaxCents: rules.budgetMaxCents,
-      recommendedShoppingFeeMinCents: rules.recommendedShoppingFeeMinCents,
+    // A field left out keeps its value: the lot 6 fields came after the first form.
+    const value: GroceriesRules & Record<string, number | boolean> = {
+      ...previous,
+      ...stripUndefined(rules),
     };
     const row = await this.prisma.platformSetting.upsert({
       where: { key: GROCERIES_KEY },
@@ -348,3 +354,8 @@ function assertUniqueCodes(items: ListItem[]): void {
     throw validationFailed(`Each code once: ${twice.map((i) => i.code).join(', ')}.`);
   }
 }
+
+const stripUndefined = <T extends object>(value: T): Partial<T> =>
+  Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;

@@ -77,6 +77,19 @@ export class SimulateUrssafOutcomeDto {
   externalReference?: string;
 }
 
+/** Recettes lot 6: URSSAF took a settled prestation back (status 120). */
+export class UrssafRepriseDto {
+  @ApiProperty({
+    description: 'Why URSSAF took it back, as the intermediary wrote it.',
+    example: 'Statut 120 : contestation du particulier',
+    maxLength: 500,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
 export class MarkUrssafTransmittedDto {
   @ApiProperty({
     description: 'The reference the intermediary (Unipros) gave the request.',

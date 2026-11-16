@@ -146,14 +146,26 @@ export interface DeboursMandateInput {
   acceptedAt: Date;
   version: string;
   generatedAt?: Date;
+  /**
+   * Recettes lot 6, model 2.0: the Budget Courses (the mandate's maximum) and the
+   * hold on the card. Absent before the client saved a card.
+   */
+  groceries?: {
+    budgetCents: number;
+    mandateVersion: string;
+    card: string | null;
+    holdPlacedAt: Date | null;
+    holdExpiresAt: Date | null;
+  } | null;
 }
+
+const euros = (cents: number) =>
+  `${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 /**
  * The particular mandate of Annexe 3, generated on demand. Ticking the mandate box
- * stands as its signature (CGU).
- *
- * ponytail: no Budget Courses line, the platform has none yet (mandate lot 2); add
- * it with the budget field.
+ * stands as its signature (CGU, decision of 16/11: no other signature). From lot 6
+ * (model 2.0) it carries the Budget Courses, its maximum, and the hold.
  */
 export function renderDeboursMandatePdf(input: DeboursMandateInput): Promise<Buffer> {
   const doc = brandDocument({
@@ -191,6 +203,30 @@ export function renderDeboursMandatePdf(input: DeboursMandateInput): Promise<Buf
       label: 'Menu',
       value: input.meals.join(', ') || 'À définir avec votre batch cooker',
     },
+    ...(input.groceries
+      ? [
+          {
+            label: 'Budget Courses (montant maximum)',
+            value:
+              `${euros(input.groceries.budgetCents)}. Le mandataire ne le dépasse jamais : ` +
+              'au-delà, l’écart reste à la charge du batch cooker.',
+            strong: true,
+          },
+          {
+            label: 'Empreinte bancaire',
+            value: input.groceries.holdPlacedAt
+              ? `Posée le ${dayTime(input.groceries.holdPlacedAt)}` +
+                (input.groceries.card ? ` sur la carte ${input.groceries.card}` : '') +
+                (input.groceries.holdExpiresAt
+                  ? `, valable jusqu’au ${dayTime(input.groceries.holdExpiresAt)}.`
+                  : '.')
+              : 'Posée au Verrouillage, 48 heures avant la prestation, du montant du Budget ' +
+                'Courses' +
+                (input.groceries.card ? ` sur la carte ${input.groceries.card}` : '') +
+                '. Seul le total des tickets est prélevé ; le reste est libéré aussitôt.',
+          },
+        ]
+      : []),
   ]);
 
   if (!input.shopping.length) {
@@ -253,12 +289,108 @@ export function renderDeboursMandatePdf(input: DeboursMandateInput): Promise<Buf
     {
       label: 'Accepté en ligne le',
       value:
-        `${dayTime(input.acceptedAt)} (heure de Paris), CGV version ${input.version}, ` +
+        `${dayTime(input.acceptedAt)} (heure de Paris), CGV version ${input.version}` +
+        (input.groceries
+          ? `, modèle de mandat ${input.groceries.mandateVersion}, `
+          : ', ') +
         'par la case dédiée du parcours de réservation. Cette acceptation vaut signature ' +
         'du mandat et de ses conditions.',
     },
   ]);
 
+  footer(
+    doc,
+    `Document établi par ${COMPANY} le ${dayTime(input.generatedAt ?? new Date())}.`,
+  );
+  doc.end();
+  return done;
+}
+
+export interface GroceriesStatementInput {
+  reference: string;
+  clientName: string;
+  chefName: string;
+  startsAt: Date;
+  budgetCents: number;
+  receipts: { purchasedAt: Date }[];
+  lines: {
+    label: string;
+    amountCents: number;
+    withReceipt: boolean;
+    approved: boolean;
+    contested: boolean;
+    decision: 'upheld' | 'rejected' | null;
+    refundedCents: number;
+  }[];
+  capturedCents: number | null;
+  capturedAt: Date | null;
+  refundedCents: number;
+  generatedAt?: Date;
+}
+
+/**
+ * Recettes lot 6 (CGV 7.6): the relevé de débours of one prestation, with its receipts.
+ * Off the invoice and outside the tax credit: the ingredients are not a service.
+ */
+export function renderGroceriesStatementPdf(
+  input: GroceriesStatementInput,
+): Promise<Buffer> {
+  const doc = brandDocument({
+    Title: `Relevé de débours ${input.reference}`,
+    Author: COMPANY,
+    Subject: 'Relevé de débours (courses)',
+  });
+  const done = toBuffer(doc);
+  brandHeader(doc, 'Réservation', input.reference);
+  title(
+    doc,
+    'Mandat de débours',
+    'Relevé de débours',
+    'Le prix des ingrédients achetés pour vous, au centime près, hors facture.',
+  );
+  panel(doc, COLOR.cream, COLOR.inkSoft, [
+    { label: 'Mandant', value: input.clientName, strong: true },
+    { label: 'Courses faites par', value: input.chefName },
+    { label: 'Prestation', value: dayTime(input.startsAt) },
+    { label: 'Budget Courses', value: euros(input.budgetCents) },
+    {
+      label: 'Tickets',
+      value: input.receipts.length
+        ? input.receipts
+            .map((r, i) => `Ticket ${i + 1} : ${dayTime(r.purchasedAt)}`)
+            .join('\n')
+        : 'Aucun ticket',
+    },
+  ]);
+  const lineText = (l: GroceriesStatementInput['lines'][number]) => {
+    const notes = [
+      !l.withReceipt &&
+        (l.approved ? 'sans ticket, accepté par vous' : 'sans ticket, non remboursé'),
+      l.contested && !l.decision && 'contestée, en cours d’examen',
+      l.decision === 'upheld' &&
+        `contestation fondée, ${euros(l.refundedCents)} remboursés`,
+      l.decision === 'rejected' && 'contestation rejetée',
+    ].filter(Boolean);
+    return `${l.label} — ${euros(l.amountCents)}${notes.length ? ` (${notes.join(', ')})` : ''}`;
+  };
+  section(doc, 'Lignes', input.lines.map(lineText).join('\n') || 'Aucune ligne');
+  section(
+    doc,
+    'Prélèvement',
+    input.capturedAt
+      ? `${euros(input.capturedCents ?? 0)} prélevés le ${dayTime(input.capturedAt)} sur votre ` +
+          'carte ; le reste de l’empreinte a été libéré.' +
+          (input.refundedCents
+            ? ` ${euros(input.refundedCents)} vous ont été remboursés.`
+            : '')
+      : 'Pas encore prélevé : le prélèvement a lieu 24 heures après le dépôt des tickets.',
+  );
+  section(
+    doc,
+    'À savoir',
+    'Les courses ne sont pas un service à la personne : elles ne figurent pas sur la ' +
+      'facture et n’ouvrent pas droit au crédit d’impôt. Elles ne portent aucune commission.',
+  );
   footer(
     doc,
     `Document établi par ${COMPANY} le ${dayTime(input.generatedAt ?? new Date())}.`,

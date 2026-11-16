@@ -7,6 +7,7 @@ import {
 import type Stripe from 'stripe';
 
 import { StripeService } from '../../integrations/stripe.service';
+import { GroceriesService } from '../groceries/groceries.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommissionDebitsService } from '../payments/commission-debits.service';
 import { idOf, PaymentsService } from '../payments/payments.service';
@@ -20,6 +21,9 @@ import { StripeConnectService } from '../payments/stripe-connect.service';
  * invoices. Acknowledged with a 200 so Stripe does not retry them.
  */
 const ACKNOWLEDGED_TYPES = new Set<string>([
+  // A service card intent has nothing to record here; a courses one is routed above.
+  'payment_intent.amount_capturable_updated',
+  'payment_intent.canceled',
   'payment_intent.created',
   'payment_intent.requires_action',
   'setup_intent.created',
@@ -39,6 +43,7 @@ export class StripeWebhooksService {
     private readonly sepaMandates: SepaMandatesService,
     private readonly commissionDebits: CommissionDebitsService,
     private readonly prisma: PrismaService,
+    private readonly groceries: GroceriesService,
   ) {}
 
   /**
@@ -52,6 +57,20 @@ export class StripeWebhooksService {
    * exactly the events that matter most.
    */
   async handleVerifiedEvent(event: Stripe.Event): Promise<void> {
+    // Recettes lot 6: a courses PaymentIntent (a hold, its capture) belongs to the
+    // grocery flow, told apart by its payment row — never by metadata.
+    if (
+      event.type.startsWith('payment_intent.') &&
+      (await this.groceries.isCoursesIntent(
+        (event.data.object as Stripe.PaymentIntent).id,
+      ))
+    ) {
+      await this.groceries.handleCoursesIntent(
+        event.type,
+        event.data.object as Stripe.PaymentIntent,
+      );
+      return;
+    }
     switch (event.type) {
       case 'payment_intent.processing':
       case 'payment_intent.succeeded':
@@ -79,6 +98,7 @@ export class StripeWebhooksService {
         return;
       }
       case 'charge.dispute.created': {
+        if (await this.groceries.handleDispute('created', event.data.object)) return;
         const debit = await this.debitForDispute(event.data.object);
         if (debit) {
           await this.commissionDebits.handleDebitDisputed(debit);
@@ -86,6 +106,7 @@ export class StripeWebhooksService {
         return;
       }
       case 'charge.dispute.closed': {
+        if (await this.groceries.handleDispute('closed', event.data.object)) return;
         const debit = await this.debitForDispute(event.data.object);
         if (debit) {
           await this.commissionDebits.handleDebitDisputeClosed(debit, event.data.object);
@@ -99,6 +120,8 @@ export class StripeWebhooksService {
         await this.stripeConnect.handleAccountUpdated(event.data.object);
         return;
       case 'setup_intent.succeeded':
+        // A client's grocery card (lot 6), found by its SetupIntent id; else a SEPA mandate.
+        if (await this.groceries.handleSetupIntentSucceeded(event.data.object)) return;
         await this.sepaMandates.handleSetupIntentSucceeded(event.data.object);
         return;
       case 'mandate.updated':

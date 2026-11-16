@@ -149,6 +149,8 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
   BREVO_TPL_RECIPE_ALLERGENS_CHANGED: Joi.number().optional(),
   BREVO_TPL_RECIPES_MIGRATED: Joi.number().optional(),
+  BREVO_TPL_GROCERIES_NOTICE: Joi.number().optional(),
+  BREVO_WEBHOOK_TOKEN: Joi.string().min(24).optional(),
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
   BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
   BREVO_TPL_CONTACT_REPLY: Joi.number().optional(),

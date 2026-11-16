@@ -235,11 +235,19 @@ describe('PlatformSettingsService', () => {
       expect(await service.groceries()).toEqual({
         budgetMaxCents: 10_000,
         recommendedShoppingFeeMinCents: 1_500,
+        minCancelNoticeMinutes: 120,
+        silenceConfirms: false,
+        instantPayoutFeeBps: 150,
+        instantPayoutFeeMinCents: 50,
         updatedAt: null,
       });
       expect((await service.pricingRules()).groceries).toEqual({
         budgetMaxCents: 10_000,
         recommendedShoppingFeeMinCents: 1_500,
+        minCancelNoticeMinutes: 120,
+        silenceConfirms: false,
+        instantPayoutFeeBps: 150,
+        instantPayoutFeeMinCents: 50,
       });
     });
 
@@ -268,9 +276,36 @@ describe('PlatformSettingsService', () => {
         expect.objectContaining({
           action: 'settings.groceries_changed',
           metadata: {
-            from: { budgetMaxCents: 10_000, recommendedShoppingFeeMinCents: 1_500 },
-            to: rules,
+            from: expect.objectContaining({
+              budgetMaxCents: 10_000,
+              recommendedShoppingFeeMinCents: 1_500,
+            }),
+            // A field left out keeps its value.
+            to: expect.objectContaining({ ...rules, minCancelNoticeMinutes: 120 }),
           },
+        }),
+      );
+    });
+
+    it('saves the lot 6 fields: the cancel notice, the silence and the instant payout fee', async () => {
+      const { service, audit } = harness();
+      await service.setGroceries(
+        {
+          budgetMaxCents: 10_000,
+          recommendedShoppingFeeMinCents: 1_500,
+          minCancelNoticeMinutes: 180,
+          silenceConfirms: true,
+        },
+        'admin-1',
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            to: expect.objectContaining({
+              minCancelNoticeMinutes: 180,
+              silenceConfirms: true,
+            }),
+          }),
         }),
       );
     });

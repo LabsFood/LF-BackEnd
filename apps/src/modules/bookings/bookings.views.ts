@@ -52,6 +52,16 @@ export const BOOKING_LIST_INCLUDE = {
     },
   },
   quote: { select: { allergies: true, diet: true, offers: ACCEPTED_OFFER } },
+  // Recettes lot 6: where the groceries stand; the detail is at …/groceries.
+  groceryRun: {
+    select: {
+      status: true,
+      budgetCents: true,
+      holdPlacedAt: true,
+      receiptsSubmittedAt: true,
+      capturedCents: true,
+    },
+  },
   _count: { select: { bookingMeals: true } },
   // The dishes ride on every row: a list that says "dishes to define" for a booking
   // that has three is wrong, and the names are cheap (a page is at most a few dozen).
@@ -238,6 +248,19 @@ export function toBookingDetail(
         chefGroceriesAt: booking.groceriesReminderAt,
       },
     }),
+    /**
+     * Recettes lot 6: the groceries paid apart, null when the batch cooker does not
+     * shop or no card was saved yet. « Budget garanti » once `holdPlacedAt` is set.
+     */
+    groceries: booking.groceryRun
+      ? {
+          status: booking.groceryRun.status,
+          budgetCents: booking.groceryRun.budgetCents,
+          guaranteed: booking.groceryRun.holdPlacedAt !== null,
+          receiptsSubmittedAt: booking.groceryRun.receiptsSubmittedAt,
+          capturedCents: booking.groceryRun.capturedCents,
+        }
+      : null,
     /** The boxes ticked and when the contract was concluded (CGV art. 5.1). */
     contract: {
       version: booking.contractVersion,
@@ -298,7 +321,8 @@ export function withdrawalView(
   };
 }
 
-export type BookingDocumentKind = 'cgv' | 'withdrawal-form' | 'debours-mandate';
+export type BookingDocumentKind =
+  'cgv' | 'withdrawal-form' | 'debours-mandate' | 'groceries-statement';
 
 /** The documents of a booking's contract, each a PDF the client can download. */
 export function bookingDocuments(booking: {
@@ -307,6 +331,8 @@ export function bookingDocuments(booking: {
   contractVersion: string | null;
   concludedAt: Date | null;
   deboursMandateAcceptedAt: Date | null;
+  /** Lot 6: the relevé de débours exists once the receipts are deposited. */
+  groceryRun?: { receiptsSubmittedAt: Date | null } | null;
 }): { kind: BookingDocumentKind; filename: string }[] {
   const ref = booking.reference ?? booking.id;
   return [
@@ -328,6 +354,14 @@ export function bookingDocuments(booking: {
       : []),
     ...(booking.deboursMandateAcceptedAt
       ? [{ kind: 'debours-mandate' as const, filename: `mandat-debours-${ref}.pdf` }]
+      : []),
+    ...(booking.groceryRun?.receiptsSubmittedAt
+      ? [
+          {
+            kind: 'groceries-statement' as const,
+            filename: `releve-debours-${ref}.pdf`,
+          },
+        ]
       : []),
   ];
 }

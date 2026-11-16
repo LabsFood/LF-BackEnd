@@ -40,6 +40,12 @@ describe('StripeWebhooksService', () => {
     handleMandateUpdated: jest.Mock;
   };
   let prisma: { stripeEventLog: { upsert: jest.Mock; update: jest.Mock } };
+  let groceries: {
+    isCoursesIntent: jest.Mock;
+    handleCoursesIntent: jest.Mock;
+    handleDispute: jest.Mock;
+    handleSetupIntentSucceeded: jest.Mock;
+  };
   let constructEvent: jest.Mock;
   let stripe: { configured: boolean; webhookSecrets: string[]; getClient: jest.Mock };
   let service: StripeWebhooksService;
@@ -68,6 +74,13 @@ describe('StripeWebhooksService', () => {
         update: jest.fn(),
       },
     };
+    // Default: no courses payment, no grocery card, no grocery chargeback.
+    groceries = {
+      isCoursesIntent: jest.fn().mockResolvedValue(false),
+      handleCoursesIntent: jest.fn(),
+      handleDispute: jest.fn().mockResolvedValue(false),
+      handleSetupIntentSucceeded: jest.fn().mockResolvedValue(false),
+    };
     constructEvent = jest.fn();
     stripe = {
       configured: true,
@@ -82,7 +95,39 @@ describe('StripeWebhooksService', () => {
       sepaMandates as unknown as SepaMandatesService,
       commissionDebits as unknown as CommissionDebitsService,
       prisma as unknown as PrismaService,
+      groceries as never,
     );
+  });
+
+  describe('groceries (Recettes lot 6)', () => {
+    it('routes a courses PaymentIntent to the grocery flow, never to the service one', async () => {
+      groceries.isCoursesIntent.mockResolvedValue(true);
+      const intent = { id: 'pi_courses' };
+      await service.handleVerifiedEvent({
+        type: 'payment_intent.succeeded',
+        data: { object: intent },
+      } as never);
+      expect(groceries.handleCoursesIntent).toHaveBeenCalledWith(
+        'payment_intent.succeeded',
+        intent,
+      );
+      expect(payments.handlePaymentIntentSucceeded).not.toHaveBeenCalled();
+    });
+
+    it('lets the grocery flow claim a chargeback and a card setup first', async () => {
+      groceries.handleDispute.mockResolvedValue(true);
+      await service.handleVerifiedEvent({
+        type: 'charge.dispute.created',
+        data: { object: { id: 'dp_1', payment_intent: 'pi_courses' } },
+      } as never);
+      expect(commissionDebits.handleDebitDisputed).not.toHaveBeenCalled();
+      groceries.handleSetupIntentSucceeded.mockResolvedValue(true);
+      await service.handleVerifiedEvent({
+        type: 'setup_intent.succeeded',
+        data: { object: { id: 'seti_1' } },
+      } as never);
+      expect(sepaMandates.handleSetupIntentSucceeded).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleVerifiedEvent', () => {

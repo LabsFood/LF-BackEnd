@@ -126,7 +126,9 @@ export interface AppConfig {
       bookingContractClient?: number;
       bookingWithdrawalAck?: number;
       bookingWithdrawalAdmin?: number;
+      groceriesNotice?: number;
     };
+    webhookToken?: string;
   };
   /** Structured stdout logging, read by Railway's log explorer. */
   logging: {
@@ -290,7 +292,10 @@ export const configLoader = (): AppConfig => ({
       bookingWithdrawalAdmin: optionalNumber(
         process.env.BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN,
       ),
+      groceriesNotice: optionalNumber(process.env.BREVO_TPL_GROCERIES_NOTICE),
     },
+    /** Recettes lot 6: the secret the Brevo webhook URL carries (`?token=`). */
+    webhookToken: process.env.BREVO_WEBHOOK_TOKEN,
   },
   logging: {
     level:

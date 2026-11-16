@@ -26,5 +26,7 @@ import { MeBookingsController } from './me-bookings.controller';
     BookingWithdrawalsService,
     BookingsMailer,
   ],
+  // Recettes lot 6: the grocery flow keeps the SHA-256 of the mandate PDF as proof.
+  exports: [BookingDocumentsService],
 })
 export class BookingsModule {}

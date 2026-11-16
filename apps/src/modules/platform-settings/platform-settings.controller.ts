@@ -4,6 +4,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiProperty,
+  ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
@@ -11,9 +12,11 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -77,6 +80,54 @@ class GroceriesDto {
   @Min(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.min)
   @Max(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.max)
   recommendedShoppingFeeMinCents!: number;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.minCancelNoticeMinutes.min,
+    maximum: GROCERIES_BOUNDS.minCancelNoticeMinutes.max,
+    description:
+      'Lot 6: the cancel deadline of the message before the groceries is at least this ' +
+      'many minutes after the message. Left out: unchanged.',
+    example: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.minCancelNoticeMinutes.min)
+  @Max(GROCERIES_BOUNDS.minCancelNoticeMinutes.max)
+  minCancelNoticeMinutes?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Lot 6, art. 8: « le silence vaut confirmation ». Off (the default), the client ' +
+      'must confirm the groceries. Left out: unchanged.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  silenceConfirms?: boolean;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.instantPayoutFeeBps.min,
+    maximum: GROCERIES_BOUNDS.instantPayoutFeeBps.max,
+    description: 'Lot 6: the instant payout fee, in basis points, paid by the chef.',
+    example: 150,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.instantPayoutFeeBps.min)
+  @Max(GROCERIES_BOUNDS.instantPayoutFeeBps.max)
+  instantPayoutFeeBps?: number;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.instantPayoutFeeMinCents.min,
+    maximum: GROCERIES_BOUNDS.instantPayoutFeeMinCents.max,
+    description: 'Lot 6: the least an instant payout costs, in cents.',
+    example: 50,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.instantPayoutFeeMinCents.min)
+  @Max(GROCERIES_BOUNDS.instantPayoutFeeMinCents.max)
+  instantPayoutFeeMinCents?: number;
 }
 
 /** Recettes lot 3 (LF-0271): days in the fridge past which a dish's date alerts. */
