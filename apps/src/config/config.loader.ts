@@ -6,7 +6,7 @@ const optionalNumber = (value?: string): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
-export const URSSAF_GATEWAY_MODES = ['disabled', 'simulated'] as const;
+export const URSSAF_GATEWAY_MODES = ['disabled', 'simulated', 'manual'] as const;
 export type UrssafGatewayMode = (typeof URSSAF_GATEWAY_MODES)[number];
 
 /**
@@ -57,10 +57,15 @@ export interface AppConfig {
   urssaf: {
     /**
      * `disabled`: the immediate advance is not offered at all. `simulated`: it runs
-     * end to end with an admin answering in URSSAF's place. There is no `live` yet:
-     * it arrives with the URSSAF API access, behind `UrssafGateway`.
+     * end to end with an admin answering in URSSAF's place. `manual`: an admin enters
+     * real requests on the intermediary's online space and records the real answers.
+     * There is no `live` yet: it arrives with the URSSAF API access, behind `UrssafGateway`.
      */
     gateway: UrssafGatewayMode;
+    /** The cooperative the admin goes through in `manual` mode (shown at checkout). */
+    intermediary: string;
+    /** Base64 AES-256 key for the clients' URSSAF dossiers. */
+    kycEncryptionKey?: string;
   };
   payments: {
     /** Platform commission on the pre-VAT amount, in basis points. 1500 = the
@@ -211,6 +216,8 @@ export const configLoader = (): AppConfig => ({
   urssaf: {
     // Joi (env.validation.ts) rejects any other value, and `simulated` beside live Stripe keys.
     gateway: (process.env.URSSAF_GATEWAY ?? 'disabled') as UrssafGatewayMode,
+    intermediary: process.env.URSSAF_INTERMEDIARY ?? 'Unipros',
+    kycEncryptionKey: process.env.KYC_ENCRYPTION_KEY,
   },
   payments: {
     commissionRateBps: Number(process.env.PAYMENTS_COMMISSION_RATE_BPS ?? 1500),

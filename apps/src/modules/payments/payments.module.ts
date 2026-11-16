@@ -8,6 +8,8 @@ import {
 } from './booking-payments.controller';
 import { BookingPaymentsService } from './booking-payments.service';
 import { CesuPaymentsController, PublicCesuController } from './cesu-payments.controller';
+import { AdminChefTransactionsController } from './chef-transactions.controller';
+import { ChefTransactionsService } from './chef-transactions.service';
 import { CesuPaymentsService } from './cesu-payments.service';
 import { CommissionDebitsService } from './commission-debits.service';
 import { CommissionInvoicesController } from './commission-invoices.controller';
@@ -22,6 +24,11 @@ import { SepaMandatesService } from './sepa-mandates.service';
 import { StripeConnectController } from './stripe-connect.controller';
 import { StripeConnectService } from './stripe-connect.service';
 import { UrssafGateway } from './urssaf.gateway';
+import {
+  AdminUrssafDossiersController,
+  UrssafDossiersController,
+} from './urssaf-dossiers.controller';
+import { UrssafDossiersService } from './urssaf-dossiers.service';
 
 /**
  * Everything that touches money: card payments, prefinanced CESU, the URSSAF
@@ -34,12 +41,16 @@ import { UrssafGateway } from './urssaf.gateway';
  * profile data, like the chef profile itself, and carries no Stripe secrets.
  */
 @Module({
-  // ChefOnboardingModule lends its private-bucket storage to the e-CESU proofs.
+  // ChefOnboardingModule lends its private-bucket storage to the e-CESU proofs and
+  // the clients' sealed URSSAF dossiers.
   imports: [UsersModule, ChefOnboardingModule],
   controllers: [
     PaymentsController,
     BookingPaymentsController,
     AdminUrssafController,
+    UrssafDossiersController,
+    AdminUrssafDossiersController,
+    AdminChefTransactionsController,
     PublicCesuController,
     CesuPaymentsController,
     CommissionInvoicesController,
@@ -52,6 +63,8 @@ import { UrssafGateway } from './urssaf.gateway';
     PaymentsService,
     BookingPaymentsService,
     UrssafGateway,
+    UrssafDossiersService,
+    ChefTransactionsService,
     CesuPaymentsService,
     CommissionDebitsService,
     StripeConnectService,

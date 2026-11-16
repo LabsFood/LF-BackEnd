@@ -22,10 +22,19 @@ export interface ClientOnboardingFacts {
     spiceLevel: number | null;
   } | null;
   bookings: number;
+  /** The immediate advance is open (`URSSAF_GATEWAY` not `disabled`). */
+  advanceOffered?: boolean;
+  /** The URSSAF dossier the advance needs is filled (`/me/urssaf-dossier`). */
+  urssafDossierFilled?: boolean;
 }
 
 export type ClientOnboardingStep =
-  'contact_details' | 'address' | 'allergies' | 'tastes' | 'first_booking';
+  | 'contact_details'
+  | 'address'
+  | 'allergies'
+  | 'tastes'
+  | 'urssaf_dossier'
+  | 'first_booking';
 
 const filled = (value: string | null | undefined) => !!value?.trim();
 
@@ -34,7 +43,7 @@ export function clientOnboarding(facts: ClientOnboardingFacts) {
   const steps: {
     code: ClientOnboardingStep;
     done: boolean;
-    requiredFor?: 'menu_validation';
+    requiredFor?: 'menu_validation' | 'immediate_advance';
   }[] = [
     { code: 'contact_details', done: filled(facts.fullName) && filled(facts.phone) },
     {
@@ -55,6 +64,16 @@ export function clientOnboarding(facts: ClientOnboardingFacts) {
           p.favorites.length > 0 ||
           p.spiceLevel !== null),
     },
+    // Only while the advance is offered: otherwise it would ask for an IBAN for nothing.
+    ...(facts.advanceOffered
+      ? [
+          {
+            code: 'urssaf_dossier' as const,
+            done: !!facts.urssafDossierFilled,
+            requiredFor: 'immediate_advance' as const,
+          },
+        ]
+      : []),
     { code: 'first_booking', done: facts.bookings > 0 },
   ];
   const completed = steps.filter((s) => s.done).length;

@@ -174,6 +174,22 @@ export class KycStorageService {
   }
 
   /**
+   * Reads back a file the API wrote itself (a client's sealed URSSAF dossier). Never
+   * for a chef's uploads: those are read through a short-lived link.
+   */
+  async getObject(storagePath: string): Promise<Buffer> {
+    const { data, error } = await this.bucketApi().download(storagePath);
+    if (error || !data) {
+      this.logger.error({ event: 'kyc.get_failed', storagePath, error: error?.message });
+      throw new ServiceUnavailableException({
+        code: 'KYC_STORAGE_UNAVAILABLE',
+        message: 'The document could not be read. Try again in a moment.',
+      });
+    }
+    return Buffer.from(await data.arrayBuffer());
+  }
+
+  /**
    * Short-lived read link for an admin or the owning chef (FLOW-01 §3.4). Inline:
    * without Supabase's `download` option the browser displays the file.
    */

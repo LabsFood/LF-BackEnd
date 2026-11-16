@@ -43,6 +43,7 @@ model User {
   contactReplies           ContactMessageReply[]     @relation("ContactReplySender")
   cesuSettlementsConfirmed CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
   urssafLinks              UrssafLink[]              @relation("UrssafLinkClient")
+  urssafDossier            UrssafClientDossier?
   notifications            Notification[]
 
   @@map("users")
@@ -1709,6 +1710,25 @@ enum UrssafLinkStatus {
   refused
 
   @@map("urssaf_link_status")
+}
+
+/// What URSSAF asks of a client for the immediate advance (identity, birth place,
+/// contact, bank account), entered by an admin on the intermediary's space while
+/// the API access is pending. The dossier itself is AES-256-GCM sealed in the private
+/// KYC bucket at `storagePath` (KYC_ENCRYPTION_KEY), never in Postgres: this row only
+/// says it exists, with what screens show without decrypting it.
+/// ponytail: a hard-deleted account cascades this row and leaves the sealed object,
+/// kept like the chef's KYC documents; purge it with the retention job once one exists.
+model UrssafClientDossier {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @unique(map: "uq_urssaf_client_dossiers_user_id") @map("user_id") @db.Uuid
+  storagePath String   @map("storage_path") @db.VarChar(512)
+  ibanLast4   String   @map("iban_last4") @db.VarChar(4)
+  filledAt    DateTime @default(now()) @map("filled_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_urssaf_client_dossiers_user_id")
+
+  @@map("urssaf_client_dossiers")
 }
 
 /// What a prestation left behind: plated dishes, labelled containers, the kitchen
