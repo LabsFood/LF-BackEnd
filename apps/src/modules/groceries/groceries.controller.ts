@@ -84,10 +84,12 @@ export class GroceriesController {
       'confirm with the page id. The first call records the proof of ' +
       'the mandate accepted by the booking box: model version and clauses, maximum (the ' +
       'Budget Courses), SHA-256 of the mandate PDF, IP and browser. `409 ' +
-      'GROCERIES_NOT_APPLICABLE` when the batch cooker does not shop.',
+      'GROCERIES_NOT_APPLICABLE` when the batch cooker does not shop, `409 ' +
+      'GROCERIES_BOOKING_CLOSED` once the prestation is done, cancelled or disputed.',
   })
   @ApiConflictResponse({
-    description: '`GROCERIES_NOT_APPLICABLE`, `GROCERY_CARD_LOCKED`.',
+    description:
+      '`GROCERIES_NOT_APPLICABLE`, `GROCERIES_BOOKING_CLOSED`, `GROCERY_CARD_LOCKED`.',
   })
   @ApiClerkAuthResponses()
   startCard(

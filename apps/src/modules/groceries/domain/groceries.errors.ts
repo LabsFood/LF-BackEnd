@@ -16,6 +16,13 @@ export const groceriesNotApplicable = (): ConflictException =>
     message: 'This prestation has no groceries bought by the batch cooker.',
   });
 
+/** The prestation is over (done, cancelled or disputed): no card is saved for it any more. */
+export const groceriesBookingClosed = (status: string): ConflictException =>
+  new ConflictException({
+    code: 'GROCERIES_BOOKING_CLOSED',
+    message: `This prestation is ${status}: a card can no longer be saved for its groceries.`,
+  });
+
 /** Groceries are paid by card only (no e-CESU, no SEPA) until the product decides. */
 export const groceriesMethodNotAllowed = (method: string): UnprocessableEntityException =>
   new UnprocessableEntityException({

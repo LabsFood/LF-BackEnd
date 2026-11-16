@@ -6,6 +6,7 @@ import {
   deadlineOutcome,
   depositDeadlines,
   groceriesApply,
+  groceriesShown,
   holdExpiry,
   instantPayoutFee,
   lockAt,
@@ -53,6 +54,22 @@ describe('mandate rules', () => {
     expect(groceriesApply({ ...base, serviceOffer: { shoppingIncluded: false } })).toBe(
       false,
     );
+  });
+
+  it('are not offered on a prestation that is over, but stay shown once started', () => {
+    const base = {
+      shoppingByClient: false,
+      deboursMandateAcceptedAt: new Date(),
+      serviceOffer: { shoppingIncluded: true },
+    };
+    expect(groceriesShown({ ...base, status: 'confirmed' }, false)).toBe(true);
+    for (const status of ['completed', 'cancelled', 'disputed']) {
+      expect(groceriesShown({ ...base, status }, false)).toBe(false);
+      expect(groceriesShown({ ...base, status }, true)).toBe(true);
+    }
+    expect(
+      groceriesShown({ ...base, shoppingByClient: true, status: 'completed' }, true),
+    ).toBe(false);
   });
 });
 

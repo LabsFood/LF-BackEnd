@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import {
+  IsDefined,
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 /**
  * Shape only: the rules URSSAF applies (name charset, mobile, birth place, IBAN
@@ -106,6 +114,9 @@ export class UrssafDossierDto {
   email!: string;
 
   @ApiProperty({ type: UrssafDossierAddressDto })
+  // `@ValidateNested` alone lets a missing address through, and the rules read its lines.
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => UrssafDossierAddressDto)
   address!: UrssafDossierAddressDto;

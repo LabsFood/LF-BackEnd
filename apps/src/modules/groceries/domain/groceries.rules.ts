@@ -93,6 +93,24 @@ export const groceriesApply = (booking: {
   booking.serviceOffer.shoppingIncluded &&
   booking.deboursMandateAcceptedAt !== null;
 
+/** A prestation in one of these states starts no groceries any more. */
+export const CLOSED_BOOKING_STATUSES: readonly string[] = [
+  'cancelled',
+  'completed',
+  'disputed',
+];
+
+/**
+ * What the fronts are told: groceries that already started are always shown, whatever
+ * became of the prestation; none is offered on a prestation that is over.
+ */
+export const groceriesShown = (
+  booking: Parameters<typeof groceriesApply>[0] & { status: string },
+  hasRun: boolean,
+): boolean =>
+  groceriesApply(booking) &&
+  (hasRun || !CLOSED_BOOKING_STATUSES.includes(booking.status));
+
 export type RunStatus =
   | 'awaiting_card'
   | 'card_saved'

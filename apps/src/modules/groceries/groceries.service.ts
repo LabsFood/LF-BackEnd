@@ -23,6 +23,7 @@ import { groceriesInForce } from '../platform-settings/groceries';
 import { shoppingDeadline } from '../shopping-lists/domain/shopping-list.rules';
 import { UsersService } from '../users/users.service';
 import {
+  groceriesBookingClosed,
   groceriesNotApplicable,
   groceryCardMissing,
   groceryLineNotFound,
@@ -36,7 +37,9 @@ import {
   contestRefusal,
   deadlineOutcome,
   depositDeadlines,
+  CLOSED_BOOKING_STATUSES,
   groceriesApply,
+  groceriesShown,
   holdExpiry,
   instantPayoutFee,
   LineInput,
@@ -220,7 +223,7 @@ export class GroceriesService {
 
   private async toView(booking: BookingRow, run: RunRow | null, role: Role) {
     const settings = await groceriesInForce(this.prisma);
-    const applies = groceriesApply(booking);
+    const applies = groceriesShown(booking, run !== null);
     const budgetCents = run?.budgetCents ?? settings.budgetMaxCents;
     const rules = run ? this.rulesOf(run) : mandateRules(budgetCents);
     const opensAt = lockAt(booking.startsAt, rules);
@@ -376,8 +379,8 @@ export class GroceriesService {
     }
     const { booking } = await this.as('client', clerkUserId, bookingId);
     if (!groceriesApply(booking)) throw groceriesNotApplicable();
-    if (['cancelled', 'completed', 'disputed'].includes(booking.status)) {
-      throw groceriesNotApplicable();
+    if (CLOSED_BOOKING_STATUSES.includes(booking.status)) {
+      throw groceriesBookingClosed(booking.status);
     }
     let run = await this.ensureRun(booking, meta);
     if (run.status === 'cancelled' || run.receiptsSubmittedAt) {
