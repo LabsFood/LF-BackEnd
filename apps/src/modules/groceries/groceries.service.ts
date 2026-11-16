@@ -16,6 +16,7 @@ import { GroceryRun, Prisma, UserRole } from '../../generated/prisma/client';
 import { BrevoService } from '../../integrations/brevo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BookingDocumentsService } from '../bookings/booking-documents.service';
+import { assertOwnSiteUrl } from '../payments/own-site-url';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { groceriesInForce } from '../platform-settings/groceries';
@@ -148,7 +149,7 @@ export class GroceriesService {
     private readonly receipts: KycStorageService,
     private readonly brevo: BrevoService,
     private readonly audit: AuditService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.siteUrl = config
       .get<string>('chefOnboarding.publicSiteUrl', 'https://labsfood.fr')
@@ -356,7 +357,7 @@ export class GroceriesService {
   // ------------------------------------------------------------ client: card
 
   /**
-   * `POST /me/bookings/{id}/groceries/card`: a SetupIntent for Stripe Elements. The
+   * `POST /me/bookings/{id}/groceries/card`: a Stripe Checkout page in setup mode. The
    * first call records the proof of the mandate (decision of 16/11: the booking box is
    * the signature): version and clauses, maximum, the PDF's SHA-256, IP and browser.
    */
@@ -364,7 +365,15 @@ export class GroceriesService {
     clerkUserId: string,
     bookingId: string,
     meta: { ip?: string | null; userAgent?: string | null },
+    urls: { successUrl: string; cancelUrl: string },
   ) {
+    for (const url of [urls.successUrl, urls.cancelUrl]) {
+      assertOwnSiteUrl(
+        this.config,
+        url,
+        'successUrl and cancelUrl must point at a Lab’s Food site.',
+      );
+    }
     const { booking } = await this.as('client', clerkUserId, bookingId);
     if (!groceriesApply(booking)) throw groceriesNotApplicable();
     if (['cancelled', 'completed', 'disputed'].includes(booking.status)) {
@@ -385,10 +394,16 @@ export class GroceriesService {
         include: RUN_INCLUDE,
       });
     }
-    const intent = await this.stripe.createSetupIntent(customerId, run.id);
+    const session = await this.stripe.createSetupSession({
+      customerId,
+      runId: run.id,
+      successUrl: urls.successUrl,
+      cancelUrl: urls.cancelUrl,
+    });
+    // The page's id until it completes; its SetupIntent's id once the card is saved.
     await this.prisma.groceryRun.update({
       where: { id: run.id },
-      data: { stripeSetupIntentId: intent.id },
+      data: { stripeSetupIntentId: session.id },
     });
     await this.audit.record({
       actorType: 'client',
@@ -397,7 +412,7 @@ export class GroceriesService {
       subjectType: 'grocery_run',
       subjectId: run.id,
     });
-    return { setupIntentId: intent.id, clientSecret: intent.client_secret ?? '' };
+    return { sessionId: session.id, url: session.url ?? '' };
   }
 
   /** The client's Stripe customer: the one a previous run made, else a new one. */
@@ -467,21 +482,26 @@ export class GroceriesService {
   }
 
   /**
-   * `POST /me/bookings/{id}/groceries/card/confirm`: Stripe Elements confirmed the
-   * SetupIntent; the card is saved (ids and display only). Inside the lock, the hold is
-   * placed at once, the client present; after a refused hold, it is tried again.
+   * `POST /me/bookings/{id}/groceries/card/confirm`: back from the setup page, the card
+   * is saved (ids and display only). Inside the lock, the hold is placed at once, the
+   * client present; after a refused hold, it is tried again.
    */
-  async confirmCard(clerkUserId: string, bookingId: string, setupIntentId: string) {
+  async confirmCard(clerkUserId: string, bookingId: string, sessionId: string) {
     const { booking, role } = await this.as('client', clerkUserId, bookingId);
     const run = await this.runOrThrow(bookingId);
-    if (run.stripeSetupIntentId !== setupIntentId) {
-      throw new ConflictException({
-        code: 'GROCERY_SETUP_MISMATCH',
-        message: 'This card setup is not the one of these groceries.',
-      });
+    if (run.stripeSetupIntentId !== sessionId) {
+      // Already saved by the webhook: the same answer, nothing to redo.
+      if (!run.stripePaymentMethodId) {
+        throw new ConflictException({
+          code: 'GROCERY_SETUP_MISMATCH',
+          message: 'This card setup is not the one of these groceries.',
+        });
+      }
+    } else {
+      const intent = await this.stripe.setupIntentOfSession(sessionId);
+      if (!intent) throw groceryCardMissing();
+      await this.saveCard(run, intent);
     }
-    const intent = await this.stripe.retrieveSetupIntent(setupIntentId);
-    await this.saveCard(run, intent);
     const saved = (await this.run(bookingId))!;
     if (new Date() >= lockAt(booking.startsAt, this.rulesOf(saved))) {
       await this.placeHold(saved.id, new Date());
@@ -491,8 +511,12 @@ export class GroceriesService {
 
   /** Webhook `setup_intent.succeeded` for a grocery card: the same save, idempotent. */
   async handleSetupIntentSucceeded(intent: Stripe.SetupIntent): Promise<boolean> {
+    // The run id rides on the SetupIntent we asked the setup page to create.
+    const runId = intent.metadata?.groceryRunId;
     const run = await this.prisma.groceryRun.findFirst({
-      where: { stripeSetupIntentId: intent.id },
+      where: runId
+        ? { OR: [{ id: runId }, { stripeSetupIntentId: intent.id }] }
+        : { stripeSetupIntentId: intent.id },
       include: RUN_INCLUDE,
     });
     if (!run) return false;
@@ -524,6 +548,7 @@ export class GroceriesService {
         cardExpMonth: method.card?.exp_month ?? null,
         cardExpYear: method.card?.exp_year ?? null,
         cardSavedAt: new Date(),
+        stripeSetupIntentId: intent.id,
         ...(run.status === 'awaiting_card' ? { status: 'card_saved' } : {}),
       },
     });

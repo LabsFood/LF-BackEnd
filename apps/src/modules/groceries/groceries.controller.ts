@@ -31,6 +31,7 @@ import { TAGS } from '../../common/swagger/tags';
 import {
   CancelGroceriesDto,
   ConfirmCardDto,
+  StartCardDto,
   ContestLineDto,
   DecideLineDto,
   DisputeFaultDto,
@@ -77,9 +78,10 @@ export class GroceriesController {
 
   @Post('me/bookings/:id/groceries/card')
   @ApiOperation({
-    summary: 'Save a card for the groceries (SetupIntent)',
+    summary: 'Save a card for the groceries (Stripe Checkout, setup mode)',
     description:
-      'Answers a `clientSecret` for Stripe Elements. The first call records the proof of ' +
+      'Answers the `url` of the Stripe page that saves the card; back on `successUrl`, ' +
+      'confirm with the page id. The first call records the proof of ' +
       'the mandate accepted by the booking box: model version and clauses, maximum (the ' +
       'Budget Courses), SHA-256 of the mandate PDF, IP and browser. `409 ' +
       'GROCERIES_NOT_APPLICABLE` when the batch cooker does not shop.',
@@ -92,11 +94,14 @@ export class GroceriesController {
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: FastifyRequest,
+    @Body() body: StartCardDto,
   ) {
-    return this.groceries.startCard(user.userId, id, {
-      ip: req.ip,
-      userAgent: req.headers['user-agent'] ?? null,
-    });
+    return this.groceries.startCard(
+      user.userId,
+      id,
+      { ip: req.ip, userAgent: req.headers['user-agent'] ?? null },
+      body,
+    );
   }
 
   @Post('me/bookings/:id/groceries/card/confirm')
@@ -117,7 +122,7 @@ export class GroceriesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: ConfirmCardDto,
   ) {
-    return this.groceries.confirmCard(user.userId, id, body.setupIntentId);
+    return this.groceries.confirmCard(user.userId, id, body.sessionId);
   }
 
   @Post('me/bookings/:id/groceries/hold/retry')

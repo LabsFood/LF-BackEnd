@@ -24,9 +24,10 @@ suite('groceries on a real database (lot 6)', () => {
   const stripe = {
     configured: true,
     createCustomer: jest.fn().mockResolvedValue('cus_test'),
-    createSetupIntent: jest
+    createSetupSession: jest
       .fn()
-      .mockResolvedValue({ id: 'seti_test', client_secret: 'seti_secret' }),
+      .mockResolvedValue({ id: 'cs_test', url: 'https://checkout.stripe.com/c/cs_test' }),
+    setupIntentOfSession: jest.fn(),
     retrieveSetupIntent: jest.fn(),
     placeHold: jest.fn(),
     capture: jest.fn().mockResolvedValue({}),
@@ -165,11 +166,16 @@ suite('groceries on a real database (lot 6)', () => {
   }
 
   async function savedCard(bookingId: string) {
-    await service.startCard(`cl_${tag}`, bookingId, {
-      ip: '203.0.113.7',
-      userAgent: 'jest',
-    });
-    stripe.retrieveSetupIntent.mockResolvedValue({
+    await service.startCard(
+      `cl_${tag}`,
+      bookingId,
+      { ip: '203.0.113.7', userAgent: 'jest' },
+      {
+        successUrl: 'http://localhost:3005/espace-client/commandes/x',
+        cancelUrl: 'http://localhost:3005/espace-client/commandes/x',
+      },
+    );
+    stripe.setupIntentOfSession.mockResolvedValue({
       id: 'seti_test',
       status: 'succeeded',
       payment_method: {
@@ -182,7 +188,7 @@ suite('groceries on a real database (lot 6)', () => {
   it('records the mandate proof with the ceiling as Budget, and holds it once at the lock', async () => {
     const b = await booking(60);
     await savedCard(b.id);
-    await service.confirmCard(`cl_${tag}`, b.id, 'seti_test');
+    await service.confirmCard(`cl_${tag}`, b.id, 'cs_test');
     let run = await prisma.groceryRun.findUniqueOrThrow({ where: { bookingId: b.id } });
     expect(run).toMatchObject({
       status: 'card_saved',
@@ -236,7 +242,7 @@ suite('groceries on a real database (lot 6)', () => {
       intent: { id: `pi_${tag}_2` },
       captureBefore: null,
     });
-    await service.confirmCard(`cl_${tag}`, b.id, 'seti_test');
+    await service.confirmCard(`cl_${tag}`, b.id, 'cs_test');
     expect(
       (await prisma.groceryRun.findUniqueOrThrow({ where: { bookingId: b.id } })).status,
     ).toBe('hold_placed');
@@ -340,7 +346,7 @@ suite('groceries on a real database (lot 6)', () => {
       intent: { id: `pi_${tag}_3` },
       captureBefore: null,
     });
-    await service.confirmCard(`cl_${tag}`, b.id, 'seti_test');
+    await service.confirmCard(`cl_${tag}`, b.id, 'cs_test');
     await service.cancel(`cl_${tag}`, b.id, 'Je ferai les courses');
     expect(stripe.cancelHold).toHaveBeenCalledWith(`pi_${tag}_3`, expect.any(String));
     const after = await prisma.booking.findUniqueOrThrow({ where: { id: b.id } });

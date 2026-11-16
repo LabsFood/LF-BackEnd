@@ -65,16 +65,34 @@ export class GroceriesStripe {
   }
 
   /**
-   * A SetupIntent for an off-session card (CGV 7.2): Stripe Elements confirms it. A
-   * new one each time: a client changing their card must not get the old one back.
+   * A Stripe Checkout page in `setup` mode for an off-session card (CGV 7.2): the same
+   * hosted page as the service card payment, no card data on our sites. Its SetupIntent
+   * carries the run id, so the webhook finds it before the client is back.
    */
-  async createSetupIntent(customerId: string, runId: string) {
-    return this.client().setupIntents.create({
-      customer: customerId,
-      usage: 'off_session',
+  async createSetupSession(input: {
+    customerId: string;
+    runId: string;
+    successUrl: string;
+    cancelUrl: string;
+  }) {
+    return this.client().checkout.sessions.create({
+      mode: 'setup',
+      customer: input.customerId,
+      currency: 'eur',
       payment_method_types: ['card'],
-      metadata: { groceryRunId: runId, purpose: 'courses' },
+      setup_intent_data: { metadata: { groceryRunId: input.runId, purpose: 'courses' } },
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
+      metadata: { groceryRunId: input.runId },
     });
+  }
+
+  /** The SetupIntent a setup page produced, with its card. */
+  async setupIntentOfSession(sessionId: string): Promise<Stripe.SetupIntent | null> {
+    const session = await this.client().checkout.sessions.retrieve(sessionId, {
+      expand: ['setup_intent.payment_method'],
+    });
+    return (session.setup_intent as Stripe.SetupIntent | null) ?? null;
   }
 
   async retrieveSetupIntent(id: string) {

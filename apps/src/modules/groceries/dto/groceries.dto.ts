@@ -20,15 +20,31 @@ import {
 
 /** Recettes lot 6: what the grocery routes take. */
 
+export class StartCardDto {
+  @ApiProperty({
+    description: 'Where Stripe sends the client back once the card is saved.',
+  })
+  @IsString()
+  @MaxLength(2048)
+  successUrl!: string;
+
+  @ApiProperty({
+    description: 'Where Stripe sends the client back if they leave the page.',
+  })
+  @IsString()
+  @MaxLength(2048)
+  cancelUrl!: string;
+}
+
 export class ConfirmCardDto {
   @ApiProperty({
-    description: 'The SetupIntent Stripe Elements confirmed.',
-    example: 'seti_1Q…',
+    description: 'The setup page the client comes back from.',
+    example: 'cs_test_…',
   })
   @IsString()
   @IsNotEmpty()
   @MaxLength(128)
-  setupIntentId!: string;
+  sessionId!: string;
 }
 
 export class CancelGroceriesDto {
