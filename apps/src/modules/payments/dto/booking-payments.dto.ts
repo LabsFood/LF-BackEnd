@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export const URSSAF_LINK_STATUSES = ['pending', 'active', 'refused'] as const;
 export type UrssafLinkStatusKey = (typeof URSSAF_LINK_STATUSES)[number];
@@ -55,4 +62,29 @@ export class SimulateUrssafOutcomeDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Manual mode: the reference the intermediary (Unipros) gave the request. ' +
+      'Required for `paid` unless recorded at transmission.',
+    example: 'UNI-2026-000123',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  externalReference?: string;
+}
+
+export class MarkUrssafTransmittedDto {
+  @ApiProperty({
+    description: 'The reference the intermediary (Unipros) gave the request.',
+    example: 'UNI-2026-000123',
+    maxLength: 100,
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  externalReference!: string;
 }

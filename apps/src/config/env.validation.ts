@@ -97,13 +97,35 @@ export const envValidationSchema = Joi.object({
    * deployment also runs with `ENVIRONMENT=production`.
    */
   URSSAF_GATEWAY: Joi.string()
-    .valid('disabled', 'simulated')
+    .valid('disabled', 'simulated', 'manual')
     .default('disabled')
     .when('STRIPE_SECRET_KEY', {
       is: Joi.string()
         .pattern(/^sk_live_/)
         .required(),
       then: Joi.string().invalid('simulated'),
+    }),
+  /**
+   * `manual` is the temporary route while the URSSAF API access is pending: an admin
+   * enters each request on the intermediary's online space and records its answer
+   * here. Real requests, real answers, so it runs beside live Stripe keys.
+   */
+  URSSAF_INTERMEDIARY: Joi.string().max(60).default('Unipros'),
+  /**
+   * AES-256 key (32 bytes, base64) sealing the clients' URSSAF dossiers in the KYC
+   * bucket. Required in `manual` mode, where those dossiers are collected.
+   */
+  KYC_ENCRYPTION_KEY: Joi.string()
+    .base64()
+    .custom((value: string, helpers) =>
+      Buffer.from(value, 'base64').length === 32
+        ? value
+        : helpers.message({ custom: 'KYC_ENCRYPTION_KEY must be 32 bytes of base64' }),
+    )
+    .when('URSSAF_GATEWAY', {
+      is: 'manual',
+      then: Joi.required(),
+      otherwise: Joi.optional(),
     }),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),

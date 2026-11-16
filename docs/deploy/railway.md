@@ -49,7 +49,9 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 | `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). Fallback until an admin saves the rate from the console (`PATCH /admin/settings/commission`) |
 | `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
 | `PAYMENTS_INVOICE_PREFIX` | Numbering template of the client's invoice, facture A (default `LF-CUSYY-XXXXX`: `YY` the year's last two digits, the Xs the year's sequence, giving `LF-CUS26-00001`). Refused at startup without `YY` and a trailing run of `X` |
-| `URSSAF_GATEWAY` | Immediate advance: `disabled` (default) or `simulated`. `simulated` is refused beside a live Stripe key |
+| `URSSAF_GATEWAY` | Immediate advance: `disabled` (default), `simulated` or `manual`. `simulated` is refused beside a live Stripe key; `manual` (an admin enters requests on the intermediary's space) is allowed |
+| `URSSAF_INTERMEDIARY` | Cooperative named at checkout in `manual` mode (default `Unipros`) |
+| `KYC_ENCRYPTION_KEY` | AES-256 key, 32 bytes base64 (`openssl rand -base64 32`), sealing the clients' URSSAF dossiers. Required when `URSSAF_GATEWAY=manual`; never rotate without re-encrypting |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
 | `GOOGLE_MAPS_API_KEY` | Maps — not used yet |

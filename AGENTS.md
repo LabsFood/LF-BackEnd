@@ -483,7 +483,7 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
 | Public       | `GET /chefs/:chefProfileId/cesu-info`                                                                                                              |
 | Client       | `GET /me/bookings/:id/payment-options`, `GET …/payment-status`, `POST /payments/checkout-session`, `POST /payments/intent`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links`, `GET /me/fiscal-attestations/:year` |
 | Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `GET /me/chef/commission-invoices`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap` |
-| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status` |
+| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/transmitted` (manual mode), `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status` |
 | Stripe       | `POST /webhooks/stripe`                                                                                                                            |
 
 ### Contact forms
