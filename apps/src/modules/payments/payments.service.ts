@@ -339,6 +339,7 @@ export class PaymentsService {
         bookingId,
         method: 'cb',
         status: 'pending',
+        purpose: 'service',
         stripePaymentIntentId: null,
         metadata: { path: ['checkoutSessionId'], not: Prisma.AnyNull },
       },
@@ -417,6 +418,7 @@ export class PaymentsService {
         bookingId,
         method: 'cb',
         status: 'pending',
+        purpose: 'service',
         stripePaymentIntentId: { not: null },
       },
       include: { commission: true },
@@ -500,6 +502,14 @@ export class PaymentsService {
       return;
     }
     if (payment.status === PaymentStatus.succeeded) {
+      return;
+    }
+    if (payment.purpose !== 'service') {
+      // A courses capture covers no part of the prestation, has no commission and no
+      // invoice A: never settled here.
+      this.logger.warn(
+        `Payment ${payment.id} is a ${payment.purpose} payment; not settled here.`,
+      );
       return;
     }
 

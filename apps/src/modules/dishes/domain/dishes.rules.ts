@@ -4,6 +4,7 @@
  * tests next to this file.
  */
 
+import { DEFAULT_FRIDGE_ALERT_DAYS } from '../../bookings/domain/eat-before.rules';
 import { readLines } from './recipe-lines.rules';
 import { readSteps } from './recipes.rules';
 
@@ -71,8 +72,12 @@ export const DISH_CATEGORIES: readonly ReferenceItem[] = [
   { code: 'sauce', label: 'Sauce ou base' },
 ];
 
-/** Fridge storage beyond this many days raises the `FRIDGE_LONG` alert (§4.11). */
-export const FRIDGE_ALERT_DAYS = 4;
+/**
+ * Fridge storage beyond this many days raises the `FRIDGE_LONG` alert (§4.11): the
+ * default only. The threshold in force is the console's (`fridge_alert_days`, the
+ * same as the « à manger avant » alert); callers pass it to `readiness`.
+ */
+export const FRIDGE_ALERT_DAYS = DEFAULT_FRIDGE_ALERT_DAYS;
 
 export const ALLERGEN_CODES = ALLERGENS.map((a) => a.code);
 export const DIET_CODES = DIETS.map((d) => d.code);
@@ -204,7 +209,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
  * the photo); `warnings` block nothing. Origin and
  * equipment are never asked. Every point at once, each naming its field.
  */
-export function readiness(dish: ReadinessDish) {
+export function readiness(dish: ReadinessDish, fridgeAlertDays = FRIDGE_ALERT_DAYS) {
   const problems: PublishProblem[] = [];
   const missing = (field: string, message: string) =>
     problems.push({ code: 'VALIDATION_FAILED', field, message });
@@ -361,12 +366,12 @@ export function readiness(dish: ReadinessDish) {
   if (
     storage?.method === 'fridge' &&
     typeof storage.days === 'number' &&
-    storage.days > FRIDGE_ALERT_DAYS
+    storage.days > fridgeAlertDays
   ) {
     warnings.push({
       code: 'FRIDGE_LONG',
       field: 'recipe.storage',
-      message: `Fridge storage beyond ${FRIDGE_ALERT_DAYS} days: check it is safe.`,
+      message: `Fridge storage beyond ${fridgeAlertDays} days: check it is safe.`,
     });
   }
   return { ready: problems.length === 0, problems, toPublish, warnings };

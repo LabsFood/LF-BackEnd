@@ -12,6 +12,12 @@ export interface Line {
   qty: number;
   unit: string;
   aisle: string;
+  /**
+   * Set (true) only on a line every recipe marks optional (decision of 16/11): it
+   * stays on the shopping list with an « facultatif » badge. A line hidden from the
+   * client (`hiddenFromClient`) is an ordinary line here: the client pays for it.
+   */
+  optional?: true;
 }
 
 /** A line the chef changed, added (`edited`) or struck out (`removed`). */
@@ -42,6 +48,7 @@ export function toLine(raw: unknown): Line | null {
     qty,
     unit,
     aisle: String(value.aisle ?? '').trim() || 'autre',
+    ...(value.optional === true ? { optional: true as const } : {}),
   };
 }
 
@@ -85,8 +92,11 @@ export function aggregate(lines: Line[]): Line[] {
   for (const line of lines) {
     const key = lineKey(line);
     const existing = merged.get(key);
-    if (existing) existing.qty += line.qty;
-    else merged.set(key, { ...line });
+    if (existing) {
+      existing.qty += line.qty;
+      // Optional only if every dish that asks for it says so.
+      if (!line.optional) delete existing.optional;
+    } else merged.set(key, { ...line });
   }
   return [...merged.values()];
 }
@@ -106,7 +116,11 @@ export function applyCorrections(
     const correction = byKey.get(lineKey(line));
     if (!correction) result.push({ ...line, edited: false });
     else if (!correction.removed)
-      result.push({ ...stripRemoved(correction), edited: true });
+      result.push({
+        ...stripRemoved(correction),
+        ...(line.optional ? { optional: line.optional } : {}),
+        edited: true,
+      });
     byKey.delete(lineKey(line));
   }
   for (const added of byKey.values()) {

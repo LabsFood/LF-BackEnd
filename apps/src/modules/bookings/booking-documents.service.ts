@@ -1,6 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SentryCron } from '@sentry/nestjs';
+import { aislesInForce } from '../platform-settings/recipe-lists';
+import { groupByAisle } from '../dishes/domain/recipes.rules';
+import { formatQuantity, linesOf } from '../shopping-lists/shopping-lists.service';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
@@ -57,11 +60,8 @@ const CONTRACT_SELECT = {
   bookingMeals: { select: { meal: { select: { name: true } } } },
   shoppingList: {
     select: {
-      items: {
-        where: { removed: false },
-        orderBy: [{ aisle: 'asc' }, { name: 'asc' }],
-        select: { name: true, quantity: true },
-      },
+      // Every row: the corrections apply over the computed lines (`linesOf`).
+      items: { orderBy: [{ aisle: 'asc' }, { name: 'asc' }] },
     },
   },
 } satisfies Prisma.BookingSelect;
@@ -236,7 +236,30 @@ export class BookingDocumentsService {
     return true;
   }
 
-  private render(kind: BookingDocumentKind, booking: ContractRow): Promise<Buffer> {
+  /**
+   * The list as the chef left it, grouped by aisle in store order (decision of
+   * 16/11), each aisle under its label; a line every recipe marks optional says so.
+   */
+  private async shoppingByAisle(booking: ContractRow) {
+    const items = booking.shoppingList?.items ?? [];
+    if (!items.length) return [];
+    const aisles = await aislesInForce(this.prisma);
+    const labelOf = (code: string) =>
+      aisles.find((aisle) => aisle.code === code)?.label ??
+      (code === 'autre' ? 'Autre' : code);
+    return groupByAisle(
+      linesOf(items),
+      aisles.map((aisle) => aisle.code),
+    ).map((group) => ({
+      aisle: labelOf(group.aisle),
+      lines: group.lines.map(
+        (line) =>
+          `${line.name} — ${formatQuantity(line)}${line.optional ? ' (facultatif)' : ''}`,
+      ),
+    }));
+  }
+
+  private async render(kind: BookingDocumentKind, booking: ContractRow): Promise<Buffer> {
     if (kind === 'cgv') return documents.cgvPdf(booking.contractVersion!);
     if (kind === 'withdrawal-form') {
       return documents.renderWithdrawalFormPdf({
@@ -247,6 +270,7 @@ export class BookingDocumentsService {
         clientAddress: addressOf(booking),
       });
     }
+    const shopping = await this.shoppingByAisle(booking);
     return documents.renderDeboursMandatePdf({
       reference: booking.reference ?? booking.id,
       clientName: booking.client.fullName ?? booking.client.email,
@@ -255,9 +279,7 @@ export class BookingDocumentsService {
       startsAt: booking.startsAt,
       address: addressOf(booking),
       meals: booking.bookingMeals.map((line) => line.meal.name),
-      shopping: (booking.shoppingList?.items ?? []).map(
-        (item) => `${item.name} — ${item.quantity}`,
-      ),
+      shopping,
       acceptedAt: booking.deboursMandateAcceptedAt!,
       version: booking.contractVersion ?? '1.0',
     });

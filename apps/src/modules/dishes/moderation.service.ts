@@ -9,6 +9,7 @@ import { Meal, MealStatus, Menu, Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { DishesMailer } from './dishes.mailer';
 import { toDishView } from './dishes.views';
 import {
@@ -67,6 +68,11 @@ export class ModerationService {
     private readonly mailer: DishesMailer,
     private readonly storage: R2StorageService,
   ) {}
+
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
 
   /**
    * §4.1. With `review=pending`: dishes and menus waiting, a republication after
@@ -204,7 +210,8 @@ export class ModerationService {
       include: ADMIN_DISH,
       orderBy: { updatedAt: 'desc' },
     });
-    return dishes.map(toAdminDishView);
+    const days = await this.fridgeDays();
+    return dishes.map((dish) => toAdminDishView(dish, days));
   }
 
   async chefMenus(chefProfileId: string) {
@@ -214,7 +221,8 @@ export class ModerationService {
       include: ADMIN_MENU,
       orderBy: { updatedAt: 'desc' },
     });
-    return menus.map(toAdminMenuReviewView);
+    const days = await this.fridgeDays();
+    return menus.map((menu) => toAdminMenuReviewView(menu, days));
   }
 
   /** §3.1: free-text values chefs keep typing, the candidates for the lists. */
@@ -318,12 +326,14 @@ export class ModerationService {
   private async adminDish(id: string) {
     return toAdminDishView(
       await this.prisma.meal.findUniqueOrThrow({ where: { id }, include: ADMIN_DISH }),
+      await this.fridgeDays(),
     );
   }
 
   private async adminMenu(id: string) {
     return toAdminMenuReviewView(
       await this.prisma.menu.findUniqueOrThrow({ where: { id }, include: ADMIN_MENU }),
+      await this.fridgeDays(),
     );
   }
 }
@@ -335,8 +345,11 @@ const reviewOf = (row: Meal | Menu) => ({
   reason: row.reviewReason,
 });
 
-const toAdminDishView = ({ chefProfile, _count, ...meal }: AdminMeal) => ({
-  ...toDishView(meal),
+const toAdminDishView = (
+  { chefProfile, _count, ...meal }: AdminMeal,
+  fridgeAlertDays?: number,
+) => ({
+  ...toDishView(meal, fridgeAlertDays),
   chefProfileId: meal.chefProfileId,
   chef: chefProfile,
   /** Menus it is on, and bookings that served it: what removing it would touch. */
@@ -344,13 +357,16 @@ const toAdminDishView = ({ chefProfile, _count, ...meal }: AdminMeal) => ({
   review: reviewOf(meal),
 });
 
-const toAdminMenuReviewView = ({ chefProfile, ...menu }: AdminMenu) => ({
-  ...toMenuView(menu),
+const toAdminMenuReviewView = (
+  { chefProfile, ...menu }: AdminMenu,
+  fridgeAlertDays?: number,
+) => ({
+  ...toMenuView(menu, fridgeAlertDays),
   chefProfileId: menu.chefProfileId,
   chef: chefProfile,
   dishCount: menu.dishes.length,
   // Each dish as `GET /admin/chefs/{id}/dishes` shows it.
-  dishes: menu.dishes.map(({ meal }) => toAdminDishView(meal)),
+  dishes: menu.dishes.map(({ meal }) => toAdminDishView(meal, fridgeAlertDays)),
   review: reviewOf(menu),
 });
 

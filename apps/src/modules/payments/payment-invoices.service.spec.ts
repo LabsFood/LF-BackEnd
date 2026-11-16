@@ -12,6 +12,7 @@ const PAID_AT = new Date('2026-11-02T10:00:00.000Z');
 
 const PAYMENT = {
   id: 'payment-1',
+  purpose: 'service',
   amountTtc: 20_000,
   currency: 'EUR',
   booking: {
@@ -169,6 +170,16 @@ describe('PaymentInvoicesService', () => {
     });
   });
 
+  describe('issue, courses', () => {
+    it('never invoices a courses payment', async () => {
+      tx.payment.findUniqueOrThrow.mockResolvedValue({ ...PAYMENT, purpose: 'courses' });
+      await expect(service.issue(asTx(), 'payment-1', PAID_AT)).rejects.toThrow(
+        'never invoiced',
+      );
+      expect(tx.paymentInvoice.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('backfill', () => {
     const PAST = [
       { id: 'payment-a', paidAt: new Date('2026-03-01T10:00:00.000Z') },
@@ -198,6 +209,7 @@ describe('PaymentInvoicesService', () => {
         where: {
           method: 'cb',
           status: 'succeeded',
+          purpose: 'service',
           paidAt: { not: null },
           invoice: null,
         },

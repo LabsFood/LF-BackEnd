@@ -85,6 +85,42 @@ describe('aggregate', () => {
       { ...ail, unit: 'g', qty: 10 },
     ]);
   });
+
+  it('keeps a line optional only when every dish that asks for it says so (16/11)', () => {
+    const persil = { name: 'Persil', qty: 1, unit: 'bunch', aisle: 'fruits-legumes' };
+    expect(
+      aggregate([
+        { ...persil, optional: true },
+        { ...persil, optional: true },
+      ]),
+    ).toEqual([{ ...persil, qty: 2, optional: true }]);
+    expect(aggregate([{ ...persil, optional: true }, persil])).toEqual([
+      { ...persil, qty: 2 },
+    ]);
+    expect(aggregate([persil, { ...persil, optional: true }])).toEqual([
+      { ...persil, qty: 2 },
+    ]);
+  });
+
+  it('reads the optional flag of a stored line, and nothing of hiddenFromClient', () => {
+    expect(
+      scale(
+        [
+          {
+            name: 'Persil',
+            qty: 1,
+            unit: 'bunch',
+            optional: true,
+            hiddenFromClient: true,
+          },
+        ],
+        2,
+        2,
+      ),
+    ).toEqual([
+      { name: 'Persil', qty: 1, unit: 'bunch', aisle: 'autre', optional: true },
+    ]);
+  });
 });
 
 describe('corrections', () => {

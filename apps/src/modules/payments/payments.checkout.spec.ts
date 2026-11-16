@@ -202,6 +202,7 @@ describe('PaymentsService.createCheckoutSession', () => {
     const row = {
       id: 'pay-1',
       bookingId: 'booking-1',
+      purpose: 'service',
       amountTtc: 20_000,
       status: 'pending',
     };

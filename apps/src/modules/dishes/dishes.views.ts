@@ -74,7 +74,7 @@ const allergenSources = (meal: Meal) =>
     .sources;
 
 /** The chef's own view, and the admin's (§8): with the recipe and the status. */
-export function toDishView(meal: Meal) {
+export function toDishView(meal: Meal, fridgeAlertDays?: number) {
   const ingredients = servedLines(meal);
   const steps = readSteps(meal.steps);
   return {
@@ -111,7 +111,7 @@ export function toDishView(meal: Meal) {
     recipeVersion: meal.recipeVersion,
     versionPending: meal.versionPending,
     /** Recettes §4.11: what keeps it from "Prête", and what publishing adds. */
-    readiness: readiness(meal),
+    readiness: readiness(meal, fridgeAlertDays),
     isFeatured: meal.isFeatured,
     status: meal.status,
     publishedAt: meal.publishedAt,
@@ -134,13 +134,13 @@ export function toDishView(meal: Meal) {
  * R30, §8.1) the sources of its allergens. `lockVersion` comes with the row: the
  * form sends it back, so two tabs never overwrite each other.
  */
-export function toLabsFoodMealView(meal: Meal) {
+export function toLabsFoodMealView(meal: Meal, fridgeAlertDays?: number) {
   return {
     ...meal,
     ingredients: servedLines(meal),
     steps: readSteps(meal.steps),
     allergenSources: allergenSources(meal),
-    readiness: readiness(meal),
+    readiness: readiness(meal, fridgeAlertDays),
   };
 }
 

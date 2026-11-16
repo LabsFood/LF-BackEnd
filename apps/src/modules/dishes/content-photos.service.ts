@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { MealStatus } from '../../generated/prisma/client';
 import { R2StorageService } from '../../integrations/r2-storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { ChefContentService, MENU_DISHES } from './chef-content.service';
 import { goneMeanwhile } from './dishes.service';
 import { toDishView } from './dishes.views';
@@ -44,6 +45,11 @@ export class ContentPhotosService {
     private readonly access: ChefContentService,
     private readonly storage: R2StorageService,
   ) {}
+
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
 
   // ------------------------------------------------- a batch cooker's own content
 
@@ -108,11 +114,13 @@ export class ContentPhotosService {
     return kind === 'dish'
       ? toDishView(
           await this.prisma.meal.update({ where, data }).catch(goneMeanwhile('Dish')),
+          await this.fridgeDays(),
         )
       : toMenuView(
           await this.prisma.menu
             .update({ where, data, include: MENU_DISHES })
             .catch(goneMeanwhile('Menu')),
+          await this.fridgeDays(),
         );
   }
 
@@ -179,6 +187,7 @@ export class ContentPhotosService {
           await this.prisma.menu
             .update({ where, data, include: MENU_DISHES })
             .catch(goneMeanwhile('Menu')),
+          await this.fridgeDays(),
         );
   }
 

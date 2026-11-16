@@ -30,7 +30,8 @@ const WITHDRAWAL_SELECT = {
   chefProfile: { select: { displayName: true, userId: true } },
   // How the money came in, for the refund by hand.
   payments: {
-    where: { status: { in: ['pending', 'succeeded'] } },
+    // The prestation's: a courses hold is released when the booking is cancelled.
+    where: { status: { in: ['pending', 'succeeded'] }, purpose: 'service' },
     select: { method: true },
   },
 } satisfies Prisma.BookingSelect;
