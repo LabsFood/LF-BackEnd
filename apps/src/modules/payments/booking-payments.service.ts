@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
+import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
@@ -82,6 +83,10 @@ interface UrssafPaymentMetadata {
   debitedCents?: number;
   /** Manual mode: the reference the intermediary (Unipros) gave the request. */
   externalReference?: string;
+  /** Recettes lot 6: URSSAF took it back (status 120), why and when. */
+  urssafStatus?: number;
+  repriseReason?: string;
+  repriseAt?: string;
 }
 
 const urssafMetadata = (metadata: unknown): UrssafPaymentMetadata =>
@@ -206,6 +211,27 @@ export class BookingPaymentsService {
       methods,
       // ponytail: no Stripe customer is kept per client yet, so no card is remembered.
       savedCards: [] as never[],
+      /**
+       * Recettes lot 6: the groceries, a second amount paid apart, by card only (e-CESU
+       * and the immediate advance cover the service, never the ingredients). Null when
+       * the batch cooker does not shop.
+       */
+      groceries: await this.groceriesAmount(booking.id),
+    };
+  }
+
+  private async groceriesAmount(bookingId: string) {
+    const run = await this.prisma.groceryRun.findUnique({
+      where: { bookingId },
+      select: { status: true, budgetCents: true, capturedCents: true, cardLast4: true },
+    });
+    if (!run || run.status === 'cancelled') return null;
+    return {
+      status: run.status,
+      budgetCents: run.budgetCents,
+      capturedCents: run.capturedCents,
+      cardSaved: run.cardLast4 !== null,
+      methods: ['cb'] as const,
     };
   }
 
@@ -574,6 +600,83 @@ export class BookingPaymentsService {
     return this.linkView(updated);
   }
 
+  /**
+   * `POST /admin/urssaf-payments/{id}/reprise` (Recettes lot 6): URSSAF took a settled
+   * prestation back (status 120). The payment is refunded on our side, the prestation is
+   * due again, and the commission goes back to the batch cooker (a credit note once
+   * invoiced).
+   */
+  async recordReprise(
+    adminClerkUserId: string,
+    paymentId: string,
+    reason: string,
+    requestId?: string,
+  ) {
+    const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'avance_immediate' },
+      include: { commission: true },
+    });
+    if (!payment)
+      throw new NotFoundException('No immediate-advance request with this id.');
+    const now = new Date();
+    const { count } = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: 'succeeded' },
+      data: {
+        status: 'refunded',
+        refundedAmount: payment.amountTtc,
+        refundedAt: now,
+        metadata: {
+          ...urssafMetadata(payment.metadata),
+          urssafStatus: 120,
+          repriseReason: reason.trim(),
+          repriseAt: now.toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+    if (count !== 1) {
+      throw new ConflictException({
+        code: 'URSSAF_NOT_SETTLED',
+        message: 'Only a request URSSAF paid can be taken back.',
+      });
+    }
+    const credit = payment.commission
+      ? await this.commissionDebits.creditCommission(payment.commission.id, reason.trim())
+      : null;
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'commission.credited',
+      subjectType: 'payment',
+      subjectId: payment.id,
+      requestId,
+      metadata: {
+        bookingId: payment.bookingId,
+        commissionId: payment.commission?.id ?? null,
+        creditNote: credit?.creditNote?.invoiceNumber ?? null,
+        dropped: credit?.dropped ?? false,
+        amountCents: payment.commission?.amountTtcCents ?? 0,
+      },
+    });
+    return {
+      paymentId: payment.id,
+      status: 'refunded' as const,
+      creditNote: credit?.creditNote
+        ? {
+            id: credit.creditNote.id,
+            invoiceNumber: credit.creditNote.invoiceNumber,
+            amountTtcCents: credit.creditNote.amountTtcCents,
+          }
+        : null,
+      commissionDropped: credit?.dropped ?? false,
+    };
+  }
+
+  /** `POST /admin/commission-credit-notes/{id}/refunded`. */
+  creditNoteRefunded(creditNoteId: string) {
+    return this.commissionDebits.markCreditRefunded(creditNoteId);
+  }
+
   /** `GET /admin/urssaf-payments`: the requests waiting for URSSAF. */
   async adminPayments() {
     const payments = await this.prisma.payment.findMany({
@@ -583,6 +686,7 @@ export class BookingPaymentsService {
           select: {
             id: true,
             reference: true,
+            shoppingFeeCents: true,
             client: { select: { fullName: true, email: true } },
             chefProfile: {
               select: {
@@ -611,6 +715,16 @@ export class BookingPaymentsService {
         failureReason: payment.failureReason,
         createdAt: payment.createdAt,
         paidAt: payment.paidAt,
+        /**
+         * Recettes lot 6: the request on two lines, the prestation and the forfait
+         * courses; never the débours. The forfait line is gone when the groceries were
+         * not done (the forfait was taken off the prestation).
+         */
+        lines: urssafLines(payment.amountTtc, payment.booking.shoppingFeeCents),
+        reprise:
+          meta.urssafStatus === 120
+            ? { reason: meta.repriseReason ?? null, at: meta.repriseAt ?? null }
+            : null,
         booking: {
           id: payment.booking.id,
           reference: payment.booking.reference,
@@ -798,4 +912,13 @@ export class BookingPaymentsService {
       });
     }
   }
+}
+
+/** The URSSAF request's lines: the prestation, then the forfait courses if any. */
+export function urssafLines(amountCents: number, shoppingFeeCents: number) {
+  const forfait = Math.min(Math.max(0, shoppingFeeCents), amountCents);
+  return [
+    { label: 'Prestation de batch cooking', amountCents: amountCents - forfait },
+    ...(forfait > 0 ? [{ label: 'Forfait courses', amountCents: forfait }] : []),
+  ];
 }

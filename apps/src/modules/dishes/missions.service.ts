@@ -549,6 +549,18 @@ export class MissionsService {
           'Groceries are confirmed on a prestation that is confirmed, in shopping or being cooked.',
       });
     }
+    // Recettes lot 6: under a mandate with a card, the receipts replace the free amount.
+    const run = await this.prisma.groceryRun.findUnique({
+      where: { bookingId },
+      select: { status: true },
+    });
+    if (run && run.status !== 'cancelled') {
+      throw new ConflictException({
+        code: 'GROCERY_RECEIPTS_REQUIRED',
+        message:
+          'These groceries are paid apart: deposit the receipts (POST …/groceries/receipts).',
+      });
+    }
     const saved = await this.prisma.booking.update({
       where: { id: bookingId },
       data: {

@@ -90,6 +90,8 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
       })),
     },
     quote: { findFirst: jest.fn(async (): Promise<unknown> => null) },
+    // Recettes lot 6: no grocery run by default (no card, no mandate payment).
+    groceryRun: { findUnique: jest.fn(async (): Promise<unknown> => null) },
     // Recettes lot 3: the fridge threshold (none saved: the default) and the date history.
     platformSetting: { findUnique: jest.fn(async (): Promise<unknown> => null) },
     bookingMealDateChange: {
@@ -483,6 +485,17 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
   });
 
   describe('« Courses faites » (Recettes lot 4, LF-0284)', () => {
+    it('asks for the receipts once the groceries are paid apart (lot 6)', async () => {
+      const m = missions('chef');
+      m.prisma.groceryRun.findUnique.mockResolvedValue({ status: 'confirmed' });
+      await expect(
+        m.service.validateGroceries('clerk', 'b1', { amountCents: 100 }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'GROCERY_RECEIPTS_REQUIRED' }),
+      });
+      expect(m.prisma.booking.update).not.toHaveBeenCalled();
+    });
+
     it('records the confirmation, with the receipt total when typed', async () => {
       const m = missions('chef');
       m.prisma.booking.update.mockResolvedValue({

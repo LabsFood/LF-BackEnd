@@ -279,14 +279,35 @@ fact. Module: `modules/dishes/`. Spec:
   booking): chef at J-4 while the list is not sent, client at J-2 while their
   final list is not back, and at the deadline the client is told the list is
   frozen and the chef reminded to shop.
-- **Lot 6 groundwork (no money flow yet)**: `payments.purpose` is `service`
-  (the prestation, forfait courses and supplements) or `courses` (the groceries
-  themselves). Nothing creates a `courses` payment yet; what is left to pay, the
-  fiscal attestation, the booking views and the CESU guard count `service` only.
-  The other payment reads (invoices, payouts, refunds) get their filter with lot 6
-  itself. `GET/PUT /admin/settings/groceries`: the Budget Courses cap (100 €) and
-  the advised forfait courses (15 €), also in `GET /pricing-rules`. The fee is
-  named « Forfait courses » on invoices.
+- **Lot 6, groceries paid apart** (`modules/groceries`, decisions of 31/10, 11/11,
+  16/11): one `grocery_runs` row per prestation the chef shops for. The mandate is
+  accepted by the booking box (no Clerk reverification); the proof (model version
+  `2.0` and its clauses in `mandate_rules`, maximum, SHA-256 of the mandate PDF, IP,
+  browser) is written on the client's first `POST /me/bookings/:id/groceries/card`
+  (SetupIntent, `…/card/confirm`). The Budget Courses is always the ceiling of
+  `/admin/settings/groceries` (100 €). `GroceriesCron` (5 min, each step claimed by
+  an UPDATE): the hold at the lock T-48h (PaymentIntent `capture_method: manual`,
+  `on_behalf_of` + `transfer_data`, no application fee, `payments.purpose =
+  courses`), the cancel deadline of the chef's message (`…/groceries/notice`, in-app
+  + Brevo `BREVO_TPL_GROCERIES_NOTICE`; the silence confirms only with
+  `silenceConfirms` on and the e-mail delivered per the Brevo webhook
+  `POST /webhooks/brevo?token=BREVO_WEBHOOK_TOKEN`, else the client clicks), a
+  refused hold not fixed by noon the day before (the client shops, an unpaid
+  forfait leaves the booking), the capture 24 h after the receipts (exact total,
+  rest released; safety capture 6 h before the hold expires), the settlement once
+  the 48 h contests are decided. Contested lines are captured, then refunded with
+  `reverse_transfer` if an admin upholds them. A chargeback (`grocery_disputes`) is
+  borne by Lab's Food, then the admin names the fault: chef (transfer reversed),
+  client (recovered by hand), platform. The chef may ask an instant payout, fee at
+  their charge (taken as the capture's application fee, refunded if the payout
+  fails). Every other payment read counts `purpose = service` only; a courses
+  payment is never invoiced nor commissioned. URSSAF: the request shows the
+  prestation and the forfait courses on two lines; `POST
+  /admin/urssaf-payments/:id/reprise` (status 120) drops the commission or issues a
+  credit note (`commission_invoices.kind = credit_note`, same LF-COM sequence),
+  deducted from the next facture B. Relevé de débours: booking document
+  `groceries-statement`; monthly chef statement `GET /me/chef/groceries/statement`.
+  Integration test on a real database: `GROCERIES_IT_DB=… npx jest groceries.integration`.
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 

@@ -43,7 +43,10 @@ export type ChefOnboardingEmail =
   // acknowledgement and heads-up to the team.
   | 'bookingContractClient'
   | 'bookingWithdrawalAck'
-  | 'bookingWithdrawalAdmin';
+  | 'bookingWithdrawalAdmin'
+  // Recettes lot 6, art. 8: the message before the groceries (the one double-channel
+  // signal of the module), its delivery confirmed by the Brevo webhook.
+  | 'groceriesNotice';
 
 @Injectable()
 export class BrevoService {

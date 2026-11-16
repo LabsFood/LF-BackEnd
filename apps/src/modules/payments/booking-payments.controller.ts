@@ -38,6 +38,7 @@ import { BookingPaymentsService } from './booking-payments.service';
 import {
   DecideUrssafLinkDto,
   MarkUrssafTransmittedDto,
+  UrssafRepriseDto,
   RequestUrssafLinkDto,
   SettleBookingDto,
   SimulateUrssafOutcomeDto,
@@ -420,5 +421,45 @@ export class AdminUrssafController {
       payload.externalReference,
       requestId(req),
     );
+  }
+
+  @Post('urssaf-payments/:id/reprise')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'URSSAF took a settled request back (status 120)',
+    description:
+      'Recettes lot 6. The payment is marked refunded and the prestation is due again. ' +
+      'The commission goes back to the batch cooker: dropped if not invoiced yet, else a ' +
+      'credit note in the facture B sequence, deducted from the next one. Audit ' +
+      '`commission.credited`.',
+  })
+  @ApiParam({ name: 'id', description: 'The payment id.', example: PAYMENT_ID })
+  @ApiConflictResponse({
+    description: '`URSSAF_NOT_SETTLED`: only a paid request is taken back.',
+  })
+  @ApiAdminAuthResponses()
+  reprise(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UrssafRepriseDto,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.bookingPayments.recordReprise(
+      user.userId,
+      id,
+      payload.reason,
+      requestId(req),
+    );
+  }
+
+  @Post('commission-credit-notes/:id/refunded')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'A credit note paid back by hand (no facture B to deduct it from)',
+  })
+  @ApiConflictResponse({ description: '`CREDIT_NOTE_NOT_OPEN`.' })
+  @ApiAdminAuthResponses()
+  creditRefunded(@Param('id', ParseUUIDPipe) id: string) {
+    return this.bookingPayments.creditNoteRefunded(id);
   }
 }

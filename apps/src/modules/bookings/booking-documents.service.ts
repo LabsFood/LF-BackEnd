@@ -64,6 +64,25 @@ const CONTRACT_SELECT = {
       items: { orderBy: [{ aisle: 'asc' }, { name: 'asc' }] },
     },
   },
+  // Recettes lot 6: the Budget and the hold on the mandate, the relevé de débours.
+  groceryRun: {
+    select: {
+      budgetCents: true,
+      mandateVersion: true,
+      cardBrand: true,
+      cardLast4: true,
+      holdPlacedAt: true,
+      holdExpiresAt: true,
+      receiptsSubmittedAt: true,
+      capturedCents: true,
+      capturedAt: true,
+      receipts: {
+        select: { id: true, purchasedAt: true },
+        orderBy: { purchasedAt: 'asc' },
+      },
+      lines: { orderBy: { createdAt: 'asc' } },
+    },
+  },
 } satisfies Prisma.BookingSelect;
 
 type ContractRow = Prisma.BookingGetPayload<{ select: typeof CONTRACT_SELECT }>;
@@ -189,7 +208,8 @@ export class BookingDocumentsService {
       const files: MailFile[] = [];
       for (const doc of bookingDocuments(booking)) {
         // The mandate is the client's to download: its CGV are in the CGV (annexe 3).
-        if (doc.kind === 'debours-mandate') continue;
+        if (doc.kind === 'debours-mandate' || doc.kind === 'groceries-statement')
+          continue;
         files.push({ name: doc.filename, bytes: await this.render(doc.kind, booking) });
       }
       const { sent } = await this.mailer.contractClient({
@@ -259,6 +279,44 @@ export class BookingDocumentsService {
     }));
   }
 
+  /**
+   * Recettes lot 6: the mandate PDF of a booking as it reads now, for the proof of
+   * acceptance (its SHA-256 is kept on the grocery run).
+   */
+  async mandatePdf(bookingId: string): Promise<Buffer | null> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: CONTRACT_SELECT,
+    });
+    if (!booking?.deboursMandateAcceptedAt) return null;
+    return this.render('debours-mandate', booking);
+  }
+
+  /** Recettes lot 6 (CGV 7.6): the relevé de débours, with its receipts. */
+  private groceriesStatement(booking: ContractRow): Promise<Buffer> {
+    const run = booking.groceryRun!;
+    return documents.renderGroceriesStatementPdf({
+      reference: booking.reference ?? booking.id,
+      clientName: booking.client.fullName ?? booking.client.email,
+      chefName: chefNameOf(booking),
+      startsAt: booking.startsAt,
+      budgetCents: run.budgetCents,
+      receipts: run.receipts,
+      lines: run.lines.map((line) => ({
+        label: line.label,
+        amountCents: line.amountCents,
+        withReceipt: line.receiptId !== null,
+        approved: line.clientApprovedAt !== null,
+        contested: line.contestedAt !== null,
+        decision: line.decision,
+        refundedCents: line.refundedCents,
+      })),
+      capturedCents: run.capturedCents,
+      capturedAt: run.capturedAt,
+      refundedCents: run.lines.reduce((sum, line) => sum + line.refundedCents, 0),
+    });
+  }
+
   private async render(kind: BookingDocumentKind, booking: ContractRow): Promise<Buffer> {
     if (kind === 'cgv') return documents.cgvPdf(booking.contractVersion!);
     if (kind === 'withdrawal-form') {
@@ -270,7 +328,9 @@ export class BookingDocumentsService {
         clientAddress: addressOf(booking),
       });
     }
+    if (kind === 'groceries-statement') return this.groceriesStatement(booking);
     const shopping = await this.shoppingByAisle(booking);
+    const run = booking.groceryRun;
     return documents.renderDeboursMandatePdf({
       reference: booking.reference ?? booking.id,
       clientName: booking.client.fullName ?? booking.client.email,
@@ -282,6 +342,17 @@ export class BookingDocumentsService {
       shopping,
       acceptedAt: booking.deboursMandateAcceptedAt!,
       version: booking.contractVersion ?? '1.0',
+      groceries: run
+        ? {
+            budgetCents: run.budgetCents,
+            mandateVersion: run.mandateVersion,
+            card: run.cardLast4
+              ? `${run.cardBrand ?? 'carte'} ···· ${run.cardLast4}`
+              : null,
+            holdPlacedAt: run.holdPlacedAt,
+            holdExpiresAt: run.holdExpiresAt,
+          }
+        : null,
     });
   }
 }
