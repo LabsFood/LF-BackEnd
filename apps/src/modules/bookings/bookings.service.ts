@@ -559,6 +559,8 @@ export class BookingsService {
           ),
         );
     }
+    // Custom requests (15/11): the express dishes cooked here can now be kept or dropped.
+    if (moving && status === 'delivered') await this.askExpressDecision(id);
     if (meals) await this.refreshList(id, booking);
     if (admin) {
       await this.audit.record({
@@ -657,6 +659,37 @@ export class BookingsService {
    * recomputed, and sent again to a client who already had one, who is told.
    * Best-effort: the menu is written, a list that failed is rebuilt on next use.
    */
+  /**
+   * Once delivered, the batch cooker is asked to keep or drop the express dishes
+   * written for the custom request of this prestation (decision of 15/11). In the
+   * application only. Best-effort: the delivery stands either way.
+   */
+  private async askExpressDecision(id: string) {
+    try {
+      const pending = await this.prisma.bookingMeal.count({
+        where: {
+          bookingId: id,
+          meal: { expressQuoteId: { not: null }, expressDecision: null },
+        },
+      });
+      if (pending === 0) return;
+      const chef = await this.prisma.booking.findUnique({
+        where: { id },
+        select: { chefProfile: { select: { userId: true } } },
+      });
+      if (!chef?.chefProfile) return;
+      await this.notifications.notify(chef.chefProfile.userId, 'express_dish.decide', {
+        type: 'booking',
+        id,
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'booking.express_decision_not_asked', bookingId: id },
+        stackOf(error),
+      );
+    }
+  }
+
   private async refreshList(id: string, booking: { clientId: string; startsAt: Date }) {
     try {
       const version = await this.lists.refreshAfterMenuChange(

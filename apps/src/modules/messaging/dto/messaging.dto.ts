@@ -12,6 +12,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -27,16 +28,29 @@ import {
   MAX_ATTACHMENT_BYTES,
 } from '../services/messaging-storage.service';
 
-/** Body of `POST /me/conversations`. */
+/** Body of `POST /me/conversations`: a booking, or a custom request. */
 export class OpenConversationDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     description:
       'A booking of the caller, as its client or as its batch cooker. The thread ' +
-      'is the one between those two people: a second booking returns the same one.',
+      'is the one between those two people: a second booking returns the same one. ' +
+      'Required unless `quoteId` is given.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
+  @ValidateIf((body: OpenConversationDto) => body.quoteId === undefined)
   @IsUUID()
-  bookingId!: string;
+  bookingId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'A custom request of the caller, as its client or as the batch cooker it is ' +
+      'with: the two may talk before an offer is accepted, about a dish or an ' +
+      'allergy. Same thread as their bookings.',
+    example: '7c2f0e1a-4b3d-4e5f-8a9b-0c1d2e3f4a5b',
+  })
+  @IsOptional()
+  @IsUUID()
+  quoteId?: string;
 }
 
 /** Body of `POST /admin/conversations/support`. */

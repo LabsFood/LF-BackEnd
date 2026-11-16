@@ -371,8 +371,18 @@ model Meal {
   moderationReason       String?             @map("moderation_reason")
   moderationReasonCode   String?             @map("moderation_reason_code") @db.VarChar(40)
   moderatedAt            DateTime?           @map("moderated_at") @db.Timestamptz(6)
+  /// A dish the batch cooker wrote in a few words for one custom request (« plat
+  /// express »): a name, a description, the allergens they know of, no recipe. Kept
+  /// out of their catalogue until they decide, after the prestation, to keep it
+  /// (it becomes an ordinary draft) or drop it (archived). The request stays set.
+  expressQuoteId         String?             @map("express_quote_id") @db.Uuid
+  /// `kept` or `dropped`; null while the batch cooker has not decided.
+  expressDecision        String?             @map("express_decision") @db.VarChar(8)
+  expressDecidedAt       DateTime?           @map("express_decided_at") @db.Timestamptz(6)
   createdAt              DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  expressQuote           Quote?              @relation("QuoteExpressDishes", fields: [expressQuoteId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_express_quote_id")
+  offerDishes            QuoteOfferDish[]
   bookingMeals           BookingMeal[]
   menuWeeks              MenuWeekMeal[]
   menus                  MenuDish[]
@@ -396,6 +406,7 @@ model Meal {
   @@index([sourceMealId], map: "ix_meals_source_meal_id")
   @@index([variantOfId], map: "ix_meals_variant_of_id")
   @@index([reviewPendingSince], map: "ix_meals_review_pending_since")
+  @@index([expressQuoteId], map: "ix_meals_express_quote_id")
   @@map("meals")
 }
 
@@ -547,6 +558,7 @@ model Quote {
   client              User         @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "quotes_client_id_fkey")
   booking             Booking?     @relation("QuoteBooking", fields: [bookingId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_quotes_booking_id")
   offers              QuoteOffer[]
+  expressDishes       Meal[]       @relation("QuoteExpressDishes")
 
   @@index([clientId], map: "ix_quotes_client_id")
   @@index([assignedChefUserId, status], map: "ix_quotes_assigned_chef_status")
@@ -592,11 +604,30 @@ model QuoteOffer {
   updatedAt           DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   quote       Quote       @relation(fields: [quoteId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_quote_id")
+  dishes      QuoteOfferDish[]
   chefProfile ChefProfile @relation("QuoteOfferChefProfile", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_chef_profile_id")
 
   @@index([quoteId, createdAt], map: "ix_quote_offers_quote_created_at")
   @@index([status, validUntil], map: "ix_quote_offers_status_valid_until")
   @@map("quote_offers")
+}
+
+/// The dishes a batch cooker puts in an offer: their published dishes, those of a
+/// published menu of theirs (`menuId` says which), and the express dishes written
+/// for this request. An accepted offer's dishes become the prestation's.
+model QuoteOfferDish {
+  offerId  String     @map("offer_id") @db.Uuid
+  mealId   String     @map("meal_id") @db.Uuid
+  /// The menu the dish came with, to show it grouped; null: added on its own.
+  menuId   String?    @map("menu_id") @db.Uuid
+  position Int        @default(0)
+  offer    QuoteOffer @relation(fields: [offerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offer_dishes_offer_id")
+  meal     Meal       @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quote_offer_dishes_meal_id")
+  menu     Menu?      @relation(fields: [menuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_quote_offer_dishes_menu_id")
+
+  @@id([offerId, mealId])
+  @@index([mealId], map: "ix_quote_offer_dishes_meal_id")
+  @@map("quote_offer_dishes")
 }
 
 /// Platform-wide settings an admin can change without a deploy. One row per key.
@@ -947,6 +978,7 @@ model Menu {
   updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   dishes                 MenuDish[]
   showcaseWeeks          ChefShowcaseWeek[]
+  offerDishes            QuoteOfferDish[]
   copies                 Menu[]             @relation("MenuSource")
   source                 Menu?              @relation("MenuSource", fields: [sourceMenuId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_source_menu_id")
   offeredTo              ChefProfile?       @relation("MenuOffer", fields: [offeredToChefProfileId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_menus_offered_to_chef_profile_id")

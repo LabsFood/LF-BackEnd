@@ -1,11 +1,42 @@
 import { Prisma } from '../../generated/prisma/client';
+import { CLIENT_ALLERGY_SELECT, allergyCheck } from '../allergies/domain/allergies.rules';
 import { shortName } from '../messaging/domain/messaging.rules';
 import { ACTIVE_OFFER } from './domain/quote.rules';
 
 /** Everything a request is shown with, whoever looks at it. */
 export const QUOTE_INCLUDE = {
-  client: { select: { id: true, fullName: true, email: true, phone: true } },
-  offers: { orderBy: { createdAt: 'desc' } },
+  client: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      clientProfile: { select: CLIENT_ALLERGY_SELECT },
+    },
+  },
+  offers: {
+    orderBy: { createdAt: 'desc' },
+    include: {
+      dishes: {
+        orderBy: { position: 'asc' },
+        include: {
+          meal: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              imageUrl: true,
+              allergens: true,
+              allergensNone: true,
+              allergensVerifiedAt: true,
+              expressQuoteId: true,
+            },
+          },
+          menu: { select: { id: true, title: true } },
+        },
+      },
+    },
+  },
   booking: { select: { id: true, reference: true, startsAt: true, endsAt: true } },
 } satisfies Prisma.QuoteInclude;
 
@@ -30,7 +61,19 @@ const dateOnly = (value: Date | null) =>
  * An offer as one side reads it. The client sees what they pay, never what the
  * batch cooker earns nor the commission between the two.
  */
-export function toOfferView(offer: LoadedOffer, viewer: Viewer) {
+export function toOfferView(offer: LoadedOffer, viewer: Viewer, quote: AllergyContext) {
+  const dishes = offer.dishes.map(({ meal, menu }) => ({
+    id: meal.id,
+    name: meal.name,
+    description: meal.description,
+    imageUrl: meal.imageUrl,
+    /** Written in a few words for this request: no recipe, never verified. */
+    express: meal.expressQuoteId !== null,
+    menu,
+    allergens: meal.allergens,
+    allergensNone: meal.allergensNone,
+    allergensVerified: meal.allergensVerifiedAt !== null,
+  }));
   return {
     id: offer.id,
     status: offer.status,
@@ -47,6 +90,33 @@ export function toOfferView(offer: LoadedOffer, viewer: Viewer) {
     decidedAt: offer.decidedAt,
     declineReason: offer.declineReason,
     createdAt: offer.createdAt,
+    dishes,
+    allergy: dishes.length ? offerAllergyWarning(offer, quote) : null,
+  };
+}
+
+/** What the allergy warning of an offer reads: the client's answer, the request's words. */
+type AllergyContext = Pick<LoadedQuote, 'allergies'> & {
+  client: Pick<LoadedQuote['client'], 'clientProfile'>;
+};
+
+/**
+ * The offer's dishes against the client's allergies (Recettes lot 1 rules). On a
+ * custom request it warns and invites to talk in the messagerie; it never blocks
+ * (decision of 15/11). An express dish is never verified, so it always warns.
+ */
+function offerAllergyWarning(offer: LoadedOffer, quote: AllergyContext) {
+  const dishes = offer.dishes.map(({ meal }) => ({
+    id: meal.id,
+    allergens: meal.allergens,
+    allergensNone: meal.allergensNone,
+    allergensVerifiedAt: meal.allergensVerifiedAt,
+  }));
+  const check = allergyCheck(quote.client.clientProfile, dishes, quote.allergies);
+  return {
+    check: check.allergyCheck,
+    reasons: check.allergyCheckReasons,
+    conflicts: check.allergyConflicts,
   };
 }
 
@@ -55,7 +125,7 @@ export function toQuoteView(
   chef: AssignedChef | null,
   viewer: Viewer,
 ) {
-  const offers = quote.offers.map((offer) => toOfferView(offer, viewer));
+  const offers = quote.offers.map((offer) => toOfferView(offer, viewer, quote));
   const active = quote.offers.find((offer) =>
     (ACTIVE_OFFER as readonly string[]).includes(offer.status),
   );
@@ -100,7 +170,7 @@ export function toQuoteView(
     // Why a batch cooker said no is for the admin who reassigns, not for the client.
     chefDeclineReason: viewer === 'admin' ? quote.chefDeclineReason : undefined,
     offers,
-    activeOffer: active ? toOfferView(active, viewer) : null,
+    activeOffer: active ? toOfferView(active, viewer, quote) : null,
     booking: quote.booking,
     createdAt: quote.createdAt,
     updatedAt: quote.updatedAt,

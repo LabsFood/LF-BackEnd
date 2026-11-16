@@ -92,11 +92,16 @@ export class MeConversationsController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Open the conversation of a booking',
+    summary: 'Open the conversation of a booking or of a custom request',
     description:
       'Returns the conversation between the client and the batch cooker of one of ' +
       'the caller’s bookings, creating it on first use. There is one conversation ' +
-      'per pair: every booking between the same two people leads to the same one.',
+      'per pair: every booking between the same two people leads to the same one.\n\n' +
+      'With `quoteId` instead: the conversation between the client of a custom ' +
+      'request and the batch cooker it is with, before any offer is accepted (to ' +
+      'talk about a dish or an allergy). `404 QUOTE_NOT_FOUND` when the request is ' +
+      'not the caller’s or has no batch cooker; `409 QUOTE_CLOSED` once withdrawn or ' +
+      'closed.',
   })
   @ApiOkResponse({
     description: 'The conversation.',
@@ -115,7 +120,9 @@ export class MeConversationsController {
   })
   @ApiClerkAuthResponses()
   open(@CurrentClerkUser() user: ClerkUser, @Body() body: OpenConversationDto) {
-    return this.messaging.openForBooking(user.userId, body.bookingId);
+    return body.quoteId
+      ? this.messaging.openForQuote(user.userId, body.quoteId)
+      : this.messaging.openForBooking(user.userId, body.bookingId!);
   }
 
   @Post('support')

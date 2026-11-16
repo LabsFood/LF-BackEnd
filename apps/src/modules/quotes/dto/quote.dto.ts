@@ -3,6 +3,7 @@ import { oneLine, text } from '../../../common/dto/clean-text';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsNotEmpty,
   Matches,
@@ -21,7 +22,13 @@ import {
 } from 'class-validator';
 
 import { ContractConsentsDto } from '../../bookings/dto/bookings.dto';
+import { ALLERGEN_CODES } from '../../dishes/domain/dishes.rules';
 import {
+  EXPRESS_DESCRIPTION_MAX,
+  EXPRESS_NAME_MAX,
+  MAX_EXPRESS_DISHES,
+  MAX_OFFER_DISHES,
+  MAX_OFFER_MENUS,
   MAX_NET_CENTS,
   MAX_VALIDITY_DAYS,
   MIN_NET_CENTS,
@@ -293,6 +300,49 @@ export class UpdateQuoteAdminDto extends PartialType(EditableQuoteFieldsDto) {
   assignedChefUserId?: string | null;
 }
 
+/**
+ * An express dish (« plat express »): written in a few words for this request, no
+ * recipe. Its allergens are what the batch cooker knows of; it always counts as not
+ * verified.
+ */
+export class ExpressDishDto {
+  @ApiProperty({
+    example: 'Gâteau d’anniversaire au chocolat',
+    maxLength: EXPRESS_NAME_MAX,
+  })
+  @Transform(oneLine)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(EXPRESS_NAME_MAX)
+  name!: string;
+
+  @ApiPropertyOptional({
+    example: 'Trois étages, ganache noire, pour 12 personnes.',
+    maxLength: EXPRESS_DESCRIPTION_MAX,
+  })
+  @IsOptional()
+  @Transform(text)
+  @IsString()
+  @MaxLength(EXPRESS_DESCRIPTION_MAX)
+  description?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    enum: ALLERGEN_CODES,
+    description:
+      'The regulated allergens the batch cooker knows the dish contains, by code ' +
+      '(`GET /referentials/allergens`). Optional: an express dish is never verified, ' +
+      'so the client is always invited to talk about it.',
+    example: ['eggs', 'milk', 'gluten'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(ALLERGEN_CODES.length)
+  @IsIn(ALLERGEN_CODES, { each: true })
+  allergens?: string[];
+}
+
 /** Body of `POST …/quotes/:id/offers`. */
 export class CreateQuoteOfferDto {
   @ApiProperty({
@@ -349,6 +399,62 @@ export class CreateQuoteOfferDto {
   @IsOptional()
   @IsIn(TIME_SLOT_KEYS)
   proposedTimeSlot?: TimeSlot;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      `Published dishes of the batch cooker, by id, at most ${MAX_OFFER_DISHES} in all ` +
+      "with the menus' dishes and the express ones. They become the prestation's " +
+      'dishes when the client accepts. An express dish already written for this ' +
+      'request, and not dropped, can be put again.',
+    example: ['8c1d9f3e-7a2b-4c5d-9e0f-1a2b3c4d5e6f'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(MAX_OFFER_DISHES)
+  @IsUUID('4', { each: true })
+  dishIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Published menus of the batch cooker, by id: each brings its dishes, shown ' +
+      'grouped under the menu.',
+    example: ['3f2e1d0c-9b8a-4765-8432-10fedcba9876'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(MAX_OFFER_MENUS)
+  @IsUUID('4', { each: true })
+  menuIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [ExpressDishDto],
+    description:
+      `Express dishes written for this request, at most ${MAX_EXPRESS_DISHES}. They stay ` +
+      "out of the batch cooker's catalogue until they keep or drop them, after the " +
+      'prestation.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_EXPRESS_DISHES)
+  @ValidateNested({ each: true })
+  @Type(() => ExpressDishDto)
+  expressDishes?: ExpressDishDto[];
+}
+
+/** Body of `POST /me/express-dishes/{id}/decision`. */
+export class ExpressDecisionDto {
+  @ApiProperty({
+    enum: ['kept', 'dropped'],
+    description:
+      '`kept`: the dish joins the catalogue as a draft, to complete before publishing. ' +
+      '`dropped`: it is archived; the prestations it was cooked in keep it.',
+  })
+  @IsIn(['kept', 'dropped'])
+  decision!: 'kept' | 'dropped';
 }
 
 /** Body of the routes that say no, with an optional reason. */

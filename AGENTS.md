@@ -430,6 +430,30 @@ pure rules).
   from the request's `DEM-…`. `quotes.booking_id` is unique: one request, one
   prestation. Then, best-effort, the two get a conversation and the recap email.
   **No payment is taken here**: it comes after the prestation (FLOW-03).
+  The booking is `shoppingByClient: true` (decision of 15/11: on a custom prestation
+  the client shops, no débours mandate, no list reminder to the batch cooker).
+- **Dishes in an offer** (decision of 15/11). Only the batch cooker adds them, in
+  `POST …/:id/offers`: `dishIds` (their published dishes), `menuIds` (their
+  published menus, each bringing its dishes) and `expressDishes`, at most 30 in all
+  (`quote_offer_dishes`, read menus first, then dishes, then express ones).
+  - **Express dishes** (« plats express »): name, description, the allergens the
+    batch cooker knows of, no recipe. Stored as `meals` rows with
+    `express_quote_id` set: out of `GET /me/dishes` and never public. They can be
+    put again in a later offer on the same request.
+  - **Allergies**: `offer.allergy` runs the lot 1 check (client profile + the
+    request's words) on the offer's dishes. A conflict or an unverified dish (an
+    express dish never is) **warns, never refuses**: both sides are invited to talk,
+    `POST /me/conversations` with `quoteId` opens the pair thread before
+    acceptance, writable while a request between them is open
+    (`submitted`, `in_review`, `quoted`, `declined`).
+  - **Acceptance** copies the dishes into `booking_meals` (portions = persons) and
+    pins them (`pinRecipes`) in the same transaction.
+  - **Keep or drop** (`GET /me/express-dishes`, `POST /me/express-dishes/:id/decision`):
+    once no offer with the dish waits for the client and no prestation with it is
+    still to cook. `kept`: an ordinary draft in « Mes plats », completed and
+    published under the usual rules. `dropped`: archived; the bookings keep it.
+    Delivering a prestation with undecided express dishes notifies the batch
+    cooker in-app (`express_dish.decide`).
 - **What a batch cooker sees**: the town and a short client name until the offer
   is accepted, the street and contact details after. A client never sees the net
   nor the rate. Why a batch cooker declined is for admins only.
@@ -443,6 +467,8 @@ pure rules).
 | Signed in    | `GET /pricing-rules`                                                                                                                |
 | Client       | `POST /quotes`, `GET /me/quotes`, `GET\|DELETE /me/quotes/:id`, `POST /me/quotes/:id/offers/:offerId/accept\|decline`               |
 | Batch cooker | `GET /me/chef/quotes`, `GET …/:id`, `POST …/:id/offers`, `POST …/:id/offers/:offerId/withdraw`, `POST …/:id/decline`                |
+| Batch cooker | `GET /me/express-dishes`, `POST /me/express-dishes/:id/decision`                                                                    |
+| Both sides   | `POST /me/conversations` with `quoteId`: talk before an offer is accepted                                                           |
 | Admin        | `GET /admin/quotes[?status=&filter=needs_chef]`, `GET\|PATCH …/:id`, `POST …/:id/offers`, `GET\|PATCH /admin/settings/commission`   |
 
 ### Paying a prestation (FLOW-03)
