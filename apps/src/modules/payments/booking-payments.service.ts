@@ -14,7 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
-import { advanceAccepted, cesuAccepted } from './chef-cesu-info';
+import { advanceAccepted, cesuAccepted, novaCodeSet } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
 import { commissionDueAutomatically } from './domain/urssaf-mode.rules';
 import { assertPayable, CONTRACT_SELECT, paymentPhase } from './payment-rules';
@@ -31,7 +31,10 @@ const BPS = 10_000;
 export type BookingPaymentState = 'not-due' | 'due' | 'processing' | 'paid' | 'failed';
 
 export type UrssafReasonCode =
-  'URSSAF_LINK_NONE' | 'URSSAF_LINK_PENDING' | 'URSSAF_LINK_REFUSED';
+  | 'URSSAF_LINK_NONE'
+  | 'URSSAF_LINK_PENDING'
+  | 'URSSAF_LINK_REFUSED'
+  | 'URSSAF_DOSSIER_MISSING';
 
 /** Why a method is blocked: the advance's own codes, or a CESU declaration under way. */
 export type MethodReasonCode = UrssafReasonCode | 'CESU_PENDING';
@@ -45,6 +48,8 @@ const URSSAF_REASON: Record<UrssafReasonCode, string> = {
     'L’avance immédiate demande un rattachement à ce batch cooker, à faire une fois.',
   URSSAF_LINK_PENDING: 'Votre demande de rattachement est en cours d’instruction.',
   URSSAF_LINK_REFUSED: 'L’URSSAF a refusé le rattachement à ce batch cooker.',
+  URSSAF_DOSSIER_MISSING:
+    'L’avance immédiate demande d’abord votre dossier URSSAF (identité, coordonnées bancaires), à remplir une fois.',
 };
 
 const REASONS: Record<MethodReasonCode, string> = {
@@ -61,6 +66,8 @@ export interface PaymentMethodOption {
   dueNowCents: number;
   /** Immediate advance only: what URSSAF takes from their account afterwards. */
   debitedLaterCents?: number;
+  /** Immediate advance, manual mode: the cooperative it goes through ("par Unipros"). */
+  intermediary?: string;
   /** CESU only: the most that can be declared, and the number to pay the cook with. */
   maxCesuCents?: number;
   crcesuNan?: string | null;
@@ -127,15 +134,22 @@ export class BookingPaymentsService {
           clientId_chefProfileId: { clientId: client.id, chefProfileId: chef.id },
         },
       });
+      // Manual mode: the admin enrols the client with the dossier, so it comes first.
+      const dossierMissing =
+        this.urssaf.manual &&
+        link?.status !== 'active' &&
+        !(await this.dossierFilled(client.id));
       const reasonCode: MethodReasonCode | null = cesuPending
         ? 'CESU_PENDING'
         : link?.status === 'active'
           ? null
-          : link?.status === 'pending'
-            ? 'URSSAF_LINK_PENDING'
-            : link?.status === 'refused'
-              ? 'URSSAF_LINK_REFUSED'
-              : 'URSSAF_LINK_NONE';
+          : dossierMissing
+            ? 'URSSAF_DOSSIER_MISSING'
+            : link?.status === 'pending'
+              ? 'URSSAF_LINK_PENDING'
+              : link?.status === 'refused'
+                ? 'URSSAF_LINK_REFUSED'
+                : 'URSSAF_LINK_NONE';
       methods.push({
         id: 'urssaf',
         available: reasonCode === null,
@@ -143,6 +157,9 @@ export class BookingPaymentsService {
         // Nothing is paid on the site: URSSAF debits the client's share afterwards.
         dueNowCents: 0,
         debitedLaterCents: afterTaxCredit(remaining),
+        ...(this.urssaf.manual
+          ? { intermediary: this.config.get<string>('urssaf.intermediary', 'Unipros') }
+          : {}),
       });
     }
     if (chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled) {
@@ -442,10 +459,14 @@ export class BookingPaymentsService {
       select: {
         id: true,
         userId: true,
-        sapProfile: { select: { urssafTiersPrestationStatus: true } },
+        sapProfile: { select: { urssafTiersPrestationStatus: true, novaCode: true } },
       },
     });
-    if (!chef || chef.sapProfile?.urssafTiersPrestationStatus !== 'active') {
+    if (
+      !chef ||
+      chef.sapProfile?.urssafTiersPrestationStatus !== 'active' ||
+      !novaCodeSet(chef.sapProfile)
+    ) {
       throw new UnprocessableEntityException({
         code: 'URSSAF_NOT_ACCEPTED',
         message: 'This batch cooker does not take the immediate advance.',
@@ -455,6 +476,12 @@ export class BookingPaymentsService {
       throw new UnprocessableEntityException({
         code: 'SAME_PERSON',
         message: 'A batch cooker cannot enrol with themselves.',
+      });
+    }
+    if (this.urssaf.manual && !(await this.dossierFilled(client.id))) {
+      throw new UnprocessableEntityException({
+        code: 'URSSAF_DOSSIER_MISSING',
+        message: URSSAF_REASON.URSSAF_DOSSIER_MISSING,
       });
     }
 
@@ -740,6 +767,12 @@ export class BookingPaymentsService {
       requestedAt: link.requestedAt,
       decidedAt: link.decidedAt,
     };
+  }
+
+  private async dossierFilled(clientId: string): Promise<boolean> {
+    return (
+      (await this.prisma.urssafClientDossier.count({ where: { userId: clientId } })) > 0
+    );
   }
 
   private assertEnabled(): void {

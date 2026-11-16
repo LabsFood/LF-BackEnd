@@ -446,7 +446,7 @@ export class UsersService {
   /** LF-0221: the client's "getting started" checklist, derived from what is stored. */
   async clientOnboarding(clerkUserId: string) {
     const user = await this.ensurePersistedFromClerk(clerkUserId);
-    const [profile, bookings] = await Promise.all([
+    const [profile, bookings, dossiers] = await Promise.all([
       this.prisma.clientProfile.findUnique({
         where: { userId: user.id },
         select: {
@@ -461,12 +461,16 @@ export class UsersService {
         },
       }),
       this.prisma.booking.count({ where: { clientId: user.id } }),
+      this.prisma.urssafClientDossier.count({ where: { userId: user.id } }),
     ]);
     return clientOnboarding({
       fullName: user.fullName,
       phone: user.phone,
       profile,
       bookings,
+      advanceOffered:
+        this.config.get<string>('urssaf.gateway', 'disabled') !== 'disabled',
+      urssafDossierFilled: dossiers > 0,
     });
   }
 

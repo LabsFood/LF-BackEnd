@@ -37,6 +37,14 @@ function setup(mode: 'disabled' | 'simulated' | 'manual', metadata: object = {})
       findFirst: jest.fn().mockResolvedValue(payment),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    chefProfile: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'chef1',
+        userId: 'chef-user',
+        sapProfile: { urssafTiersPrestationStatus: 'active', novaCode: 'SAP123456789' },
+      }),
+    },
+    urssafClientDossier: { count: jest.fn().mockResolvedValue(0) },
     $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const commissionDebits = { onCommissionDue: jest.fn() };
@@ -172,6 +180,15 @@ describe('BookingPaymentsService — manual URSSAF route', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'urssaf.payment_simulated' }),
       );
+    });
+  });
+
+  describe('requestLink', () => {
+    it('waits for the URSSAF dossier in manual mode', async () => {
+      const { service } = setup('manual');
+      await expect(service.requestLink('clerk', 'chef1')).rejects.toMatchObject({
+        response: { code: 'URSSAF_DOSSIER_MISSING' },
+      });
     });
   });
 });

@@ -141,10 +141,12 @@ export class UsersController {
     summary: 'My getting-started checklist',
     description:
       'LF-0221: the steps a client is invited to take after creating the account, in ' +
-      'order — `contact_details`, `address`, `allergies`, `tastes`, `first_booking` — ' +
-      'each `done` as soon as the data exists. Nothing here blocks: `requiredFor: ' +
-      '"menu_validation"` on `allergies` says a menu cannot be validated before it ' +
-      '(the fail-closed rule of `PUT /me/profile/allergies`). The fronts word each step.',
+      'order — `contact_details`, `address`, `allergies`, `tastes`, `urssaf_dossier`, ' +
+      '`first_booking` — each `done` as soon as the data exists. Nothing here blocks: ' +
+      '`requiredFor: "menu_validation"` on `allergies` says a menu cannot be validated ' +
+      'before it (the fail-closed rule of `PUT /me/profile/allergies`). ' +
+      '`urssaf_dossier` (`PUT /me/urssaf-dossier`) is listed only while the immediate ' +
+      'advance is offered, with `requiredFor: "immediate_advance"`. The fronts word each step.',
   })
   @ApiOkResponse({
     description: '`completed` out of `total`, and each step.',

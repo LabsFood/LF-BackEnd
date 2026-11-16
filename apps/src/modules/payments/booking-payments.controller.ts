@@ -87,7 +87,9 @@ export class BookingPaymentsController {
       'immediate advance (`urssaf`) it is `0`: nothing is charged here, and ' +
       '`debitedLaterCents` is what URSSAF takes from their account afterwards.\n' +
       '- `urssaf` reason codes: `URSSAF_LINK_NONE` (offer `POST /me/urssaf-links`), ' +
-      '`URSSAF_LINK_PENDING`, `URSSAF_LINK_REFUSED`.\n' +
+      '`URSSAF_LINK_PENDING`, `URSSAF_LINK_REFUSED`, `URSSAF_DOSSIER_MISSING` (manual ' +
+      'mode: offer `PUT /me/urssaf-dossier` first). In manual mode the option carries ' +
+      '`intermediary` (`Unipros`), for the label "par Unipros".\n' +
       '- `cesu` carries `crcesuNan`, the number the client pays the batch cooker with ' +
       'on their issuer’s site.',
   })
@@ -207,7 +209,8 @@ export class BookingPaymentsController {
   @ApiUnprocessableEntityResponse({
     description:
       '`URSSAF_NOT_ACCEPTED`: unknown batch cooker, or one that does not take the ' +
-      'immediate advance. `SAME_PERSON`.',
+      'immediate advance. `SAME_PERSON`. `URSSAF_DOSSIER_MISSING`: manual mode, the ' +
+      'client has not filled `PUT /me/urssaf-dossier`.',
   })
   @ApiServiceUnavailableResponse({
     description: '`URSSAF_UNAVAILABLE`: the immediate advance is not open yet.',
