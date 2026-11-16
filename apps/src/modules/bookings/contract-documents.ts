@@ -138,8 +138,11 @@ export interface DeboursMandateInput {
   startsAt: Date;
   address: string | null;
   meals: string[];
-  /** The shopping list's lines, as they stand; empty while it is not drawn up. */
-  shopping: string[];
+  /**
+   * The shopping list as it stands, grouped by aisle in store order (16/11): each
+   * aisle's label and its lines. Empty while it is not drawn up.
+   */
+  shopping: { aisle: string; lines: string[] }[];
   acceptedAt: Date;
   version: string;
   generatedAt?: Date;
@@ -190,14 +193,32 @@ export function renderDeboursMandatePdf(input: DeboursMandateInput): Promise<Buf
     },
   ]);
 
-  section(
-    doc,
-    'Liste de Courses',
-    input.shopping.length
-      ? input.shopping.join('\n')
-      : 'La liste de courses n’est pas encore établie : elle est envoyée dans votre ' +
-          'espace au plus tard au Verrouillage (48 heures avant la prestation).',
-  );
+  if (!input.shopping.length) {
+    section(
+      doc,
+      'Liste de Courses',
+      'La liste de courses n’est pas encore établie : elle est envoyée dans votre ' +
+        'espace au plus tard au Verrouillage (48 heures avant la prestation).',
+    );
+  } else {
+    // One block per aisle, in store order: the list reads the way the chef shops.
+    doc.y += 20;
+    label(doc, 'Liste de Courses', COLOR.terra);
+    for (const group of input.shopping) {
+      doc.y += 8;
+      label(doc, group.aisle, COLOR.inkSoft);
+      doc.y += 3;
+      doc
+        .font(FONT.text)
+        .fontSize(9.5)
+        .fillColor(COLOR.ink)
+        .text(group.lines.join('\n'), PAGE.left, doc.y, {
+          ...TEXT,
+          width: PAGE.width,
+          lineGap: 2,
+        });
+    }
+  }
   section(
     doc,
     'Objet et prix',

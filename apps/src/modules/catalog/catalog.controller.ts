@@ -175,12 +175,6 @@ const MEAL_NOT_LABS_FOOD = {
   },
 };
 
-/**
- * Recettes §4.11: what keeps a Lab's Food meal from "Prête", as on a chef's dish, with
- * its lines and steps served as the rules read them (R33).
- */
-const withReadiness = toLabsFoodMealView;
-
 @Controller()
 export class CatalogController {
   constructor(
@@ -211,7 +205,8 @@ export class CatalogController {
   })
   @ApiAdminAuthResponses()
   async listMeals() {
-    return (await this.catalog.listMeals()).map(withReadiness);
+    const days = await this.catalog.fridgeAlertDays();
+    return (await this.catalog.listMeals()).map((meal) => toLabsFoodMealView(meal, days));
   }
 
   @Post('admin/meals')
@@ -231,8 +226,9 @@ export class CatalogController {
   @ApiCreatedResponse({ description: 'The new meal.', type: MealResponseDto })
   @ApiAdminAuthResponses()
   async createMeal(@Body() payload: CreateMealDto, @CurrentClerkUser() user: ClerkUser) {
-    return withReadiness(
+    return toLabsFoodMealView(
       await this.catalog.createMeal(payload, await this.adminId(user)),
+      await this.catalog.fridgeAlertDays(),
     );
   }
 
@@ -275,8 +271,9 @@ export class CatalogController {
     @Body() payload: UpdateMealDto,
     @CurrentClerkUser() user: ClerkUser,
   ) {
-    return withReadiness(
+    return toLabsFoodMealView(
       await this.catalog.updateMeal(id, payload, await this.adminId(user)),
+      await this.catalog.fridgeAlertDays(),
     );
   }
 

@@ -446,6 +446,7 @@ describe('PaymentsService', () => {
     it('settles payment, commission, and booking together', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
         amountTtc: 12_500,
@@ -474,6 +475,7 @@ describe('PaymentsService', () => {
     it('numbers invoice A inside the settlement, then stores its PDF', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
         amountTtc: 12_500,
@@ -493,6 +495,7 @@ describe('PaymentsService', () => {
       // A card payment that only settles part of a mixed CESU + card booking.
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
         amountTtc: 6_500,
@@ -511,6 +514,7 @@ describe('PaymentsService', () => {
     it('is a no-op on redelivery of an already-settled payment', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'succeeded',
         amountTtc: 12_500,
@@ -539,6 +543,7 @@ describe('PaymentsService', () => {
     it('fails the payment and its commission, leaving the booking pending', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
       });
@@ -559,6 +564,7 @@ describe('PaymentsService', () => {
     it('never downgrades a payment Stripe already settled', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'succeeded',
       });

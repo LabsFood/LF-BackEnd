@@ -125,7 +125,12 @@ export class BookingPaymentsService {
     const methods: PaymentMethodOption[] = [];
     const cesuPending =
       (await this.prisma.payment.count({
-        where: { bookingId: booking.id, method: 'cesu', status: 'pending' },
+        where: {
+          bookingId: booking.id,
+          method: 'cesu',
+          status: 'pending',
+          purpose: 'service',
+        },
       })) > 0;
 
     if (this.urssaf.enabled && advanceAccepted(chef.sapProfile, chef.sepaMandate)) {
@@ -215,8 +220,9 @@ export class BookingPaymentsService {
     if (fullyCovered) return 'paid';
     if (paymentPhase(booking) !== 'due') return 'not-due';
 
+    // The prestation's payments only: a courses hold or capture says nothing of it.
     const last = await this.prisma.payment.findFirst({
-      where: { bookingId: booking.id },
+      where: { bookingId: booking.id, purpose: 'service' },
       orderBy: { createdAt: 'desc' },
       select: { method: true, status: true },
     });

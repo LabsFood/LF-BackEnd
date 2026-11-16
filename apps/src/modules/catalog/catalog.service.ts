@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { assertIngredientAccess } from '../ingredients/composition';
 import {
   assertConsistent,
@@ -57,6 +58,11 @@ export class CatalogService {
     private readonly prisma: PrismaService,
     private readonly suggestions: SuggestionsService,
   ) {}
+
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a meal view. */
+  fridgeAlertDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
 
   listMeals() {
     return this.prisma.meal.findMany({

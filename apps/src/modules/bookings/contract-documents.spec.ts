@@ -52,7 +52,13 @@ describe('renderDeboursMandatePdf', () => {
     startsAt: new Date('2026-12-10T08:00:00.000Z'),
     address: '3 rue des Lilas, 93100 Montreuil',
     meals: ['Dahl de lentilles', 'Gratin dauphinois'],
-    shopping: ['Lentilles corail — 500 g', 'Pommes de terre — 2 kg'],
+    shopping: [
+      { aisle: 'Épicerie', lines: ['Lentilles corail — 500 g'] },
+      {
+        aisle: 'Fruits et légumes',
+        lines: ['Pommes de terre — 2 kg', 'Persil — 1 botte (facultatif)'],
+      },
+    ],
     acceptedAt: new Date('2026-12-01T09:15:00.000Z'),
     version: '1.0',
   };
@@ -80,6 +86,16 @@ describe('renderDeboursMandatePdf', () => {
     ]) {
       expect(text).toContain(fact);
     }
+  });
+
+  it('lists the shopping by aisle, in the order given, optional lines marked', () => {
+    const at = (needle: string) => text.toLowerCase().indexOf(needle.toLowerCase());
+    expect(at('Épicerie')).toBeGreaterThan(at('Liste de Courses'));
+    expect(at('Lentilles corail')).toBeGreaterThan(at('Épicerie'));
+    expect(at('Fruits et légumes')).toBeGreaterThan(at('Lentilles corail'));
+    expect(at('Pommes de terre')).toBeGreaterThan(at('Fruits et légumes'));
+    expect(at('Épicerie')).toBeGreaterThan(-1);
+    expect(text).toContain('(facultatif)');
   });
 
   it('says where the list is while it does not exist yet', async () => {

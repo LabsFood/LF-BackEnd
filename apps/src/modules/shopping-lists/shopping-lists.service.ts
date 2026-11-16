@@ -41,7 +41,7 @@ export interface PinnedRecipe {
 }
 
 /** Recettes §4.12: a "to taste" line has no number, it reads "selon le goût". */
-const formatQuantity = (line: Line) =>
+export const formatQuantity = (line: Pick<Line, 'qty' | 'unit'>) =>
   line.unit === 'to_taste'
     ? displayQuantity(null, line.unit)
     : `${line.qty} ${line.unit}`.trim();
@@ -51,10 +51,11 @@ const toLine = (item: ShoppingItem): Line => ({
   qty: item.qty ?? 0,
   unit: item.unit ?? '',
   aisle: item.aisle,
+  ...(item.optional ? { optional: true as const } : {}),
 });
 
 /** The list as the chef left it: computed lines with their corrections applied. */
-const linesOf = (items: ShoppingItem[]) =>
+export const linesOf = (items: ShoppingItem[]) =>
   applyCorrections(
     items.filter((item) => !item.edited).map(toLine),
     items

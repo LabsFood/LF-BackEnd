@@ -371,6 +371,20 @@ describe('readiness (Recettes §4.11)', () => {
           .warnings,
       ).toEqual([]);
     });
+
+    it('reads the threshold the console set, the same as the « à manger avant » alert', () => {
+      const sixDays = {
+        ...DISH,
+        storage: { method: 'fridge', days: 6, freezable: false },
+      };
+      expect(readiness(sixDays, 7).warnings).toEqual([]);
+      expect(readiness(sixDays, 5).warnings).toEqual([
+        expect.objectContaining({
+          code: 'FRIDGE_LONG',
+          message: expect.stringContaining('5 days'),
+        }),
+      ]);
+    });
   });
 });
 

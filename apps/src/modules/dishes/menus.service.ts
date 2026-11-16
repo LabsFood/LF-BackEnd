@@ -6,6 +6,7 @@ import {
 
 import { MealStatus, MenuPeriod, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import {
   ChefContentService,
   ChefContext,
@@ -41,6 +42,11 @@ export class MenusService {
     private readonly access: ChefContentService,
   ) {}
 
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
+
   async list(clerkUserId: string) {
     const chef = await this.access.chef(clerkUserId);
     const menus = await this.prisma.menu.findMany({
@@ -48,12 +54,13 @@ export class MenusService {
       include: MENU_DISHES,
       orderBy: { updatedAt: 'desc' },
     });
-    return menus.map(toMenuView);
+    const days = await this.fridgeDays();
+    return menus.map((menu) => toMenuView(menu, days));
   }
 
   async get(clerkUserId: string, id: string) {
     const chef = await this.access.chef(clerkUserId);
-    return toMenuView(await this.access.readableMenu(chef, id));
+    return toMenuView(await this.access.readableMenu(chef, id), await this.fridgeDays());
   }
 
   /** A `draft`, with `shoppingIncluded` false unless the chef says otherwise. */
@@ -78,7 +85,7 @@ export class MenusService {
         include: MENU_DISHES,
       })
       .catch(dishGoneMeanwhile);
-    return toMenuView(menu);
+    return toMenuView(menu, await this.fridgeDays());
   }
 
   /**
@@ -152,7 +159,7 @@ export class MenusService {
           .catch(goneMeanwhile('Menu'));
       })
       .catch(dishGoneMeanwhile);
-    return toMenuView(updated);
+    return toMenuView(updated, await this.fridgeDays());
   }
 
   async remove(clerkUserId: string, id: string): Promise<void> {
@@ -174,7 +181,8 @@ export class MenusService {
     const chef = await this.access.chef(clerkUserId);
     await this.access.assertCanPublish(chef);
     const menu = await this.access.writableMenu(chef, id);
-    if (menu.status === MealStatus.published) return toMenuView(menu);
+    if (menu.status === MealStatus.published)
+      return toMenuView(menu, await this.fridgeDays());
 
     const problems = menuPublishProblems(
       menu,
@@ -221,7 +229,7 @@ export class MenusService {
         });
       })
       .catch(changedMeanwhile);
-    return toMenuView(published);
+    return toMenuView(published, await this.fridgeDays());
   }
 
   /** Back to `draft`. Its dishes stay published: they are the chef's on their own. */
@@ -229,7 +237,8 @@ export class MenusService {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
     const menu = await this.access.writableMenu(chef, id);
-    if (menu.status !== MealStatus.published) return toMenuView(menu);
+    if (menu.status !== MealStatus.published)
+      return toMenuView(menu, await this.fridgeDays());
 
     // Only from `published`: a suspension made meanwhile is never overwritten.
     const drafted = await this.prisma.menu
@@ -239,7 +248,7 @@ export class MenusService {
         include: MENU_DISHES,
       })
       .catch(changedMeanwhile);
-    return toMenuView(drafted);
+    return toMenuView(drafted, await this.fridgeDays());
   }
 
   /** The chef's showcase between two Mondays; by default the next eight weeks. */
@@ -343,7 +352,7 @@ const toDate = (day: string) => new Date(`${day}T00:00:00Z`);
 const toDay = (date: Date) => date.toISOString().slice(0, 10);
 
 /** The chef's view of a menu: its dishes in order, each with its status. */
-export function toMenuView(menu: MenuWithDishes) {
+export function toMenuView(menu: MenuWithDishes, fridgeAlertDays?: number) {
   return {
     id: menu.id,
     title: menu.title,
@@ -357,6 +366,6 @@ export function toMenuView(menu: MenuWithDishes) {
     createdAt: menu.createdAt,
     updatedAt: menu.updatedAt,
     // The same dish view as `GET /me/dishes`, in menu order.
-    dishes: menu.dishes.map(({ meal }) => toDishView(meal)),
+    dishes: menu.dishes.map(({ meal }) => toDishView(meal, fridgeAlertDays)),
   };
 }

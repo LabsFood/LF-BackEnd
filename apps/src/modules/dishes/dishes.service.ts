@@ -8,6 +8,7 @@ import {
 
 import { Meal, MealDifficulty, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import {
   assertIngredientAccess,
   ComposeDb,
@@ -79,18 +80,24 @@ export class DishesService {
     private readonly access: ChefContentService,
   ) {}
 
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
+
   async list(clerkUserId: string) {
     const chef = await this.access.chef(clerkUserId);
     const dishes = await this.prisma.meal.findMany({
       where: { chefProfileId: chef.id },
       orderBy: { updatedAt: 'desc' },
     });
-    return dishes.map(toDishView);
+    const days = await this.fridgeDays();
+    return dishes.map((dish) => toDishView(dish, days));
   }
 
   async get(clerkUserId: string, id: string) {
     const chef = await this.access.chef(clerkUserId);
-    return toDishView(await this.access.readableDish(chef, id));
+    return toDishView(await this.access.readableDish(chef, id), await this.fridgeDays());
   }
 
   /** Recettes §7: the recipe sheet as a PDF, watermarked, for the chef's own dish. */
@@ -138,7 +145,7 @@ export class DishesService {
         versionPending: payload.recipe != null,
       },
     });
-    return toDishView(dish);
+    return toDishView(dish, await this.fridgeDays());
   }
 
   /**
@@ -235,7 +242,7 @@ export class DishesService {
     if (reverify && current.allergensVerifiedAt !== null) {
       this.logger.log({ event: 'dish.allergens_verification_cleared', dishId: id });
     }
-    return toDishView(dish);
+    return toDishView(dish, await this.fridgeDays());
   }
 
   /**
@@ -299,7 +306,7 @@ export class DishesService {
       })
       .catch(savedMeanwhile(this.prisma, chef.id, id));
     this.logger.log({ event: 'dish.allergens_confirmed', dishId: id });
-    return toDishView(confirmed);
+    return toDishView(confirmed, await this.fridgeDays());
   }
 
   /**
@@ -365,7 +372,8 @@ export class DishesService {
     const chef = await this.access.chef(clerkUserId);
     await this.access.assertCanPublish(chef);
     const dish = await this.access.writableDish(chef, id);
-    if (dish.status === MealStatus.published) return toDishView(dish);
+    if (dish.status === MealStatus.published)
+      return toDishView(dish, await this.fridgeDays());
 
     const problems = publicationProblems(dish);
     if (problems.length) throw recipeNotReady(problems);
@@ -395,7 +403,7 @@ export class DishesService {
         return this.cutVersion(tx, row);
       })
       .catch(changedMeanwhile);
-    return toDishView(published);
+    return toDishView(published, await this.fridgeDays());
   }
 
   /** Back to `draft`: off the public site, still the chef's. */
@@ -403,7 +411,8 @@ export class DishesService {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
     const dish = await this.access.writableDish(chef, id);
-    if (dish.status !== MealStatus.published) return toDishView(dish);
+    if (dish.status !== MealStatus.published)
+      return toDishView(dish, await this.fridgeDays());
 
     // Only from `published`: a suspension made meanwhile is never overwritten.
     const drafted = await this.prisma.meal
@@ -412,7 +421,7 @@ export class DishesService {
         data: { status: MealStatus.draft },
       })
       .catch(changedMeanwhile);
-    return toDishView(drafted);
+    return toDishView(drafted, await this.fridgeDays());
   }
 }
 

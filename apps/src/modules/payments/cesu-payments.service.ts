@@ -361,6 +361,7 @@ export class CesuPaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         method: 'cesu',
+        purpose: 'service',
         booking: { chefProfileId: chef.id },
         ...(status ? { cesuSettlement: { status } } : {}),
       },
@@ -373,7 +374,11 @@ export class CesuPaymentsService {
   /** `GET /admin/cesu-payments`. */
   async listForAdmin(status?: CesuSettlementStatus): Promise<CesuPaymentDto[]> {
     const payments = await this.prisma.payment.findMany({
-      where: { method: 'cesu', ...(status ? { cesuSettlement: { status } } : {}) },
+      where: {
+        method: 'cesu',
+        purpose: 'service',
+        ...(status ? { cesuSettlement: { status } } : {}),
+      },
       include: CESU_PAYMENT_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });

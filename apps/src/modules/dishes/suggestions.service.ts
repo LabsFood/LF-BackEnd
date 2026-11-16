@@ -7,6 +7,7 @@ import {
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { ChefContentService, ChefContext, MENU_DISHES } from './chef-content.service';
 import { DishesMailer } from './dishes.mailer';
 import { toDishSummary, toDishView } from './dishes.views';
@@ -38,6 +39,11 @@ export class SuggestionsService {
     private readonly audit: AuditService,
     private readonly mailer: DishesMailer,
   ) {}
+
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
 
   /** §6: a preview only, never the recipe; `adoptedCopyId` says the chef has it. */
   async list(clerkUserId: string) {
@@ -101,7 +107,11 @@ export class SuggestionsService {
           copyId: copy.id,
         });
       }
-      return { type: 'dish' as const, created, copy: toDishView(copy) };
+      return {
+        type: 'dish' as const,
+        created,
+        copy: toDishView(copy, await this.fridgeDays()),
+      };
     }
 
     const menu = await this.prisma.menu.findFirst({
@@ -154,7 +164,7 @@ export class SuggestionsService {
     return {
       type: 'menu' as const,
       created: result.created,
-      copy: toMenuView(result.copy),
+      copy: toMenuView(result.copy, await this.fridgeDays()),
     };
   }
 
@@ -210,7 +220,10 @@ export class SuggestionsService {
       await this.recordConsent(chef, 'offer.accepted', 'meal', dish, { copyId: dish.id });
       return {
         type: 'dish' as const,
-        dish: toDishView(await this.prisma.meal.findUniqueOrThrow({ where: { id } })),
+        dish: toDishView(
+          await this.prisma.meal.findUniqueOrThrow({ where: { id } }),
+          await this.fridgeDays(),
+        ),
       };
     }
 
@@ -242,7 +255,7 @@ export class SuggestionsService {
       copyId: id,
       dishCopyIds: accepted.dishes.map((d) => d.mealId),
     });
-    return { type: 'menu' as const, menu: toMenuView(accepted) };
+    return { type: 'menu' as const, menu: toMenuView(accepted, await this.fridgeDays()) };
   }
 
   /**

@@ -89,6 +89,8 @@ export const REMIND_AFTER_MS = 48 * HOUR_MS;
  * an abandoned one stays `pending` for ever (`coveredAmount`).
  */
 const MONEY_IN = {
+  // The prestation's money: a courses hold (lot 6) is released with the booking.
+  purpose: 'service',
   OR: [
     { status: 'succeeded' },
     { status: 'pending', method: { in: ['cesu', 'avance_immediate'] } },
