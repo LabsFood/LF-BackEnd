@@ -26,6 +26,23 @@ describe('field-cipher', () => {
     expect(() => open(parts.join(':'), KEY)).toThrow();
   });
 
+  it('refuses a truncated authentication tag', () => {
+    const parts = seal('hello', KEY).split(':');
+    // Node would accept a 4-byte tag unless the length is pinned: forgery gets easy.
+    parts[2] = Buffer.from(parts[2], 'base64').subarray(0, 4).toString('base64');
+    expect(() => open(parts.join(':'), KEY)).toThrow(/tag/);
+  });
+
+  it('refuses an IV of the wrong length', () => {
+    const parts = seal('hello', KEY).split(':');
+    parts[1] = Buffer.alloc(8).toString('base64');
+    expect(() => open(parts.join(':'), KEY)).toThrow(/IV/);
+  });
+
+  it('refuses a payload missing a part', () => {
+    expect(() => open('v1:abc', KEY)).toThrow();
+  });
+
   it('refuses the wrong key', () => {
     expect(() => open(seal('hello', KEY), randomBytes(32))).toThrow();
   });
