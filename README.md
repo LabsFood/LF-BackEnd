@@ -99,7 +99,6 @@ docs/
   evolution/           # payments change register
 local-dev/             # full-stack Compose file for the 4 repos (see LOCAL_SETUP.md)
 docker-compose.yml     # postgres, redis, api (local); Railway uses apps/Dockerfile
-railway.toml           # Railway config-as-code
 .env.example           # template for required environment variables
 stack.md               # backend stack and decisions
 ```
@@ -164,7 +163,7 @@ The `api` container runs **`prisma migrate deploy`** on startup, then starts the
 
 ### 3. Production on Railway
 
-See **[docs/deploy/railway.md](./docs/deploy/railway.md)** — link GitHub repo, set Supabase pooler + migration URLs, Clerk, CORS, health check `/health`. Config: [railway.toml](./railway.toml), image [apps/Dockerfile](./apps/Dockerfile).
+See **[docs/deploy/railway.md](./docs/deploy/railway.md)** — link GitHub repo, set Supabase pooler + migration URLs, Clerk, CORS, health check `/health`. Build and health check are set on the Railway service; image [apps/Dockerfile](./apps/Dockerfile).
 
 After deploy, open Swagger at **`https://<public-domain>/docs`**. Smoke test:
 

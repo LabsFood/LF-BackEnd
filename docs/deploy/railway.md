@@ -9,7 +9,7 @@ Production runs the **NestJS API** from [`apps/Dockerfile`](../../apps/Dockerfil
 > below are for a service Railway builds itself from the repository.
 
 1. [Railway](https://railway.com/) → **New Project** → **Deploy from GitHub repo** → select `LF-BackEnd`.
-2. Railway reads [`railway.toml`](../../railway.toml): Docker build from `apps/Dockerfile`, health check `GET /health`.
+2. Service → **Settings**: Dockerfile path `/apps/Dockerfile`, watch paths `/apps/**`, health check `/health` (timeout 300 s), restart on failure (10 retries). These live in the service settings (Railway config-as-code is deprecated; no `railway.toml`).
 3. Do **not** deploy the Compose `postgres` service on Railway; use Supabase for the database.
 
 ## 2. Environment variables
@@ -124,7 +124,7 @@ Never run migrations through the **transaction** pooler (6543). The container en
 
 1. Service → **Settings** → **Networking** → **Generate domain** (or attach a custom domain).
 2. Copy the HTTPS URL (e.g. `https://lf-backend-production-xxxx.up.railway.app`). This is `<public-domain>` below.
-3. **Health check** (from `railway.toml`): path **`/health`** (liveness, no DB).
+3. **Health check** (service settings): path **`/health`** (liveness, no DB).
 
 ### Endpoints (production)
 
@@ -297,8 +297,8 @@ ids are in the workflow file.
 1. The container entrypoint runs **`prisma migrate deploy`** (with
    `SUPABASE_DB_MIGRATION_URL`), then **`node dist/main.js`**.
 2. A service Railway builds from the repository (§1) builds `apps/Dockerfile`
-   first (context: repository root `.`) and probes **`/health`**, per
-   `railway.toml`. An image-sourced service builds nothing.
+   first (context: repository root `.`) and probes **`/health`**, per its
+   service settings. An image-sourced service builds nothing.
 
 ## 6. Local Docker vs Railway
 

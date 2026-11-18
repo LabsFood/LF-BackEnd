@@ -19,7 +19,7 @@ Covers the database only. Storage buckets (KYC, invoices, messaging) are not in 
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | an R2 token with Object Read & Write on that bucket only |
 | `BACKUP_PREFIX` | optional, default `lf-api` |
 
-Service settings: root directory `ops/db-backup`, cron `0 2 * * *` (03:00 Paris in
+Service settings (on Railway, no config file): root directory `/ops/db-backup`, Dockerfile path `Dockerfile`, cron `0 2 * * *` (03:00 Paris in
 winter), restart policy Never, watch paths `ops/db-backup/**`. A failed run shows as a
 failed deployment. Old files: a lifecycle rule on the bucket deletes them after 30 days.
 

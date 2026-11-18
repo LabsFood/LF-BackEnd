@@ -76,7 +76,7 @@ Docker `api` runs `prisma migrate deploy` on container start (`apps/scripts/dock
 
 ### Railway production
 
-Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Config-as-code: [`railway.toml`](railway.toml). Set `SUPABASE_DB_URL` (transaction pooler :6543), `SUPABASE_DB_MIGRATION_URL` (session or direct :5432), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`. Public API base URL: Railway **Networking** domain (see README **API endpoints**).
+Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Build settings (Dockerfile `/apps/Dockerfile`, health check) live on the Railway service, not in a file. Set `SUPABASE_DB_URL` (transaction pooler :6543), `SUPABASE_DB_MIGRATION_URL` (session or direct :5432), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`. Public API base URL: Railway **Networking** domain (see README **API endpoints**).
 
 ### Linting and testing
 
