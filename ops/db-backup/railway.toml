@@ -1,0 +1,10 @@
+# Config of the db-backup cron service. The repo-root railway.toml builds the API;
+# this service points its "Railway config file" setting here instead.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "ops/db-backup/Dockerfile"
+watchPatterns = ["/ops/db-backup/**"]
+
+[deploy]
+cronSchedule = "0 2 * * *"
+restartPolicyType = "NEVER"
