@@ -5,21 +5,25 @@
  */
 
 import type { ReferenceItem } from './dishes.rules';
+import { roundForDisplay, unitFromText } from './units.rules';
 
 export interface Line {
   name: string;
   qty: number;
   unit: string;
   aisle: string;
+  /**
+   * Set (true) only on a line every recipe marks optional (decision of 16/11): it
+   * stays on the shopping list with an « facultatif » badge. A line hidden from the
+   * client (`hiddenFromClient`) is an ordinary line here: the client pays for it.
+   */
+  optional?: true;
 }
 
 /** A line the chef changed, added (`edited`) or struck out (`removed`). */
 export interface Correction extends Line {
   removed: boolean;
 }
-
-/** Two decimals; EPSILON so 1.005 rounds to 1.01, not 1. */
-const round = (qty: number) => Math.round((qty + Number.EPSILON) * 100) / 100;
 
 /** An ingredient's name, or a unit, whatever the case or accents. */
 const fold = (name: string) =>
@@ -34,13 +38,17 @@ export function toLine(raw: unknown): Line | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
   const name = String(value.name ?? '').trim();
-  const qty = Number(value.qty ?? value.amount);
+  const unit = String(value.unit ?? '').trim();
+  const rawQty = value.qty ?? value.amount;
+  // Recettes §4.12: "selon le goût" has no number, so it reads as zero.
+  const qty = rawQty == null && unit === 'to_taste' ? 0 : Number(rawQty);
   if (!name || !Number.isFinite(qty)) return null;
   return {
     name,
     qty,
-    unit: String(value.unit ?? '').trim(),
+    unit,
     aisle: String(value.aisle ?? '').trim() || 'autre',
+    ...(value.optional === true ? { optional: true as const } : {}),
   };
 }
 
@@ -59,17 +67,14 @@ export function scale(ingredients: unknown, from: number, to: number): Line[] {
   });
 }
 
-/** Units counted in whole pieces, folded like ingredient names. */
-const PIECES = new Set(['', 'piece', 'pieces', 'pc', 'pcs', 'u', 'unite', 'unites']);
-
 /**
- * Recettes §4.12: rounded once, for display and at the end of the shopping list.
- * Two decimals; a count of pieces goes up to the next whole one.
+ * Recettes §4.12: rounded once, for display and at the end of the shopping list,
+ * by the rule of its unit. A legacy free-text unit is read as its unit code first.
  */
 export function roundLines<T extends Line>(lines: T[]): T[] {
   return lines.map((line) => ({
     ...line,
-    qty: PIECES.has(fold(line.unit)) ? Math.ceil(line.qty - 1e-9) : round(line.qty),
+    qty: roundForDisplay(line.qty, unitFromText(line.unit) ?? line.unit),
   }));
 }
 
@@ -87,8 +92,11 @@ export function aggregate(lines: Line[]): Line[] {
   for (const line of lines) {
     const key = lineKey(line);
     const existing = merged.get(key);
-    if (existing) existing.qty += line.qty;
-    else merged.set(key, { ...line });
+    if (existing) {
+      existing.qty += line.qty;
+      // Optional only if every dish that asks for it says so.
+      if (!line.optional) delete existing.optional;
+    } else merged.set(key, { ...line });
   }
   return [...merged.values()];
 }
@@ -108,7 +116,11 @@ export function applyCorrections(
     const correction = byKey.get(lineKey(line));
     if (!correction) result.push({ ...line, edited: false });
     else if (!correction.removed)
-      result.push({ ...stripRemoved(correction), edited: true });
+      result.push({
+        ...stripRemoved(correction),
+        ...(line.optional ? { optional: line.optional } : {}),
+        edited: true,
+      });
     byKey.delete(lineKey(line));
   }
   for (const added of byKey.values()) {
@@ -147,14 +159,25 @@ export function diffCorrections(computed: Line[], wanted: Line[]): Correction[] 
   return corrections;
 }
 
-/** §7's shape: lines grouped by aisle, aisles in first-seen order. */
-export function groupByAisle<T extends Line>(lines: T[]) {
+/**
+ * §7's shape: lines grouped by aisle. Recettes §5.4: aisles come in store order
+ * (`order`, the codes of the aisle list in force); any other aisle (legacy free
+ * text, `autre`) follows, in first-seen order.
+ */
+export function groupByAisle<T extends Line>(lines: T[], order: string[]) {
   const groups = new Map<string, Omit<T, 'aisle'>[]>();
   for (const { aisle, ...rest } of lines) {
     if (!groups.has(aisle)) groups.set(aisle, []);
     groups.get(aisle)!.push(rest);
   }
-  return [...groups].map(([aisle, groupLines]) => ({ aisle, lines: groupLines }));
+  const rank = (aisle: string) => {
+    const at = order.indexOf(aisle);
+    return at === -1 ? order.length : at;
+  };
+  // Array.prototype.sort is stable: unknown aisles keep their first-seen order.
+  return [...groups]
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(([aisle, groupLines]) => ({ aisle, lines: groupLines }));
 }
 
 /** Recettes BLK-28: every list a chef fills gets a cap (decided 2026-11-02). */
@@ -226,23 +249,6 @@ export function readSteps(raw: unknown): Step[] {
     });
   }
   return steps.map((step, i) => ({ order: i + 1, ...step }));
-}
-
-/**
- * Recettes §4.9, R17: an ingredient added, removed or renamed, which asks the chef
- * to verify the allergens again. Quantities, units and aisles never change what a
- * dish contains, so they do not count.
- */
-export function ingredientsChanged(before: unknown, after: unknown): boolean {
-  const names = (raw: unknown) =>
-    new Set(
-      (Array.isArray(raw) ? raw : [])
-        .map((item) => fold(String((item as { name?: unknown } | null)?.name ?? '')))
-        .filter(Boolean),
-    );
-  const a = names(before);
-  const b = names(after);
-  return a.size !== b.size || [...a].some((name) => !b.has(name));
 }
 
 /** Keys sorted at every level: the database gives JSON back in its own key order. */

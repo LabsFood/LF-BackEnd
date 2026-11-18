@@ -23,6 +23,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { HealthModule } from './modules/health/health.module';
+import { GroceriesModule } from './modules/groceries/groceries.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { StripeWebhooksModule } from './modules/stripe-webhooks/stripe-webhooks.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
@@ -99,6 +100,7 @@ import { RedisModule } from './redis/redis.module';
     ContactModule,
     PlatformSettingsModule,
     PaymentsModule,
+    GroceriesModule,
     StripeWebhooksModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: GlobalThrottlerGuard }],

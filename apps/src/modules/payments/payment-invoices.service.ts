@@ -78,6 +78,7 @@ export class PaymentInvoicesService {
       where: { id: paymentId },
       select: {
         id: true,
+        purpose: true,
         amountTtc: true,
         currency: true,
         booking: {
@@ -107,6 +108,12 @@ export class PaymentInvoicesService {
         },
       },
     });
+    if (payment.purpose !== 'service') {
+      // The caller's bug, never the client's: a courses payment has no invoice A.
+      throw new Error(
+        `Payment ${payment.id} is a ${payment.purpose} payment: never invoiced.`,
+      );
+    }
     const { booking } = payment;
 
     const issuedAt = new Date();
@@ -179,7 +186,14 @@ export class PaymentInvoicesService {
    */
   async backfill(dryRun: boolean): Promise<PaymentInvoiceBackfillResultDto> {
     const payments = await this.prisma.payment.findMany({
-      where: { method: 'cb', status: 'succeeded', paidAt: { not: null }, invoice: null },
+      // Never a courses payment: the ingredients are not on any invoice (lot 6, LF-0309).
+      where: {
+        method: 'cb',
+        status: 'succeeded',
+        purpose: 'service',
+        paidAt: { not: null },
+        invoice: null,
+      },
       orderBy: { paidAt: 'asc' },
       select: { id: true, paidAt: true },
     });

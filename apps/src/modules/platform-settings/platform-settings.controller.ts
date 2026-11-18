@@ -4,6 +4,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiProperty,
+  ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
@@ -11,9 +12,11 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -29,9 +32,12 @@ import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
 } from '../../common/swagger/auth-responses';
+import { Raw } from '../../common/dto/strict';
 import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
 import { PlatformSettingsService } from './platform-settings.service';
+import { FRIDGE_ALERT_MAX, FRIDGE_ALERT_MIN } from './fridge-alert';
+import { GROCERIES_BOUNDS } from './groceries';
 
 /** Half the client price at most: above that the setting is a typing mistake. */
 const MAX_COMMISSION_BPS = 5000;
@@ -47,6 +53,95 @@ class UpdateCommissionDto {
   @Min(0)
   @Max(MAX_COMMISSION_BPS)
   commissionBps!: number;
+}
+
+/** Recettes lot 6, groundwork: the Budget Courses cap and the advised forfait courses. */
+class GroceriesDto {
+  @ApiProperty({
+    minimum: GROCERIES_BOUNDS.budgetMaxCents.min,
+    maximum: GROCERIES_BOUNDS.budgetMaxCents.max,
+    description: 'The most a client may set as their Budget Courses, in cents.',
+    example: 10_000,
+  })
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.budgetMaxCents.min)
+  @Max(GROCERIES_BOUNDS.budgetMaxCents.max)
+  budgetMaxCents!: number;
+
+  @ApiProperty({
+    minimum: GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.min,
+    maximum: GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.max,
+    description:
+      'The forfait courses a batch cooker is advised to charge at least, in cents. ' +
+      'A recommendation: a lower fee is never refused.',
+    example: 1_500,
+  })
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.min)
+  @Max(GROCERIES_BOUNDS.recommendedShoppingFeeMinCents.max)
+  recommendedShoppingFeeMinCents!: number;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.minCancelNoticeMinutes.min,
+    maximum: GROCERIES_BOUNDS.minCancelNoticeMinutes.max,
+    description:
+      'Lot 6: the cancel deadline of the message before the groceries is at least this ' +
+      'many minutes after the message. Left out: unchanged.',
+    example: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.minCancelNoticeMinutes.min)
+  @Max(GROCERIES_BOUNDS.minCancelNoticeMinutes.max)
+  minCancelNoticeMinutes?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Lot 6, art. 8: « le silence vaut confirmation ». Off (the default), the client ' +
+      'must confirm the groceries. Left out: unchanged.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  silenceConfirms?: boolean;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.instantPayoutFeeBps.min,
+    maximum: GROCERIES_BOUNDS.instantPayoutFeeBps.max,
+    description: 'Lot 6: the instant payout fee, in basis points, paid by the chef.',
+    example: 150,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.instantPayoutFeeBps.min)
+  @Max(GROCERIES_BOUNDS.instantPayoutFeeBps.max)
+  instantPayoutFeeBps?: number;
+
+  @ApiPropertyOptional({
+    minimum: GROCERIES_BOUNDS.instantPayoutFeeMinCents.min,
+    maximum: GROCERIES_BOUNDS.instantPayoutFeeMinCents.max,
+    description: 'Lot 6: the least an instant payout costs, in cents.',
+    example: 50,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(GROCERIES_BOUNDS.instantPayoutFeeMinCents.min)
+  @Max(GROCERIES_BOUNDS.instantPayoutFeeMinCents.max)
+  instantPayoutFeeMinCents?: number;
+}
+
+/** Recettes lot 3 (LF-0271): days in the fridge past which a dish's date alerts. */
+class FridgeAlertDto {
+  @ApiProperty({
+    minimum: FRIDGE_ALERT_MIN,
+    maximum: FRIDGE_ALERT_MAX,
+    description: 'Days in the fridge past which a dish’s « à manger avant » date alerts.',
+    example: 4,
+  })
+  @IsInt()
+  @Min(FRIDGE_ALERT_MIN)
+  @Max(FRIDGE_ALERT_MAX)
+  days!: number;
 }
 
 class BookingSupplementsDto {
@@ -150,11 +245,13 @@ class ListItemDto {
     description: 'Lowercase letters, digits, `-` and `_`. Stored on each dish.',
     example: 'oven',
   })
+  @Raw()
   @IsString()
   @Matches(/^[a-z0-9_-]{1,40}$/)
   code!: string;
 
   @ApiProperty({ maxLength: 60, example: 'Four' })
+  @Raw()
   @Transform(trim)
   @IsString()
   @IsNotEmpty()
@@ -181,6 +278,27 @@ class RecipeProfilesDto {
   @Type(() => ListItemDto)
   profiles!: ListItemDto[];
 }
+
+export class AislesDto {
+  @ApiProperty({
+    type: [ListItemDto],
+    description: 'The whole list in store order, 1 to 30 aisles.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ListItemDto)
+  aisles!: ListItemDto[];
+}
+
+const AISLES_EXAMPLE = {
+  aisles: [
+    { code: 'fruits-legumes', label: 'Fruits et légumes (y compris herbes fraîches)' },
+    { code: 'boulangerie', label: 'Boulangerie' },
+  ],
+  updatedAt: '2026-11-04T09:00:00.000Z',
+};
 
 const RECIPE_PROFILES_EXAMPLE = {
   profiles: [
@@ -311,6 +429,105 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setBookingSupplements(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/groceries')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the grocery amounts',
+    description:
+      'Recettes lot 6, groundwork: the Budget Courses cap (100 € by default) and the ' +
+      'forfait courses advised to batch cookers (15 € by default). Both are also in ' +
+      '`GET /pricing-rules` (`groceries`). `updatedAt: null`: never changed.',
+  })
+  @ApiOkResponse({
+    description: 'The amounts.',
+    example: {
+      budgetMaxCents: 10_000,
+      recommendedShoppingFeeMinCents: 1_500,
+      updatedAt: null,
+    },
+  })
+  @ApiAdminAuthResponses()
+  groceries() {
+    return this.settings.groceries();
+  }
+
+  @Put('admin/settings/groceries')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the grocery amounts',
+    description:
+      'Both values, every time. Read by the forms from now on; nothing stored on a ' +
+      'booking or an offer changes. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The new amounts.',
+    example: {
+      budgetMaxCents: 12_000,
+      recommendedShoppingFeeMinCents: 1_500,
+      updatedAt: '2026-11-15T09:00:00.000Z',
+    },
+  })
+  @ApiAdminAuthResponses()
+  async setGroceries(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: GroceriesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setGroceries(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/fridge-alert')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the fridge alert threshold',
+    description:
+      'Recettes lot 3 (LF-0271): past this many days in the fridge, a dish’s « à ' +
+      'manger avant » date shows an alert, never a block. 4 by default (BLK-31: to ' +
+      'confirm with the hygiene referent). `updatedAt: null`: never changed.',
+  })
+  @ApiOkResponse({
+    description: 'The threshold.',
+    example: { days: 4, updatedAt: null },
+  })
+  @ApiAdminAuthResponses()
+  fridgeAlert() {
+    return this.settings.fridgeAlert();
+  }
+
+  @Put('admin/settings/fridge-alert')
+  @ApiTags(TAGS.adminBookings)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the fridge alert threshold',
+    description:
+      'From 1 to 14 days. Every view reads it from now on. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The new threshold.',
+    example: { days: 5, updatedAt: '2026-11-14T09:00:00.000Z' },
+  })
+  @ApiAdminAuthResponses()
+  async setFridgeAlert(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: FridgeAlertDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setFridgeAlert(body.days, admin.id, reqId(req));
   }
 
   @Get('admin/settings/chef-tiers')
@@ -481,5 +698,57 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setRecipeProfiles(body.profiles, admin.id, reqId(req));
+  }
+
+  @Get('referentials/aisles')
+  @ApiTags(TAGS.referentials)
+  @ApiOperation({
+    summary: 'List the shop aisles',
+    description:
+      'What an ingredient of the common list takes as its aisle (Recettes §5.4), in ' +
+      'store order: the shopping list groups by it. The list is edited in the ' +
+      'console. Public.',
+  })
+  @ApiOkResponse({ description: 'The aisles, in store order.', example: AISLES_EXAMPLE })
+  aisles() {
+    return this.settings.aisles();
+  }
+
+  @Get('admin/settings/aisles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the shop aisles',
+    description: '`updatedAt: null`: never changed, the 13 default aisles apply.',
+  })
+  @ApiOkResponse({ description: 'The aisles.', example: AISLES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  adminAisles() {
+    return this.settings.aisles();
+  }
+
+  @Put('admin/settings/aisles')
+  @ApiTags(TAGS.adminContent)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the shop aisles',
+    description:
+      'The whole list in store order, every time, each code once (else 422 ' +
+      '`VALIDATION_FAILED`). An ingredient keeps a code removed from the list. ' +
+      'Recorded in the audit log.',
+  })
+  @ApiOkResponse({ description: 'The new list.', example: AISLES_EXAMPLE })
+  @ApiAdminAuthResponses()
+  async setAisles(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: AislesDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.settings.setAisles(body.aisles, admin.id, reqId(req));
   }
 }

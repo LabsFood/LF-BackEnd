@@ -3,8 +3,8 @@ name: Deploy production
 # Promote an image that "LF API Server image" already built, smoke-tested and
 # pushed to GHCR onto the production Railway service (API-Mainstream, image
 # source). SemRelease starts it for every published version; anyone can also
-# run it by hand. Either way the deploy job waits for a reviewer on the
-# `production` environment. Rollback: run it again with an older tag.
+# run it by hand. Nothing waits for a reviewer: the Free plan gives a private
+# repo no environment protection rules. Rollback: run it again with an older tag.
 
 on:
   workflow_dispatch:
@@ -52,7 +52,11 @@ jobs:
           REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          sha="$(git rev-parse --verify --end-of-options "${REF}^{commit}")"
+          # A tag or a commit resolves as is. A branch name (the default `main`) is a
+          # local branch only when the run started from it; otherwise origin/<name>.
+          sha="$(git rev-parse --verify --quiet --end-of-options "${REF}^{commit}" \
+            || git rev-parse --verify --quiet --end-of-options "origin/${REF}^{commit}")" \
+            || { echo "::error::$REF is not a tag, a commit or a branch of this repository"; exit 1; }
           # "chore(release): x.y.z [skip ci]" never gets an image; its parent holds the same code.
           if git log -1 --format=%s "$sha" | grep -q '^chore(release):'; then
             sha="$(git rev-parse "${sha}^")"
@@ -61,7 +65,7 @@ jobs:
             || { echo "::error::$REF ($sha) is not on main"; exit 1; }
           tag="sha-${sha::7}" # docker/metadata-action type=sha
           docker manifest inspect "$IMAGE:$tag" >/dev/null \
-            || { echo "::error::$IMAGE:$tag not found: did LF API Server image pass for $sha?"; exit 1; }
+            || { echo "::error::$IMAGE:$tag not found: did LF API Server image pass for $sha? A push whose message carries [skip ci] starts no run: start LF API Server image by hand on main."; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           {
             echo "### Production candidate"
@@ -73,8 +77,9 @@ jobs:
   deploy:
     needs: resolve
     runs-on: ubuntu-latest
-    # Required reviewers, the main-only branch rule and the RAILWAY_TOKEN secret
-    # live on this environment (Settings → Environments → production).
+    # The RAILWAY_TOKEN secret lives on this environment (Settings → Environments →
+    # production). It has no required reviewers nor branch rule (Free plan, private
+    # repo): the "is on main" check in resolve is the only gate.
     environment:
       name: production
       url: ${{ env.PRODUCTION_URL }}

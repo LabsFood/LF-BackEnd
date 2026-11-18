@@ -2,11 +2,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { stackOf } from '../../../common/logging/app-logger';
 import { Prisma, User, UserRole } from '../../../generated/prisma/client';
+import { BrevoService } from '../../../integrations/brevo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { allergyLabels } from '../../allergies/domain/allergies.rules';
 import { UsersService } from '../../users/users.service';
@@ -43,6 +47,9 @@ import { MessagingRateLimiter } from './messaging-rate-limiter';
 import { MessagingStorageService } from './messaging-storage.service';
 
 export const SUPPORT_NAME = 'Support Lab’s Food';
+
+/** A custom request the two sides may still talk about. */
+const OPEN_REQUEST = ['submitted', 'in_review', 'quoted', 'declined'] as const;
 
 const PERSON = {
   id: true,
@@ -101,13 +108,25 @@ const notFound = () =>
  */
 @Injectable()
 export class MessagingService {
+  private readonly logger = new Logger(MessagingService.name);
+  /** The team's mailbox, alerted when a support thread gets a message. */
+  private readonly teamEmail?: string;
+  private readonly adminSiteUrl: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly storage: MessagingStorageService,
     private readonly rateLimiter: MessagingRateLimiter,
     private readonly events: MessagingEventsService,
-  ) {}
+    private readonly brevo: BrevoService,
+    config: ConfigService,
+  ) {
+    this.teamEmail = config.get<string>('contact.notificationEmail') || undefined;
+    this.adminSiteUrl = config
+      .get<string>('contact.adminSiteUrl', 'https://admin.labsfood.fr')
+      .replace(/\/$/, '');
+  }
 
   // ── Participant routes ────────────────────────────────────────────────────
 
@@ -121,10 +140,20 @@ export class MessagingService {
         { createdAt: 'desc' },
       ],
     });
-    const bookings = await this.pairBookings(memberships.map((m) => m.conversation));
+    const conversations = memberships.map((m) => m.conversation);
+    const [bookings, requests] = await Promise.all([
+      this.pairBookings(conversations),
+      this.openRequestPairs(conversations),
+    ]);
     const now = new Date();
     return memberships.map((m) =>
-      this.toView(m.conversation, m, bookings.get(m.conversationId) ?? [], now),
+      this.toView(
+        m.conversation,
+        m,
+        bookings.get(m.conversationId) ?? [],
+        now,
+        requests.has(m.conversationId),
+      ),
     );
   }
 
@@ -166,6 +195,46 @@ export class MessagingService {
       });
     }
     const id = await this.ensurePair(booking.clientId, booking.chefProfileId);
+    return this.detailFor(user.id, id);
+  }
+
+  /**
+   * The thread between the client of a custom request and the batch cooker it is
+   * with, before an offer is accepted: an allergy warning on an offer invites the
+   * two to talk (decision of 15/11). The same pair thread as their bookings.
+   */
+  async openForQuote(
+    clerkUserId: string,
+    quoteId: string,
+  ): Promise<ConversationDetailView> {
+    const user = await this.me(clerkUserId);
+    const quote = await this.prisma.quote.findFirst({
+      where: {
+        id: quoteId,
+        assignedChefUserId: { not: null },
+        OR: [{ clientId: user.id }, { assignedChefUserId: user.id }],
+      },
+      select: { clientId: true, assignedChefUserId: true, status: true },
+    });
+    const chef = quote?.assignedChefUserId
+      ? await this.prisma.chefProfile.findUnique({
+          where: { userId: quote.assignedChefUserId },
+          select: { id: true },
+        })
+      : null;
+    if (!quote || !chef) {
+      throw new NotFoundException({
+        code: 'QUOTE_NOT_FOUND',
+        message: 'Request not found.',
+      });
+    }
+    if (quote.status === 'cancelled' || quote.status === 'closed') {
+      throw new ConflictException({
+        code: 'QUOTE_CLOSED',
+        message: 'A withdrawn or closed request does not open a conversation.',
+      });
+    }
+    const id = await this.ensurePair(quote.clientId, chef.id);
     return this.detailFor(user.id, id);
   }
 
@@ -276,7 +345,7 @@ export class MessagingService {
       if (existing) return { message: existing, masked };
     }
 
-    if (!sender.isAdmin) this.assertOpen(conversation, bookings, now);
+    if (!sender.isAdmin) await this.assertOpen(conversation, bookings, now);
 
     const body = (dto.body ?? '').trim();
     const refs = dto.attachments ?? [];
@@ -305,6 +374,7 @@ export class MessagingService {
     const toTeam = conversation.type === 'support' && !sender.isAdmin;
 
     let message: LoadedMessage;
+    let alertTeam = false;
     try {
       message = await this.prisma.$transaction(async (tx) => {
         const created = await tx.message.create({
@@ -326,7 +396,7 @@ export class MessagingService {
           },
           include: MESSAGE_INCLUDE,
         });
-        await tx.conversation.update({
+        const updated = await tx.conversation.update({
           where: { id: conversation.id },
           data: {
             lastMessageAt: now,
@@ -334,6 +404,8 @@ export class MessagingService {
             ...(toTeam ? { adminUnreadCount: { increment: 1 } } : {}),
           },
         });
+        // One email per burst: only the message that makes a read thread unread.
+        alertTeam = toTeam && updated.adminUnreadCount === 1;
         await tx.conversationParticipant.updateMany({
           where: { conversationId: conversation.id, userId: { not: sender.userId } },
           data: { unreadCount: { increment: 1 } },
@@ -373,8 +445,45 @@ export class MessagingService {
         data: { conversationId: conversation.id, message: toAdminMessageView(message) },
       },
     });
+    if (alertTeam) void this.alertTeam(conversation, message.body);
 
     return { message, masked };
+  }
+
+  /**
+   * Best-effort heads-up to the team's mailbox: the message is in the support
+   * inbox whether or not this email leaves. No Reply-To: the answer belongs in the
+   * thread, where the person reads it.
+   */
+  private async alertTeam(conversation: LoadedConversation, body: string): Promise<void> {
+    const person = conversation.supportUser;
+    if (!this.teamEmail || !person) return;
+    try {
+      await this.brevo.sendTemplate({
+        templateId: this.brevo.templates.contactReceivedAdmin,
+        to: { email: this.teamEmail },
+        label: 'support-message-admin',
+        params: {
+          name: person.fullName ?? person.email,
+          email: person.email,
+          phone: person.phone ?? '',
+          subject:
+            body
+              .split('\n')
+              .find((line) => line.trim())
+              ?.trim()
+              .slice(0, 120) ?? 'Fichier joint',
+          message: body,
+          site: `la messagerie support (${person.role === UserRole.chef ? 'batch cooker' : 'client'})`,
+          inboxUrl: `${this.adminSiteUrl}/messagerie?c=${conversation.id}`,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'messaging.support_alert_failed', conversationId: conversation.id },
+        stackOf(error),
+      );
+    }
   }
 
   async loadConversation(id: string): Promise<LoadedConversation> {
@@ -465,6 +574,40 @@ export class MessagingService {
       );
     }
     return byConversation;
+  }
+
+  /**
+   * The `chef_client` conversations whose two people still have a custom request
+   * open between them (not accepted, withdrawn nor closed): they may talk before an
+   * offer is accepted, about a dish or an allergy (decision of 15/11).
+   */
+  async openRequestPairs(
+    conversations: Pick<LoadedConversation, 'id' | 'clientId' | 'chefProfile'>[],
+  ): Promise<Set<string>> {
+    const pairs = conversations.filter((c) => c.clientId && c.chefProfile);
+    const open = new Set<string>();
+    if (pairs.length === 0) return open;
+    const rows = await this.prisma.quote.findMany({
+      where: {
+        status: { in: [...OPEN_REQUEST] },
+        OR: pairs.map((c) => ({
+          clientId: c.clientId as string,
+          assignedChefUserId: c.chefProfile!.user.id,
+        })),
+      },
+      select: { clientId: true, assignedChefUserId: true },
+    });
+    for (const c of pairs) {
+      if (
+        rows.some(
+          (r) =>
+            r.clientId === c.clientId && r.assignedChefUserId === c.chefProfile!.user.id,
+        )
+      ) {
+        open.add(c.id);
+      }
+    }
+    return open;
   }
 
   async bookingsOf(conversation: LoadedConversation): Promise<PairBooking[]> {
@@ -588,8 +731,17 @@ export class MessagingService {
 
   private async detailFor(userId: string, id: string): Promise<ConversationDetailView> {
     const { conversation, membership } = await this.loadForParticipant(userId, id);
-    const bookings = await this.bookingsOf(conversation);
-    const view = this.toView(conversation, membership, bookings, new Date());
+    const [bookings, requests] = await Promise.all([
+      this.bookingsOf(conversation),
+      this.openRequestPairs([conversation]),
+    ]);
+    const view = this.toView(
+      conversation,
+      membership,
+      bookings,
+      new Date(),
+      requests.has(conversation.id),
+    );
     return { ...view, clientCard: await this.clientCard(conversation, membership) };
   }
 
@@ -625,15 +777,18 @@ export class MessagingService {
   }
 
   private async assertWritable(conversation: LoadedConversation): Promise<void> {
-    this.assertOpen(conversation, await this.bookingsOf(conversation), new Date());
+    await this.assertOpen(conversation, await this.bookingsOf(conversation), new Date());
   }
 
-  private assertOpen(
+  private async assertOpen(
     conversation: LoadedConversation,
     bookings: PairBooking[],
     now: Date,
-  ): void {
-    if (!writable(conversation, bookings, now)) {
+  ): Promise<void> {
+    if (writable(conversation, bookings, now)) return;
+    // Read only when no prestation keeps it open: an open custom request may.
+    const requests = await this.openRequestPairs([conversation]);
+    if (!writable(conversation, bookings, now, requests.has(conversation.id))) {
       throw new ConflictException({
         code: 'CONVERSATION_READ_ONLY',
         message:
@@ -659,6 +814,7 @@ export class MessagingService {
     membership: Membership,
     bookings: PairBooking[],
     now: Date,
+    openRequest = false,
   ): ConversationView {
     const released =
       conversation.type === 'chef_client' && isContactReleased(bookings, now);
@@ -670,7 +826,7 @@ export class MessagingService {
       viewerRole: membership.role,
       counterpart: counterpartOf(conversation, membership.role, released),
       booking: toBookingSummary(currentBooking(bookings, now)),
-      writable: writable(conversation, bookings, now),
+      writable: writable(conversation, bookings, now, openRequest),
       contactReleased: released,
       contactReleaseAt:
         conversation.type === 'chef_client' ? nextContactReleaseAt(bookings, now) : null,
@@ -689,13 +845,15 @@ function writable(
   conversation: LoadedConversation,
   bookings: PairBooking[],
   now: Date,
+  openRequest = false,
 ): boolean {
   if (conversation.type === 'support') return !conversation.supportUser?.deletedAt;
   // Nobody answers from a deleted account.
   if (conversation.client?.deletedAt || conversation.chefProfile?.user.deletedAt) {
     return false;
   }
-  return isWritable(bookings, now);
+  // A custom request still being discussed keeps the thread open (15/11).
+  return openRequest || isWritable(bookings, now);
 }
 
 function counterpartOf(

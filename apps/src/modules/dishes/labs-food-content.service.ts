@@ -3,6 +3,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { MealStatus, MenuPeriod } from '../../generated/prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { contentNotOwned, offerPending } from './domain/content.errors';
 import { CreateLabsFoodMenuDto, UpdateLabsFoodMenuDto } from './dto/labs-food.dto';
@@ -28,7 +29,8 @@ export class LabsFoodContentService {
       include: MENU_DISHES,
       orderBy: { updatedAt: 'desc' },
     });
-    return menus.map(toAdminMenuView);
+    const days = await fridgeAlertDaysInForce(this.prisma);
+    return menus.map((menu) => toAdminMenuView(menu, days));
   }
 
   async createMenu(payload: CreateLabsFoodMenuDto, adminUserId: string) {
@@ -46,7 +48,7 @@ export class LabsFoodContentService {
       },
       include: MENU_DISHES,
     });
-    return toAdminMenuView(menu);
+    return toAdminMenuView(menu, await fridgeAlertDaysInForce(this.prisma));
   }
 
   /** Any admin may edit Lab's Food content, not only its author (PRD). */
@@ -78,7 +80,7 @@ export class LabsFoodContentService {
         include: MENU_DISHES,
       });
     });
-    return toAdminMenuView(menu);
+    return toAdminMenuView(menu, await fridgeAlertDaysInForce(this.prisma));
   }
 
   async deleteMenu(id: string): Promise<void> {
@@ -201,9 +203,9 @@ export class LabsFoodContentService {
 }
 
 /** The admin view of a Lab's Food menu: the chef view plus authorship and offer. */
-export function toAdminMenuView(menu: MenuWithDishes) {
+export function toAdminMenuView(menu: MenuWithDishes, fridgeAlertDays?: number) {
   return {
-    ...toMenuView(menu),
+    ...toMenuView(menu, fridgeAlertDays),
     createdByUserId: menu.createdByUserId,
     offeredToChefProfileId: menu.offeredToChefProfileId,
   };

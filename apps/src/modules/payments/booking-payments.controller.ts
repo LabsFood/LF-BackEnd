@@ -37,6 +37,8 @@ import { TAGS } from '../../common/swagger/tags';
 import { BookingPaymentsService } from './booking-payments.service';
 import {
   DecideUrssafLinkDto,
+  MarkUrssafTransmittedDto,
+  UrssafRepriseDto,
   RequestUrssafLinkDto,
   SettleBookingDto,
   SimulateUrssafOutcomeDto,
@@ -86,7 +88,9 @@ export class BookingPaymentsController {
       'immediate advance (`urssaf`) it is `0`: nothing is charged here, and ' +
       '`debitedLaterCents` is what URSSAF takes from their account afterwards.\n' +
       '- `urssaf` reason codes: `URSSAF_LINK_NONE` (offer `POST /me/urssaf-links`), ' +
-      '`URSSAF_LINK_PENDING`, `URSSAF_LINK_REFUSED`.\n' +
+      '`URSSAF_LINK_PENDING`, `URSSAF_LINK_REFUSED`, `URSSAF_DOSSIER_MISSING` (manual ' +
+      'mode: offer `PUT /me/urssaf-dossier` first). In manual mode the option carries ' +
+      '`intermediary` (`Unipros`), for the label "par Unipros".\n' +
       '- `cesu` carries `crcesuNan`, the number the client pays the batch cooker with ' +
       'on their issuer’s site.',
   })
@@ -206,7 +210,8 @@ export class BookingPaymentsController {
   @ApiUnprocessableEntityResponse({
     description:
       '`URSSAF_NOT_ACCEPTED`: unknown batch cooker, or one that does not take the ' +
-      'immediate advance. `SAME_PERSON`.',
+      'immediate advance. `SAME_PERSON`. `URSSAF_DOSSIER_MISSING`: manual mode, the ' +
+      'client has not filled `PUT /me/urssaf-dossier`.',
   })
   @ApiServiceUnavailableResponse({
     description: '`URSSAF_UNAVAILABLE`: the immediate advance is not open yet.',
@@ -221,8 +226,9 @@ export class BookingPaymentsController {
 }
 
 /**
- * The team watches the immediate advance and, while the gateway is simulated,
- * answers in URSSAF's place.
+ * The team watches the immediate advance and records URSSAF's answers: in its place
+ * while the gateway is simulated, or copied from the intermediary's space (Unipros)
+ * while it is manual.
  */
 @ApiTags(TAGS.payments)
 @ApiBearerAuth()
@@ -263,10 +269,11 @@ export class AdminUrssafController {
   @Post('urssaf-links/:id/decision')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Answer an enrolment in URSSAF’s place (simulation)',
+    summary: 'Record URSSAF’s answer to an enrolment (simulated or manual)',
     description:
-      'Only while `URSSAF_GATEWAY=simulated`, never beside live Stripe keys. Sets the ' +
-      'enrolment `active` or `refused`, as URSSAF will once the API access exists.',
+      'Only while `URSSAF_GATEWAY` is `simulated` (an admin answers in URSSAF’s place) ' +
+      'or `manual` (the admin copies the answer shown on the intermediary’s space). ' +
+      'Sets the enrolment `active` or `refused`.',
   })
   @ApiParam({ name: 'id', description: 'The enrolment id.', example: LINK_ID })
   @ApiOkResponse({
@@ -274,7 +281,8 @@ export class AdminUrssafController {
     example: { ...LINK_EXAMPLE, status: 'active', decidedAt: '2026-10-13T10:00:00.000Z' },
   })
   @ApiForbiddenResponse({
-    description: 'Not an admin, or `URSSAF_NOT_SIMULATED`: the gateway is not simulated.',
+    description:
+      'Not an admin, or `URSSAF_NOT_MANUAL_OR_SIMULATED`: no admin answers on this gateway.',
   })
   @ApiNotFoundResponse({ description: 'No enrolment with this id.' })
   @ApiAdminAuthResponses()
@@ -296,7 +304,9 @@ export class AdminUrssafController {
   @Get('urssaf-payments')
   @ApiOperation({
     summary: 'List immediate-advance payment requests',
-    description: 'What was sent to URSSAF, newest first. 200 at most.',
+    description:
+      'What was sent to URSSAF, newest first. 200 at most. In manual mode a `pending` ' +
+      'request with no `transmittedAt` is still to enter on the intermediary’s space.',
   })
   @ApiOkResponse({
     description: 'The requests.',
@@ -306,7 +316,9 @@ export class AdminUrssafController {
         status: 'pending',
         amountCents: 18000,
         debitedCents: 9000,
-        urssafReference: 'SIM-6f1c2d3e',
+        urssafReference: null,
+        externalReference: 'UNI-2026-000123',
+        transmittedAt: '2026-10-13T09:30:00.000Z',
         failureReason: null,
         createdAt: '2026-10-13T09:12:00.000Z',
         paidAt: null,
@@ -314,7 +326,9 @@ export class AdminUrssafController {
           id: BOOKING_ID,
           reference: 'LF-SM-2026-0001',
           clientName: 'Sophie Marchand',
+          chefProfileId: '7d0f3c1e-2b4a-4c5d-9e8f-1a2b3c4d5e6f',
           chefName: 'Alice Martin',
+          chefNovaCode: 'SAP123456789',
         },
       },
     ],
@@ -324,14 +338,57 @@ export class AdminUrssafController {
     return this.bookingPayments.adminPayments();
   }
 
+  @Post('urssaf-payments/:id/transmitted')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Record that a request was entered on the intermediary’s space',
+    description:
+      'Manual mode: the admin entered the request on Unipros and records the reference ' +
+      'it gave. Accepted once per request, so nobody enters it twice.',
+  })
+  @ApiParam({ name: 'id', description: 'The payment id.', example: PAYMENT_ID })
+  @ApiOkResponse({
+    description: 'The request, transmitted.',
+    example: {
+      paymentId: PAYMENT_ID,
+      externalReference: 'UNI-2026-000123',
+      transmittedAt: '2026-10-13T09:30:00.000Z',
+    },
+  })
+  @ApiConflictResponse({
+    description:
+      '`URSSAF_ALREADY_TRANSMITTED`: already recorded. `URSSAF_REQUEST_SETTLED`: already answered.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Not an admin, or `URSSAF_NOT_MANUAL_OR_SIMULATED`: no admin answers on this gateway.',
+  })
+  @ApiNotFoundResponse({ description: 'No immediate-advance request with this id.' })
+  @ApiAdminAuthResponses()
+  transmitted(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: MarkUrssafTransmittedDto,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.bookingPayments.markTransmitted(
+      user.userId,
+      id,
+      payload.externalReference,
+      requestId(req),
+    );
+  }
+
   @Post('urssaf-payments/:id/outcome')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Answer a payment request in URSSAF’s place (simulation)',
+    summary: 'Record URSSAF’s answer to a payment request (simulated or manual)',
     description:
-      'Only while `URSSAF_GATEWAY=simulated`. `paid` settles the prestation and makes ' +
-      'the commission fall due; `refused` fails the request, and the client can pay ' +
-      'another way.',
+      'Only while `URSSAF_GATEWAY` is `simulated` or `manual`. `paid` settles the ' +
+      'prestation; in simulated mode the commission debit starts, in manual mode it ' +
+      'waits for the admin (chef transactions summary). `refused` fails the request, ' +
+      'and the client can pay another way. In manual mode `paid` needs ' +
+      '`externalReference`, given here or at transmission.',
   })
   @ApiParam({ name: 'id', description: 'The payment id.', example: PAYMENT_ID })
   @ApiOkResponse({
@@ -341,8 +398,12 @@ export class AdminUrssafController {
   @ApiConflictResponse({
     description: '`URSSAF_REQUEST_SETTLED`: this request was already answered.',
   })
+  @ApiUnprocessableEntityResponse({
+    description: '`URSSAF_REFERENCE_REQUIRED`: manual mode, `paid` without a reference.',
+  })
   @ApiForbiddenResponse({
-    description: 'Not an admin, or `URSSAF_NOT_SIMULATED`: the gateway is not simulated.',
+    description:
+      'Not an admin, or `URSSAF_NOT_MANUAL_OR_SIMULATED`: no admin answers on this gateway.',
   })
   @ApiNotFoundResponse({ description: 'No immediate-advance request with this id.' })
   @ApiAdminAuthResponses()
@@ -352,12 +413,53 @@ export class AdminUrssafController {
     @Body() payload: SimulateUrssafOutcomeDto,
     @Req() req: { id?: unknown },
   ) {
-    return this.bookingPayments.simulateOutcome(
+    return this.bookingPayments.recordAdminOutcome(
       user.userId,
       id,
       payload.outcome,
       payload.reason,
+      payload.externalReference,
       requestId(req),
     );
+  }
+
+  @Post('urssaf-payments/:id/reprise')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'URSSAF took a settled request back (status 120)',
+    description:
+      'Recettes lot 6. The payment is marked refunded and the prestation is due again. ' +
+      'The commission goes back to the batch cooker: dropped if not invoiced yet, else a ' +
+      'credit note in the facture B sequence, deducted from the next one. Audit ' +
+      '`commission.credited`.',
+  })
+  @ApiParam({ name: 'id', description: 'The payment id.', example: PAYMENT_ID })
+  @ApiConflictResponse({
+    description: '`URSSAF_NOT_SETTLED`: only a paid request is taken back.',
+  })
+  @ApiAdminAuthResponses()
+  reprise(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UrssafRepriseDto,
+    @Req() req: { id?: unknown },
+  ) {
+    return this.bookingPayments.recordReprise(
+      user.userId,
+      id,
+      payload.reason,
+      requestId(req),
+    );
+  }
+
+  @Post('commission-credit-notes/:id/refunded')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'A credit note paid back by hand (no facture B to deduct it from)',
+  })
+  @ApiConflictResponse({ description: '`CREDIT_NOTE_NOT_OPEN`.' })
+  @ApiAdminAuthResponses()
+  creditRefunded(@Param('id', ParseUUIDPipe) id: string) {
+    return this.bookingPayments.creditNoteRefunded(id);
   }
 }

@@ -50,6 +50,15 @@ export class ChefContentService {
     return profile;
   }
 
+  /** The caller's chef profile id, or null: an admin or a client has none (never throws). */
+  async chefProfileIdOf(clerkUserId: string): Promise<string | null> {
+    const profile = await this.prisma.chefProfile.findFirst({
+      where: { user: { clerkUserId } },
+      select: { id: true },
+    });
+    return profile?.id ?? null;
+  }
+
   /** Browse-only until the candidature is approved (FLOW-01). */
   assertVerified(chef: ChefContext): void {
     if (!chef.isVerified) {

@@ -72,7 +72,7 @@ describe('invoiceLines', () => {
 
     expect(lines).toEqual([
       { label: 'Batch cooking 4 repas', amountCents: 13_500 },
-      { label: 'Courses', amountCents: 1_500 },
+      { label: 'Forfait courses', amountCents: 1_500 },
       { label: 'Adultes supplémentaires', amountCents: 2_000 },
       { label: 'Plats supplémentaires', amountCents: 3_000 },
     ]);

@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -19,6 +20,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiProduces,
   ApiTags,
   ApiUnprocessableEntityResponse,
@@ -32,10 +34,14 @@ import { ICS_EXAMPLE } from '../../common/swagger/ics-example';
 import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { CalendarFeedService } from '../calendar/calendar-feed.service';
+import { BookingDocumentsService } from './booking-documents.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
+import { BookingWithdrawalsService } from './booking-withdrawals.service';
 import { BookingsService } from './bookings.service';
+import type { BookingDocumentKind } from './bookings.views';
 import {
   BookingsQueryDto,
+  ContractConsentsDto,
   NewBookingDto,
   ReplaceMealDto,
   RescheduleAnswerDto,
@@ -63,6 +69,8 @@ export class MeBookingsController {
     private readonly bookings: BookingsService,
     private readonly feeds: CalendarFeedService,
     private readonly reschedules: BookingReschedulesService,
+    private readonly withdrawals: BookingWithdrawalsService,
+    private readonly documents: BookingDocumentsService,
   ) {}
 
   @Get()
@@ -127,6 +135,40 @@ export class MeBookingsController {
     return body;
   }
 
+  @Get(':id/documents/:kind')
+  @ApiOperation({
+    summary: 'Download a document of my booking’s contract',
+    description:
+      'The documents listed in the booking’s `documents` (CGV art. 2.4): `cgv`, the ' +
+      'CGV accepted, as published; `withdrawal-form`, the withdrawal form pre-filled; ' +
+      '`debours-mandate`, the particular débours mandate, built on demand when the ' +
+      'mandate box was ticked.',
+  })
+  @ApiBookingId()
+  @ApiParam({ name: 'kind', enum: ['cgv', 'withdrawal-form', 'debours-mandate'] })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({ description: 'The PDF, as an attachment.' })
+  @ApiNotFoundResponse({
+    description:
+      '`BOOKING_NOT_FOUND` (no such booking, or not mine) or `DOCUMENT_NOT_FOUND` (not ' +
+      'one of this booking’s documents).',
+  })
+  @ApiClerkAuthResponses()
+  async document(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('kind', new ParseEnumPipe(['cgv', 'withdrawal-form', 'debours-mandate']))
+    kind: BookingDocumentKind,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { filename, bytes } = await this.documents.file(user.userId, id, kind);
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store');
+    return bytes;
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -146,7 +188,11 @@ export class MeBookingsController {
       'cannot take new work right now).',
   })
   @ApiUnprocessableEntityResponse({
-    description: 'A past start, `FORMULE_UNAVAILABLE` or `MEAL_UNAVAILABLE`.',
+    description:
+      'A past start, `FORMULE_UNAVAILABLE`, `MEAL_UNAVAILABLE`, or ' +
+      '`CONTRACT_CONSENT_REQUIRED` (from 2026-11-21): `missing` lists the boxes ' +
+      'still to tick (`CGV`, `DEBOURS_MANDATE`, `EARLY_EXECUTION`) and `version` the ' +
+      'CGV version to read them in.',
   })
   @ApiGeoResponses()
   @ApiClerkAuthResponses()
@@ -154,12 +200,75 @@ export class MeBookingsController {
     return this.bookings.create('client', user.userId, body);
   }
 
+  @Post(':id/consents')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Tick the booking boxes of a pending booking',
+    description:
+      'For a booking a batch cooker or Lab’s Food made for me, or one whose time or ' +
+      'shopping changed since: payment is refused (`CONTRACT_CONSENT_REQUIRED`, 409) ' +
+      'until every box it needs is ticked. Boxes already ticked are kept.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The booking.', example: CLIENT_DETAIL })
+  @ApiNotFoundResponse({
+    description: '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
+  })
+  @ApiConflictResponse({
+    description: '`BOOKING_LOCKED` (not `pending`) or `CHANGED_MEANWHILE`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`CONTRACT_CONSENT_REQUIRED`: a box it needs is still missing.',
+  })
+  @ApiClerkAuthResponses()
+  consent(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ContractConsentsDto,
+  ) {
+    return this.bookings.consent(user.userId, id, body);
+  }
+
+  @Post(':id/withdrawal')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Withdraw from a booking (« Se rétracter »)',
+    description:
+      'The right of withdrawal (CGV art. 15): 14 days from the contract’s conclusion, ' +
+      'without a reason. This is the « Confirmer la rétractation » step: the booking is ' +
+      '`cancelled` at once and an acknowledgement email goes out with the declaration, ' +
+      'its date and time. What is refundable comes back within 14 days, by the means ' +
+      'used to pay. The booking detail’s `withdrawal` says whether it is `open`, until ' +
+      'when, and what it costs.\n\n' +
+      'Nothing is owed unless the client asked to start early: then 20 % of the price ' +
+      'once the shopping is done, or a share Lab’s Food sets while cooking. A ' +
+      'prestation fully performed at the client’s request can no longer be withdrawn from.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The booking, `cancelled`.', example: CLIENT_DETAIL })
+  @ApiNotFoundResponse({
+    description: '`BOOKING_NOT_FOUND`: no such booking, or not mine.',
+  })
+  @ApiConflictResponse({
+    description:
+      '`WITHDRAWAL_NOT_CONCLUDED` (still `pending`: cancel it instead), ' +
+      '`WITHDRAWAL_ALREADY_SENT`, `BOOKING_CANCELLED`, `WITHDRAWAL_PERIOD_OVER`, ' +
+      '`WITHDRAWAL_EXECUTED` or `CHANGED_MEANWHILE`.',
+  })
+  @ApiClerkAuthResponses()
+  withdraw(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.withdrawals.withdraw(user.userId, id);
+  }
+
   @Patch(':id')
   @ApiOperation({
     summary: 'Change or cancel one of my bookings',
     description:
       'The details (time, dishes, persons, address, notes) while it is `pending`; a new ' +
-      'time must be free. `status`: `cancelled`, or `completed` once delivered.\n\n' +
+      'time must be free. `status`: `cancelled`, or `completed` once delivered. ' +
+      'Recettes lot 3: the dishes are pinned (recipe version and allergens) as they are ' +
+      'written, and no longer change from 72 hours before the start (`MENU_FROZEN`, ' +
+      'with `frozenSince`; the view says `menuFrozen`).\n\n' +
       STATUS_HELP,
   })
   @ApiBookingId()
@@ -168,7 +277,7 @@ export class MeBookingsController {
   @ApiConflictResponse({
     description:
       '`BOOKING_LOCKED`, `INVALID_TRANSITION`, `BOOKING_PAID`, `BOOKING_STARTED`, ' +
-      '`SLOT_UNAVAILABLE` or `CHANGED_MEANWHILE`.',
+      '`SLOT_UNAVAILABLE`, `MENU_FROZEN` or `CHANGED_MEANWHILE`.',
   })
   @ApiGeoResponses()
   @ApiClerkAuthResponses()

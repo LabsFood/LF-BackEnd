@@ -2,16 +2,20 @@ import { UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Prisma } from '../../generated/prisma/client';
+import { PDF_SPEC_TIMEOUT } from '../../common/pdf/pdf.test-helpers';
 import { SupabaseService } from '../../integrations/supabase.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import type { PaymentInvoiceSnapshot } from './payment-invoice-document';
 import { PaymentInvoicesService } from './payment-invoices.service';
 
+jest.setTimeout(PDF_SPEC_TIMEOUT);
+
 const PAID_AT = new Date('2026-11-02T10:00:00.000Z');
 
 const PAYMENT = {
   id: 'payment-1',
+  purpose: 'service',
   amountTtc: 20_000,
   currency: 'EUR',
   booking: {
@@ -131,7 +135,7 @@ describe('PaymentInvoicesService', () => {
         booking: { address: '12 rue de la Paix, 69002 Lyon' },
         lines: [
           { label: 'Batch cooking 4 repas', amountCents: 18_500 },
-          { label: 'Courses', amountCents: 1_500 },
+          { label: 'Forfait courses', amountCents: 1_500 },
         ],
       });
     });
@@ -169,6 +173,16 @@ describe('PaymentInvoicesService', () => {
     });
   });
 
+  describe('issue, courses', () => {
+    it('never invoices a courses payment', async () => {
+      tx.payment.findUniqueOrThrow.mockResolvedValue({ ...PAYMENT, purpose: 'courses' });
+      await expect(service.issue(asTx(), 'payment-1', PAID_AT)).rejects.toThrow(
+        'never invoiced',
+      );
+      expect(tx.paymentInvoice.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('backfill', () => {
     const PAST = [
       { id: 'payment-a', paidAt: new Date('2026-03-01T10:00:00.000Z') },
@@ -198,6 +212,7 @@ describe('PaymentInvoicesService', () => {
         where: {
           method: 'cb',
           status: 'succeeded',
+          purpose: 'service',
           paidAt: { not: null },
           invoice: null,
         },

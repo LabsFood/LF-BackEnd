@@ -74,11 +74,23 @@ export const cesuAccepted = (
   mandate: { status: string } | null | undefined,
 ) => Boolean(sap?.acceptsCesu && sap.crcesuNan && mandateActive(mandate));
 
-/** The immediate advance: URSSAF habilitation, and a mandate for the commission. */
+/** The chef's own SAP/NOVA number: every request to URSSAF is made in its name. */
+export const novaCodeSet = (sap: { novaCode: string | null } | null | undefined) =>
+  Boolean(sap?.novaCode?.trim());
+
+/**
+ * The immediate advance: URSSAF habilitation (flipped by an admin), the chef's NOVA
+ * code (entered with each request on the intermediary's space), and a mandate for
+ * the commission.
+ */
 export const advanceAccepted = (
-  sap: { urssafTiersPrestationStatus: string } | null | undefined,
+  sap:
+    { urssafTiersPrestationStatus: string; novaCode: string | null } | null | undefined,
   mandate: { status: string } | null | undefined,
-) => sap?.urssafTiersPrestationStatus === 'active' && mandateActive(mandate);
+) =>
+  sap?.urssafTiersPrestationStatus === 'active' &&
+  novaCodeSet(sap) &&
+  mandateActive(mandate);
 
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
   const acceptsCesu = cesuAccepted(chef.sapProfile, chef.sepaMandate);

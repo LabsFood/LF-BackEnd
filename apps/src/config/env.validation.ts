@@ -97,13 +97,35 @@ export const envValidationSchema = Joi.object({
    * deployment also runs with `ENVIRONMENT=production`.
    */
   URSSAF_GATEWAY: Joi.string()
-    .valid('disabled', 'simulated')
+    .valid('disabled', 'simulated', 'manual')
     .default('disabled')
     .when('STRIPE_SECRET_KEY', {
       is: Joi.string()
         .pattern(/^sk_live_/)
         .required(),
       then: Joi.string().invalid('simulated'),
+    }),
+  /**
+   * `manual` is the temporary route while the URSSAF API access is pending: an admin
+   * enters each request on the intermediary's online space and records its answer
+   * here. Real requests, real answers, so it runs beside live Stripe keys.
+   */
+  URSSAF_INTERMEDIARY: Joi.string().max(60).default('Unipros'),
+  /**
+   * AES-256 key (32 bytes, base64) sealing the clients' URSSAF dossiers in the KYC
+   * bucket. Required in `manual` mode, where those dossiers are collected.
+   */
+  KYC_ENCRYPTION_KEY: Joi.string()
+    .base64()
+    .custom((value: string, helpers) =>
+      Buffer.from(value, 'base64').length === 32
+        ? value
+        : helpers.message({ custom: 'KYC_ENCRYPTION_KEY must be 32 bytes of base64' }),
+    )
+    .when('URSSAF_GATEWAY', {
+      is: 'manual',
+      then: Joi.required(),
+      otherwise: Joi.optional(),
     }),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
@@ -125,6 +147,10 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_CHEF_SUSPENDED: Joi.number().optional(),
   BREVO_TPL_SOURCE_CHANGED: Joi.number().optional(),
   BREVO_TPL_CONTENT_SUSPENDED: Joi.number().optional(),
+  BREVO_TPL_RECIPE_ALLERGENS_CHANGED: Joi.number().optional(),
+  BREVO_TPL_RECIPES_MIGRATED: Joi.number().optional(),
+  BREVO_TPL_GROCERIES_NOTICE: Joi.number().optional(),
+  BREVO_WEBHOOK_TOKEN: Joi.string().min(24).optional(),
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
   BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
   BREVO_TPL_CONTACT_REPLY: Joi.number().optional(),
@@ -138,6 +164,9 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_BOOKING_HOLD_REMINDER_CHEF: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_PROPOSED: Joi.number().optional(),
   BREVO_TPL_BOOKING_RESCHEDULE_ANSWERED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CONTRACT_CLIENT: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ACK: Joi.number().optional(),
+  BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),
@@ -153,6 +182,8 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['https'] })
     .allow('')
     .optional(),
+  /** Sentry environment when it differs from ENVIRONMENT: `develop` on the develop API. */
+  SENTRY_ENVIRONMENT: Joi.string().valid('develop', 'production').optional(),
 
   /** Base URL of the public site, for the links in the chef-onboarding emails. */
   PUBLIC_SITE_URL: Joi.string().uri().optional(),

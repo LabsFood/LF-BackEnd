@@ -105,7 +105,9 @@ export class AdminBookingsController {
     summary: 'Change any booking',
     description:
       'Any field, any status, availability not checked; audited. Cancelling a paid ' +
-      'booking does not refund it: refund by hand in Stripe.\n\n' +
+      'booking does not refund it: refund by hand in Stripe. Recettes lot 3: the dishes ' +
+      'of a frozen menu (72 hours before) still change here, recorded as ' +
+      '`menuFrozenOverride` in the audit log.\n\n' +
       STATUS_HELP,
   })
   @ApiBookingId()

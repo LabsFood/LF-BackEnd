@@ -12,7 +12,10 @@ import { AuditService } from '../../../common/audit/audit.service';
 import { ClerkService } from '../../../integrations/clerk.service';
 import { GeoService } from '../../../integrations/geo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CreateChefApplicationDto } from '../dto/create-chef-application.dto';
+import {
+  CreateChefApplicationByAdminDto,
+  CreateChefApplicationDto,
+} from '../dto/create-chef-application.dto';
 import { UpdateChefApplicationDto } from '../dto/update-chef-application.dto';
 import { ChefApplicationsService } from './chef-applications.service';
 import { ChefDocumentsService } from './chef-documents.service';
@@ -259,6 +262,8 @@ describe('ChefApplicationsService', () => {
         firstName: 'Marie',
         lastName: 'Dupont',
         skipPasswordRequirement: true,
+        // The terms box of the form, so Clerk's legal consent check passes.
+        legalAcceptedAt: new Date('2026-09-20T09:12:00.000Z'),
       });
     });
 
@@ -398,6 +403,164 @@ describe('ChefApplicationsService', () => {
       await expect(submit()).rejects.toBeInstanceOf(ServiceUnavailableException);
       expect(clerkUsers.createUser).not.toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('an admin opens the candidature for the batch cooker', () => {
+    const withoutConsent = (
+      mutate: (p: CreateChefApplicationByAdminDto) => void = () => {},
+    ) => {
+      const { consent: _consent, ...body } = validPayload();
+      mutate(body);
+      return body as CreateChefApplicationByAdminDto;
+    };
+    const openFor = (mutate?: (p: CreateChefApplicationByAdminDto) => void) =>
+      service.submitByAdmin(withoutConsent(mutate), 'admin-1', 'req-9');
+
+    it('creates the account the way a submission does: Clerk user, chef row, unverified inactive profile', async () => {
+      const result = await openFor();
+      expect(result.reference).toBe('APP-2026-0042');
+      expect(result.status).toBe('submitted');
+      expect(prisma.user.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ role: UserRole.chef }),
+        }),
+      );
+      const { data } = prisma.chefProfile.create.mock.calls[0][0];
+      expect(data).not.toHaveProperty('isVerified');
+      expect(data).not.toHaveProperty('isActive');
+    });
+
+    it('skips Clerk’s legal check: nobody ticked the box, and none is claimed', async () => {
+      await openFor();
+      const sent = clerkUsers.createUser.mock.calls[0][0];
+      expect(sent).toMatchObject({
+        emailAddress: ['marie.dupont@exemple.fr'],
+        skipPasswordRequirement: true,
+        skipLegalChecks: true,
+      });
+      expect(sent).not.toHaveProperty('legalAcceptedAt');
+    });
+
+    it('records that the batch cooker consented to nothing, with the day it was opened', async () => {
+      await openFor();
+      const { data } = prisma.chefApplication.create.mock.calls[0][0];
+      expect(data.consentPrivacyPolicy).toBe(false);
+      expect(data.consentTerms).toBe(false);
+      expect(data.consentAcceptedAt).toBeInstanceOf(Date);
+    });
+
+    it('mails the batch cooker their sign-in link, and does not mail the admins about it', async () => {
+      const result = await openFor();
+      expect(mailer.applicationReceived).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'marie.dupont@exemple.fr',
+          signInUrl: SIGN_IN_URL,
+        }),
+      );
+      expect(mailer.applicationReceivedAdmin).not.toHaveBeenCalled();
+      expect(result.invitation).toMatchObject({ delivered: true });
+      expect(JSON.stringify(result)).not.toContain('sit_secret');
+    });
+
+    it('records the admin as the actor, with the account it created', async () => {
+      await openFor();
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'application.opened_by_admin',
+          subjectId: 'app-1',
+          requestId: 'req-9',
+          metadata: expect.objectContaining({ chefUserId: 'u-1' }),
+        }),
+      );
+      expect(audit.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'application.submitted' }),
+      );
+    });
+
+    it('records a lost sign-in email against the candidature, as a failure of the admin’s action', async () => {
+      mailer.applicationReceived.mockResolvedValue({ sent: false });
+      const result = await openFor();
+      expect(result.invitation).toMatchObject({ delivered: false, sentAt: null });
+      expect(audit.failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'system',
+          action: 'application.sign_in_link_email',
+          subjectId: 'app-1',
+        }),
+        expect.any(Error),
+      );
+    });
+
+    it('refuses an address that already has an account, before Clerk is called', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'u-9' });
+      await expect(openFor()).rejects.toBeInstanceOf(ConflictException);
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+    });
+
+    it('holds the answers to the same rules as a submission', async () => {
+      await expect(
+        openFor((p) => {
+          p.address.postcode = '97100';
+        }),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(clerkUsers.createUser).not.toHaveBeenCalled();
+    });
+
+    it('refuses with 503 and creates nothing when Clerk is not configured', async () => {
+      clerk.configured = false;
+      await expect(openFor()).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(prisma.chefApplication.create).not.toHaveBeenCalled();
+    });
+
+    it('deletes the Clerk user and records the failure under the admin when the database write fails', async () => {
+      prisma.$transaction.mockRejectedValue(new Error('db down'));
+      await expect(openFor()).rejects.toThrow('db down');
+      expect(clerkUsers.deleteUser).toHaveBeenCalledWith('user_2n');
+      expect(audit.failed).toHaveBeenCalledWith(
+        expect.objectContaining({ actorType: 'admin', actorUserId: 'admin-1' }),
+        expect.any(Error),
+      );
+    });
+
+    it('still lets the batch cooker correct it later, though the stored consent is false', async () => {
+      prisma.chefProfile.findFirst.mockResolvedValue({
+        id: 'cp-1',
+        userId: 'u-1',
+        isVerified: false,
+        isActive: false,
+        autoSuspendedAt: null,
+        application: storedApplication({
+          consentPrivacyPolicy: false,
+          consentTerms: false,
+        }),
+      });
+      await expect(
+        service.update('user_2n', { company: validPayload().company } as never),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe('the body an admin sends', () => {
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+    const transform = (body: unknown) =>
+      pipe.transform(body, { type: 'body', metatype: CreateChefApplicationByAdminDto });
+
+    it('is the candidature form without the consent block', async () => {
+      const { consent: _consent, ...body } = validPayload();
+      await expect(transform(body)).resolves.toMatchObject({
+        identity: { email: 'marie.dupont@exemple.fr' },
+      });
+    });
+
+    it('refuses a consent block: an admin cannot give it for someone else', async () => {
+      await expect(transform(validPayload())).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

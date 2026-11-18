@@ -23,7 +23,7 @@ import {
   ChefCesuInfoDto,
   DeclareCesuPaymentDto,
 } from './dto/cesu.dto';
-import { assertPayable, commissionBlockApplies } from './payment-rules';
+import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
 
 /** Rows the list/detail mappers read. */
@@ -98,6 +98,7 @@ export class CesuPaymentsService {
         chefProfile: {
           include: { sapProfile: true, sepaMandate: { select: { status: true } } },
         },
+        serviceOffer: CONTRACT_SELECT.serviceOffer,
       },
     });
     if (!booking) {
@@ -229,7 +230,7 @@ export class CesuPaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
-      select: { id: true, status: true, endsAt: true },
+      select: { id: true, status: true, endsAt: true, ...CONTRACT_SELECT },
     });
     if (!booking) {
       throw new NotFoundException({
@@ -360,6 +361,7 @@ export class CesuPaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         method: 'cesu',
+        purpose: 'service',
         booking: { chefProfileId: chef.id },
         ...(status ? { cesuSettlement: { status } } : {}),
       },
@@ -372,7 +374,11 @@ export class CesuPaymentsService {
   /** `GET /admin/cesu-payments`. */
   async listForAdmin(status?: CesuSettlementStatus): Promise<CesuPaymentDto[]> {
     const payments = await this.prisma.payment.findMany({
-      where: { method: 'cesu', ...(status ? { cesuSettlement: { status } } : {}) },
+      where: {
+        method: 'cesu',
+        purpose: 'service',
+        ...(status ? { cesuSettlement: { status } } : {}),
+      },
       include: CESU_PAYMENT_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });

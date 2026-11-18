@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -19,21 +20,70 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import type { FastifyReply } from 'fastify';
 
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import { TAGS } from '../../common/swagger/tags';
 import {
+  PutDishNotesDto,
+  PutEatBeforeDto,
+  ValidateGroceriesDto,
   PutShoppingListDto,
   RecipeSheetQueryDto,
   SubmitShoppingListDto,
 } from './dto/mission.dto';
 import { MissionsService } from './missions.service';
 import { DISH_ID, RECIPE_EXAMPLE } from './swagger-examples';
+
+/** Recettes lot 3: one dish on the conservation sheet. */
+const CONSERVATION_DISH_EXAMPLE = {
+  mealId: '5b1e7c2a-8d3f-4a6b-9c0d-1e2f3a4b5c6d',
+  name: 'Curry de légumes',
+  storage: {
+    method: 'fridge',
+    days: 3,
+    container: 'Boîte en verre',
+    freezable: true,
+    freezerMonths: 3,
+    thawing: 'Une nuit au réfrigérateur.',
+  },
+  reheating: { modes: ['microwave'], instructions: '3 min à 800 W.', container: null },
+  notes: { storage: 'Réfrigérateur, 3 jours maximum.', reheating: null },
+  eatBefore: {
+    date: '2026-11-23',
+    proposed: '2026-11-23',
+    setByChef: false,
+    setAt: null,
+    fridgeDays: 3,
+    fridgeAlert: false,
+  },
+};
+
+const CONSERVATION_EXAMPLE = {
+  bookingId: 'b2f1c4d5-6e7f-4a8b-9c0d-1e2f3a4b5c6d',
+  startsAt: '2026-11-20T08:00:00.000Z',
+  status: 'delivered',
+  fridgeAlertDays: 4,
+  dishes: [CONSERVATION_DISH_EXAMPLE],
+  history: [
+    {
+      mealId: CONSERVATION_DISH_EXAMPLE.mealId,
+      value: '2026-11-24',
+      changedAt: '2026-11-20T11:30:00.000Z',
+      changedBy: {
+        id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+        name: 'Chez Marie',
+        role: 'chef',
+      },
+    },
+  ],
+};
 
 const MISSION_ID = '7b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a88';
 
@@ -174,6 +224,138 @@ export class MissionsController {
     return this.missions.recipeSheet(user.userId, id, dishId, query.portions);
   }
 
+  @Put('chef-missions/:id/dishes/:dishId/notes')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Write the reheating and storage notes of a dish of a prestation',
+    description:
+      'Your own words on this dish as cooked in this prestation: how to reheat it, ' +
+      'how to keep it. They belong to the prestation, **not** to the recipe, whose ' +
+      'advice is unchanged; the fiche shows both (`notes` beside `recipe`). Open ' +
+      'from `cooking` on (`409 PRESTATION_NOT_STARTED` before). A field left out ' +
+      'stays; a blank or null one is cleared. The client reads them on the fiche ' +
+      'once the prestation is done.',
+  })
+  @ApiMissionIdParam()
+  @ApiParam({
+    name: 'dishId',
+    description: 'A dish of the prestation.',
+    example: DISH_ID,
+  })
+  @ApiOkResponse({
+    description: 'The notes as saved.',
+    example: {
+      reheatingNote: 'Four à 160 °C pendant 15 min, film retiré.',
+      storageNote: 'Réfrigérateur, 3 jours maximum.',
+    },
+  })
+  @ApiConflictResponse({ description: '`PRESTATION_NOT_STARTED`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  setDishNotes(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('dishId', ParseUUIDPipe) dishId: string,
+    @Body() payload: PutDishNotesDto,
+  ) {
+    return this.missions.setDishNotes(user.userId, id, dishId, payload);
+  }
+
+  @Put('chef-missions/:id/dishes/:dishId/eat-before')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Set the « à manger avant » date of a dish of a prestation',
+    description:
+      'Recettes lot 3 (LF-0270). The platform proposes the prestation day plus the ' +
+      'fridge days of the recipe pinned for it; set your own date, or `null` to go ' +
+      'back to the proposed one. Open until 24 hours after the prestation ends ' +
+      '(`409 EAT_BEFORE_CLOSED` after). Every change is kept: who, when, which value. ' +
+      'Past the fridge alert threshold (4 days by default) the date shows ' +
+      '`fridgeAlert: true`, never a refusal. `422 VALIDATION_FAILED` for a day before ' +
+      'the prestation or more than 366 days after.',
+  })
+  @ApiMissionIdParam()
+  @ApiParam({
+    name: 'dishId',
+    description: 'A dish of the prestation.',
+    example: DISH_ID,
+  })
+  @ApiOkResponse({
+    description: 'The dish on the conservation sheet.',
+    example: CONSERVATION_DISH_EXAMPLE,
+  })
+  @ApiConflictResponse({ description: '`EAT_BEFORE_CLOSED`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  setEatBefore(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('dishId', ParseUUIDPipe) dishId: string,
+    @Body() payload: PutEatBeforeDto,
+  ) {
+    return this.missions.setEatBefore(user.userId, id, dishId, payload);
+  }
+
+  @Get('chef-missions/:id/conservation')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Get the conservation sheet of a prestation',
+    description:
+      'Recettes lot 3 (LF-0272, §11). Per dish, how to keep it and until when: the ' +
+      'storage and reheating advice of the recipe version pinned for this prestation, ' +
+      'the chef’s notes, and `eatBefore` (`date`, `proposed`, `setByChef`, ' +
+      '`fridgeDays`, `fridgeAlert`). Never quantities nor steps. Shortest date first. ' +
+      'For the batch cooker and admins at any time, with `history` (each date set: ' +
+      'when, which value, and `changedBy`: name, id and role for an admin, the role ' +
+      'only for the batch cooker); for the client once the dishes are ' +
+      '`delivered` (`409 CONSERVATION_NOT_READY` before), without `history`.',
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({ description: 'The sheet.', example: CONSERVATION_EXAMPLE })
+  @ApiConflictResponse({ description: '`CONSERVATION_NOT_READY` (client).' })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  conservation(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.missions.conservation(user.userId, id);
+  }
+
+  @Get('chef-missions/:id/conservation.pdf')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Download the conservation sheet of a prestation',
+    description:
+      'Recettes lot 3 (LF-0272): the sheet as a PDF/A, one panel per dish, shortest ' +
+      'date first: until when, how to keep it, how to reheat it, the chef’s word. ' +
+      'Never quantities nor steps. Same access as the JSON sheet: the client once ' +
+      '`delivered` (`409 CONSERVATION_NOT_READY` before).',
+  })
+  @ApiMissionIdParam()
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'The PDF, as an attachment.',
+    content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
+  })
+  @ApiConflictResponse({ description: '`CONSERVATION_NOT_READY` (client).' })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  async conservationPdf(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { filename, body } = await this.missions.conservationPdf(user.userId, id);
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store');
+    return body;
+  }
+
   @Get('chef-missions/:id/shopping-list')
   @ApiTags(TAGS.missions)
   @ApiOperation({
@@ -260,6 +442,39 @@ export class MissionsController {
     return this.missions.sendShoppingList(user.userId, id);
   }
 
+  @Post('chef-missions/:id/groceries/validate')
+  @ApiTags(TAGS.missions)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm the groceries of a prestation are done',
+    description:
+      'Recettes lot 4 (LF-0284): « Courses faites ». Optionally with the receipt ' +
+      'total (`amountCents`), shown to the client and the admins for information: no ' +
+      'payment is taken before lot 6. Confirming again replaces the amount. Stops the ' +
+      'reminder of the day before. `409 SHOPPING_BY_CLIENT` when the client shops; ' +
+      '`409 GROCERIES_NOT_OPEN` unless the prestation is `confirmed`, `shopping` or ' +
+      '`cooking`. The shopping list answers carry `groceries` too.',
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({
+    description: 'The step as saved.',
+    example: {
+      missionId: 'b2f1c4d5-6e7f-4a8b-9c0d-1e2f3a4b5c6d',
+      groceries: { validatedAt: '2026-11-19T15:00:00.000Z', amountCents: 6480 },
+    },
+  })
+  @ApiConflictResponse({ description: '`SHOPPING_BY_CLIENT` or `GROCERIES_NOT_OPEN`.' })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  validateGroceries(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: ValidateGroceriesDto,
+  ) {
+    return this.missions.validateGroceries(user.userId, id, payload);
+  }
+
   @Post('me/bookings/:id/shopping-list/submit')
   @ApiTags(TAGS.missions)
   @HttpCode(HttpStatus.OK)
@@ -306,12 +521,15 @@ export class MissionsController {
     description:
       'A prestation cooks from the recipe versions of when it was booked. Before it ' +
       'starts, you may move it to your current recipes: deliberately, recorded, and ' +
-      'the shopping list is recomputed (your corrections stay). Refused once it has ' +
-      'started.',
+      'the shopping list is recomputed (your corrections stay). Recettes lot 3: refused ' +
+      'from 72 hours before the start (`MENU_FROZEN`, with `frozenSince`), and when a ' +
+      'current recipe holds one of the client’s allergies (`ALLERGEN_CONFLICT`, ' +
+      '`ALLERGENS_UNVERIFIED`): the versions and allergens pinned when the menu was ' +
+      'written stay.',
   })
   @ApiMissionIdParam()
   @ApiOkResponse({ description: 'The recomputed list.', example: SHOPPING_LIST_EXAMPLE })
-  @ApiConflictResponse({ description: '`PRESTATION_STARTED`.' })
+  @ApiConflictResponse({ description: '`PRESTATION_STARTED` or `MENU_FROZEN`.' })
   @ApiForbiddenResponse(CHEF_ONLY)
   @ApiNotFoundResponse(NOT_FOUND)
   @ApiClerkAuthResponses()

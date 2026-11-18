@@ -9,7 +9,9 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
+  ValidateIf,
   MaxLength,
   Min,
   ValidateNested,
@@ -112,4 +114,69 @@ export class SubmitShoppingListDto {
   @ValidateNested({ each: true })
   @Type(() => ShoppingMarkDto)
   marks!: ShoppingMarkDto[];
+}
+
+export class PutDishNotesDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 500,
+    description:
+      'How to reheat this dish as cooked in this prestation. Absent: unchanged; ' +
+      'blank or null: cleared.',
+    example: 'Four à 160 °C pendant 15 min, film retiré.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reheatingNote?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 500,
+    description:
+      'How to keep this dish as cooked in this prestation. Absent: unchanged; ' +
+      'blank or null: cleared.',
+    example: 'Réfrigérateur, 3 jours maximum.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  storageNote?: string | null;
+}
+
+/** Recettes lot 3 (LF-0270): the « à manger avant » date of a dish of a prestation. */
+export class PutEatBeforeDto {
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date',
+    description:
+      'A Paris calendar day, `YYYY-MM-DD`, from the prestation day to 366 days after. ' +
+      '`null`: back to the platform’s date (prestation day + the fridge days of the ' +
+      'recipe).',
+    example: '2026-11-23',
+  })
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
+  date!: string | null;
+}
+
+/** Recettes lot 4 (LF-0284): the batch cooker confirms the groceries are done. */
+export class ValidateGroceriesDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 0,
+    maximum: 500_000,
+    description:
+      'The receipt total, in cents. Optional, for information only: no payment is ' +
+      'taken before lot 6. Absent or null: no amount (an amount typed earlier is ' +
+      'cleared).',
+    example: 6480,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(500_000)
+  amountCents?: number | null;
 }

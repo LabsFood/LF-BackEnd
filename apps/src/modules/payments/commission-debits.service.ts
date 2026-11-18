@@ -162,7 +162,8 @@ export class CommissionDebitsService {
    */
   async collectOutstanding(chefProfileId: string): Promise<void> {
     const invoices = await this.prisma.commissionInvoice.findMany({
-      where: { chefProfileId, status: 'issued' },
+      // A credit note is never debited: it is deducted (lot 6).
+      where: { chefProfileId, status: 'issued', kind: 'invoice' },
       select: { id: true, invoiceNumber: true },
       orderBy: { issuedAt: 'asc' },
     });
@@ -251,6 +252,12 @@ export class CommissionDebitsService {
     if (!invoice) {
       throw new NotFoundException(`Commission invoice ${invoiceId} not found.`);
     }
+    if (invoice.kind === 'credit_note') {
+      throw new ConflictException({
+        code: 'INVOICE_IS_CREDIT_NOTE',
+        message: `${invoice.invoiceNumber} is a credit note: it is deducted, never debited.`,
+      });
+    }
     if (invoice.status !== 'issued') {
       throw new ConflictException({
         code: 'INVOICE_NOT_ISSUED',
@@ -283,13 +290,22 @@ export class CommissionDebitsService {
       }
     }
 
+    // Recettes lot 6: the credit notes deducted from this invoice lower the debit.
+    const credited = await this.prisma.commissionInvoice.aggregate({
+      where: { kind: 'credit_note', appliedToInvoiceId: invoice.id },
+      _sum: { amountTtcCents: true },
+    });
+    const dueCents = Math.max(
+      0,
+      invoice.amountTtcCents - (credited._sum.amountTtcCents ?? 0),
+    );
     const debit = await this.claimDebit(
       invoice.id,
-      invoice.amountTtcCents,
+      dueCents,
       options.overrideAttemptCeiling ?? false,
     );
 
-    const precondition = this.checkPreconditions(invoice.amountTtcCents, mandate);
+    const precondition = this.checkPreconditions(dueCents, mandate);
     if (precondition) {
       return this.failDebit(debit, precondition);
     }
@@ -304,7 +320,7 @@ export class CommissionDebitsService {
     try {
       intent = await this.stripe.getClient().paymentIntents.create(
         {
-          amount: invoice.amountTtcCents,
+          amount: dueCents,
           // SEPA Direct Debit settles in euro only.
           currency: 'eur',
           ...customerRef(mandate!.stripeCustomerId!),
@@ -783,7 +799,113 @@ export class CommissionDebitsService {
       where: { id: { in: lines.map((line) => line.id) } },
       data: { status: 'invoiced', commissionInvoiceId: invoice.id },
     });
-    return invoice;
+    return this.deductCredits(tx, invoice);
+  }
+
+  /**
+   * Recettes lot 6: the chef's open credit notes are deducted from their next facture B,
+   * oldest first, as far as it goes. Covered whole, the invoice is settled at once and
+   * nothing is debited.
+   */
+  private async deductCredits(
+    tx: Pick<Prisma.TransactionClient, 'commissionInvoice'>,
+    invoice: CommissionInvoice,
+  ): Promise<CommissionInvoice> {
+    const open = await tx.commissionInvoice.findMany({
+      where: {
+        chefProfileId: invoice.chefProfileId,
+        kind: 'credit_note',
+        status: 'issued',
+        appliedToInvoiceId: null,
+        refundedAt: null,
+      },
+      orderBy: { issuedAt: 'asc' },
+    });
+    let left = invoice.amountTtcCents;
+    const applied: string[] = [];
+    for (const note of open) {
+      if (note.amountTtcCents > left) break;
+      left -= note.amountTtcCents;
+      applied.push(note.id);
+    }
+    if (!applied.length) return invoice;
+    await tx.commissionInvoice.updateMany({
+      where: { id: { in: applied } },
+      data: { appliedToInvoiceId: invoice.id, status: 'settled' },
+    });
+    if (left > 0) return invoice;
+    return tx.commissionInvoice.update({
+      where: { id: invoice.id },
+      data: { status: 'settled' },
+    });
+  }
+
+  /**
+   * Recettes lot 6: URSSAF took a prestation back (status 120). Its commission goes back
+   * to the chef: never invoiced yet, it is simply dropped; invoiced or collected, a
+   * credit note in the facture B sequence, deducted from the next one (or paid back by
+   * hand when there is none: `refundedAt`).
+   */
+  async creditCommission(commissionId: string, reason: string) {
+    return this.withInvoiceNumberRetry(() =>
+      this.prisma.$transaction(async (tx) => {
+        const commission = await tx.commission.findUniqueOrThrow({
+          where: { id: commissionId },
+        });
+        if (commission.status === 'pending' && !commission.commissionInvoiceId) {
+          await tx.commission.update({
+            where: { id: commission.id },
+            data: { status: 'failed' },
+          });
+          return { creditNote: null, dropped: true };
+        }
+        const existing = await tx.commissionInvoice.findFirst({
+          where: { kind: 'credit_note', creditForCommissionId: commission.id },
+        });
+        if (existing) return { creditNote: existing, dropped: false };
+        const creditNote = await tx.commissionInvoice.create({
+          data: {
+            chefProfileId: commission.chefProfileId,
+            kind: 'credit_note',
+            invoiceNumber: await this.nextInvoiceNumber(tx),
+            issuedAt: new Date(),
+            amountHtCents: commission.amountHtCents,
+            amountVatCents: commission.amountVatCents,
+            amountTtcCents: commission.amountTtcCents,
+            rateBps: commission.rateBps,
+            vatRateBps: commission.vatRateBps,
+            paymentMethod: 'avance_immediate',
+            collectionMethod: commission.collectionMethod,
+            status: 'issued',
+            creditForCommissionId: commission.id,
+            creditReason: reason,
+          },
+        });
+        return { creditNote, dropped: false };
+      }),
+    );
+  }
+
+  /** An open credit note with no facture B to deduct it from, paid back by hand. */
+  async markCreditRefunded(creditNoteId: string) {
+    const { count } = await this.prisma.commissionInvoice.updateMany({
+      where: {
+        id: creditNoteId,
+        kind: 'credit_note',
+        status: 'issued',
+        appliedToInvoiceId: null,
+      },
+      data: { status: 'settled', refundedAt: new Date() },
+    });
+    if (count !== 1) {
+      throw new ConflictException({
+        code: 'CREDIT_NOTE_NOT_OPEN',
+        message: 'This credit note is already deducted or paid back.',
+      });
+    }
+    return this.prisma.commissionInvoice.findUniqueOrThrow({
+      where: { id: creditNoteId },
+    });
   }
 
   /** `LF-COM-<year>-NNNN`, the one numbering scheme for facture B. */

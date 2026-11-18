@@ -29,8 +29,7 @@ import { TAGS } from '../../common/swagger/tags';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
-import { Meal } from '../../generated/prisma/client';
-import { readiness } from '../dishes/domain/dishes.rules';
+import { toLabsFoodMealView } from '../dishes/dishes.views';
 import { UsersService } from '../users/users.service';
 import {
   CatalogService,
@@ -58,21 +57,48 @@ const MEAL = {
   portions: 4,
   prepTime: 45,
   dietaryTags: ['halal'],
-  allergens: [],
+  // Computed from the recipe lines plus `addedAllergens` (Recettes §6.1).
+  allergens: ['mustard'],
+  addedAllergens: ['mustard'],
+  conditionalAllergens: [],
   calories: 620,
   difficulty: 'medium',
-  allergensNone: true,
+  allergensNone: false,
   customDiets: [],
   customAllergens: [],
   category: 'main',
   cookTime: 40,
-  ingredients: [{ name: 'Cuisses de poulet', qty: 8, unit: 'pièce', aisle: 'boucherie' }],
+  ingredients: [
+    {
+      name: 'Cuisses de poulet',
+      qty: 8,
+      unit: 'piece',
+      aisle: 'boucherie',
+      catalogIngredientId: 'f6eebc99-9c0b-4ef8-bb6d-6bb9bd380a66',
+      allergens: [],
+      incomplete: false,
+    },
+  ],
   steps: [
     { order: 1, text: 'Mariner le poulet', type: 'preparation', durationMinutes: 60 },
     { order: 2, text: 'Faire revenir les oignons', type: 'cuisson', durationMinutes: 10 },
   ],
-  reheating: { mode: 'oven', temperature: 160, minutes: 15, note: null },
-  storage: { method: 'fridge', days: 3, container: null },
+  reheating: {
+    modes: ['oven'],
+    mode: 'oven',
+    temperature: 160,
+    minutes: 15,
+    note: null,
+    container: null,
+  },
+  storage: {
+    method: 'fridge',
+    days: 3,
+    container: null,
+    freezable: false,
+    freezerMonths: null,
+    thawing: null,
+  },
   publishedAt: '2026-09-03T14:12:00.000Z',
   isFeatured: true,
   status: 'published',
@@ -149,9 +175,6 @@ const MEAL_NOT_LABS_FOOD = {
   },
 };
 
-/** Recettes §4.11: what keeps a Lab's Food meal from "Prête", as on a chef's dish. */
-const withReadiness = (meal: Meal) => ({ ...meal, readiness: readiness(meal) });
-
 @Controller()
 export class CatalogController {
   constructor(
@@ -182,7 +205,8 @@ export class CatalogController {
   })
   @ApiAdminAuthResponses()
   async listMeals() {
-    return (await this.catalog.listMeals()).map(withReadiness);
+    const days = await this.catalog.fridgeAlertDays();
+    return (await this.catalog.listMeals()).map((meal) => toLabsFoodMealView(meal, days));
   }
 
   @Post('admin/meals')
@@ -202,8 +226,9 @@ export class CatalogController {
   @ApiCreatedResponse({ description: 'The new meal.', type: MealResponseDto })
   @ApiAdminAuthResponses()
   async createMeal(@Body() payload: CreateMealDto, @CurrentClerkUser() user: ClerkUser) {
-    return withReadiness(
+    return toLabsFoodMealView(
       await this.catalog.createMeal(payload, await this.adminId(user)),
+      await this.catalog.fridgeAlertDays(),
     );
   }
 
@@ -217,14 +242,27 @@ export class CatalogController {
       'Send only the fields to change. To empty an optional field, send `null`: ' +
       '`{ "imageUrl": null }` removes the photo. That works for `description`, ' +
       '`imageUrl`, `continent`, `country`, `calories` and `difficulty`.\n\n' +
-      'To stop offering a meal, set `{ "status": "archived" }`.',
+      'To stop offering a meal, set `{ "status": "archived" }`.\n\n' +
+      'Ruling R30, Recettes §8.1: send the `lockVersion` the form read. If the meal ' +
+      'changed since, nothing is written and the answer is `409 RECIPE_CONFLICT` with ' +
+      'the current `lockVersion`: reload, then save again. Without it, nothing is ' +
+      'checked against it. The answer carries `lockVersion` and `allergenSources`.',
   })
   @ApiMealIdParam()
   @ApiOkResponse({ description: 'The updated meal.', type: MealResponseDto })
   @ApiNotFoundResponse({ description: 'No meal with this id.' })
   @ApiConflictResponse({
     description:
-      '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first.',
+      '`OFFER_PENDING`: it is offered to a batch cooker; withdraw the offer first. ' +
+      '`RECIPE_CONFLICT` (with `lockVersion`): the `lockVersion` sent is stale (another ' +
+      'tab saved it), or the ingredients or allergens changed since the meal was ' +
+      'read, typically a change to the common ingredient list carried into it ' +
+      '(Recettes §7.3); nothing was saved, reload and send again.',
+    example: {
+      code: 'RECIPE_CONFLICT',
+      message: 'The recipe was changed since you opened it.',
+      lockVersion: 5,
+    },
   })
   @ApiForbiddenResponse(NOT_LABS_FOOD)
   @ApiAdminAuthResponses()
@@ -233,8 +271,9 @@ export class CatalogController {
     @Body() payload: UpdateMealDto,
     @CurrentClerkUser() user: ClerkUser,
   ) {
-    return withReadiness(
+    return toLabsFoodMealView(
       await this.catalog.updateMeal(id, payload, await this.adminId(user)),
+      await this.catalog.fridgeAlertDays(),
     );
   }
 

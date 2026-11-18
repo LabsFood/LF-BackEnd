@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { R2StorageService } from '../../integrations/r2-storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
 import { ChefContentService, ChefContext, MENU_DISHES } from './chef-content.service';
 import { chefPhotoFolder, PhotoKind } from './content-photos.service';
 import { toDishView } from './dishes.views';
@@ -33,6 +34,11 @@ export class DuplicationService {
     private readonly storage: R2StorageService,
   ) {}
 
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a dish view. */
+  private fridgeDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
+
   async dish(clerkUserId: string, id: string) {
     const chef = await this.access.chef(clerkUserId);
     this.access.assertVerified(chef);
@@ -43,7 +49,7 @@ export class DuplicationService {
       ? await this.prisma.meal.update({ where: { id: copy.id }, data: { imageUrl } })
       : copy;
     this.logger.log({ event: 'dish.duplicated', dishId: copy.id, variantOf: id });
-    return toDishView(result);
+    return toDishView(result, await this.fridgeDays());
   }
 
   async menu(clerkUserId: string, id: string) {
@@ -74,7 +80,7 @@ export class DuplicationService {
         })
       : copy;
     this.logger.log({ event: 'menu.duplicated', menuId: copy.id, copyOf: id });
-    return toMenuView(result);
+    return toMenuView(result, await this.fridgeDays());
   }
 
   /**
@@ -115,8 +121,12 @@ function dishCopy(source: Meal, chef: ChefContext): Prisma.MealUncheckedCreateIn
     calories: source.calories,
     dietaryTags: source.dietaryTags,
     customDiets: source.customDiets,
+    // Recettes §8.1: the computed allergens and the lines stamped with them, as they
+    // are; the copy's own saves compose them again.
     allergens: source.allergens,
     allergensNone: source.allergensNone,
+    addedAllergens: source.addedAllergens,
+    conditionalAllergens: source.conditionalAllergens,
     customAllergens: source.customAllergens,
     ingredients: source.ingredients ?? [],
     steps: source.steps ?? [],

@@ -83,6 +83,7 @@ export class QuotesService {
     }
 
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
+    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
 
     // Checked here and not in the browser: the form can be replayed by anything.
     const open = await this.prisma.quote.findMany({

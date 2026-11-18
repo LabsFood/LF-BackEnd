@@ -23,9 +23,18 @@ export class NotificationsService {
     private readonly users: UsersService,
   ) {}
 
-  /** For the Recettes lots that alert someone (allergy conflict, shopping list…). */
-  async notify(userId: string, type: string, subject: { type: string; id: string }) {
-    const notification = await this.prisma.notification.create({
+  /**
+   * For the Recettes lots that alert someone (allergy conflict, shopping list…).
+   * `db` is the caller's transaction when the notice must land with the change it
+   * reports, or not at all (Recettes §7.3).
+   */
+  async notify(
+    userId: string,
+    type: string,
+    subject: { type: string; id: string },
+    db: Pick<PrismaService, 'notification'> = this.prisma,
+  ) {
+    const notification = await db.notification.create({
       data: { userId, type, subjectType: subject.type, subjectId: subject.id },
     });
     this.logger.log({

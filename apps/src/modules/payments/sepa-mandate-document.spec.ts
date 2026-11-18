@@ -1,7 +1,9 @@
 import { inflateSync } from 'node:zlib';
 
-import { textOf } from '../../common/pdf/pdf.test-helpers';
+import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
 import { MandateDocumentInput, renderMandatePdf } from './sepa-mandate-document';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const INPUT: MandateDocumentInput = {
   reference: 'RUM-2026-001',

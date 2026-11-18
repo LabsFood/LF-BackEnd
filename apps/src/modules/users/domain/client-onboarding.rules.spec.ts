@@ -72,3 +72,28 @@ describe('clientOnboarding (LF-0221)', () => {
     expect(done).toMatchObject({ address: false, allergies: true, tastes: false });
   });
 });
+
+describe('clientOnboarding — URSSAF dossier', () => {
+  it('lists the dossier step only while the immediate advance is offered', () => {
+    expect(clientOnboarding(DONE).steps.map((s) => s.code)).not.toContain(
+      'urssaf_dossier',
+    );
+    const offered = clientOnboarding({ ...DONE, advanceOffered: true });
+    expect(offered.steps.map((s) => s.code)).toContain('urssaf_dossier');
+    expect(offered).toMatchObject({ total: 6, completed: 5, allDone: false });
+  });
+
+  it('counts it done once filled, and says the advance needs it', () => {
+    const checklist = clientOnboarding({
+      ...DONE,
+      advanceOffered: true,
+      urssafDossierFilled: true,
+    });
+    expect(checklist.allDone).toBe(true);
+    expect(checklist.steps.find((s) => s.code === 'urssaf_dossier')).toEqual({
+      code: 'urssaf_dossier',
+      done: true,
+      requiredFor: 'immediate_advance',
+    });
+  });
+});

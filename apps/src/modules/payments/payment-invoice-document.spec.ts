@@ -1,9 +1,11 @@
-import { textOf } from '../../common/pdf/pdf.test-helpers';
+import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
 import {
   formatMoney,
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
 } from './payment-invoice-document';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const SNAPSHOT: PaymentInvoiceSnapshot = {
   invoiceNumber: 'LF-CUS26-00007',
@@ -13,7 +15,7 @@ const SNAPSHOT: PaymentInvoiceSnapshot = {
   amountTtcCents: 20_000,
   lines: [
     { label: 'Batch cooking 4 repas', amountCents: 18_500 },
-    { label: 'Courses', amountCents: 1_500 },
+    { label: 'Forfait courses', amountCents: 1_500 },
   ],
   seller: {
     displayName: 'Chef Amina',

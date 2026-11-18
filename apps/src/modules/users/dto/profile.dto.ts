@@ -1,6 +1,7 @@
 import { ApiPropertyOptional, IntersectionType, PartialType } from '@nestjs/swagger';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -175,7 +176,21 @@ export class UpdateOwnUserFieldsDto {
 export class UpdateMeProfileDto extends IntersectionType(
   PartialType(UpsertClientProfileDto),
   UpdateOwnUserFieldsDto,
-) {}
+) {
+  @ApiPropertyOptional({
+    description:
+      'Ticks the health consent box (`healthConsent.text` of `GET /me/profile`). ' +
+      'Needed to save `dietaryPreferences` when no consent to the current version is on file.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  consent?: boolean;
+
+  @ApiPropertyOptional({ description: 'The `healthConsent.version` the client read.' })
+  @IsOptional()
+  @IsString()
+  consentVersion?: string;
+}
 
 /** Partial update body for `PATCH /me/profile`. @deprecated use {@link UpdateMeProfileDto} */
 export class UpdateClientProfileDto extends PartialType(UpsertClientProfileDto) {}

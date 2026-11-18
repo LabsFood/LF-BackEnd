@@ -71,9 +71,10 @@ export async function settlePayment(
   // is paid late must not silently come back to life.
   const bookingConfirmed = fullyCovered && booking.status === 'pending';
   if (bookingConfirmed) {
+    // The contract is concluded now: the 14-day withdrawal period starts here.
     await db.booking.update({
       where: { id: booking.id },
-      data: { status: 'confirmed' },
+      data: { status: 'confirmed', concludedAt: new Date() },
     });
   }
 
@@ -98,7 +99,8 @@ export async function coveredAmount(
   bookingId: string,
 ): Promise<number> {
   const covered = await db.payment.aggregate({
-    where: { bookingId, status: 'succeeded' },
+    // Recettes lot 6: what is left to pay counts the service only, never the groceries.
+    where: { bookingId, status: 'succeeded', purpose: 'service' },
     _sum: { amountTtc: true },
   });
   return covered._sum.amountTtc ?? 0;
@@ -114,7 +116,7 @@ export async function assertNoPendingCesu(
   bookingId: string,
 ): Promise<void> {
   const pending = await db.payment.count({
-    where: { bookingId, method: 'cesu', status: 'pending' },
+    where: { bookingId, method: 'cesu', status: 'pending', purpose: 'service' },
   });
   if (pending > 0) {
     throw new ConflictException({

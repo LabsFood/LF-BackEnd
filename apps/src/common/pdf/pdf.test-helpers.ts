@@ -60,3 +60,10 @@ export function textOf(pdf: Buffer): string {
   }
   return lines.join(' ');
 }
+
+/**
+ * Drawing a PDF parses and subsets ~1 MB of embedded fonts (PDF/A): ~150 ms alone,
+ * but several seconds when the whole suite loads every core. Jest's 5 s default then
+ * fails specs that are right. The PDF specs call `jest.setTimeout(PDF_SPEC_TIMEOUT)`.
+ */
+export const PDF_SPEC_TIMEOUT = 30_000;

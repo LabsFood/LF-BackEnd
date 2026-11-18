@@ -10,13 +10,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
+import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
-import { advanceAccepted, cesuAccepted } from './chef-cesu-info';
+import { advanceAccepted, cesuAccepted, novaCodeSet } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
-import { assertPayable, paymentPhase } from './payment-rules';
+import { commissionDueAutomatically } from './domain/urssaf-mode.rules';
+import { assertPayable, CONTRACT_SELECT, paymentPhase } from './payment-rules';
 import {
   assertNoPendingCesu,
   bookingCoverage,
@@ -30,7 +32,10 @@ const BPS = 10_000;
 export type BookingPaymentState = 'not-due' | 'due' | 'processing' | 'paid' | 'failed';
 
 export type UrssafReasonCode =
-  'URSSAF_LINK_NONE' | 'URSSAF_LINK_PENDING' | 'URSSAF_LINK_REFUSED';
+  | 'URSSAF_LINK_NONE'
+  | 'URSSAF_LINK_PENDING'
+  | 'URSSAF_LINK_REFUSED'
+  | 'URSSAF_DOSSIER_MISSING';
 
 /** Why a method is blocked: the advance's own codes, or a CESU declaration under way. */
 export type MethodReasonCode = UrssafReasonCode | 'CESU_PENDING';
@@ -44,6 +49,8 @@ const URSSAF_REASON: Record<UrssafReasonCode, string> = {
     'L’avance immédiate demande un rattachement à ce batch cooker, à faire une fois.',
   URSSAF_LINK_PENDING: 'Votre demande de rattachement est en cours d’instruction.',
   URSSAF_LINK_REFUSED: 'L’URSSAF a refusé le rattachement à ce batch cooker.',
+  URSSAF_DOSSIER_MISSING:
+    'L’avance immédiate demande d’abord votre dossier URSSAF (identité, coordonnées bancaires), à remplir une fois.',
 };
 
 const REASONS: Record<MethodReasonCode, string> = {
@@ -60,10 +67,30 @@ export interface PaymentMethodOption {
   dueNowCents: number;
   /** Immediate advance only: what URSSAF takes from their account afterwards. */
   debitedLaterCents?: number;
+  /** Immediate advance, manual mode: the cooperative it goes through ("par Unipros"). */
+  intermediary?: string;
   /** CESU only: the most that can be declared, and the number to pay the cook with. */
   maxCesuCents?: number;
   crcesuNan?: string | null;
 }
+
+/** What the immediate-advance request keeps in `payment.metadata`. */
+interface UrssafPaymentMetadata {
+  urssafReference?: string | null;
+  urssafGateway?: string;
+  /** When the request reached URSSAF, or (manual mode) was entered on the intermediary's space. */
+  transmittedAt?: string | null;
+  debitedCents?: number;
+  /** Manual mode: the reference the intermediary (Unipros) gave the request. */
+  externalReference?: string;
+  /** Recettes lot 6: URSSAF took it back (status 120), why and when. */
+  urssafStatus?: number;
+  repriseReason?: string;
+  repriseAt?: string;
+}
+
+const urssafMetadata = (metadata: unknown): UrssafPaymentMetadata =>
+  (metadata ?? {}) as UrssafPaymentMetadata;
 
 const afterTaxCredit = (cents: number) =>
   Math.round((cents * (BPS - TAX_CREDIT_BPS)) / BPS);
@@ -103,7 +130,12 @@ export class BookingPaymentsService {
     const methods: PaymentMethodOption[] = [];
     const cesuPending =
       (await this.prisma.payment.count({
-        where: { bookingId: booking.id, method: 'cesu', status: 'pending' },
+        where: {
+          bookingId: booking.id,
+          method: 'cesu',
+          status: 'pending',
+          purpose: 'service',
+        },
       })) > 0;
 
     if (this.urssaf.enabled && advanceAccepted(chef.sapProfile, chef.sepaMandate)) {
@@ -112,15 +144,22 @@ export class BookingPaymentsService {
           clientId_chefProfileId: { clientId: client.id, chefProfileId: chef.id },
         },
       });
+      // Manual mode: the admin enrols the client with the dossier, so it comes first.
+      const dossierMissing =
+        this.urssaf.manual &&
+        link?.status !== 'active' &&
+        !(await this.dossierFilled(client.id));
       const reasonCode: MethodReasonCode | null = cesuPending
         ? 'CESU_PENDING'
         : link?.status === 'active'
           ? null
-          : link?.status === 'pending'
-            ? 'URSSAF_LINK_PENDING'
-            : link?.status === 'refused'
-              ? 'URSSAF_LINK_REFUSED'
-              : 'URSSAF_LINK_NONE';
+          : dossierMissing
+            ? 'URSSAF_DOSSIER_MISSING'
+            : link?.status === 'pending'
+              ? 'URSSAF_LINK_PENDING'
+              : link?.status === 'refused'
+                ? 'URSSAF_LINK_REFUSED'
+                : 'URSSAF_LINK_NONE';
       methods.push({
         id: 'urssaf',
         available: reasonCode === null,
@@ -128,6 +167,9 @@ export class BookingPaymentsService {
         // Nothing is paid on the site: URSSAF debits the client's share afterwards.
         dueNowCents: 0,
         debitedLaterCents: afterTaxCredit(remaining),
+        ...(this.urssaf.manual
+          ? { intermediary: this.config.get<string>('urssaf.intermediary', 'Unipros') }
+          : {}),
       });
     }
     if (chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled) {
@@ -169,6 +211,27 @@ export class BookingPaymentsService {
       methods,
       // ponytail: no Stripe customer is kept per client yet, so no card is remembered.
       savedCards: [] as never[],
+      /**
+       * Recettes lot 6: the groceries, a second amount paid apart, by card only (e-CESU
+       * and the immediate advance cover the service, never the ingredients). Null when
+       * the batch cooker does not shop.
+       */
+      groceries: await this.groceriesAmount(booking.id),
+    };
+  }
+
+  private async groceriesAmount(bookingId: string) {
+    const run = await this.prisma.groceryRun.findUnique({
+      where: { bookingId },
+      select: { status: true, budgetCents: true, capturedCents: true, cardLast4: true },
+    });
+    if (!run || run.status === 'cancelled') return null;
+    return {
+      status: run.status,
+      budgetCents: run.budgetCents,
+      capturedCents: run.capturedCents,
+      cardSaved: run.cardLast4 !== null,
+      methods: ['cb'] as const,
     };
   }
 
@@ -183,8 +246,9 @@ export class BookingPaymentsService {
     if (fullyCovered) return 'paid';
     if (paymentPhase(booking) !== 'due') return 'not-due';
 
+    // The prestation's payments only: a courses hold or capture says nothing of it.
     const last = await this.prisma.payment.findFirst({
-      where: { bookingId: booking.id },
+      where: { bookingId: booking.id, purpose: 'service' },
       orderBy: { createdAt: 'desc' },
       select: { method: true, status: true },
     });
@@ -306,7 +370,7 @@ export class BookingPaymentsService {
         metadata: {
           urssafReference: transmission.reference,
           urssafGateway: this.urssaf.mode,
-          transmittedAt: transmission.transmittedAt.toISOString(),
+          transmittedAt: transmission.transmittedAt?.toISOString() ?? null,
           debitedCents,
         },
       },
@@ -328,8 +392,9 @@ export class BookingPaymentsService {
    * `refused`: the payment fails and the prestation is due again, with the other
    * methods still on offer. The client is never left in a dead end.
    *
-   * Called by an admin while the gateway is simulated; URSSAF's own notification
-   * will call it once the live gateway exists.
+   * Called by an admin while the gateway is simulated or manual; URSSAF's own
+   * notification will call it once the live gateway exists. In manual mode the
+   * commission stays `pending`: the admin starts its debit by hand.
    */
   async recordUrssafOutcome(
     paymentId: string,
@@ -374,7 +439,16 @@ export class BookingPaymentsService {
     });
     // After the commit, and never fatal: the batch cooker is paid whatever happens
     // to the platform's own commission (see `CesuPaymentsService.settleDeclaration`).
-    if (commissionId) await this.commissionDebits.onCommissionDue(commissionId);
+    if (commissionId && commissionDueAutomatically(this.urssaf.mode)) {
+      await this.commissionDebits.onCommissionDue(commissionId);
+    } else if (commissionId) {
+      // Manual mode: the admin collects it from the chef's transactions summary.
+      this.logger.log({
+        event: 'urssaf.commission_awaiting_admin',
+        paymentId: payment.id,
+        commissionId,
+      });
+    }
 
     return { paymentId: payment.id, status: 'succeeded' as const };
   }
@@ -417,10 +491,14 @@ export class BookingPaymentsService {
       select: {
         id: true,
         userId: true,
-        sapProfile: { select: { urssafTiersPrestationStatus: true } },
+        sapProfile: { select: { urssafTiersPrestationStatus: true, novaCode: true } },
       },
     });
-    if (!chef || chef.sapProfile?.urssafTiersPrestationStatus !== 'active') {
+    if (
+      !chef ||
+      chef.sapProfile?.urssafTiersPrestationStatus !== 'active' ||
+      !novaCodeSet(chef.sapProfile)
+    ) {
       throw new UnprocessableEntityException({
         code: 'URSSAF_NOT_ACCEPTED',
         message: 'This batch cooker does not take the immediate advance.',
@@ -430,6 +508,12 @@ export class BookingPaymentsService {
       throw new UnprocessableEntityException({
         code: 'SAME_PERSON',
         message: 'A batch cooker cannot enrol with themselves.',
+      });
+    }
+    if (this.urssaf.manual && !(await this.dossierFilled(client.id))) {
+      throw new UnprocessableEntityException({
+        code: 'URSSAF_DOSSIER_MISSING',
+        message: URSSAF_REASON.URSSAF_DOSSIER_MISSING,
       });
     }
 
@@ -479,7 +563,10 @@ export class BookingPaymentsService {
     }));
   }
 
-  /** An admin answers an enrolment in URSSAF's place. Simulated gateway only. */
+  /**
+   * An admin records URSSAF's answer to an enrolment: in its place (simulated), or as
+   * the intermediary's space shows it (manual).
+   */
   async decideLink(
     adminClerkUserId: string,
     linkId: string,
@@ -487,7 +574,7 @@ export class BookingPaymentsService {
     reason: string | undefined,
     requestId?: string,
   ) {
-    this.assertSimulated();
+    this.assertAdminAnswers();
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
     const link = await this.prisma.urssafLink.findUnique({ where: { id: linkId } });
     if (!link) throw new NotFoundException('No enrolment with this id.');
@@ -504,13 +591,90 @@ export class BookingPaymentsService {
     await this.audit.record({
       actorType: 'admin',
       actorUserId: admin.id,
-      action: 'urssaf.link_simulated',
+      action: this.urssaf.manual ? 'urssaf.link_recorded' : 'urssaf.link_simulated',
       subjectType: 'urssaf_link',
       subjectId: linkId,
       metadata: { from: link.status, to: decision },
       requestId,
     });
     return this.linkView(updated);
+  }
+
+  /**
+   * `POST /admin/urssaf-payments/{id}/reprise` (Recettes lot 6): URSSAF took a settled
+   * prestation back (status 120). The payment is refunded on our side, the prestation is
+   * due again, and the commission goes back to the batch cooker (a credit note once
+   * invoiced).
+   */
+  async recordReprise(
+    adminClerkUserId: string,
+    paymentId: string,
+    reason: string,
+    requestId?: string,
+  ) {
+    const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'avance_immediate' },
+      include: { commission: true },
+    });
+    if (!payment)
+      throw new NotFoundException('No immediate-advance request with this id.');
+    const now = new Date();
+    const { count } = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: 'succeeded' },
+      data: {
+        status: 'refunded',
+        refundedAmount: payment.amountTtc,
+        refundedAt: now,
+        metadata: {
+          ...urssafMetadata(payment.metadata),
+          urssafStatus: 120,
+          repriseReason: reason.trim(),
+          repriseAt: now.toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+    if (count !== 1) {
+      throw new ConflictException({
+        code: 'URSSAF_NOT_SETTLED',
+        message: 'Only a request URSSAF paid can be taken back.',
+      });
+    }
+    const credit = payment.commission
+      ? await this.commissionDebits.creditCommission(payment.commission.id, reason.trim())
+      : null;
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'commission.credited',
+      subjectType: 'payment',
+      subjectId: payment.id,
+      requestId,
+      metadata: {
+        bookingId: payment.bookingId,
+        commissionId: payment.commission?.id ?? null,
+        creditNote: credit?.creditNote?.invoiceNumber ?? null,
+        dropped: credit?.dropped ?? false,
+        amountCents: payment.commission?.amountTtcCents ?? 0,
+      },
+    });
+    return {
+      paymentId: payment.id,
+      status: 'refunded' as const,
+      creditNote: credit?.creditNote
+        ? {
+            id: credit.creditNote.id,
+            invoiceNumber: credit.creditNote.invoiceNumber,
+            amountTtcCents: credit.creditNote.amountTtcCents,
+          }
+        : null,
+      commissionDropped: credit?.dropped ?? false,
+    };
+  }
+
+  /** `POST /admin/commission-credit-notes/{id}/refunded`. */
+  creditNoteRefunded(creditNoteId: string) {
+    return this.commissionDebits.markCreditRefunded(creditNoteId);
   }
 
   /** `GET /admin/urssaf-payments`: the requests waiting for URSSAF. */
@@ -522,56 +686,171 @@ export class BookingPaymentsService {
           select: {
             id: true,
             reference: true,
+            shoppingFeeCents: true,
             client: { select: { fullName: true, email: true } },
-            chefProfile: { select: { displayName: true } },
+            chefProfile: {
+              select: {
+                id: true,
+                displayName: true,
+                sapProfile: { select: { novaCode: true } },
+              },
+            },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    return payments.map((payment) => ({
-      paymentId: payment.id,
-      status: payment.status,
-      amountCents: payment.amountTtc,
-      debitedCents:
-        (payment.metadata as { debitedCents?: number } | null)?.debitedCents ?? null,
-      urssafReference:
-        (payment.metadata as { urssafReference?: string } | null)?.urssafReference ??
-        null,
-      failureReason: payment.failureReason,
-      createdAt: payment.createdAt,
-      paidAt: payment.paidAt,
-      booking: {
-        id: payment.booking.id,
-        reference: payment.booking.reference,
-        clientName: payment.booking.client.fullName ?? payment.booking.client.email,
-        chefName: payment.booking.chefProfile.displayName,
-      },
-    }));
+    return payments.map((payment) => {
+      const meta = urssafMetadata(payment.metadata);
+      return {
+        paymentId: payment.id,
+        status: payment.status,
+        amountCents: payment.amountTtc,
+        debitedCents: meta.debitedCents ?? null,
+        urssafReference: meta.urssafReference ?? null,
+        // Manual mode: left to enter on the intermediary's space while both are null.
+        externalReference: meta.externalReference ?? null,
+        transmittedAt: meta.transmittedAt ?? null,
+        failureReason: payment.failureReason,
+        createdAt: payment.createdAt,
+        paidAt: payment.paidAt,
+        /**
+         * Recettes lot 6: the request on two lines, the prestation and the forfait
+         * courses; never the débours. The forfait line is gone when the groceries were
+         * not done (the forfait was taken off the prestation).
+         */
+        lines: urssafLines(payment.amountTtc, payment.booking.shoppingFeeCents),
+        reprise:
+          meta.urssafStatus === 120
+            ? { reason: meta.repriseReason ?? null, at: meta.repriseAt ?? null }
+            : null,
+        booking: {
+          id: payment.booking.id,
+          reference: payment.booking.reference,
+          clientName: payment.booking.client.fullName ?? payment.booking.client.email,
+          chefProfileId: payment.booking.chefProfile.id,
+          chefName: payment.booking.chefProfile.displayName,
+          chefNovaCode: payment.booking.chefProfile.sapProfile?.novaCode ?? null,
+        },
+      };
+    });
   }
 
-  /** An admin answers a payment request in URSSAF's place. Simulated gateway only. */
-  async simulateOutcome(
+  /**
+   * `POST /admin/urssaf-payments/{id}/transmitted`: the admin entered the request on
+   * the intermediary's space. Recorded once, so nobody enters it a second time.
+   */
+  async markTransmitted(
+    adminClerkUserId: string,
+    paymentId: string,
+    externalReference: string,
+    requestId?: string,
+  ) {
+    this.assertAdminAnswers();
+    const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+    const payment = await this.pendingRequest(paymentId);
+    const meta = urssafMetadata(payment.metadata);
+    if (meta.transmittedAt) throw this.alreadyTransmitted();
+
+    const reference = externalReference.trim();
+    const transmittedAt = new Date().toISOString();
+    // Conditional on the row as read: two admins entering it at once record it once.
+    const written = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: 'pending', updatedAt: payment.updatedAt },
+      data: { metadata: { ...meta, externalReference: reference, transmittedAt } },
+    });
+    if (written.count === 0) throw this.alreadyTransmitted();
+
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'urssaf.payment_transmitted',
+      subjectType: 'payment',
+      subjectId: payment.id,
+      requestId,
+    });
+    this.logger.log({ event: 'urssaf.payment_transmitted', paymentId: payment.id });
+    return { paymentId: payment.id, externalReference: reference, transmittedAt };
+  }
+
+  /**
+   * An admin records URSSAF's answer to a payment request: in its place (simulated),
+   * or as the intermediary's space shows it (manual). In manual mode a `paid` answer
+   * needs the intermediary's reference, given now or at transmission; a refusal does
+   * not, since the intermediary may refuse before giving one.
+   */
+  async recordAdminOutcome(
     adminClerkUserId: string,
     paymentId: string,
     outcome: 'paid' | 'refused',
     reason: string | undefined,
+    externalReference: string | undefined,
     requestId?: string,
   ) {
-    this.assertSimulated();
+    this.assertAdminAnswers();
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+
+    if (this.urssaf.manual) {
+      const payment = await this.pendingRequest(paymentId);
+      const meta = urssafMetadata(payment.metadata);
+      const given = externalReference?.trim();
+      if (outcome === 'paid' && !meta.externalReference && !given) {
+        throw new UnprocessableEntityException({
+          code: 'URSSAF_REFERENCE_REQUIRED',
+          message: 'Give the reference the intermediary gave this request.',
+        });
+      }
+      if (given && !meta.externalReference) {
+        await this.prisma.payment.updateMany({
+          where: { id: payment.id, status: 'pending' },
+          data: {
+            metadata: {
+              ...meta,
+              externalReference: given,
+              transmittedAt: meta.transmittedAt ?? new Date().toISOString(),
+            },
+          },
+        });
+      }
+    }
+
     const result = await this.recordUrssafOutcome(paymentId, outcome, reason);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: admin.id,
-      action: 'urssaf.payment_simulated',
+      action: this.urssaf.manual ? 'urssaf.payment_recorded' : 'urssaf.payment_simulated',
       subjectType: 'payment',
       subjectId: paymentId,
       metadata: { outcome },
       requestId,
     });
+    this.logger.log({ event: 'urssaf.payment_recorded', paymentId, outcome });
     return result;
+  }
+
+  private async pendingRequest(paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'avance_immediate' },
+      select: { id: true, status: true, metadata: true, updatedAt: true },
+    });
+    if (!payment) {
+      throw new NotFoundException('No immediate-advance request with this id.');
+    }
+    if (payment.status !== 'pending') {
+      throw new ConflictException({
+        code: 'URSSAF_REQUEST_SETTLED',
+        message: `This request is already ${payment.status}.`,
+      });
+    }
+    return payment;
+  }
+
+  private alreadyTransmitted() {
+    return new ConflictException({
+      code: 'URSSAF_ALREADY_TRANSMITTED',
+      message: 'This request was already entered on the intermediary’s space.',
+    });
   }
 
   // ── Shared ──
@@ -584,6 +863,7 @@ export class BookingPaymentsService {
         chefProfile: {
           include: { sapProfile: true, sepaMandate: { select: { status: true } } },
         },
+        serviceOffer: CONTRACT_SELECT.serviceOffer,
       },
     });
     if (!booking) throw new NotFoundException('Booking not found.');
@@ -609,6 +889,12 @@ export class BookingPaymentsService {
     };
   }
 
+  private async dossierFilled(clientId: string): Promise<boolean> {
+    return (
+      (await this.prisma.urssafClientDossier.count({ where: { userId: clientId } })) > 0
+    );
+  }
+
   private assertEnabled(): void {
     if (!this.urssaf.enabled) {
       throw new ServiceUnavailableException({
@@ -618,12 +904,21 @@ export class BookingPaymentsService {
     }
   }
 
-  private assertSimulated(): void {
-    if (!this.urssaf.simulated) {
+  private assertAdminAnswers(): void {
+    if (!this.urssaf.adminAnswers) {
       throw new ForbiddenException({
-        code: 'URSSAF_NOT_SIMULATED',
-        message: 'Only a simulated gateway lets an admin answer for URSSAF.',
+        code: 'URSSAF_NOT_MANUAL_OR_SIMULATED',
+        message: 'Only a simulated or manual gateway lets an admin answer for URSSAF.',
       });
     }
   }
+}
+
+/** The URSSAF request's lines: the prestation, then the forfait courses if any. */
+export function urssafLines(amountCents: number, shoppingFeeCents: number) {
+  const forfait = Math.min(Math.max(0, shoppingFeeCents), amountCents);
+  return [
+    { label: 'Prestation de batch cooking', amountCents: amountCents - forfait },
+    ...(forfait > 0 ? [{ label: 'Forfait courses', amountCents: forfait }] : []),
+  ];
 }

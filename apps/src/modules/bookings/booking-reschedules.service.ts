@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { stackOf } from '../../common/logging/app-logger';
 import { Prisma } from '../../generated/prisma/client';
@@ -268,6 +269,11 @@ export class BookingReschedulesService {
 
   /** Proposals nobody answered in time lapse; the prestation keeps its time. */
   @Cron(CronExpression.EVERY_HOUR, { name: 'booking-reschedules-expiry' })
+  @SentryCron('booking-reschedules-expiry', {
+    checkinMargin: 10,
+    maxRuntime: 10,
+    failureIssueThreshold: 2,
+  })
   async expireDue(now: Date = new Date()): Promise<number> {
     const started = Date.now();
     try {

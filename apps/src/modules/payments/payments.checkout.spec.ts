@@ -17,6 +17,15 @@ const DONE_BOOKING = {
   amountTtc: 20_000,
   priceCents: 20_000,
   currency: 'EUR',
+  // Accepted before the CGV V1: no booking box is asked of it.
+  startsAt: new Date(Date.now() - 2 * 86_400_000),
+  createdAt: new Date('2026-10-01T09:00:00Z'),
+  shoppingByClient: false,
+  contractVersion: null,
+  cgvAcceptedAt: null,
+  deboursMandateAcceptedAt: null,
+  earlyExecutionRequestedAt: null,
+  serviceOffer: { shoppingIncluded: false },
   chefProfile: {
     id: 'chef-1',
     isActive: false,
@@ -193,6 +202,7 @@ describe('PaymentsService.createCheckoutSession', () => {
     const row = {
       id: 'pay-1',
       bookingId: 'booking-1',
+      purpose: 'service',
       amountTtc: 20_000,
       status: 'pending',
     };

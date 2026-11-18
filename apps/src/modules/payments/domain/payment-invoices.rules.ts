@@ -88,7 +88,7 @@ export function invoiceLines(
   }
 
   const extras: InvoiceLine[] = [
-    { label: 'Courses', amountCents: booking.shoppingFeeCents },
+    { label: 'Forfait courses', amountCents: booking.shoppingFeeCents },
     { label: 'Adultes supplémentaires', amountCents: booking.extraPersonsCents },
     { label: 'Plats supplémentaires', amountCents: booking.extraMealsCents },
   ].filter((line) => line.amountCents > 0);

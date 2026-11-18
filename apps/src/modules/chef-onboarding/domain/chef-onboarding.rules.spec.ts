@@ -15,6 +15,7 @@ import {
   isDisabledByAdmin,
   isValidPostcode,
   isValidSapDeclarationNumber,
+  isValidSiren,
   isValidSiret,
   lockingDocuments,
   requiredDocuments,
@@ -374,6 +375,20 @@ describe('lockingDocuments — answers a validated document proves', () => {
       ),
     ).toEqual([identity]);
   });
+});
+
+describe('isValidSiren', () => {
+  it('accepts nine digits passing the Luhn checksum: the SIRET without its NIC', () => {
+    expect(isValidSiren('443061841')).toBe(true);
+    expect(isValidSiren('443061842')).toBe(false);
+  });
+
+  it.each(['', '44306184', '4430618410', '44306184a'])(
+    'rejects malformed input %p',
+    (value) => {
+      expect(isValidSiren(value)).toBe(false);
+    },
+  );
 });
 
 describe('isValidSiret', () => {

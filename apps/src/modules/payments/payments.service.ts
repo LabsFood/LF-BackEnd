@@ -20,7 +20,7 @@ import {
   CreateCheckoutSessionDto,
   PaymentIntentDto,
 } from './dto/payment.dto';
-import { assertPayable, commissionBlockApplies } from './payment-rules';
+import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { assertOwnSiteUrl } from './own-site-url';
 import { PaymentInvoicesService } from './payment-invoices.service';
 import {
@@ -119,7 +119,7 @@ export class PaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
-      include: { chefProfile: true },
+      include: { chefProfile: true, serviceOffer: CONTRACT_SELECT.serviceOffer },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');
@@ -339,6 +339,7 @@ export class PaymentsService {
         bookingId,
         method: 'cb',
         status: 'pending',
+        purpose: 'service',
         stripePaymentIntentId: null,
         metadata: { path: ['checkoutSessionId'], not: Prisma.AnyNull },
       },
@@ -417,6 +418,7 @@ export class PaymentsService {
         bookingId,
         method: 'cb',
         status: 'pending',
+        purpose: 'service',
         stripePaymentIntentId: { not: null },
       },
       include: { commission: true },
@@ -500,6 +502,14 @@ export class PaymentsService {
       return;
     }
     if (payment.status === PaymentStatus.succeeded) {
+      return;
+    }
+    if (payment.purpose !== 'service') {
+      // A courses capture covers no part of the prestation, has no commission and no
+      // invoice A: never settled here.
+      this.logger.warn(
+        `Payment ${payment.id} is a ${payment.purpose} payment; not settled here.`,
+      );
       return;
     }
 

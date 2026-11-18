@@ -46,7 +46,8 @@ export class PublicUsersController {
   @ApiBadRequestResponse({
     description:
       'The email is malformed, the password is too weak (12 characters with a lower ' +
-      'case, an upper case, a digit and a symbol), or the body has an unknown field.',
+      'case, an upper case, a digit and a symbol), the CGU box is not ticked ' +
+      '(`acceptTerms` must be `true`), or the body has an unknown field.',
   })
   @ApiConflictResponse({ description: 'This email already has an account.' })
   @ApiTooManyRequestsResponse({
@@ -59,6 +60,7 @@ export class PublicUsersController {
     const { user, signInToken, expiresInSeconds } = await this.users.registerClient({
       email: payload.email,
       password: payload.password,
+      legalAcceptedAt: new Date(),
     });
 
     return {

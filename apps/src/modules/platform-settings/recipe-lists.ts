@@ -44,6 +44,28 @@ export async function listInForce(
 export const reheatModesInForce = (db: Db) =>
   listInForce(db, REHEAT_MODES_KEY, DEFAULT_REHEAT_MODES);
 
+export const RECIPE_AISLES_KEY = 'recipe_aisles';
+
+/** Recettes §5.4: the supermarket aisles, in store order, until an admin changes the list. */
+export const DEFAULT_RECIPE_AISLES: ListItem[] = [
+  { code: 'fruits-legumes', label: 'Fruits et légumes (y compris herbes fraîches)' },
+  { code: 'boulangerie', label: 'Boulangerie' },
+  { code: 'boucherie', label: 'Boucherie et volaille' },
+  { code: 'poissonnerie', label: 'Poissonnerie' },
+  { code: 'cremerie', label: 'Crèmerie et œufs' },
+  { code: 'fromages', label: 'Fromages' },
+  { code: 'epicerie-salee', label: 'Épicerie salée (pâtes, riz, légumineuses, sauces)' },
+  { code: 'conserves', label: 'Conserves et bocaux' },
+  { code: 'epices', label: 'Épices, herbes sèches et condiments' },
+  { code: 'epicerie-sucree', label: 'Épicerie sucrée' },
+  { code: 'boissons', label: 'Boissons' },
+  { code: 'non-alimentaire', label: 'Non alimentaire (boîtes, papier cuisson…)' },
+  { code: 'surgeles', label: 'Surgelés' },
+];
+
+export const aislesInForce = (db: Db) =>
+  listInForce(db, RECIPE_AISLES_KEY, DEFAULT_RECIPE_AISLES);
+
 export const RECIPE_PROFILES_KEY = 'recipe_profiles';
 
 /** Recettes §4.8: the PRD's examples, until an admin changes the list. */

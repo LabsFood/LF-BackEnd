@@ -6,6 +6,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -90,6 +91,7 @@ describe('BookingsService', () => {
   let lists: Record<string, jest.Mock>;
   let availability: { assertBookable: jest.Mock };
   let audit: { record: jest.Mock };
+  let notifications: { notify: jest.Mock };
   let mailer: { holdReminder: jest.Mock };
   /** The real address check, over a stubbed geo.api.gouv.fr. */
   const geo = Object.assign(new GeoService(), {
@@ -98,6 +100,8 @@ describe('BookingsService', () => {
         ? [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }]
         : [],
     ),
+    // The official address base knows every street but the made-up one.
+    bestStreetScore: jest.fn(async (line: string) => (/azerty/i.test(line) ? null : 0.9)),
   });
   let service: BookingsService;
 
@@ -130,6 +134,7 @@ describe('BookingsService', () => {
         createMany: jest.fn(),
         delete: jest.fn(),
         create: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       $transaction: jest.fn(),
     } as never;
@@ -146,9 +151,11 @@ describe('BookingsService', () => {
     lists = {
       pinRecipes: jest.fn().mockResolvedValue([]),
       regenerateForBooking: jest.fn().mockResolvedValue({}),
+      refreshAfterMenuChange: jest.fn().mockResolvedValue(null),
     };
     availability = { assertBookable: jest.fn().mockResolvedValue(undefined) };
     audit = { record: jest.fn() };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     mailer = { holdReminder: jest.fn() };
     const config = {
       get: jest.fn((key: string, fallback?: unknown) =>
@@ -169,6 +176,7 @@ describe('BookingsService', () => {
       mailer as unknown as BookingsMailer,
       config as unknown as ConfigService,
       geo,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -266,6 +274,18 @@ describe('BookingsService', () => {
       );
     });
 
+    it('refuses a street the postcode has no trace of, creating nothing', async () => {
+      await expect(
+        service.create('client', 'clerk_1', {
+          ...dto,
+          addressPostalCode: '93100',
+          addressCity: 'Montreuil',
+          addressLine: '99 rue Azerty',
+        }),
+      ).rejects.toMatchObject({ status: 422, response: { code: 'ADDRESS_NOT_FOUND' } });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
     it('refuses a town the postcode does not serve, creating nothing', async () => {
       await expect(
         service.create('client', 'clerk_1', {
@@ -349,7 +369,10 @@ describe('BookingsService', () => {
         meals: [{ mealId: 'meal-1' }],
       });
 
-      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1');
+      // Recettes lot 3 (LF-0268): in the transaction that writes the menu.
+      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1', {
+        db: expect.anything(),
+      });
     });
 
     it('takes the next reference when another booking got this one first', async () => {
@@ -403,6 +426,145 @@ describe('BookingsService', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'booking.created', actorUserId: 'admin-1' }),
       );
+    });
+  });
+
+  describe('booking boxes (CGV V1)', () => {
+    /** 1 December 2026: the CGV V1 are in force. */
+    const V1_NOW = new Date('2026-12-01T09:00:00.000Z');
+    const dto = { serviceOfferId: 'offer-1', startsAt: START };
+    const boxes = { version: '1.0', cgv: true };
+
+    beforeEach(() => {
+      jest.useFakeTimers({
+        now: V1_NOW,
+        doNotFake: [
+          'nextTick',
+          'setImmediate',
+          'setTimeout',
+          'setInterval',
+          'queueMicrotask',
+        ],
+      });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('refuses a client booking sent without them, creating nothing', async () => {
+      await expect(service.create('client', 'clerk_1', dto)).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'CONTRACT_CONSENT_REQUIRED', missing: ['CGV'], version: '1.0' },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('asks for the mandate when the batch cooker shops, and for early execution inside 14 days', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({
+        ...OFFER,
+        shoppingIncluded: true,
+      });
+      const soon = new Date('2026-12-10T09:00:00.000Z');
+
+      await expect(
+        service.create('client', 'clerk_1', { ...dto, startsAt: soon, consents: boxes }),
+      ).rejects.toMatchObject({
+        response: { missing: ['DEBOURS_MANDATE', 'EARLY_EXECUTION'] },
+      });
+    });
+
+    it('stamps the boxes on the booking and keeps the proof in the audit', async () => {
+      await service.create('client', 'clerk_1', { ...dto, consents: boxes });
+
+      expect(prisma.booking.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            contractVersion: '1.0',
+            cgvAcceptedAt: V1_NOW,
+            deboursMandateAcceptedAt: null,
+            earlyExecutionRequestedAt: null,
+          }),
+        }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'client',
+          action: 'booking.consents',
+          subjectId: 'booking-1',
+          metadata: expect.objectContaining({
+            version: '1.0',
+            texts: { cgv: expect.stringContaining('Conditions Générales de Vente') },
+          }),
+        }),
+      );
+    });
+
+    it('lets a batch cooker book for a client: the client ticks the boxes before paying', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      await service.create('chef', 'clerk_1', {
+        ...dto,
+        clientId: 'client-1',
+        consents: boxes,
+      });
+
+      expect(prisma.booking.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ contractVersion: null, cgvAcceptedAt: null }),
+        }),
+      );
+    });
+
+    describe('consent', () => {
+      const pending = {
+        status: 'pending',
+        startsAt: START,
+        createdAt: V1_NOW,
+        shoppingByClient: false,
+        contractVersion: null,
+        cgvAcceptedAt: null,
+        deboursMandateAcceptedAt: null,
+        earlyExecutionRequestedAt: null,
+        serviceOffer: { shoppingIncluded: true },
+      };
+
+      it('stamps the boxes a pending booking still lacks', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce(pending);
+
+        await service.consent('clerk_1', 'booking-1', { ...boxes, deboursMandate: true });
+
+        expect(prisma.booking.update).toHaveBeenCalledWith({
+          where: { id: 'booking-1', status: 'pending' },
+          data: {
+            contractVersion: '1.0',
+            cgvAcceptedAt: V1_NOW,
+            deboursMandateAcceptedAt: V1_NOW,
+            earlyExecutionRequestedAt: null,
+          },
+        });
+      });
+
+      it('refuses while a box the booking needs is still missing', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce(pending);
+
+        await expect(
+          service.consent('clerk_1', 'booking-1', boxes),
+        ).rejects.toMatchObject({
+          status: 422,
+          response: { missing: ['DEBOURS_MANDATE'] },
+        });
+        expect(prisma.booking.update).not.toHaveBeenCalled();
+      });
+
+      it('takes boxes on a pending booking only', async () => {
+        prisma.booking.findFirst.mockResolvedValueOnce({
+          ...pending,
+          status: 'confirmed',
+        });
+
+        await expect(
+          service.consent('clerk_1', 'booking-1', boxes),
+        ).rejects.toMatchObject({
+          response: { code: 'BOOKING_LOCKED' },
+        });
+      });
     });
   });
 
@@ -540,6 +702,163 @@ describe('BookingsService', () => {
         later,
         new Date(later.getTime() + 3 * 3_600_000),
         'booking-1',
+      );
+    });
+  });
+
+  describe('the menu freezes 72 hours before (Recettes lot 3, LF-0269)', () => {
+    const soon = () => row({ startsAt: new Date(Date.now() + 48 * 3_600_000) });
+
+    beforeEach(() => {
+      prisma.meal.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue(DECLARED);
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-2', allergens: [], allergensNone: true, allergensVerifiedAt: START },
+      ]);
+    });
+
+    it('refuses the client a change of dishes, and writes nothing', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await expect(
+        service.update('client', 'clerk_1', 'booking-1', {
+          meals: [{ mealId: 'meal-2' }],
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'MENU_FROZEN', frozenSince: expect.any(Date) },
+      });
+      expect(prisma.bookingMeal.createMany).not.toHaveBeenCalled();
+    });
+
+    it('still takes a change that leaves the dishes alone', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await service.update('client', 'clerk_1', 'booking-1', { notes: 'Digicode 12' });
+
+      expect(prisma.booking.update).toHaveBeenCalled();
+    });
+
+    it('lets an admin change a frozen menu, pins it and records the override', async () => {
+      prisma.booking.findFirst.mockResolvedValue(soon());
+
+      await service.update('admin', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(prisma.bookingMeal.createMany).toHaveBeenCalled();
+      expect(lists.pinRecipes).toHaveBeenCalledWith('booking-1', {
+        db: expect.anything(),
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'booking.updated',
+          metadata: expect.objectContaining({ menuFrozenOverride: true }),
+        }),
+      );
+    });
+  });
+
+  describe('the list follows a change of dishes (Recettes lot 4, LF-0283)', () => {
+    beforeEach(() => {
+      prisma.meal.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue(DECLARED);
+      prisma.meal.findMany.mockResolvedValue([
+        { id: 'meal-2', allergens: [], allergensNone: true, allergensVerifiedAt: START },
+      ]);
+    });
+
+    it('tells the client when a list already sent went out again', async () => {
+      lists.refreshAfterMenuChange.mockResolvedValue(2);
+
+      await service.update('client', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'shopping_list.updated',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('tells nobody when no list had been sent', async () => {
+      await service.update('client', 'clerk_1', 'booking-1', {
+        meals: [{ mealId: 'meal-2' }],
+      });
+
+      expect(lists.refreshAfterMenuChange).toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the conservation sheet (Recettes lot 3, LF-0272)', () => {
+    it('tells the client once the chef marks the dishes delivered', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ status: 'cooking', startsAt: new Date(Date.now() - 3 * 3_600_000) }),
+      );
+
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'conservation.ready',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('tells nobody for another move', async () => {
+      prisma.booking.findFirst.mockResolvedValue(row({ status: 'pending' }));
+
+      await service.update('client', 'clerk_1', 'booking-1', { status: 'cancelled' });
+
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('express dishes of a custom prestation (15/11)', () => {
+    beforeEach(() => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ status: 'cooking', startsAt: new Date(Date.now() - 3 * 3_600_000) }),
+      );
+    });
+
+    it('asks the batch cooker to keep or drop them once delivered', async () => {
+      prisma.bookingMeal.count.mockResolvedValue(1);
+      prisma.booking.findUnique.mockResolvedValue({
+        chefProfile: { userId: 'chef-user-1' },
+      });
+
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(prisma.bookingMeal.count).toHaveBeenCalledWith({
+        where: {
+          bookingId: 'booking-1',
+          meal: { expressQuoteId: { not: null }, expressDecision: null },
+        },
+      });
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'chef-user-1',
+        'express_dish.decide',
+        {
+          type: 'booking',
+          id: 'booking-1',
+        },
+      );
+    });
+
+    it('asks nothing when no express dish waits', async () => {
+      await service.update('chef', 'clerk_1', 'booking-1', { status: 'delivered' });
+
+      expect(notifications.notify).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'express_dish.decide',
+        expect.anything(),
       );
     });
   });
@@ -713,7 +1032,10 @@ describe('BookingsService', () => {
       expect(prisma.bookingMeal.create).toHaveBeenCalledWith({
         data: { bookingId: 'booking-1', mealId: 'meal-2', portions: 6 },
       });
-      expect(lists.regenerateForBooking).toHaveBeenCalledWith('booking-1');
+      expect(lists.refreshAfterMenuChange).toHaveBeenCalledWith(
+        'booking-1',
+        expect.any(Date),
+      );
     });
 
     it('refuses to swap a dish that is not in conflict, or for an unsafe one', async () => {
@@ -762,7 +1084,6 @@ describe('BookingsService', () => {
           .spyOn(Logger.prototype, level)
           .mockImplementation((...args: unknown[]) => void calls.push(args));
       }
-      lists.pinRecipes.mockRejectedValue(new Error('pin failed'));
       prisma.meal.count.mockResolvedValue(1);
 
       await service.create('client', 'clerk_1', {
@@ -794,7 +1115,6 @@ describe('BookingsService', () => {
       expect(events).toEqual(
         expect.arrayContaining([
           'booking.created',
-          'booking.recipes_not_pinned',
           'booking.updated',
           'booking.hold_reminded',
           'booking.expired',

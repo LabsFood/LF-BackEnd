@@ -21,6 +21,7 @@ import {
   ApiParam,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import {
@@ -40,6 +41,8 @@ import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
+import { ChefLegalDto, UpdateChefLegalDto } from './dto/chef-legal.dto';
+import { UpdateChefZonesDto } from './dto/admin-chefs.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import {
   SapProfileDto,
@@ -138,10 +141,12 @@ export class UsersController {
     summary: 'My getting-started checklist',
     description:
       'LF-0221: the steps a client is invited to take after creating the account, in ' +
-      'order — `contact_details`, `address`, `allergies`, `tastes`, `first_booking` — ' +
-      'each `done` as soon as the data exists. Nothing here blocks: `requiredFor: ' +
-      '"menu_validation"` on `allergies` says a menu cannot be validated before it ' +
-      '(the fail-closed rule of `PUT /me/profile/allergies`). The fronts word each step.',
+      'order — `contact_details`, `address`, `allergies`, `tastes`, `urssaf_dossier`, ' +
+      '`first_booking` — each `done` as soon as the data exists. Nothing here blocks: ' +
+      '`requiredFor: "menu_validation"` on `allergies` says a menu cannot be validated ' +
+      'before it (the fail-closed rule of `PUT /me/profile/allergies`). ' +
+      '`urssaf_dossier` (`PUT /me/urssaf-dossier`) is listed only while the immediate ' +
+      'advance is offered, with `requiredFor: "immediate_advance"`. The fronts word each step.',
   })
   @ApiOkResponse({
     description: '`completed` out of `total`, and each step.',
@@ -277,8 +282,8 @@ export class UsersController {
       'account. Send ' +
       'only the fields to change.\n\n' +
       'Only for an approved batch cooker: while the candidature is reviewed the account ' +
-      'is browse-only. The visibility flags, the SAP route and the zones are set at ' +
-      'approval and cannot be sent here.',
+      'is browse-only. The visibility flags and the SAP route are set at approval and ' +
+      'cannot be sent here; the zones have their own route, `PATCH /me/chef-profile/zones`.',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
@@ -297,6 +302,36 @@ export class UsersController {
     @Body() payload: UpdateMeChefProfileDto,
   ) {
     return this.users.updateOwnChefProfile(user.userId, payload);
+  }
+
+  @Patch('me/chef-profile/zones')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Change my intervention zones',
+    description:
+      'Replaces every zone, in the shape and with the rules of the candidature’s ' +
+      '`interventionZones`: at least one, metropolitan regions only, a `cities` zone ' +
+      'names its towns. Journaled. Read them back in `GET /me`, `chefProfile.interventionZones`.\n\n' +
+      'Only for an approved batch cooker: until then the zones are the candidature’s.',
+  })
+  @ApiOkResponse({ description: 'The new zones: `{ interventionZones }`.' })
+  @ApiForbiddenResponse({
+    description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+  })
+  @ApiNotFoundResponse({ description: 'This account is not a batch cooker.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a region outside metropolitan France, or a `cities` zone ' +
+      'without a city. `ZONE_CITY_UNKNOWN`: a town is not the commune its INSEE code ' +
+      'names in that region (geo.api.gouv.fr).',
+  })
+  @ApiGeoResponses()
+  @ApiClerkAuthResponses()
+  patchMeChefZones(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: UpdateChefZonesDto,
+  ) {
+    return this.users.updateOwnChefZones(user.userId, body.interventionZones);
   }
 
   @Get('me/chef-profile/sap')
@@ -339,6 +374,45 @@ export class UsersController {
     @Body() payload: UpdateMeSapProfileDto,
   ) {
     return this.users.updateSapProfileByClerkUserId(user.userId, payload);
+  }
+
+  @Get('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Get my legal identity',
+    description:
+      'What clients read about me before booking (CGV art. 3.2), as entered, with ' +
+      '`missing`: what they cannot see yet. Nothing blocks a booking meanwhile.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeChefLegal(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getChefLegal(user.userId);
+  }
+
+  @Patch('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Fill in my legal identity',
+    description:
+      'Name or company name, legal status, SIREN, professional address, VAT regime, ' +
+      'insurance and consumer mediator, shown to clients on my page, in the booking ' +
+      'recap and in the contract they receive. A field absent is kept, `null` clears it.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`VALIDATION_FAILED`: the SIREN fails its Luhn key.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeChefLegal(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateChefLegalDto,
+  ) {
+    return this.users.updateChefLegal(user.userId, payload);
   }
 
   @Get('admin/users')

@@ -89,6 +89,61 @@ describe('PlatformSettingsService', () => {
     });
   });
 
+  describe('aisles (Recettes §5.4)', () => {
+    it('lists the 13 default aisles in store order until an admin changes them', async () => {
+      const { aisles, updatedAt } = await harness().service.aisles();
+
+      expect(aisles.map((a) => a.code)).toEqual([
+        'fruits-legumes',
+        'boulangerie',
+        'boucherie',
+        'poissonnerie',
+        'cremerie',
+        'fromages',
+        'epicerie-salee',
+        'conserves',
+        'epices',
+        'epicerie-sucree',
+        'boissons',
+        'non-alimentaire',
+        'surgeles',
+      ]);
+      expect(aisles[0].label).toBe('Fruits et légumes (y compris herbes fraîches)');
+      expect(updatedAt).toBeNull();
+    });
+
+    it('saves the list and journals before and after', async () => {
+      const { service, prisma, audit } = harness();
+      const aisles = [{ code: 'boulangerie', label: 'Boulangerie' }];
+
+      expect(await service.setAisles(aisles, 'admin-1', 'req-1')).toEqual({
+        aisles,
+        updatedAt: UPDATED_AT,
+      });
+      expect(prisma.platformSetting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { key: 'recipe_aisles' } }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'settings.recipe_aisles_changed' }),
+      );
+    });
+
+    it('refuses the same code twice', async () => {
+      const { service, prisma } = harness();
+
+      await expect(
+        service.setAisles(
+          [
+            { code: 'epices', label: 'Épices' },
+            { code: 'epices', label: 'Condiments' },
+          ],
+          'admin-1',
+        ),
+      ).rejects.toMatchObject({ response: { code: 'VALIDATION_FAILED' } });
+      expect(prisma.platformSetting.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('chef tiers (Recettes R34)', () => {
     it('names the four tiers neutrally until an admin renames them', async () => {
       const { service } = harness();
@@ -170,6 +225,97 @@ describe('PlatformSettingsService', () => {
         }),
       );
       expect(result).toEqual({ labels, updatedAt: UPDATED_AT });
+    });
+  });
+
+  describe('grocery amounts (Recettes lot 6, groundwork)', () => {
+    it('answers 100 € and 15 € until an admin changes them, in the pricing rules too', async () => {
+      const { service } = harness();
+
+      expect(await service.groceries()).toEqual({
+        budgetMaxCents: 10_000,
+        recommendedShoppingFeeMinCents: 1_500,
+        minCancelNoticeMinutes: 120,
+        silenceConfirms: false,
+        instantPayoutFeeBps: 150,
+        instantPayoutFeeMinCents: 50,
+        updatedAt: null,
+      });
+      expect((await service.pricingRules()).groceries).toEqual({
+        budgetMaxCents: 10_000,
+        recommendedShoppingFeeMinCents: 1_500,
+        minCancelNoticeMinutes: 120,
+        silenceConfirms: false,
+        instantPayoutFeeBps: 150,
+        instantPayoutFeeMinCents: 50,
+      });
+    });
+
+    it('reads what is saved, each value falling back when out of bounds', async () => {
+      const { service } = harness({
+        budgetMaxCents: 12_000,
+        recommendedShoppingFeeMinCents: -5,
+      });
+
+      expect(await service.groceries()).toMatchObject({
+        budgetMaxCents: 12_000,
+        recommendedShoppingFeeMinCents: 1_500,
+      });
+    });
+
+    it('saves both values and journals before and after', async () => {
+      const { service, prisma, audit } = harness();
+      const rules = { budgetMaxCents: 12_000, recommendedShoppingFeeMinCents: 2_000 };
+
+      await service.setGroceries(rules, 'admin-1', 'req-1');
+
+      expect(prisma.platformSetting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { key: 'groceries' } }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'settings.groceries_changed',
+          metadata: {
+            from: expect.objectContaining({
+              budgetMaxCents: 10_000,
+              recommendedShoppingFeeMinCents: 1_500,
+            }),
+            // A field left out keeps its value.
+            to: expect.objectContaining({ ...rules, minCancelNoticeMinutes: 120 }),
+          },
+        }),
+      );
+    });
+
+    it('saves the lot 6 fields: the cancel notice, the silence and the instant payout fee', async () => {
+      const { service, audit } = harness();
+      await service.setGroceries(
+        {
+          budgetMaxCents: 10_000,
+          recommendedShoppingFeeMinCents: 1_500,
+          minCancelNoticeMinutes: 180,
+          silenceConfirms: true,
+        },
+        'admin-1',
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            to: expect.objectContaining({
+              minCancelNoticeMinutes: 180,
+              silenceConfirms: true,
+            }),
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('fridge alert (Recettes lot 3)', () => {
+    it('is 4 days until an admin sets another value between 1 and 14', async () => {
+      expect((await harness().service.fridgeAlert()).days).toBe(4);
+      expect((await harness({ days: 6 }).service.fridgeAlert()).days).toBe(6);
+      expect((await harness({ days: 40 }).service.fridgeAlert()).days).toBe(4);
     });
   });
 });

@@ -40,11 +40,14 @@ import {
   ADMIN_QUOTE_FILTERS,
   CreateQuoteDto,
   CreateQuoteOfferDto,
+  AcceptOfferDto,
   DeclineDto,
+  ExpressDecisionDto,
   QUOTE_STATUS_HELP,
   QUOTE_STATUSES,
   UpdateQuoteAdminDto,
 } from './dto/quote.dto';
+import { ExpressDishesService } from './express-dishes.service';
 import { QuoteOffersService } from './quote-offers.service';
 import { QuotesService } from './quotes.service';
 
@@ -246,7 +249,9 @@ export class QuotesController {
       'of the offer (the ones asked, unless the batch cooker proposed others). It ' +
       'shows in `GET /bookings/me` for both. The conversation between the two opens ' +
       'and both receive a confirmation email with the recap.\n\n' +
-      'Nothing is paid here: payment comes after the prestation.',
+      'Nothing is paid here: payment comes after the prestation. Accepting ' +
+      'concludes the contract: the body carries the booking boxes ' +
+      '(`CONTRACT_CONSENT_REQUIRED`, 422, lists what is missing).',
   })
   @ApiOkResponse({ description: 'The request, with its prestation.', example: ACCEPTED })
   @ApiNotFoundResponse({ description: `${NOT_YOURS} Or no such offer.` })
@@ -264,8 +269,9 @@ export class QuotesController {
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('offerId', ParseUUIDPipe) offerId: string,
+    @Body() body: AcceptOfferDto,
   ) {
-    return this.offers.accept(user.userId, id, offerId);
+    return this.offers.accept(user.userId, id, offerId, body?.consents);
   }
 
   @Post('me/quotes/:id/offers/:offerId/decline')
@@ -317,8 +323,9 @@ export class QuotesController {
   acceptQuote(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AcceptOfferDto,
   ) {
-    return this.offers.accept(user.userId, id);
+    return this.offers.accept(user.userId, id, undefined, body?.consents);
   }
 }
 
@@ -388,7 +395,16 @@ export class ChefQuotesController {
       'preview while typing.\n\n' +
       'The request becomes `quoted` and the client is emailed. One offer at a time: ' +
       'withdraw the open one before sending another. After `validityDays` (7 by ' +
-      'default) with no answer, the offer expires and the request comes back.',
+      'default) with no answer, the offer expires and the request comes back.\n\n' +
+      '**Dishes** (optional, decision of 15/11): `dishIds` and `menuIds` name the ' +
+      "batch cooker's published dishes and menus; `expressDishes` writes dishes in a " +
+      'few words for this request (name, description, the allergens known), kept out ' +
+      'of the catalogue. 30 dishes at most. The offer then carries `dishes` and ' +
+      "`allergy`: the dishes against the client's allergies. A conflict, or a dish " +
+      'not verified (an express dish never is), is a warning, never a refusal: the ' +
+      'two sides are invited to talk (`POST /me/conversations` with `quoteId`). An ' +
+      "accepted offer's dishes become the prestation's, pinned, and the client " +
+      'does the shopping.',
   })
   @ApiCreatedResponse({ description: 'The request, with the offer.', example: QUOTED })
   @ApiNotFoundResponse({ description: 'No such request, or it is not with the caller.' })
@@ -401,7 +417,12 @@ export class ChefQuotesController {
       'An offer is already waiting for the client. Withdraw it first.',
     ),
   })
-  @ApiUnprocessableEntityResponse({ description: '`DATE_TOO_SOON`.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      "`DATE_TOO_SOON`, `OFFER_DISH_INVALID` (with `ids`: not the caller's " +
+      'published dishes or menus, nor an express dish of this request still ' +
+      'undecided) or `OFFER_TOO_MANY_DISHES`.',
+  })
   @ApiClerkAuthResponses()
   createOffer(
     @CurrentClerkUser() user: ClerkUser,
@@ -461,6 +482,90 @@ export class ChefQuotesController {
     @Body() body: DeclineDto,
   ) {
     return this.quotes.declineAsChef(user.userId, id, body.reason);
+  }
+}
+
+/**
+ * Express dishes (decision of 15/11): written for one custom request, kept or
+ * dropped by the batch cooker after the prestation.
+ */
+@ApiTags(TAGS.quotes)
+@ApiBearerAuth()
+@UseGuards(ClerkAuthGuard)
+@ApiForbiddenResponse({
+  description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+})
+@Controller('me/express-dishes')
+export class ExpressDishesController {
+  constructor(private readonly express: ExpressDishesService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'List my express dishes still to keep or drop',
+    description:
+      'The dishes written in a few words for a custom request, not yet kept nor ' +
+      'dropped, newest first, with the request and the latest prestation they were ' +
+      'cooked in. `decisionBlockedBy` is null when the batch cooker may decide now, ' +
+      'else `OFFER_PENDING` (an offer with it waits for the client) or ' +
+      '`PRESTATION_PENDING` (a prestation with it is still to be cooked).',
+  })
+  @ApiOkResponse({
+    description: 'The express dishes.',
+    example: [
+      {
+        id: '8c1d9f3e-7a2b-4c5d-9e0f-1a2b3c4d5e6f',
+        name: 'Gâteau d’anniversaire au chocolat',
+        description: 'Trois étages, ganache noire.',
+        allergens: ['eggs', 'milk', 'gluten'],
+        createdAt: '2026-11-15T10:00:00.000Z',
+        request: {
+          id: '7c2f0e1a-4b3d-4e5f-8a9b-0c1d2e3f4a5b',
+          reference: 'DEM-2026-0042',
+          title: 'Anniversaire de Léa',
+        },
+        prestation: {
+          id: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
+          reference: 'LF-SM-2026-0042',
+          status: 'delivered',
+          startsAt: '2026-11-28T09:00:00.000Z',
+        },
+        decisionBlockedBy: null,
+      },
+    ],
+  })
+  @ApiClerkAuthResponses()
+  list(@CurrentClerkUser() user: ClerkUser) {
+    return this.express.listMine(user.userId);
+  }
+
+  @Post(':id/decision')
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'id', description: 'The express dish.', format: 'uuid' })
+  @ApiOperation({
+    summary: 'Keep or drop an express dish',
+    description:
+      '`kept`: the dish joins « Mes plats » as a draft; its recipe is completed there ' +
+      'and it is published under the usual rules (photo, confirmed allergens). ' +
+      '`dropped`: it is archived; the prestations it was cooked in keep it. Once ' +
+      'decided, the same decision again changes nothing; the other one is refused.',
+  })
+  @ApiOkResponse({
+    description: 'The decision.',
+    example: { id: '8c1d9f3e-7a2b-4c5d-9e0f-1a2b3c4d5e6f', decision: 'kept' },
+  })
+  @ApiNotFoundResponse({ description: '`EXPRESS_DISH_NOT_FOUND`.' })
+  @ApiConflictResponse({
+    description:
+      '`EXPRESS_DECISION_TOO_SOON` (with `reason`: `OFFER_PENDING` or ' +
+      '`PRESTATION_PENDING`), or `EXPRESS_ALREADY_DECIDED`.',
+  })
+  @ApiClerkAuthResponses()
+  decide(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ExpressDecisionDto,
+  ) {
+    return this.express.decide(user.userId, id, body.decision);
   }
 }
 

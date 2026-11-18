@@ -76,7 +76,7 @@ Docker `api` runs `prisma migrate deploy` on container start (`apps/scripts/dock
 
 ### Railway production
 
-Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Config-as-code: [`railway.toml`](railway.toml). Set `SUPABASE_DB_URL` (transaction pooler :6543), `SUPABASE_DB_MIGRATION_URL` (session or direct :5432), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`. Public API base URL: Railway **Networking** domain (see README **API endpoints**).
+Deploy checklist: [`docs/deploy/railway.md`](docs/deploy/railway.md). Build settings (Dockerfile `/apps/Dockerfile`, health check) live on the Railway service, not in a file. Set `SUPABASE_DB_URL` (transaction pooler :6543), `SUPABASE_DB_MIGRATION_URL` (session or direct :5432), `CLERK_SECRET_KEY`, `CORS_ORIGINS`, `NODE_ENV=production`. Health check path: `/health`. Public API base URL: Railway **Networking** domain (see README **API endpoints**).
 
 ### Linting and testing
 
@@ -253,9 +253,61 @@ fact. Module: `modules/dishes/`. Spec:
 - **Recipe versions**: `meals.recipe_version` goes up on every recipe change; a
   booking pins the version it cooks from (`booking_meals.recipe_version`) and the
   content is kept in `meal_recipe_versions`, so the fiche and the shopping list
-  always agree. Pinned when `POST /me|chef|admin/bookings` creates the booking
-  (best-effort); a dish added later, or a failed pin, is pinned on first use of
-  the fiche or the shopping list.
+  always agree. Recettes lot 3: pinned, with the dish's allergens of that
+  moment (`booking_meals.allergens_snapshot`, `pinned_at`), in the same
+  transaction that writes the menu (booking created, dishes changed, a
+  conflicting dish replaced); a booking from before lot 3 is pinned on first use
+  of the fiche or the shopping list.
+- **Menu freeze (lot 3)**: from 72 h before the start the dishes no longer
+  change (`409 MENU_FROZEN`, with `frozenSince`), computed from `startsAt`.
+  The allergy-conflict replacement still goes through; an admin may still
+  change them (`menuFrozenOverride` in the audit log); the chef's re-pin is
+  refused, and checks the client's allergies again before the freeze.
+- **« À manger avant » and conservation (lot 3)**: each dish's date is the
+  prestation day plus the pinned recipe's fridge days, or the chef's
+  (`booking_meals.eat_before`, every change kept in
+  `booking_meal_date_changes`), until 24 h after the end. Past
+  `/admin/settings/fridge-alert` days (4 by default) it alerts, never blocks.
+  The client reads the conservation sheet (JSON and PDF) once `delivered`, and
+  is told then (`conservation.ready`).
+- **Shopping list, lot 4**: a change of dishes recomputes the list and, when the
+  client already had one, sends it again at once before the deadline
+  (`shopping_list.updated`). « Courses faites » is
+  `POST /chef-missions/:id/groceries/validate`, with an optional receipt total
+  (`bookings.groceries_validated_at`, `groceries_amount_cents`; no payment before
+  lot 6). `ShoppingRemindersCron` (hourly, in-app only, each claimed once on the
+  booking): chef at J-4 while the list is not sent, client at J-2 while their
+  final list is not back, and at the deadline the client is told the list is
+  frozen and the chef reminded to shop.
+- **Lot 6, groceries paid apart** (`modules/groceries`, decisions of 31/10, 11/11,
+  16/11): one `grocery_runs` row per prestation the chef shops for. The mandate is
+  accepted by the booking box (no Clerk reverification); the proof (model version
+  `2.0` and its clauses in `mandate_rules`, maximum, SHA-256 of the mandate PDF, IP,
+  browser) is written on the client's first `POST /me/bookings/:id/groceries/card`
+  (SetupIntent, `…/card/confirm`). The Budget Courses is always the ceiling of
+  `/admin/settings/groceries` (100 €). `GroceriesCron` (5 min, each step claimed by
+  an UPDATE): the hold at the lock T-48h (PaymentIntent `capture_method: manual`,
+  `on_behalf_of` + `transfer_data`, no application fee, `payments.purpose =
+  courses`), the cancel deadline of the chef's message (`…/groceries/notice`, in-app
+  + Brevo `BREVO_TPL_GROCERIES_NOTICE`; the silence confirms only with
+  `silenceConfirms` on and the e-mail delivered per the Brevo webhook
+  `POST /webhooks/brevo?token=BREVO_WEBHOOK_TOKEN`, else the client clicks), a
+  refused hold not fixed by noon the day before (the client shops, an unpaid
+  forfait leaves the booking), the capture 24 h after the receipts (exact total,
+  rest released; safety capture 6 h before the hold expires), the settlement once
+  the 48 h contests are decided. Contested lines are captured, then refunded with
+  `reverse_transfer` if an admin upholds them. A chargeback (`grocery_disputes`) is
+  borne by Lab's Food, then the admin names the fault: chef (transfer reversed),
+  client (recovered by hand), platform. The chef may ask an instant payout, fee at
+  their charge (taken as the capture's application fee, refunded if the payout
+  fails). Every other payment read counts `purpose = service` only; a courses
+  payment is never invoiced nor commissioned. URSSAF: the request shows the
+  prestation and the forfait courses on two lines; `POST
+  /admin/urssaf-payments/:id/reprise` (status 120) drops the commission or issues a
+  credit note (`commission_invoices.kind = credit_note`, same LF-COM sequence),
+  deducted from the next facture B. Relevé de débours: booking document
+  `groceries-statement`; monthly chef statement `GET /me/chef/groceries/statement`.
+  Integration test on a real database: `GROCERIES_IT_DB=… npx jest groceries.integration`.
 - **Photos** on Cloudflare R2 (`R2_*`), presigned like KYC documents; without R2
   the photo routes answer 503.
 
@@ -263,7 +315,7 @@ fact. Module: `modules/dishes/`. Spec:
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public                            | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}`                                                                                                                                                             |
 | Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`                                        |
-| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`                                                                                   |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before`, `POST .../groceries/validate` |
 | Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
 | Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
 
@@ -378,6 +430,30 @@ pure rules).
   from the request's `DEM-…`. `quotes.booking_id` is unique: one request, one
   prestation. Then, best-effort, the two get a conversation and the recap email.
   **No payment is taken here**: it comes after the prestation (FLOW-03).
+  The booking is `shoppingByClient: true` (decision of 15/11: on a custom prestation
+  the client shops, no débours mandate, no list reminder to the batch cooker).
+- **Dishes in an offer** (decision of 15/11). Only the batch cooker adds them, in
+  `POST …/:id/offers`: `dishIds` (their published dishes), `menuIds` (their
+  published menus, each bringing its dishes) and `expressDishes`, at most 30 in all
+  (`quote_offer_dishes`, read menus first, then dishes, then express ones).
+  - **Express dishes** (« plats express »): name, description, the allergens the
+    batch cooker knows of, no recipe. Stored as `meals` rows with
+    `express_quote_id` set: out of `GET /me/dishes` and never public. They can be
+    put again in a later offer on the same request.
+  - **Allergies**: `offer.allergy` runs the lot 1 check (client profile + the
+    request's words) on the offer's dishes. A conflict or an unverified dish (an
+    express dish never is) **warns, never refuses**: both sides are invited to talk,
+    `POST /me/conversations` with `quoteId` opens the pair thread before
+    acceptance, writable while a request between them is open
+    (`submitted`, `in_review`, `quoted`, `declined`).
+  - **Acceptance** copies the dishes into `booking_meals` (portions = persons) and
+    pins them (`pinRecipes`) in the same transaction.
+  - **Keep or drop** (`GET /me/express-dishes`, `POST /me/express-dishes/:id/decision`):
+    once no offer with the dish waits for the client and no prestation with it is
+    still to cook. `kept`: an ordinary draft in « Mes plats », completed and
+    published under the usual rules. `dropped`: archived; the bookings keep it.
+    Delivering a prestation with undecided express dishes notifies the batch
+    cooker in-app (`express_dish.decide`).
 - **What a batch cooker sees**: the town and a short client name until the offer
   is accepted, the street and contact details after. A client never sees the net
   nor the rate. Why a batch cooker declined is for admins only.
@@ -391,6 +467,8 @@ pure rules).
 | Signed in    | `GET /pricing-rules`                                                                                                                |
 | Client       | `POST /quotes`, `GET /me/quotes`, `GET\|DELETE /me/quotes/:id`, `POST /me/quotes/:id/offers/:offerId/accept\|decline`               |
 | Batch cooker | `GET /me/chef/quotes`, `GET …/:id`, `POST …/:id/offers`, `POST …/:id/offers/:offerId/withdraw`, `POST …/:id/decline`                |
+| Batch cooker | `GET /me/express-dishes`, `POST /me/express-dishes/:id/decision`                                                                    |
+| Both sides   | `POST /me/conversations` with `quoteId`: talk before an offer is accepted                                                           |
 | Admin        | `GET /admin/quotes[?status=&filter=needs_chef]`, `GET\|PATCH …/:id`, `POST …/:id/offers`, `GET\|PATCH /admin/settings/commission`   |
 
 ### Paying a prestation (FLOW-03)
@@ -450,9 +528,9 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
 | Actor        | Routes                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public       | `GET /chefs/:chefProfileId/cesu-info`                                                                                                              |
-| Client       | `GET /me/bookings/:id/payment-options`, `GET …/payment-status`, `POST /payments/checkout-session`, `POST /payments/intent`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links`, `GET /me/fiscal-attestations/:year` |
+| Client       | `GET /me/bookings/:id/payment-options`, `GET …/payment-status`, `POST /payments/checkout-session`, `POST /payments/intent`, `POST /payments/cesu`, `POST /bookings/:id/settle`, `GET\|POST /me/urssaf-links`, `GET\|PUT\|DELETE /me/urssaf-dossier` (manual mode), `GET /me/fiscal-attestations/:year` |
 | Batch cooker | `GET /me/chef/cesu-payments`, `POST …/:id/confirm\|reject`, `GET /me/chef/commission-invoices`, `…/stripe-connect/*`, `…/sepa-mandate*`, `GET\|PATCH /me/chef-profile/sap` |
-| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET /admin/urssaf-payments`, `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status` |
+| Admin        | `GET /admin/urssaf-links`, `POST …/:id/decision`, `GET …/:id/dossier` (audited), `GET /admin/urssaf-payments`, `POST …/:id/transmitted` (manual mode), `POST …/:id/outcome`, `/admin/cesu-payments*`, `/admin/commission-invoices*`, `/admin/fiscal-attestations*`, `PATCH /admin/chefs/:id/sap-external-status`, `GET /admin/chefs/:id/transactions`, `POST /admin/chefs/:id/commissions/collect` |
 | Stripe       | `POST /webhooks/stripe`                                                                                                                            |
 
 ### Contact forms

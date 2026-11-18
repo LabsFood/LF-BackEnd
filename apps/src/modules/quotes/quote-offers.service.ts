@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -14,10 +15,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../messaging/services/messaging.service';
 import { findCommissionBlock } from '../payments/commission-standing';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import {
   ACTIVE_OFFER,
   MAX_DAYS_AHEAD,
+  MAX_OFFER_DISHES,
   TimeSlot,
+  offerDishLines,
   parisToday,
   priceOffer,
   slotWindow,
@@ -26,6 +30,13 @@ import { CreateQuoteOfferDto } from './dto/quote.dto';
 import { LoadedQuote, QuoteView } from './quote.views';
 import { QuotesMailer } from './quotes.mailer';
 import { ChefIdentity, QuotesService } from './quotes.service';
+import { contractConsentRequired } from '../bookings/domain/contract.errors';
+import {
+  acceptedConsents,
+  consentsAuditMetadata,
+  contractGaps,
+  type ConsentsInput,
+} from '../bookings/domain/contract.rules';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VALIDITY_DAYS = 7;
@@ -59,6 +70,7 @@ export class QuoteOffersService {
     private readonly mailer: QuotesMailer,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly shoppingLists: ShoppingListsService,
   ) {}
 
   // ── Batch cooker ──────────────────────────────────────────────────────────
@@ -144,6 +156,7 @@ export class QuoteOffersService {
     clerkUserId: string,
     quoteId: string,
     offerId?: string,
+    consentsInput?: ConsentsInput,
   ): Promise<QuoteView> {
     const user = await this.quotes.me(clerkUserId);
     const quote = await this.quotes.loadForClient(user.id, quoteId);
@@ -167,6 +180,16 @@ export class QuoteOffersService {
       });
     }
     const window = slotWindow(day, slot);
+    // CGV art. 5.1: accepting concludes the contract now, so the boxes come with it.
+    // A custom prestation has no shopping by the batch cooker: no débours mandate.
+    const consents = acceptedConsents(consentsInput, now);
+    const missing = contractGaps(consents, {
+      chefShops: false,
+      startsAt: window.startsAt,
+      latestConclusion: now,
+      bookedAt: now,
+    });
+    if (missing.length) throw contractConsentRequired(missing, 'booking');
     const address = [
       quote.addressLine,
       [quote.addressPostalCode, quote.addressCity].filter(Boolean).join(' '),
@@ -219,6 +242,8 @@ export class QuoteOffersService {
             startsAt: window.startsAt,
             endsAt: window.endsAt,
             status: 'confirmed',
+            concludedAt: now,
+            ...consents,
             priceCents: offer.clientPriceCents,
             amountTtc: offer.clientPriceCents,
             amountAfterTax: offer.afterTaxCreditCents,
@@ -226,9 +251,24 @@ export class QuoteOffersService {
             addressCity: quote.addressCity,
             addressPostalCode: quote.addressPostalCode,
             notes: quote.brief,
+            // Decision of 15/11: on a custom prestation the client does the shopping
+            // (no débours mandate), so no list reminder goes to the batch cooker.
+            shoppingByClient: true,
           },
           select: { id: true },
         });
+        // The offer's dishes become the prestation's, for the persons asked, and
+        // their recipe versions and allergens are pinned now (Recettes lot 3).
+        if (offer.dishes.length) {
+          await tx.bookingMeal.createMany({
+            data: offer.dishes.map(({ meal }) => ({
+              bookingId: booking.id,
+              mealId: meal.id,
+              portions: quote.persons,
+            })),
+          });
+          await this.shoppingLists.pinRecipes(booking.id, { db: tx });
+        }
         await tx.quote.update({
           where: { id: quote.id },
           data: { status: 'accepted', bookingId: booking.id },
@@ -251,11 +291,23 @@ export class QuoteOffersService {
       subjectId: quote.id,
       metadata: { offerId: offer.id, bookingId },
     });
+    if (consents.contractVersion) {
+      await this.audit.record({
+        actorType: 'client',
+        actorUserId: user.id,
+        action: 'booking.consents',
+        subjectType: 'booking',
+        subjectId: bookingId,
+        metadata: consentsAuditMetadata(consents),
+      });
+    }
     void this.afterAcceptance(quote, offer, {
       bookingId,
       day,
       slot,
       address,
+      // The contract email (bookings-contract-mail) is then the client's confirmation.
+      contract: consents.contractVersion !== null,
     });
     return this.quotes.view(await this.quotes.load(quoteId), 'client');
   }
@@ -290,6 +342,11 @@ export class QuoteOffersService {
    * each update only touches rows still in the state it expects.
    */
   @Cron(CronExpression.EVERY_10_MINUTES, { name: 'quote-offers-expiry' })
+  @SentryCron('quote-offers-expiry', {
+    checkinMargin: 5,
+    maxRuntime: 5,
+    failureIssueThreshold: 3,
+  })
   async expireDue(): Promise<number> {
     try {
       const due = await this.prisma.quoteOffer.findMany({
@@ -354,10 +411,36 @@ export class QuoteOffersService {
     const validUntil = new Date(
       Date.now() + (dto.validityDays ?? DEFAULT_VALIDITY_DAYS) * DAY_MS,
     );
+    const chosen = await this.chosenDishes(quote, chef, dto);
+    const express = dto.expressDishes ?? [];
 
+    let dishCount = 0;
     try {
-      await this.prisma.$transaction([
-        this.prisma.quoteOffer.create({
+      await this.prisma.$transaction(async (tx) => {
+        // Express dishes: written for this request, out of the catalogue until the
+        // batch cooker keeps or drops them, after the prestation.
+        const expressIds: string[] = [];
+        for (const dish of express) {
+          const row = await tx.meal.create({
+            data: {
+              name: dish.name,
+              description: dish.description || null,
+              chefProfileId: chef.chefProfileId,
+              createdByUserId: actor.actorUserId,
+              status: 'draft',
+              prepTime: 0,
+              portions: quote.persons,
+              allergens: dish.allergens ?? [],
+              allergensNone: false,
+              expressQuoteId: quote.id,
+            },
+            select: { id: true },
+          });
+          expressIds.push(row.id);
+        }
+        const lines = offerDishLines({ ...chosen, expressIds });
+        dishCount = lines.length;
+        const offer = await tx.quoteOffer.create({
           data: {
             quoteId: quote.id,
             chefProfileId: chef.chefProfileId,
@@ -370,12 +453,18 @@ export class QuoteOffersService {
             conditions: dto.conditions || null,
             validUntil,
           },
-        }),
-        this.prisma.quote.update({
+          select: { id: true },
+        });
+        if (lines.length) {
+          await tx.quoteOfferDish.createMany({
+            data: lines.map((line) => ({ offerId: offer.id, ...line })),
+          });
+        }
+        await tx.quote.update({
           where: { id: quote.id },
           data: { status: 'quoted' },
-        }),
-      ]);
+        });
+      });
     } catch (error) {
       // The partial unique index: another offer went in between the check and the write.
       if (!isUniqueViolation(error)) throw error;
@@ -391,10 +480,86 @@ export class QuoteOffersService {
       action: 'quote.offer_sent',
       subjectType: 'quote',
       subjectId: quote.id,
-      metadata: { netCents: dto.netCents, commissionBps, ...price },
+      metadata: {
+        netCents: dto.netCents,
+        commissionBps,
+        ...price,
+        dishes: dishCount,
+        expressDishes: express.length,
+      },
       requestId: actor.requestId,
     });
     void this.notifyOffer(quote, chef.chefProfileId, price, validUntil);
+  }
+
+  /**
+   * The dishes the batch cooker named, checked as theirs and on offer: their
+   * published dishes and menus, and the express dishes of this request they have
+   * not dropped. Every unknown id is reported at once (`OFFER_DISH_INVALID`).
+   */
+  private async chosenDishes(
+    quote: LoadedQuote,
+    chef: ChefIdentity,
+    dto: CreateQuoteOfferDto,
+  ): Promise<{ menus: { id: string; dishIds: string[] }[]; dishIds: string[] }> {
+    const menuIds = dto.menuIds ?? [];
+    const dishIds = dto.dishIds ?? [];
+    const [menus, dishes] = await Promise.all([
+      menuIds.length
+        ? this.prisma.menu.findMany({
+            where: {
+              id: { in: menuIds },
+              chefProfileId: chef.chefProfileId,
+              status: 'published',
+            },
+            select: {
+              id: true,
+              dishes: { orderBy: { position: 'asc' }, select: { mealId: true } },
+            },
+          })
+        : [],
+      dishIds.length
+        ? this.prisma.meal.findMany({
+            where: {
+              id: { in: dishIds },
+              chefProfileId: chef.chefProfileId,
+              OR: [
+                {
+                  status: 'published',
+                  OR: [{ expressQuoteId: null }, { expressDecision: 'kept' }],
+                },
+                { expressQuoteId: quote.id, expressDecision: null },
+              ],
+            },
+            select: { id: true },
+          })
+        : [],
+    ]);
+    const found = new Set([...menus.map((m) => m.id), ...dishes.map((d) => d.id)]);
+    const invalid = [...menuIds, ...dishIds].filter((id) => !found.has(id));
+    if (invalid.length) {
+      throw new UnprocessableEntityException({
+        code: 'OFFER_DISH_INVALID',
+        message:
+          'Only your published dishes and menus, and the express dishes of this ' +
+          'request you have not dropped, can be put in an offer.',
+        ids: invalid,
+      });
+    }
+    // Kept in the order the batch cooker gave them.
+    const ordered = menuIds.map((id) => menus.find((m) => m.id === id)!);
+    const chosen = {
+      menus: ordered.map((m) => ({ id: m.id, dishIds: m.dishes.map((d) => d.mealId) })),
+      dishIds,
+    };
+    const total = offerDishLines({ ...chosen, expressIds: [] }).length;
+    if (total + (dto.expressDishes?.length ?? 0) > MAX_OFFER_DISHES) {
+      throw new UnprocessableEntityException({
+        code: 'OFFER_TOO_MANY_DISHES',
+        message: `An offer carries at most ${MAX_OFFER_DISHES} dishes, menus included.`,
+      });
+    }
+    return chosen;
   }
 
   /** The offer the client is answering: the active one, and the one they named. */
@@ -435,7 +600,13 @@ export class QuoteOffersService {
   private async afterAcceptance(
     quote: LoadedQuote,
     offer: LoadedQuote['offers'][number],
-    ctx: { bookingId: string; day: Date; slot: TimeSlot; address: string },
+    ctx: {
+      bookingId: string;
+      day: Date;
+      slot: TimeSlot;
+      address: string;
+      contract: boolean;
+    },
   ): Promise<void> {
     try {
       await this.messaging.ensurePair(quote.clientId, offer.chefProfileId);
@@ -473,6 +644,7 @@ export class QuoteOffersService {
         afterTaxCreditCents: offer.afterTaxCreditCents,
         netCents: offer.netCents,
         conditions: offer.conditions,
+        clientCopy: !ctx.contract,
       });
     } catch (error) {
       this.logger.error(

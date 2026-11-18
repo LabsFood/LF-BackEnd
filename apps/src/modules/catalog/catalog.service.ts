@@ -2,20 +2,34 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 
 import { Meal, MealStatus, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { classificationOf } from '../ingredients/ingredients.service';
+import { fridgeAlertDaysInForce } from '../platform-settings/fridge-alert';
+import { assertIngredientAccess } from '../ingredients/composition';
 import {
-  assertCatalogIngredients,
   assertConsistent,
   assertProfiles,
   assertReheatModes,
   assertWithinLimits,
+  checkedLines,
+  composeLines,
+  composedSave,
+  compositionColumns,
   SAFETY_FIELDS,
-  toIngredientsJson,
+  storedState,
   toReheatingJson,
   toStepsJson,
   toStorageJson,
+  withLegacyAdded,
 } from '../dishes/dishes.service';
-import { contentNotOwned, offerPending } from '../dishes/domain/content.errors';
+import { sameAllergenState } from '../dishes/domain/allergens.rules';
+import { linkedIds } from '../dishes/domain/classification.rules';
+import {
+  contentNotOwned,
+  offerPending,
+  recipeConflict,
+  recipeNotReady,
+} from '../dishes/domain/content.errors';
+import { ReadinessDish } from '../dishes/domain/dishes.rules';
+import { publicationProblems } from '../dishes/domain/menus.rules';
 import { SuggestionsService } from '../dishes/suggestions.service';
 import {
   CreateMealDto,
@@ -45,6 +59,11 @@ export class CatalogService {
     private readonly suggestions: SuggestionsService,
   ) {}
 
+  /** The console's fridge threshold, for the `FRIDGE_LONG` warning of a meal view. */
+  fridgeAlertDays() {
+    return fridgeAlertDaysInForce(this.prisma);
+  }
+
   listMeals() {
     return this.prisma.meal.findMany({
       where: LABS_FOOD,
@@ -52,107 +71,181 @@ export class CatalogService {
     });
   }
 
-  /** Always an unowned Lab's Food meal; the admin is recorded as its author only. */
+  /**
+   * Always an unowned Lab's Food meal; the admin is recorded as its author only.
+   * Recettes §6.1: its allergens are computed from the lines like a chef dish's, and
+   * the lines are stamped, so a chef who adopts the meal inherits them as they are.
+   */
   async createMeal(payload: CreateMealDto, adminUserId: string) {
     assertConsistent(declarationOf(null, payload));
     assertWithinLimits(payload);
+    const lines = payload.ingredients && checkedLines(payload.ingredients);
     await assertReheatModes(this.prisma, payload.reheating);
-    await assertCatalogIngredients(this.prisma, payload.ingredients);
+    if (lines) {
+      // Recettes §4.10: a Lab's Food recipe links no ingredient private to a chef.
+      await assertIngredientAccess(this.prisma, lines, {
+        chefProfileId: null,
+        previousIds: new Set(),
+      });
+    }
     await assertProfiles(this.prisma, payload.profiles);
-    const ingredients = toIngredientsJson(payload.ingredients ?? []);
-    return this.prisma.meal.create({
-      data: {
-        createdByUserId: adminUserId,
-        name: payload.name,
-        description: payload.description,
-        imageUrl: payload.imageUrl ?? null,
-        continent: payload.continent ?? null,
-        country: payload.country ?? null,
-        // Left undefined when omitted so Prisma applies the schema defaults
-        // (portions 4, steps [], isFeatured false).
-        portions: payload.portions,
-        prepTime: payload.prepTime,
-        dietaryTags: payload.dietaryTags ?? [],
-        customDiets: payload.customDiets ?? [],
-        allergens: payload.allergens ?? [],
-        allergensNone: payload.allergensNone ?? false,
-        customAllergens: payload.customAllergens ?? [],
-        // Recettes §4.9: an admin writes the whole form at once, so the save is the
-        // check, provided something is declared.
-        allergensVerifiedAt: isDeclared(declarationOf(null, payload)) ? new Date() : null,
-        calories: payload.calories ?? null,
-        difficulty: payload.difficulty ?? null,
-        category: payload.category ?? null,
-        cookTime: payload.cookTime ?? null,
-        ingredients,
-        classification: await classificationOf(this.prisma, ingredients),
-        steps: payload.steps && toStepsJson(payload.steps),
-        equipment: payload.equipment,
-        declaredDiets: payload.declaredDiets,
-        profiles: payload.profiles,
-        seasonsOverride: payload.seasonsOverride,
-        reheating: toReheatingJson(payload.reheating),
-        storage: toStorageJson(payload.storage),
-        isFeatured: payload.isFeatured,
-        status: payload.status ?? MealStatus.draft,
-      },
-    });
+    const composed = await composeLines(this.prisma, null, payload, lines ?? []);
+    const data = {
+      createdByUserId: adminUserId,
+      name: payload.name,
+      description: payload.description,
+      imageUrl: payload.imageUrl ?? null,
+      continent: payload.continent ?? null,
+      country: payload.country ?? null,
+      // Left undefined when omitted so Prisma applies the schema defaults
+      // (portions 4, steps [], isFeatured false).
+      portions: payload.portions,
+      prepTime: payload.prepTime,
+      dietaryTags: payload.dietaryTags ?? [],
+      customDiets: payload.customDiets ?? [],
+      ...compositionColumns(composed),
+      // Recettes §4.9: an admin writes the whole form at once, so the save is the
+      // check, provided every line is known and its ingredient complete.
+      allergensVerifiedAt: composed.state.complete ? new Date() : null,
+      calories: payload.calories ?? null,
+      difficulty: payload.difficulty ?? null,
+      category: payload.category ?? null,
+      cookTime: payload.cookTime ?? null,
+      steps: payload.steps && toStepsJson(payload.steps),
+      equipment: payload.equipment,
+      declaredDiets: payload.declaredDiets,
+      profiles: payload.profiles,
+      seasonsOverride: payload.seasonsOverride,
+      reheating: toReheatingJson(payload.reheating),
+      storage: toStorageJson(payload.storage),
+      isFeatured: payload.isFeatured,
+      status: payload.status ?? MealStatus.draft,
+    };
+    // Recettes §4.11: a Lab's Food meal goes online on the same terms as a chef's,
+    // under the socle's full "Prête" check (§6.4).
+    if (data.status === MealStatus.published) {
+      // Read as the row will be stored: the schema defaults fill what was left out.
+      assertPublishable({
+        ...data,
+        description: data.description ?? null,
+        portions: data.portions ?? 4,
+        steps: data.steps ?? [],
+        declaredDiets: data.declaredDiets ?? [],
+        seasonsOverride: data.seasonsOverride ?? [],
+      } as unknown as ReadinessDish);
+    }
+    return this.prisma.meal.create({ data });
   }
 
   /**
    * The owner filter sits in the `where`, so the check and the write are one
    * statement: no gap in which the row could change hands in between.
+   *
+   * Recettes §6.1: sending lines or the added allergens composes the meal again, and
+   * the admin's save is the check (§4.9). Sent alone, the extras apply to the stored
+   * lines. Hand-declared allergens of a row written before are carried as added (R7).
    */
   async updateMeal(id: string, payload: UpdateMealDto, adminUserId: string) {
     assertWithinLimits(payload);
+    const lines =
+      payload.ingredients != null ? checkedLines(payload.ingredients) : undefined;
     await assertReheatModes(this.prisma, payload.reheating);
-    await assertCatalogIngredients(this.prisma, payload.ingredients);
     await assertProfiles(this.prisma, payload.profiles);
     let current: Meal | null = null;
+    // Ruling R30: the version the admin read; null counts as not sent, as on the chef route.
+    const readVersion = payload.lockVersion ?? undefined;
     const publishing = payload.status === MealStatus.published;
-    const reverify = payload.ingredients != null || touchesDeclaration(payload);
-    if (reverify || payload.country !== undefined || publishing) {
+    const recomposes =
+      lines !== undefined ||
+      payload.addedAllergens != null ||
+      payload.customAllergens != null;
+    if (
+      recomposes ||
+      touchesDeclaration(payload) ||
+      payload.country !== undefined ||
+      publishing ||
+      readVersion !== undefined
+    ) {
       current = await this.prisma.meal.findFirst({ where: { id, ...LABS_FOOD } });
       if (!current) return this.explainMissing(id);
+      // A form that read an older version reloads before anything else is checked.
+      if (readVersion !== undefined && readVersion !== current.lockVersion) {
+        throw recipeConflict(current.lockVersion);
+      }
       assertConsistent(declarationOf(current, payload));
       if (publishing && current.offeredToChefProfileId) throw offerPending();
+      if (lines) {
+        // An entry since deactivated stays on the lines that already had it (§8.1).
+        await assertIngredientAccess(this.prisma, lines, {
+          chefProfileId: null,
+          previousIds: new Set(linkedIds(current.ingredients)),
+        });
+      }
+    }
+    const composed = recomposes
+      ? await composedSave(this.prisma, current, payload, lines)
+      : null;
+    // Recettes §7.3, ruling R12: a write of the composition lands only on the
+    // `lockVersion` read, and moves it on, as a chef's save does. A propagation and
+    // this save then never overwrite each other's lines (`current` is always read
+    // when the meal recomposes). Ruling R30: so does any write that sent the
+    // version it read, so another tab's save in between answers 409 too.
+    const guarded = !!current && (!!composed || readVersion !== undefined);
+    const guard = guarded && current ? { lockVersion: current.lockVersion } : {};
+    const changes = CatalogService.toMealUpdateData(payload);
+    const verification = composed && {
+      ...compositionColumns(composed),
+      allergensVerifiedAt: composed.state.complete ? new Date() : null,
+    };
+    // Recettes §4.11 (develop, 11/11): a Lab's Food meal publishes only when its
+    // recipe is ready, judged on what the meal will hold after this save.
+    if (publishing && current) {
+      assertPublishable({
+        ...current,
+        ...changes,
+        ...verification,
+      } as unknown as ReadinessDish);
     }
     let updated: Meal;
     try {
       updated = await this.prisma.meal.update({
-        where: { id, ...LABS_FOOD },
+        where: { id, ...LABS_FOOD, ...guard },
         data: {
-          ...CatalogService.toMealUpdateData(payload),
-          ...(payload.ingredients != null && {
-            classification: await classificationOf(
-              this.prisma,
-              toIngredientsJson(payload.ingredients),
-            ),
-          }),
-          ...(reverify && {
-            allergensVerifiedAt: isDeclared(declarationOf(current, payload))
-              ? new Date()
-              : null,
-          }),
+          ...changes,
+          ...verification,
+          ...(guarded && { lockVersion: { increment: 1 } }),
         },
       });
     } catch (error) {
-      if (isNotFound(error)) return this.explainMissing(id);
+      if (isNotFound(error)) return this.explainMissing(id, 'lockVersion' in guard);
       throw error;
     }
-    // Chefs who adopted this suggestion hear about a safety change (§6, PRD).
-    if (current && safetyChanged(current, updated)) {
+    // Chefs who adopted this suggestion hear about a safety change (§6, PRD), and
+    // about computed allergens that moved: compared with the row as the reprise reads it.
+    const allergensMoved =
+      !!current &&
+      !!composed &&
+      !sameAllergenState(storedState(withLegacyAdded(current)), composed.state);
+    if (current && (allergensMoved || safetyChanged(current, updated))) {
       await this.suggestions.flagCopies(updated, adminUserId);
     }
     return updated;
   }
 
-  /** A write matched nothing: the meal is gone, or it belongs to a batch cooker. */
-  private async explainMissing(id: string): Promise<never> {
+  /**
+   * A write matched nothing: the meal is gone, or it belongs to a batch cooker. A
+   * guarded write (`guarded`) that missed a Lab's Food meal still there lost to a
+   * save in between, the §7.3 propagation typically: 409 `RECIPE_CONFLICT` with the
+   * `lockVersion` to reload, the answer a chef's save gives (Recettes §8.1).
+   */
+  private async explainMissing(id: string, guarded = false): Promise<never> {
     const row = await this.prisma.meal.findUnique({
       where: { id },
-      select: { chefProfileId: true },
+      select: { chefProfileId: true, lockVersion: true },
     });
+    if (row && guarded && row.chefProfileId === null) {
+      throw recipeConflict(row.lockVersion);
+    }
     if (row) throw contentNotOwned(NOT_LABS_FOOD);
     throw new NotFoundException('Meal not found.');
   }
@@ -179,17 +272,12 @@ export class CatalogService {
       data.reheating = toReheatingJson(payload.reheating);
     if (payload.storage !== undefined) data.storage = toStorageJson(payload.storage);
 
+    // The lines and the allergens are composed, never mapped here (`compositionColumns`).
     if (payload.name != null) data.name = payload.name;
     if (payload.portions != null) data.portions = payload.portions;
     if (payload.prepTime != null) data.prepTime = payload.prepTime;
     if (payload.dietaryTags != null) data.dietaryTags = payload.dietaryTags;
-    if (payload.allergens != null) data.allergens = payload.allergens;
-    if (payload.allergensNone != null) data.allergensNone = payload.allergensNone;
     if (payload.customDiets != null) data.customDiets = payload.customDiets;
-    if (payload.customAllergens != null) data.customAllergens = payload.customAllergens;
-    if (payload.ingredients != null) {
-      data.ingredients = toIngredientsJson(payload.ingredients);
-    }
     if (payload.steps != null) data.steps = toStepsJson(payload.steps);
     if (payload.equipment != null) data.equipment = payload.equipment;
     if (payload.declaredDiets != null) data.declaredDiets = payload.declaredDiets;
@@ -337,19 +425,19 @@ export class CatalogService {
   }
 }
 
-/** The allergen and diet declaration once `payload` is applied to `current`. */
+/**
+ * The free-text and diet declaration once `payload` is applied to `current`. The
+ * regulated allergens are computed (Recettes §6.1), so only the free text is checked.
+ */
 function declarationOf(current: Meal | null, payload: UpdateMealDto) {
   return {
-    allergens: payload.allergens ?? current?.allergens ?? [],
-    allergensNone: payload.allergensNone ?? current?.allergensNone ?? false,
+    allergens: [],
+    allergensNone: false,
     customAllergens: payload.customAllergens ?? current?.customAllergens ?? [],
     diets: payload.dietaryTags ?? current?.dietaryTags ?? [],
     customDiets: payload.customDiets ?? current?.customDiets ?? [],
   };
 }
-
-const isDeclared = (declaration: { allergens: string[]; allergensNone: boolean }) =>
-  declaration.allergens.length > 0 || declaration.allergensNone;
 
 /** Whether allergens, diets or country differ between two versions of a meal. */
 function safetyChanged(before: Meal, after: Meal): boolean {
@@ -363,8 +451,7 @@ function safetyChanged(before: Meal, after: Meal): boolean {
 
 const touchesDeclaration = (payload: UpdateMealDto) =>
   [
-    payload.allergens,
-    payload.allergensNone,
+    payload.addedAllergens,
     payload.customAllergens,
     payload.dietaryTags,
     payload.customDiets,
@@ -390,4 +477,10 @@ function isUniqueViolation(error: unknown): boolean {
 /** Prisma's "no row matched the `where`" (P2025). */
 function isNotFound(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
+}
+
+/** The readiness rule chefs publish under (Recettes §4.11), for the admin's meals. */
+function assertPublishable(meal: ReadinessDish): void {
+  const problems = publicationProblems(meal);
+  if (problems.length) throw recipeNotReady(problems);
 }

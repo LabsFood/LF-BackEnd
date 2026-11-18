@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
@@ -24,6 +25,7 @@ import {
 } from '../allergies/domain/allergies.rules';
 import { AvailabilityService } from '../calendar/availability.service';
 import { changedMeanwhile } from '../dishes/dishes.service';
+import { menuFrozen } from '../dishes/domain/content.errors';
 import { householdPortions } from '../dishes/domain/recipes.rules';
 
 /** A dish booked for a client without a household on file. */
@@ -31,6 +33,8 @@ const DEFAULT_PORTIONS = 4;
 import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
+import { NotificationsService } from '../notifications/notifications.service';
+import { shoppingDeadline } from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { UsersService } from '../users/users.service';
 import { BookingsMailer } from './bookings.mailer';
@@ -42,6 +46,16 @@ import {
   toBookingListItem,
 } from './bookings.views';
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
+import { contractConsentRequired } from './domain/contract.errors';
+import { frozenSince, isMenuFrozen } from './domain/menu-freeze.rules';
+import {
+  acceptedConsents,
+  chefShops,
+  consentsAuditMetadata,
+  contractGaps,
+  mergeConsents,
+  type ContractState,
+} from './domain/contract.rules';
 import {
   bookingAmounts,
   reprice,
@@ -53,6 +67,7 @@ import {
   AdminBookingsQueryDto,
   AdminUpdateBookingDto,
   BookingMealDto,
+  ContractConsentsDto,
   ReplaceMealDto,
   NewBookingDto,
 } from './dto/bookings.dto';
@@ -74,6 +89,8 @@ export const REMIND_AFTER_MS = 48 * HOUR_MS;
  * an abandoned one stays `pending` for ever (`coveredAmount`).
  */
 const MONEY_IN = {
+  // The prestation's money: a courses hold (lot 6) is released with the booking.
+  purpose: 'service',
   OR: [
     { status: 'succeeded' },
     { status: 'pending', method: { in: ['cesu', 'avance_immediate'] } },
@@ -130,6 +147,7 @@ export class BookingsService {
     private readonly mailer: BookingsMailer,
     private readonly config: ConfigService,
     private readonly geo: GeoService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── By audience ───────────────────────────────────────────────────────────
@@ -251,6 +269,24 @@ export class BookingsService {
       portions = await this.householdPortions(clientId, dto.meals);
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
+    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+
+    // CGV art. 5.1: the client's boxes come with the booking. A batch cooker or an
+    // admin cannot tick them: the client does, before paying (`assertPayable`).
+    const consents: ContractState = acceptedConsents(
+      caller.role === 'client' ? dto.consents : undefined,
+      now,
+    );
+    if (caller.role === 'client') {
+      const missing = contractGaps(consents, {
+        chefShops: chefShops(offer, { shoppingByClient: dto.shoppingByClient ?? false }),
+        startsAt: dto.startsAt,
+        // Paid at the end of the hold at the latest: the 14 days start no later.
+        latestConclusion: new Date(now.getTime() + HOLD_MS),
+        bookedAt: now,
+      });
+      if (missing.length) throw contractConsentRequired(missing, 'booking');
+    }
 
     const endsAt = new Date(dto.startsAt.getTime() + offer.durationMinutes * 60_000);
     // An admin books on support's word: the override is audited below.
@@ -273,34 +309,41 @@ export class BookingsService {
       formule?.priceAfterTax,
     );
     const { id } = await this.withReference(now, (reference) =>
-      this.prisma.booking.create({
-        data: {
-          reference,
-          clientId,
-          chefProfileId: offer.chefProfileId,
-          serviceOfferId: offer.id,
-          formuleId: formule?.id ?? null,
-          ...schedule(dto.startsAt, endsAt),
-          persons: dto.persons ?? null,
-          addressLine: dto.addressLine ?? null,
-          addressCity: dto.addressCity ?? null,
-          addressPostalCode: dto.addressPostalCode ?? null,
-          notes: dto.notes ?? null,
-          shoppingByClient: dto.shoppingByClient ?? false,
-          status: 'pending',
-          extraMeals: dto.extraMeals ?? 0,
-          ...amounts,
-          currency: offer.currency,
-          ...(dto.meals?.length && {
-            bookingMeals: {
-              create: dto.meals.map((meal) => ({
-                mealId: meal.mealId,
-                portions: meal.portions ?? portions,
-              })),
-            },
-          }),
-        },
-        select: { id: true },
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.booking.create({
+          data: {
+            reference,
+            clientId,
+            chefProfileId: offer.chefProfileId,
+            serviceOfferId: offer.id,
+            formuleId: formule?.id ?? null,
+            ...schedule(dto.startsAt, endsAt),
+            persons: dto.persons ?? null,
+            addressLine: dto.addressLine ?? null,
+            addressCity: dto.addressCity ?? null,
+            addressPostalCode: dto.addressPostalCode ?? null,
+            notes: dto.notes ?? null,
+            shoppingByClient: dto.shoppingByClient ?? false,
+            status: 'pending',
+            extraMeals: dto.extraMeals ?? 0,
+            ...amounts,
+            currency: offer.currency,
+            ...consents,
+            ...(dto.meals?.length && {
+              bookingMeals: {
+                create: dto.meals.map((meal) => ({
+                  mealId: meal.mealId,
+                  portions: meal.portions ?? portions,
+                })),
+              },
+            }),
+          },
+          select: { id: true },
+        });
+        // Recettes lot 3 (LF-0268): the menu is written, so each dish is pinned now,
+        // version and allergens, in the same transaction.
+        if (dto.meals?.length) await this.lists.pinRecipes(created.id, { db: tx });
+        return created;
       }),
     );
 
@@ -316,17 +359,7 @@ export class BookingsService {
       shoppingFeeCents: amounts.shoppingFeeCents,
       ms: Date.now() - now.getTime(),
     });
-    if (dto.meals?.length) {
-      // The recipe versions it cooks from, pinned now (§9.2). Best-effort.
-      await this.lists
-        .pinRecipes(id)
-        .catch((error: unknown) =>
-          this.logger.error(
-            { event: 'booking.recipes_not_pinned', bookingId: id },
-            stackOf(error),
-          ),
-        );
-    }
+    if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
     if (caller.role === 'admin') {
       await this.audit.record({
         actorType: 'admin',
@@ -393,6 +426,11 @@ export class BookingsService {
         'addressCity',
       );
     }
+
+    // Recettes lot 3 (LF-0269, R40): 72 hours before the start the dishes no longer
+    // change. A Lab's Food admin may still, for support, and it is recorded below.
+    const frozenMenuEdit = meals !== undefined && isMenuFrozen(booking.startsAt, now);
+    if (frozenMenuEdit && !admin) throw menuFrozen(frozenSince(booking.startsAt));
 
     const moving = status !== undefined && status !== booking.status;
     if (moving) await this.assertMove(caller, booking, status, now);
@@ -472,6 +510,8 @@ export class BookingsService {
               portions: meal.portions ?? portions,
             })),
           });
+          // Recettes lot 3 (LF-0268): the new menu is pinned, version and allergens.
+          await this.lists.pinRecipes(id, { db: tx });
         }
         // Only from the status read above: a payment or an admin acting meanwhile
         // is reloaded, never overwritten.
@@ -508,16 +548,20 @@ export class BookingsService {
       ...(repriced && { repricedAmountTtc: fields.amountTtc ?? repriced.amountTtc }),
       ms: Date.now() - now.getTime(),
     });
-    if (meals) {
-      await this.lists
-        .regenerateForBooking(id)
+    // Recettes lot 3 (LF-0272): the dishes are home, the conservation sheet is ready.
+    if (moving && status === 'delivered') {
+      await this.notifications
+        .notify(booking.clientId, 'conservation.ready', { type: 'booking', id })
         .catch((error: unknown) =>
           this.logger.error(
-            { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
+            { event: 'booking.conservation_not_notified', bookingId: id },
             stackOf(error),
           ),
         );
     }
+    // Custom requests (15/11): the express dishes cooked here can now be kept or dropped.
+    if (moving && status === 'delivered') await this.askExpressDecision(id);
+    if (meals) await this.refreshList(id, booking);
     if (admin) {
       await this.audit.record({
         actorType: 'admin',
@@ -529,6 +573,8 @@ export class BookingsService {
           from: booking.status,
           to: moving ? status : booking.status,
           fields: changedKeys(dto),
+          // Recettes lot 3: the admin changed the dishes of a frozen menu.
+          ...(frozenMenuEdit && { menuFrozenOverride: true }),
         },
       });
     }
@@ -552,6 +598,7 @@ export class BookingsService {
       select: {
         status: true,
         clientId: true,
+        startsAt: true,
         chefProfileId: true,
         quote: { select: { allergies: true } },
         bookingMeals: {
@@ -586,29 +633,85 @@ export class BookingsService {
     // The new dish alone: another dish still in conflict is replaced in its own turn.
     await this.assertAllergies(booking.clientId, [dto.to], extra);
 
-    await this.prisma.$transaction([
-      this.prisma.bookingMeal.delete({
+    // Allowed on a frozen menu (lot 1, R41): only the dish in conflict moves, and the
+    // new one is pinned at once (lot 3, LF-0268).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bookingMeal.delete({
         where: { bookingId_mealId: { bookingId: id, mealId: dto.from } },
-      }),
-      this.prisma.bookingMeal.create({
+      });
+      await tx.bookingMeal.create({
         data: { bookingId: id, mealId: dto.to, portions: from.portions },
-      }),
-    ]);
+      });
+      await this.lists.pinRecipes(id, { db: tx });
+    });
     this.logger.log({
       event: 'booking.allergy_meal_replaced',
       bookingId: id,
       chefProfileId: booking.chefProfileId,
       by: caller.role,
     });
-    await this.lists
-      .regenerateForBooking(id)
-      .catch((error: unknown) =>
-        this.logger.error(
-          { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
-          stackOf(error),
-        ),
-      );
+    await this.refreshList(id, booking);
     return this.view(caller, id);
+  }
+
+  /**
+   * Recettes lot 4 (LF-0283): after a change of dishes the shopping list is
+   * recomputed, and sent again to a client who already had one, who is told.
+   * Best-effort: the menu is written, a list that failed is rebuilt on next use.
+   */
+  /**
+   * Once delivered, the batch cooker is asked to keep or drop the express dishes
+   * written for the custom request of this prestation (decision of 15/11). In the
+   * application only. Best-effort: the delivery stands either way.
+   */
+  private async askExpressDecision(id: string) {
+    try {
+      const pending = await this.prisma.bookingMeal.count({
+        where: {
+          bookingId: id,
+          meal: { expressQuoteId: { not: null }, expressDecision: null },
+        },
+      });
+      if (pending === 0) return;
+      const chef = await this.prisma.booking.findUnique({
+        where: { id },
+        select: { chefProfile: { select: { userId: true } } },
+      });
+      if (!chef?.chefProfile) return;
+      await this.notifications.notify(chef.chefProfile.userId, 'express_dish.decide', {
+        type: 'booking',
+        id,
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'booking.express_decision_not_asked', bookingId: id },
+        stackOf(error),
+      );
+    }
+  }
+
+  private async refreshList(id: string, booking: { clientId: string; startsAt: Date }) {
+    try {
+      const version = await this.lists.refreshAfterMenuChange(
+        id,
+        shoppingDeadline(booking.startsAt),
+      );
+      if (version === null) return;
+      this.logger.log({
+        event: 'shopping_list.resent_after_menu_change',
+        bookingId: id,
+        version,
+      });
+      await this.notifications.notify(booking.clientId, 'shopping_list.updated', {
+        type: 'booking',
+        id,
+      });
+    } catch (error) {
+      this.logger.error(
+        { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
+        stackOf(error),
+      );
+    }
   }
 
   // ── The 72 h hold ─────────────────────────────────────────────────────────
@@ -620,6 +723,11 @@ export class BookingsService {
    * cancellation only touches a booking still unpaid and `pending`.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'bookings-unpaid-hold' })
+  @SentryCron('bookings-unpaid-hold', {
+    checkinMargin: 10,
+    maxRuntime: 10,
+    failureIssueThreshold: 2,
+  })
   async expireUnpaid(
     now: Date = new Date(),
   ): Promise<{ reminded: number; expired: number }> {
@@ -705,7 +813,79 @@ export class BookingsService {
     }
   }
 
+  /**
+   * The client ticks the booking boxes on a `pending` booking: one a batch cooker or
+   * an admin made for them, or one whose time or shopping changed since. Boxes
+   * already ticked stay as they were; every box still needed must be ticked now.
+   */
+  async consent(clerkUserId: string, id: string, dto: ContractConsentsDto) {
+    const caller = await this.caller('client', clerkUserId);
+    const now = new Date();
+    const booking = await this.prisma.booking.findFirst({
+      where: { id, ...this.scope(caller) },
+      select: {
+        status: true,
+        startsAt: true,
+        createdAt: true,
+        shoppingByClient: true,
+        contractVersion: true,
+        cgvAcceptedAt: true,
+        deboursMandateAcceptedAt: true,
+        earlyExecutionRequestedAt: true,
+        serviceOffer: { select: { shoppingIncluded: true } },
+      },
+    });
+    if (!booking) throw notFound();
+    if (booking.status !== 'pending') {
+      throw new ConflictException({
+        code: 'BOOKING_LOCKED',
+        message: 'Only a pending booking takes the booking boxes.',
+      });
+    }
+
+    const consents = mergeConsents(booking, acceptedConsents(dto, now));
+    const missing = contractGaps(consents, {
+      chefShops: chefShops(booking.serviceOffer, booking),
+      startsAt: booking.startsAt,
+      latestConclusion: new Date(
+        Math.max(now.getTime(), booking.createdAt.getTime() + HOLD_MS),
+      ),
+      bookedAt: booking.createdAt,
+    });
+    if (missing.length) throw contractConsentRequired(missing, 'booking');
+
+    await this.prisma.booking
+      .update({ where: { id, status: 'pending' }, data: consents })
+      .catch(changedMeanwhile);
+    if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
+    return this.view(caller, id);
+  }
+
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /** The proof of the boxes ticked: who, when, under which version and texts. */
+  private async recordConsents(
+    userId: string,
+    bookingId: string,
+    consents: ContractState,
+  ) {
+    this.logger.log({
+      event: 'booking.consents_recorded',
+      bookingId,
+      version: consents.contractVersion,
+      cgv: Boolean(consents.cgvAcceptedAt),
+      deboursMandate: Boolean(consents.deboursMandateAcceptedAt),
+      earlyExecution: Boolean(consents.earlyExecutionRequestedAt),
+    });
+    await this.audit.record({
+      actorType: 'client',
+      actorUserId: userId,
+      action: 'booking.consents',
+      subjectType: 'booking',
+      subjectId: bookingId,
+      metadata: consentsAuditMetadata(consents),
+    });
+  }
 
   private async caller(role: Audience, clerkUserId: string): Promise<Caller> {
     if (role === 'chef') {

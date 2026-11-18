@@ -40,6 +40,47 @@ export class DishesMailer {
   }
 
   /**
+   * Recettes §5.5 / §7.3: Lab's Food changed an ingredient of the common list, and
+   * the allergens of `dishCount` of the chef's verified dishes changed with it. They
+   * stay published but cannot be booked until the chef confirms them again. One
+   * e-mail per chef and per change, however many dishes.
+   */
+  recipeAllergensChanged(input: {
+    email: string;
+    name?: string | null;
+    dishCount: number;
+  }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.recipeAllergensChanged,
+      to: { email: input.email, name: input.name ?? undefined },
+      label: 'recipe-allergens-changed',
+      params: { dishCount: input.dishCount, recipesUrl: this.recipesUrl },
+    });
+  }
+
+  /**
+   * Recettes §5.5 / §9: the chef's recipes moved to the new form, once per chef.
+   * `linesToVerify` lines could not be linked to the common list and wait for them.
+   */
+  recipesMigrated(input: {
+    email: string;
+    name?: string | null;
+    dishCount: number;
+    linesToVerify: number;
+  }) {
+    return this.brevo.sendTemplate({
+      templateId: this.brevo.templates.recipesMigrated,
+      to: { email: input.email, name: input.name ?? undefined },
+      label: 'recipes-migrated',
+      params: {
+        dishCount: input.dishCount,
+        linesToVerify: input.linesToVerify,
+        recipesUrl: this.recipesUrl,
+      },
+    });
+  }
+
+  /**
    * An admin took a dish or menu down (§4.3). `reason` is the admin's text,
    * shown as written. `menus` lists the published menus the dish drops out of.
    */

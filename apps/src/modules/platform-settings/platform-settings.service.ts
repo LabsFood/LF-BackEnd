@@ -10,11 +10,16 @@ import {
 } from '../bookings/domain/pricing';
 import { validationFailed } from '../dishes/domain/content.errors';
 import { CHEF_TIERS_KEY, chefTierLabels, chefTierRules } from './chef-tiers';
+import { FRIDGE_ALERT_KEY, fridgeAlertDaysInForce } from './fridge-alert';
+import { GROCERIES_KEY, GroceriesRules, groceriesInForce } from './groceries';
 import {
+  aislesInForce,
+  DEFAULT_RECIPE_AISLES,
   DEFAULT_RECIPE_PROFILES,
   DEFAULT_REHEAT_MODES,
   ListItem,
   listInForce,
+  RECIPE_AISLES_KEY,
   RECIPE_PROFILES_KEY,
   recipeProfilesInForce,
   REHEAT_MODES_KEY,
@@ -49,7 +54,12 @@ export class PlatformSettingsService {
   }
 
   async pricingRules() {
-    return { commissionBps: await this.commissionBps(), taxCreditBps: TAX_CREDIT_BPS };
+    return {
+      commissionBps: await this.commissionBps(),
+      taxCreditBps: TAX_CREDIT_BPS,
+      // Recettes lot 6: the offer form advises this forfait courses, the client form caps the budget.
+      groceries: await groceriesInForce(this.prisma),
+    };
   }
 
   async commission() {
@@ -120,6 +130,77 @@ export class PlatformSettingsService {
       requestId,
     });
     return { ...value, updatedAt: row.updatedAt };
+  }
+
+  /** Recettes lot 6, groundwork: the grocery amounts, `updatedAt: null` when never set. */
+  async groceries() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: GROCERIES_KEY },
+    });
+    return {
+      ...(await groceriesInForce(this.prisma)),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Read by the forms from now on; nothing stored on a booking or an offer changes. */
+  async setGroceries(
+    rules: Pick<GroceriesRules, 'budgetMaxCents' | 'recommendedShoppingFeeMinCents'> &
+      Partial<GroceriesRules>,
+    adminUserId: string,
+    requestId?: string,
+  ) {
+    const previous = await groceriesInForce(this.prisma);
+    // A field left out keeps its value: the lot 6 fields came after the first form.
+    const value: GroceriesRules & Record<string, number | boolean> = {
+      ...previous,
+      ...stripUndefined(rules),
+    };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: GROCERIES_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: GROCERIES_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.groceries_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: { ...previous }, to: value },
+      requestId,
+    });
+    return { ...value, updatedAt: row.updatedAt };
+  }
+
+  /** Recettes lot 3 (LF-0271): the fridge alert threshold, `updatedAt: null` when never set. */
+  async fridgeAlert() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: FRIDGE_ALERT_KEY },
+    });
+    return {
+      days: await fridgeAlertDaysInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** Read by every view from now on; nothing stored on the bookings changes. */
+  async setFridgeAlert(days: number, adminUserId: string, requestId?: string) {
+    const previous = await fridgeAlertDaysInForce(this.prisma);
+    const value = { days };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: FRIDGE_ALERT_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: FRIDGE_ALERT_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.fridge_alert_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: previous, to: days },
+      requestId,
+    });
+    return { days, updatedAt: row.updatedAt };
   }
 
   async chefTiers() {
@@ -211,6 +292,32 @@ export class PlatformSettingsService {
     return { profiles: saved.value, updatedAt: saved.updatedAt };
   }
 
+  async aisles() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: RECIPE_AISLES_KEY },
+    });
+    return {
+      aisles: await aislesInForce(this.prisma),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Recettes §5.4. The whole list, in store order: the shopping list groups by it.
+   * An ingredient keeps an aisle code that leaves the list.
+   */
+  async setAisles(aisles: ListItem[], adminUserId: string, requestId?: string) {
+    const saved = await this.setList(
+      RECIPE_AISLES_KEY,
+      DEFAULT_RECIPE_AISLES,
+      aisles,
+      'settings.recipe_aisles_changed',
+      adminUserId,
+      requestId,
+    );
+    return { aisles: saved.value, updatedAt: saved.updatedAt };
+  }
+
   /** An editable list: each code once, saved whole, journalled before and after. */
   private async setList(
     key: string,
@@ -247,3 +354,8 @@ function assertUniqueCodes(items: ListItem[]): void {
     throw validationFailed(`Each code once: ${twice.map((i) => i.code).join(', ')}.`);
   }
 }
+
+const stripUndefined = <T extends object>(value: T): Partial<T> =>
+  Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;

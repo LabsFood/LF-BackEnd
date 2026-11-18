@@ -5,11 +5,13 @@ import {
   allergyLabels,
   checkable,
   ClientAllergies,
+  CONSENT_WITHDRAWN,
   conflicts,
   DishAllergens,
   HEALTH_CONSENT,
   menuRefusal,
   newConflicts,
+  preferencesConsent,
   toDeclaration,
   unverifiedDishes,
 } from './allergies.rules';
@@ -58,14 +60,48 @@ describe('checkable', () => {
 });
 
 describe('unverifiedDishes and conflicts', () => {
-  const dishes = [dish('a', ['peanuts', 'milk']), dish('b', [], true), dish('c', [])];
+  const dishes = [
+    dish('a', ['peanuts', 'milk']),
+    dish('b', [], true),
+    dish('c', [], false, null),
+  ];
 
-  it('a dish with neither allergens nor "none" cannot be checked', () => {
+  it('a dish whose allergens were never verified cannot be checked', () => {
     expect(unverifiedDishes(dishes)).toEqual(['c']);
   });
 
   it('nor one whose allergens the chef has not verified since its ingredients changed', () => {
     expect(unverifiedDishes([dish('d', ['milk'], false, null)])).toEqual(['d']);
+  });
+
+  // R27: since the socle, verification is set only on a complete composition and
+  // every allergen change clears it, so an empty list no longer means "never declared".
+  it('a verified dish whose only allergens are free text is bookable', () => {
+    expect(unverifiedDishes([dish('e', [], false)])).toEqual([]);
+    expect(
+      menuRefusal(client({ allergies: ['milk'] }), [dish('e', [], false)]),
+    ).toBeNull();
+  });
+
+  it('a verified legacy "none" dish the reprise left incomplete stays bookable', () => {
+    // allergens [] and allergensNone false: a line is linked to an entry still to complete.
+    expect(unverifiedDishes([dish('f', [], false, NOW)])).toEqual([]);
+    expect(allergyCheck(client({ allergiesNone: true }), [dish('f', [], false)])).toEqual(
+      {
+        allergyCheck: 'verified',
+        allergyCheckReasons: [],
+        allergyConflicts: [],
+      },
+    );
+  });
+
+  it('an unverified dish is still refused, whatever its allergens say', () => {
+    expect(
+      unverifiedDishes([dish('g', [], true, null), dish('h', [], false, null)]),
+    ).toEqual(['g', 'h']);
+    expect(
+      body(menuRefusal(client({ allergiesNone: true }), [dish('g', [], true, null)])),
+    ).toMatchObject({ code: 'ALLERGENS_UNVERIFIED', mealIds: ['g'] });
   });
 
   it('lists, per dish, the declared allergens it contains', () => {
@@ -89,7 +125,10 @@ describe('menuRefusal', () => {
 
   it('then refuses a dish that cannot be checked, before any conflict', () => {
     const refusal = body(
-      menuRefusal(client({ allergies: ['milk'] }), [dish('a', ['milk']), dish('b', [])]),
+      menuRefusal(client({ allergies: ['milk'] }), [
+        dish('a', ['milk']),
+        dish('b', [], false, null),
+      ]),
     );
     expect(refusal).toMatchObject({ code: 'ALLERGENS_UNVERIFIED', mealIds: ['b'] });
   });
@@ -134,7 +173,7 @@ describe('allergyCheck', () => {
         allergies: ['milk'],
         customAllergies: ['kiwi'],
       }),
-      [dish('a', ['milk']), dish('b', [])],
+      [dish('a', ['milk']), dish('b', [], false, null)],
     );
     expect(check.allergyCheck).toBe('unverified');
     expect(check.allergyCheckReasons).toEqual([
@@ -250,5 +289,52 @@ describe('newConflicts', () => {
       { mealId: 'b', allergens: ['soy'] },
     ]);
     expect(newConflicts([{ mealId: 'a', allergens: ['milk'] }], [])).toEqual([]);
+  });
+});
+
+describe('preferencesConsent (politique de confidentialité V1 §5)', () => {
+  const NOW = new Date('2026-11-12T10:00:00Z');
+  const given = { healthConsentVersion: HEALTH_CONSENT.version };
+
+  it('lets a client with no preferences through, consent or not', () => {
+    expect(preferencesConsent([], { healthConsentVersion: null }, {}, NOW)).toEqual({});
+    expect(
+      preferencesConsent(undefined, { healthConsentVersion: null }, {}, NOW),
+    ).toEqual({});
+  });
+
+  it('keeps preferences under a consent already given to the current text', () => {
+    expect(preferencesConsent(['halal'], given, {}, NOW)).toEqual({});
+  });
+
+  it('refuses preferences without consent to the current text', () => {
+    expect(() =>
+      preferencesConsent(['halal'], { healthConsentVersion: 'old' }, {}, NOW),
+    ).toThrow(HttpException);
+    expect(() =>
+      preferencesConsent(
+        ['halal'],
+        { healthConsentVersion: null },
+        { consent: true, consentVersion: 'old' },
+        NOW,
+      ),
+    ).toThrow(HttpException);
+  });
+
+  it('stamps the consent ticked with the preferences', () => {
+    expect(
+      preferencesConsent(
+        ['vegetarian'],
+        { healthConsentVersion: null },
+        { consent: true, consentVersion: HEALTH_CONSENT.version },
+        NOW,
+      ),
+    ).toEqual({ healthConsentAt: NOW, healthConsentVersion: HEALTH_CONSENT.version });
+  });
+});
+
+describe('CONSENT_WITHDRAWN', () => {
+  it('erases the dietary preferences with the allergies', () => {
+    expect(CONSENT_WITHDRAWN.dietaryPreferences).toEqual([]);
   });
 });

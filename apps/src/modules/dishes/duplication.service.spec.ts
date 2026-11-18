@@ -34,6 +34,8 @@ describe('DuplicationService (Recettes §5.4)', () => {
         sourceMealId: 'suggestion-1',
         recipeVersion: 4,
         imageUrl: null,
+        allergens: ['celery'],
+        allergensNone: false,
       }),
     );
     h.meal.create.mockImplementation(async ({ data }: { data: object }) =>
@@ -57,6 +59,31 @@ describe('DuplicationService (Recettes §5.4)', () => {
     // Never the adoption link: its unique index allows one copy of a suggestion.
     expect(data.sourceMealId).toBeUndefined();
     expect(data.recipeVersion).toBeUndefined();
+  });
+
+  it('copies the computed allergens, the chef’s own and the lines as stored (Recettes §8.1)', async () => {
+    const h = harness();
+    const source = readyDishRow({
+      imageUrl: null,
+      addedAllergens: ['mustard'],
+      conditionalAllergens: ['milk'],
+      allergens: ['celery', 'milk', 'mustard'],
+      lockVersion: 7,
+    });
+    h.meal.findUnique.mockResolvedValue(source);
+
+    await service(h).duplication.dish('clerk_1', 'dish-1');
+
+    const { data } = h.meal.create.mock.calls[0][0];
+    expect(data).toMatchObject({
+      allergens: ['celery', 'milk', 'mustard'],
+      allergensNone: false,
+      addedAllergens: ['mustard'],
+      conditionalAllergens: ['milk'],
+      ingredients: source.ingredients,
+    });
+    // A new row: its lock version starts over.
+    expect(data.lockVersion).toBeUndefined();
   });
 
   it('gives the copy its own photo file, so removing one never removes the other', async () => {

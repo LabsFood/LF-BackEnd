@@ -48,12 +48,8 @@ export class AllergiesService {
       update: data,
       create: { userId: user.id, ...data },
     });
-    this.logger.log({
-      event: 'client.allergies_declared',
-      clientProfileId: after.id,
-      none: after.allergiesNone,
-      count: after.allergies.length + after.customAllergies.length,
-    });
+    // Never the allergies, nor how many, nor « none » (plan v5, journaux): health data.
+    this.logger.log({ event: 'client.allergies_declared', clientProfileId: after.id });
     await this.recheck(user.id, before, after);
     return this.users.getProfileByClerkUserId(clerkUserId);
   }
@@ -65,7 +61,11 @@ export class AllergiesService {
       where: { userId: user.id },
       data: CONSENT_WITHDRAWN,
     });
-    this.logger.log({ event: 'client.health_consent_withdrawn', userId: user.id, count });
+    this.logger.log({
+      event: 'client.health_consent_withdrawn',
+      userId: user.id,
+      profilesUpdated: count,
+    });
     return this.users.getProfileByClerkUserId(clerkUserId);
   }
 
@@ -95,7 +95,6 @@ export class AllergiesService {
           bookingMeals: { select: { meal: { select: DISH_ALLERGEN_SELECT } } },
         },
       });
-      let flagged = 0;
       for (const booking of bookings) {
         const dishes = booking.bookingMeals.map((line) => line.meal);
         const extra = booking.quote?.allergies ?? [];
@@ -105,7 +104,6 @@ export class AllergiesService {
           conflicts(checkable(after, extra).codes, dishes),
         );
         if (!fresh.length) continue;
-        flagged += 1;
         const subject = { type: 'booking', id: booking.id };
         await this.notifications.notify(userId, 'allergy.conflict', subject);
         await this.notifications.notify(
@@ -114,12 +112,8 @@ export class AllergiesService {
           subject,
         );
       }
-      this.logger.log({
-        event: 'client.allergies_rechecked',
-        userId,
-        bookings: bookings.length,
-        flagged,
-      });
+      // How many prestations now conflict says something of the client's health: not logged.
+      this.logger.log({ event: 'client.allergies_rechecked', userId });
     } catch (error) {
       this.logger.error(
         { event: 'client.allergies_recheck_failed', userId },

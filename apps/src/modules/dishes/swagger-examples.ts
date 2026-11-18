@@ -5,11 +5,69 @@
 
 export const DISH_ID = '5b1f3c2e-8a44-4d0e-9f21-3c6a7e9b0d12';
 
+/**
+ * A recipe line as a save stores and returns it (Recettes §5.2): every field written,
+ * stamped from the linked ingredient (`aisle`, `allergens`, `incomplete`).
+ */
+const LINE = {
+  link: null,
+  toVerify: false,
+  fixedQuantity: false,
+  optional: false,
+  precision: null,
+  preparation: null,
+  group: null,
+  hiddenFromClient: false,
+  rawText: null,
+  allergens: [] as string[],
+  incomplete: false,
+};
+
 export const RECIPE_EXAMPLE = {
   ingredients: [
-    { name: 'Poulet fermier entier', qty: 1.4, unit: 'kg', aisle: 'boucherie' },
-    { name: 'Pommes de terre grenaille', qty: 800, unit: 'g', aisle: 'fruits-legumes' },
-    { name: 'Ail', qty: 4, unit: 'gousse', aisle: 'fruits-legumes' },
+    {
+      ...LINE,
+      name: 'Poulet fermier entier',
+      qty: 1.4,
+      unit: 'kg',
+      aisle: 'boucherie',
+      precision: 'fermier',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c01',
+    },
+    {
+      ...LINE,
+      name: 'Pommes de terre grenaille',
+      qty: 800,
+      unit: 'g',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c02',
+    },
+    {
+      ...LINE,
+      name: 'Céleri-rave',
+      qty: 300,
+      unit: 'g',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c03',
+      allergens: ['celery'],
+    },
+    {
+      ...LINE,
+      name: 'Ail',
+      qty: 4,
+      unit: 'clove',
+      aisle: 'fruits-legumes',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c04',
+    },
+    {
+      ...LINE,
+      name: 'Sel',
+      qty: null,
+      unit: 'to_taste',
+      aisle: 'epices',
+      catalogIngredientId: '0d7c1c7a-3f5b-4d8e-9a1c-2b4e6f8a0c05',
+      hiddenFromClient: true,
+    },
   ],
   steps: [
     {
@@ -31,8 +89,22 @@ export const RECIPE_EXAMPLE = {
       durationMinutes: 55,
     },
   ],
-  reheating: { mode: 'oven', temperature: 160, minutes: 15, note: 'Couvrir.' },
-  storage: { method: 'fridge', days: 3, container: 'Boîte hermétique' },
+  reheating: {
+    modes: ['oven'],
+    mode: 'oven',
+    temperature: 160,
+    minutes: 15,
+    note: 'Couvrir.',
+    container: null,
+  },
+  storage: {
+    method: 'fridge',
+    days: 3,
+    container: 'Boîte hermétique',
+    freezable: true,
+    freezerMonths: 3,
+    thawing: 'Une nuit au réfrigérateur.',
+  },
 };
 
 export const PUBLIC_DISH_EXAMPLE = {
@@ -49,6 +121,7 @@ export const PUBLIC_DISH_EXAMPLE = {
   customDiets: [],
   allergens: ['celery'],
   allergensNone: false,
+  conditionalAllergens: [],
   customAllergens: ['sarrasin'],
 };
 
@@ -64,6 +137,9 @@ export const DISH_SUMMARY_EXAMPLE = {
 export const DISH_EXAMPLE = {
   ...DISH_SUMMARY_EXAMPLE,
   recipe: RECIPE_EXAMPLE,
+  addedAllergens: [],
+  allergenSources: { celery: ['Céleri-rave'] },
+  lockVersion: 4,
   recipeComplete: true,
   recipeVersion: 3,
   isFeatured: false,
@@ -92,6 +168,27 @@ export const PUBLISH_REFUSED_EXAMPLE = {
       message: 'Confirm the allergens: the ingredients changed since they were verified.',
     },
   ],
+};
+
+/** `PATCH /me/dishes/{id}` with an outdated `lockVersion` → 409. */
+export const RECIPE_CONFLICT_EXAMPLE = {
+  code: 'RECIPE_CONFLICT',
+  message: 'The recipe was changed since you opened it.',
+  lockVersion: 5,
+};
+
+/** `POST` or `PATCH /me/dishes` with the same ingredient on lines 0 and 2 → 422. */
+export const DUPLICATE_INGREDIENT_LINE_EXAMPLE = {
+  code: 'DUPLICATE_INGREDIENT_LINE',
+  message: 'The same ingredient appears on several lines.',
+  lines: [[0, 2]],
+};
+
+/** `POST /me/dishes/{id}/allergens/confirm` with line 1 not linked → 422. */
+export const INGREDIENT_NOT_LINKED_EXAMPLE = {
+  code: 'INGREDIENT_NOT_LINKED',
+  message: 'Some ingredients are not linked to the common list.',
+  lines: [1],
 };
 
 export const CHEF_NOT_VERIFIED_EXAMPLE = {
@@ -134,11 +231,10 @@ export const MENU_NOT_PUBLISHABLE_EXAMPLE = {
         name: 'Poulet rôti aux herbes',
         problems: [
           {
-            code: 'ALLERGENS_REQUIRED',
+            code: 'ALLERGENS_UNVERIFIED',
             field: 'allergens',
             message:
-              'Declare the allergens: list them, or confirm the dish contains none of ' +
-              'the 14 regulated allergens (`allergensNone: true`).',
+              'Confirm the allergens: the ingredients changed since they were verified.',
           },
         ],
       },

@@ -23,17 +23,18 @@ import { ALLERGENS } from '../../dishes/domain/dishes.rules';
  * The text the client accepts before listing allergies. Changing the text means a
  * new version: a declaration then needs the new one.
  *
- * Validated by legal on 2026-11-10 (BLK-25), word for word the 2026-11-02 draft.
- * Consents stored under `brouillon-2026-11-02` accepted this same text and stay valid.
+ * 2026-11-11: extended to intolerances and dietary preferences, which can reveal
+ * health or religion (politique de confidentialité V1 §5, RGPD art. 9.2.a). The
+ * 2026-11-10 text (BLK-25) covered allergies only; consents given under it still
+ * cover the allergies already declared, but saving preferences asks for this one.
  */
 export const HEALTH_CONSENT = {
-  version: '2026-11-10',
+  version: '2026-11-11',
   text:
-    'J’accepte que Lab’s Food enregistre mes allergies alimentaires et les transmette ' +
-    'aux batch cookers qui cuisinent pour moi, dans le seul but d’écarter les plats qui ' +
-    'les contiennent. Je peux retirer ce consentement à tout moment depuis mon profil : ' +
-    'mes allergies sont alors effacées, et je ne peux plus valider de menu avant de les ' +
-    'avoir déclarées à nouveau.',
+    'J’accepte que Lab’s Food enregistre mes allergies, intolérances et préférences ' +
+    'alimentaires et les transmette au batch cooker que je réserve, pour la prestation ' +
+    'concernée, dans le seul but d’adapter mes repas. Je peux retirer ce consentement à ' +
+    'tout moment depuis mon profil : ces informations sont alors effacées.',
 } as const;
 
 export interface ClientAllergies {
@@ -81,6 +82,7 @@ export const DISH_ALLERGEN_SELECT = {
 /** Withdrawing consent erases the allergies and asks the question again. */
 export const CONSENT_WITHDRAWN = {
   allergies: [],
+  dietaryPreferences: [],
   customAllergies: [],
   allergiesNone: false,
   allergiesDeclaredAt: null,
@@ -125,15 +127,18 @@ export function checkable(client: ClientAllergies, extra: string[] = []) {
 
 /**
  * Dishes the client cannot be checked against: their allergens are not verified
- * since the last ingredient change (Recettes §4.9), or they declare neither
- * allergens nor "none".
+ * since the last ingredient change (Recettes §4.9).
+ *
+ * Verification alone decides (ruling R27). Since the recipe socle, `allergensVerifiedAt`
+ * is set only on a complete composition (the chef's confirm, a complete Lab's Food save)
+ * and every allergen change clears it; legacy verified rows came from lot 2's confirm,
+ * which required a declaration. So `allergens = []` with `allergensNone = false` no
+ * longer means "never declared": it is a dish whose only allergens are free text, or a
+ * legacy "none" dish kept verified by the reprise while a line waits for its entry to be
+ * completed (§4, §9). Both stay bookable.
  */
 export const unverifiedDishes = (dishes: DishAllergens[]) =>
-  dishes
-    .filter(
-      (d) => !d.allergensVerifiedAt || (d.allergens.length === 0 && !d.allergensNone),
-    )
-    .map((d) => d.id);
+  dishes.filter((d) => !d.allergensVerifiedAt).map((d) => d.id);
 
 export const conflicts = (codes: string[], dishes: DishAllergens[]): Conflict[] =>
   dishes
@@ -235,4 +240,23 @@ export function toDeclaration(input: DeclarationInput, now: Date) {
     healthConsentAt: now,
     healthConsentVersion: HEALTH_CONSENT.version,
   };
+}
+
+/**
+ * Dietary preferences are saved only under a consent to the current text, given
+ * before or ticked with them (politique de confidentialité V1 §5). Returns the
+ * consent fields to stamp, or nothing; throws `HEALTH_CONSENT_REQUIRED` otherwise.
+ */
+export function preferencesConsent(
+  preferences: string[] | undefined,
+  stored: { healthConsentVersion: string | null },
+  input: { consent?: boolean; consentVersion?: string },
+  now: Date,
+): { healthConsentAt?: Date; healthConsentVersion?: string } {
+  if (!preferences?.length) return {};
+  if (stored.healthConsentVersion === HEALTH_CONSENT.version) return {};
+  if (input.consent && input.consentVersion === HEALTH_CONSENT.version) {
+    return { healthConsentAt: now, healthConsentVersion: HEALTH_CONSENT.version };
+  }
+  throw healthConsentRequired(HEALTH_CONSENT.version);
 }

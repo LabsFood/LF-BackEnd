@@ -88,6 +88,45 @@ export class BookingMealDto {
   portions?: number;
 }
 
+/**
+ * The boxes of the booking flow (CGV art. 5.1), ticked by the client. Their texts and
+ * current version come from `GET /me/profile` (`contractTerms`).
+ */
+export class ContractConsentsDto {
+  @ApiProperty({
+    description:
+      'The CGV version the texts were read in. Another version counts for nothing.',
+    example: '1.0',
+  })
+  @IsString()
+  @Length(1, 16)
+  version!: string;
+
+  @ApiPropertyOptional({ description: 'The CGV box.', example: true })
+  @IsOptional()
+  @IsBoolean()
+  cgv?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'The débours mandate box, needed when the batch cooker does the shopping.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  deboursMandate?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'The express request to start before the 14-day withdrawal period ends, needed ' +
+      'when the prestation falls inside it.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  earlyExecution?: boolean;
+}
+
 export class NewBookingDto {
   @ApiProperty({
     format: 'uuid',
@@ -122,7 +161,13 @@ export class NewBookingDto {
   @Max(50)
   persons?: number;
 
-  @ApiPropertyOptional({ maxLength: 255, example: '12 rue des Lilas, 75011 Paris' })
+  @ApiPropertyOptional({
+    maxLength: 255,
+    description:
+      'With a postcode, the street must be findable in it in the official address ' +
+      'base (data.geopf.fr), typos forgiven: otherwise 422 `ADDRESS_NOT_FOUND`.',
+    example: '12 rue des Lilas, 75011 Paris',
+  })
   @IsOptional()
   @IsString()
   @Length(1, 255)
@@ -183,6 +228,19 @@ export class NewBookingDto {
   @ValidateNested({ each: true })
   @Type(() => BookingMealDto)
   meals?: BookingMealDto[];
+
+  @ApiPropertyOptional({
+    type: ContractConsentsDto,
+    description:
+      'The client’s boxes, sent with the « Commander avec obligation de paiement » ' +
+      'click. Required from 2026-11-21 (`CONTRACT_CONSENT_REQUIRED` lists what is ' +
+      'missing). Ignored when a batch cooker or an admin books: only the client can ' +
+      'consent, through `POST /me/bookings/{id}/consents`.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContractConsentsDto)
+  consents?: ContractConsentsDto;
 }
 
 export class NewBookingForClientDto extends NewBookingDto {
@@ -193,7 +251,7 @@ export class NewBookingForClientDto extends NewBookingDto {
 
 /** What a client may change: the details while `pending`, and two statuses. */
 export class UpdateBookingDto extends PartialType(
-  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId'] as const),
+  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId', 'consents'] as const),
 ) {
   @ApiPropertyOptional({
     enum: ['cancelled', 'completed'],
@@ -216,7 +274,7 @@ export class ChefUpdateBookingDto {
 }
 
 export class AdminUpdateBookingDto extends PartialType(
-  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId'] as const),
+  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId', 'consents'] as const),
 ) {
   @ApiPropertyOptional({
     enum: BOOKING_STATUSES,

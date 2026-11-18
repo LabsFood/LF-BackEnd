@@ -28,6 +28,8 @@
     "db:sync:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-users-to-clerk.ts --dry-run",
     "db:backfill:clerk": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts",
     "db:backfill:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts --dry-run",
+    "db:recipes:reprise": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts",
+    "db:recipes:reprise:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts --dry-run",
     "db:studio": "prisma studio"
   },
   "keywords": [],
@@ -38,7 +40,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1139.0",
     "@clerk/backend": "^3.4.14",
     "@fastify/helmet": "^12.0.1",
-    "@fastify/static": "^10.1.7",
+    "@fastify/static": "^10.1.10",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
@@ -125,6 +127,12 @@
     "fastify": "^5.12.7",
     "@nestjs/swagger": {
       "js-yaml": "^5.4.1"
+    },
+    "@nestjs/cli": {
+      "glob": "^14.0.2"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
     }
   }
 }

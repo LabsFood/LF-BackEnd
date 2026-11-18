@@ -4,7 +4,6 @@ import {
   diffCorrections,
   groupByAisle,
   householdPortions,
-  ingredientsChanged,
   readSteps,
   recipeLimitBreach,
   roundLines,
@@ -52,8 +51,10 @@ describe('portions (Recettes §4.12)', () => {
     expect(roundLines(aggregate([third, third, third]))).toEqual([{ ...ail, qty: 1 }]);
   });
 
-  it('rounds half-hundredths up, and a count of pieces to the next whole one', () => {
-    expect(roundLines([{ ...ail, unit: 'g', qty: 1.005 }])[0].qty).toBe(1.01);
+  it('rounds each unit its own way, and a count of pieces to the next whole one', () => {
+    expect(roundLines([{ ...ail, unit: 'kg', qty: 1.005 }])[0].qty).toBe(1.01);
+    expect(roundLines([{ ...ail, unit: 'g', qty: 133 }])[0].qty).toBe(135);
+    expect(roundLines([{ ...ail, unit: 'inconnue', qty: 1.234 }])[0].qty).toBe(1.23);
     expect(
       roundLines([
         { name: 'Citron', qty: 1.2, unit: 'pièce', aisle: 'fruits-legumes' },
@@ -68,6 +69,13 @@ describe('portions (Recettes §4.12)', () => {
   });
 });
 
+it('keeps a to_taste line with no quantity', () => {
+  expect(scale([{ name: 'Sel', unit: 'to_taste' }], 1, 2)).toEqual([
+    { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'autre' },
+  ]);
+  expect(scale([{ name: 'Sel', unit: 'g' }], 1, 2)).toEqual([]);
+});
+
 describe('aggregate', () => {
   it('adds up the same ingredient in the same unit across dishes', () => {
     expect(
@@ -75,6 +83,42 @@ describe('aggregate', () => {
     ).toEqual([
       { ...ail, qty: 6 },
       { ...ail, unit: 'g', qty: 10 },
+    ]);
+  });
+
+  it('keeps a line optional only when every dish that asks for it says so (16/11)', () => {
+    const persil = { name: 'Persil', qty: 1, unit: 'bunch', aisle: 'fruits-legumes' };
+    expect(
+      aggregate([
+        { ...persil, optional: true },
+        { ...persil, optional: true },
+      ]),
+    ).toEqual([{ ...persil, qty: 2, optional: true }]);
+    expect(aggregate([{ ...persil, optional: true }, persil])).toEqual([
+      { ...persil, qty: 2 },
+    ]);
+    expect(aggregate([persil, { ...persil, optional: true }])).toEqual([
+      { ...persil, qty: 2 },
+    ]);
+  });
+
+  it('reads the optional flag of a stored line, and nothing of hiddenFromClient', () => {
+    expect(
+      scale(
+        [
+          {
+            name: 'Persil',
+            qty: 1,
+            unit: 'bunch',
+            optional: true,
+            hiddenFromClient: true,
+          },
+        ],
+        2,
+        2,
+      ),
+    ).toEqual([
+      { name: 'Persil', qty: 1, unit: 'bunch', aisle: 'autre', optional: true },
     ]);
   });
 });
@@ -107,17 +151,48 @@ describe('corrections', () => {
   });
 });
 
-it('groups lines by aisle, in first-seen order', () => {
-  expect(groupByAisle([ail, poulet, { ...ail, name: 'Oignon' }])).toEqual([
-    {
-      aisle: 'fruits-legumes',
-      lines: [
-        { name: 'Ail', qty: 4, unit: 'gousse' },
-        { name: 'Oignon', qty: 4, unit: 'gousse' },
+describe('groupByAisle (Recettes §5.4)', () => {
+  const ORDER = ['boucherie', 'fruits-legumes'];
+
+  it('puts the aisles in store order, whatever the order of the lines', () => {
+    expect(groupByAisle([ail, poulet, { ...ail, name: 'Oignon' }], ORDER)).toEqual([
+      { aisle: 'boucherie', lines: [{ name: 'Poulet fermier', qty: 1.4, unit: 'kg' }] },
+      {
+        aisle: 'fruits-legumes',
+        lines: [
+          { name: 'Ail', qty: 4, unit: 'gousse' },
+          { name: 'Oignon', qty: 4, unit: 'gousse' },
+        ],
+      },
+    ]);
+  });
+
+  it('puts unknown aisles last, in first-seen order', () => {
+    const line = (name: string, aisle: string) => ({ name, qty: 1, unit: 'g', aisle });
+    const groups = groupByAisle(
+      [
+        line('A', 'Rayon libre'),
+        line('B', 'autre'),
+        line('C', 'boucherie'),
+        line('D', 'Rayon libre'),
       ],
-    },
-    { aisle: 'boucherie', lines: [{ name: 'Poulet fermier', qty: 1.4, unit: 'kg' }] },
-  ]);
+      ORDER,
+    );
+    expect(groups.map((g) => g.aisle)).toEqual(['boucherie', 'Rayon libre', 'autre']);
+    expect(groups[1].lines.map((l) => l.name)).toEqual(['A', 'D']);
+  });
+
+  it('keeps a to_taste line, without quantity, in its aisle', () => {
+    const salt = { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'epices' };
+    expect(groupByAisle([salt], ['epices'])).toEqual([
+      { aisle: 'epices', lines: [{ name: 'Sel', qty: 0, unit: 'to_taste' }] },
+    ]);
+  });
+});
+
+it('adds two to_taste lines of the same ingredient into one', () => {
+  const salt = { name: 'Sel', qty: 0, unit: 'to_taste', aisle: 'epices' };
+  expect(aggregate([salt, { ...salt, name: 'sel' }])).toEqual([salt]);
 });
 
 describe('recipeLimitBreach (BLK-28)', () => {
@@ -162,26 +237,6 @@ describe('readSteps (§4.5)', () => {
       { order: 1, text: 'Dresser', type: null, durationMinutes: null },
     ]);
     expect(readSteps(null)).toEqual([]);
-  });
-});
-
-describe('ingredientsChanged (Recettes §4.9, R17)', () => {
-  it('ignores quantities, units, aisles, order, case and accents', () => {
-    expect(
-      ingredientsChanged(
-        [ail, poulet],
-        [
-          { ...poulet, qty: 2 },
-          { ...ail, name: 'AÏL', unit: 'g', aisle: 'epicerie' },
-        ],
-      ),
-    ).toBe(false);
-  });
-
-  it('sees an ingredient added, removed or renamed', () => {
-    expect(ingredientsChanged([ail], [ail, poulet])).toBe(true);
-    expect(ingredientsChanged([ail, poulet], [ail])).toBe(true);
-    expect(ingredientsChanged([ail], [{ ...ail, name: 'Échalote' }])).toBe(true);
   });
 });
 

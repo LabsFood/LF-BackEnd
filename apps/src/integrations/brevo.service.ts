@@ -18,6 +18,10 @@ export type ChefOnboardingEmail =
   // an admin took one of the chef's dishes or menus down.
   | 'sourceChanged'
   | 'contentSuspended'
+  // Recettes §5.5: a common-list change cleared the verification of a chef's
+  // dishes (§7.3); a chef's recipes moved to the new form (§9).
+  | 'recipeAllergensChanged'
+  | 'recipesMigrated'
   // Messaging: someone has messages they have not opened.
   | 'newMessage'
   // Contact forms: the heads-up to the team, and the team's answer to the sender.
@@ -34,7 +38,15 @@ export type ChefOnboardingEmail =
   | 'bookingHoldReminderClient'
   | 'bookingHoldReminderChef'
   | 'bookingRescheduleProposed'
-  | 'bookingRescheduleAnswered';
+  | 'bookingRescheduleAnswered'
+  // CGV V1: the contract on a durable medium, and an online withdrawal's
+  // acknowledgement and heads-up to the team.
+  | 'bookingContractClient'
+  | 'bookingWithdrawalAck'
+  | 'bookingWithdrawalAdmin'
+  // Recettes lot 6, art. 8: the message before the groceries (the one double-channel
+  // signal of the module), its delivery confirmed by the Brevo webhook.
+  | 'groceriesNotice';
 
 @Injectable()
 export class BrevoService {
@@ -90,6 +102,8 @@ export class BrevoService {
     replyTo?: { email: string; name?: string };
     /** Surfaces in the log line and in the audit row. */
     label: string;
+    /** Files sent with it, base64. The contract documents (CGV art. 2.4). */
+    attachment?: { name: string; content: string }[];
   }): Promise<{ sent: boolean; messageId?: string }> {
     if (!this.configured || !input.templateId) {
       this.logger.warn(
@@ -108,6 +122,7 @@ export class BrevoService {
           to: [input.to],
           sender: { email: this.senderEmail, name: this.senderName },
           ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          ...(input.attachment?.length ? { attachment: input.attachment } : {}),
           params: input.params ?? {},
         }),
       });

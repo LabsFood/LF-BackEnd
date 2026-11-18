@@ -187,8 +187,8 @@ export class AdminChefsController {
     description:
       'For a batch cooker who moves or covers one more city. Replaces every zone, in ' +
       'the shape and with the rules of the candidature’s `interventionZones`. The ' +
-      'batch cooker cannot do it themselves: the zones were checked against documents ' +
-      'at the candidature. Audited.\n\n' +
+      'batch cooker can also do it themselves at `PATCH /me/chef-profile/zones`. ' +
+      'Audited.\n\n' +
       `Answers the batch cooker as \`GET /admin/chefs/{id}\` does.\n\n${ID_HELP}`,
   })
   @ApiOkResponse({
