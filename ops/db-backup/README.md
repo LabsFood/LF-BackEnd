@@ -34,11 +34,32 @@ The private key file goes in the password manager, never on Railway or in a repo
 ## Restore
 
 ```bash
-aws s3 cp s3://<bucket>/lf-api/<stamp>.dump.age . \
+# 1. Fetch a backup (list them: aws s3 ls s3://lf-db-backups/lf-api/ --endpoint-url …)
+aws s3 cp s3://lf-db-backups/lf-api/<stamp>.dump.age . \
   --endpoint-url https://<account>.eu.r2.cloudflarestorage.com
+# 2. Decrypt it with the private key from the password manager
 age --decrypt -i lf-db-backup.key -o restore.dump <stamp>.dump.age
-pg_restore --no-owner --no-privileges -d "$TARGET_DATABASE_URL" restore.dump
 ```
 
-Restore into a scratch database first (`docker run -p 5432:5432 -e POSTGRES_PASSWORD=x postgres:17`)
-and check the row counts before touching production.
+Rehearse first on a scratch database, and check the row counts:
+
+```bash
+docker run -d --name lf-restore -p 5433:5432 -e POSTGRES_PASSWORD=x postgres:17
+pg_restore --no-owner --no-privileges -n public \
+  -d postgresql://postgres:x@localhost:5433/postgres restore.dump
+```
+
+Roll production back to that backup. Everything written since `<stamp>` is lost, so
+stop the API first (API-Mainstream → scale to 0, or remove its deployment), and keep
+a fresh dump of the current state beside it in case the rollback has to be undone:
+
+```bash
+pg_dump "$PROD_DB_URL" -Fc -f before-rollback.dump
+pg_restore --clean --if-exists --single-transaction --no-owner --no-privileges \
+  -n public -d "$PROD_DB_URL" restore.dump
+```
+
+`-n public` restores the application's tables only (Prisma lives in `public`); Supabase
+manages `auth`, `storage` and its other schemas itself. `--single-transaction` means a
+failed restore changes nothing. `$PROD_DB_URL` is the session URL on port 5432
+(`SUPABASE_DB_MIGRATION_URL`), not the transaction pooler.
