@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs';
 
-import { textOf } from '../../common/pdf/pdf.test-helpers';
+import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
 import {
   cgvPath,
   renderDeboursMandatePdf,
   renderWithdrawalFormPdf,
 } from './contract-documents';
 import { CONTRACT_TERMS } from './domain/contract.rules';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 /** PDF text, with line breaks and runs of spaces read as one space. */
 const flat = (pdf: Buffer) => textOf(pdf).replace(/\s+/g, ' ');

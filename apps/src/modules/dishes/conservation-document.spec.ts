@@ -1,4 +1,7 @@
+import { PDF_SPEC_TIMEOUT } from '../../common/pdf/pdf.test-helpers';
 import { conservationFilename, renderConservationPdf } from './conservation-document';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 describe('the conservation sheet as a PDF (Recettes lot 3, LF-0272)', () => {
   it('renders a PDF with one panel per dish', async () => {

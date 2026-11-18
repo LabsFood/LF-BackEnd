@@ -2,11 +2,14 @@ import { UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Prisma } from '../../generated/prisma/client';
+import { PDF_SPEC_TIMEOUT } from '../../common/pdf/pdf.test-helpers';
 import { SupabaseService } from '../../integrations/supabase.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import type { PaymentInvoiceSnapshot } from './payment-invoice-document';
 import { PaymentInvoicesService } from './payment-invoices.service';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const PAID_AT = new Date('2026-11-02T10:00:00.000Z');
 

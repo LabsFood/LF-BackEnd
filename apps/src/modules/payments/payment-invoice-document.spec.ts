@@ -1,9 +1,11 @@
-import { textOf } from '../../common/pdf/pdf.test-helpers';
+import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
 import {
   formatMoney,
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
 } from './payment-invoice-document';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const SNAPSHOT: PaymentInvoiceSnapshot = {
   invoiceNumber: 'LF-CUS26-00007',

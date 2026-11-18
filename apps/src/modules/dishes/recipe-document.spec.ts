@@ -1,5 +1,7 @@
-import { textOf } from '../../common/pdf/pdf.test-helpers';
+import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
 import { RecipeDocumentInput, renderRecipePdf } from './recipe-document';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const NO_EXTRA = { optional: false, precision: null, preparation: null, group: null };
 

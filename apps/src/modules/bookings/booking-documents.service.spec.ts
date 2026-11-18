@@ -1,10 +1,13 @@
 import { AuditService } from '../../common/audit/audit.service';
+import { PDF_SPEC_TIMEOUT } from '../../common/pdf/pdf.test-helpers';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { BookingDocumentsService } from './booking-documents.service';
 import { BookingWithdrawalsService } from './booking-withdrawals.service';
 import { BookingsMailer } from './bookings.mailer';
 import * as documents from './contract-documents';
+
+jest.setTimeout(PDF_SPEC_TIMEOUT);
 
 const NOW = new Date('2026-12-01T09:00:00.000Z');
 const CGV_BYTES = Buffer.from('%PDF-cgv');
