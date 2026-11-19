@@ -294,7 +294,7 @@ export class BookingsService {
       portions = await this.householdPortions(clientId, dto.meals);
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
-    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+    await this.geo.checkStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
 
     // CGV art. 5.1: the client's boxes come with the booking. A batch cooker or an
     // admin cannot tick them: the client does, before paying (`assertPayable`).

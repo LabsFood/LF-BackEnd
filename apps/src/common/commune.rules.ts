@@ -10,6 +10,8 @@ export interface Commune {
   nom: string;
   code: string;
   codeDepartement: string;
+  /** Asked for, but not required: a fixture or an older answer may lack it. */
+  codeRegion?: string;
 }
 
 /** Case, accents, hyphens and apostrophes do not tell two commune names apart. */

@@ -275,16 +275,14 @@ describe('BookingsService', () => {
       );
     });
 
-    it('refuses a street the postcode has no trace of, creating nothing', async () => {
-      await expect(
-        service.create('client', 'clerk_1', {
-          ...dto,
-          addressPostalCode: '93100',
-          addressCity: 'Montreuil',
-          addressLine: '99 rue Azerty',
-        }),
-      ).rejects.toMatchObject({ status: 422, response: { code: 'ADDRESS_NOT_FOUND' } });
-      expect(prisma.booking.create).not.toHaveBeenCalled();
+    it('keeps a street the postcode has no trace of: only a warning is logged', async () => {
+      await service.create('client', 'clerk_1', {
+        ...dto,
+        addressPostalCode: '93100',
+        addressCity: 'Montreuil',
+        addressLine: '99 rue Azerty',
+      });
+      expect(prisma.booking.create).toHaveBeenCalledTimes(1);
     });
 
     it('refuses a town the postcode does not serve, creating nothing', async () => {

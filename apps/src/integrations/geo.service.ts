@@ -22,7 +22,7 @@ const GEOCODER_API = `https://${GEOCODER}/geocodage`;
  */
 const MIN_STREET_SCORE = 0.3;
 const TIMEOUT_MS = 5000;
-const FIELDS = 'fields=nom,code,codeDepartement';
+const FIELDS = 'fields=nom,code,codeDepartement,codeRegion';
 
 /** How geo.api.gouv.fr failed, as the response and the log line say it. */
 type GeoFailure = 'timeout' | 'unreachable' | 'http-error' | 'invalid-response';
@@ -55,8 +55,9 @@ const isCommuneList = (body: unknown): body is Commune[] =>
   );
 
 /**
- * Checks addresses and towns against the official base. Fails closed: when the API
- * fails, the request is refused rather than stored unchecked — 504 if it was too
+ * Checks addresses and towns against the official base. A town or street it cannot
+ * find is only logged (see `assertCommune`). Fails closed when the API itself
+ * fails: the request is refused rather than stored unchecked — 504 if it was too
  * slow, 502 otherwise, `GEO_UNAVAILABLE` with `upstream` and `reason` either way, so
  * a failure of geo.api.gouv.fr never reads as one of ours.
  */
@@ -67,46 +68,47 @@ export class GeoService {
   /**
    * Refuses a town the postcode does not serve (`ADDRESS_CITY_MISMATCH`, naming
    * those it does): `93100` + `Marseille`. `field` names the town in the message.
-   * Nothing to check while either half of the address is missing.
+   * Nothing to check while either half of the address is missing. Returns the
+   * commune found, with its INSEE code and region.
    */
   async assertCommune(
     postcode: string | null | undefined,
     city: string | null | undefined,
     field: string,
-  ): Promise<void> {
+  ): Promise<Commune | undefined> {
     const code = postcode?.trim();
     if (!code || !city?.trim()) return;
     const communes = await this.communesByPostcode(code);
-    if (!matchCommune(city, communes)) {
+    const commune = matchCommune(city, communes);
+    if (!commune) {
       throw new UnprocessableEntityException({
         code: 'ADDRESS_CITY_MISMATCH',
         message: `${field} is not a commune of postcode ${code}.`,
-        communes: communes.map((commune) => commune.nom),
+        communes: communes.map((c) => c.nom),
       });
     }
+    return commune;
   }
 
   /**
-   * Refuses a street the postcode has no trace of (`ADDRESS_NOT_FOUND`): « 5 avenue
-   * des Fées Magiques » in 75001. Tolerant by design (see `MIN_STREET_SCORE`): it
-   * rejects what the official base cannot place, not what it spells differently.
-   * Nothing to check while either half is missing. Same fail-closed rule as above.
+   * Whether the official base can place a street in its postcode. Never blocks
+   * (2026-11-19): a street it has no trace of (« 5 avenue des Fées Magiques » in
+   * 75001) is logged as a warning, the address is kept as typed. Tolerant by design
+   * (see `MIN_STREET_SCORE`). Nothing to check while either half is missing.
    */
-  async assertStreet(
+  async checkStreet(
     line: string | null | undefined,
     postcode: string | null | undefined,
     field: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const street = line?.trim();
     const code = postcode?.trim();
-    if (!street || !code) return;
+    if (!street || !code) return true;
     const score = await this.bestStreetScore(street, code);
-    if (score === null || score < MIN_STREET_SCORE) {
-      throw new UnprocessableEntityException({
-        code: 'ADDRESS_NOT_FOUND',
-        message: `${field} was not found in postcode ${code}.`,
-      });
-    }
+    const found = score !== null && score >= MIN_STREET_SCORE;
+    // Never the street or the postcode: they belong to someone's address.
+    if (!found) this.logger.warn({ event: 'geo.street_not_found', field, score });
+    return found;
   }
 
   /** The score of the best match of a street within a postcode; null when none. */

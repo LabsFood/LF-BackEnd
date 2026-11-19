@@ -166,7 +166,8 @@ export class QuotesController {
   @ApiUnprocessableEntityResponse({
     description:
       '`DATE_TOO_SOON`: the day must be tomorrow at the earliest. ' +
-      '`CHEF_NOT_AVAILABLE`: not a verified batch cooker.',
+      '`CHEF_NOT_AVAILABLE`: not a verified batch cooker. ' +
+      '`CHEF_OUT_OF_AREA`: the batch cooker does not cover the town (see `GET /chefs`).',
     example: error('CHEF_NOT_AVAILABLE', 'chefProfileId is not a verified batch cooker.'),
   })
   @ApiGeoResponses()

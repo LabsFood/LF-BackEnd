@@ -164,8 +164,8 @@ export class NewBookingDto {
   @ApiPropertyOptional({
     maxLength: 255,
     description:
-      'With a postcode, the street must be findable in it in the official address ' +
-      'base (data.geopf.fr), typos forgiven: otherwise 422 `ADDRESS_NOT_FOUND`.',
+      'With a postcode, the street is looked up in the official address base ' +
+      '(data.geopf.fr); one it cannot place is kept as typed, never refused.',
     example: '12 rue des Lilas, 75011 Paris',
   })
   @IsOptional()

@@ -1,6 +1,7 @@
 import {
   coveredDiets,
   coversArea,
+  coversCommune,
   parisDay,
   parisMidnight,
   vitrineOrder,
@@ -69,5 +70,40 @@ describe('vitrineOrder', () => {
     expect(ids('2026-09-01')).toEqual(ids('2026-09-30'));
     const months = ['2026-10-01', '2026-11-01', '2026-12-01', '2027-01-01'].map(ids);
     expect(months.some((order) => order.join() !== ids('2026-09-01').join())).toBe(true);
+  });
+});
+
+describe('coversCommune', () => {
+  const nice = { code: '06088', codeRegion: '93' };
+
+  it('is covered by a whole-region zone of its region, or a zone that lists it', () => {
+    expect(coversCommune([{ regionCode: '93', scope: 'region', cities: [] }], nice)).toBe(
+      true,
+    );
+    expect(
+      coversCommune(
+        [{ regionCode: '93', scope: 'cities', cities: [{ insee: '06088' }] }],
+        nice,
+      ),
+    ).toBe(true);
+  });
+
+  it('is not covered by another region, another town, or zones that are not a list', () => {
+    expect(coversCommune([{ regionCode: '11', scope: 'region', cities: [] }], nice)).toBe(
+      false,
+    );
+    expect(
+      coversCommune(
+        [{ regionCode: '93', scope: 'cities', cities: [{ insee: '06004' }] }],
+        nice,
+      ),
+    ).toBe(false);
+    expect(coversCommune(null, nice)).toBe(false);
+    expect(coversCommune({}, nice)).toBe(false);
+  });
+
+  it('without its region, only a zone that lists the town covers it', () => {
+    const zones = [{ regionCode: '93', scope: 'region', cities: [] }];
+    expect(coversCommune(zones, { code: '06088' })).toBe(false);
   });
 });

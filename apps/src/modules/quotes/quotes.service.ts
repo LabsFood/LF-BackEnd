@@ -33,6 +33,7 @@ import {
   Viewer,
   toQuoteView,
 } from './quote.views';
+import { coversCommune } from '../dishes/domain/vitrine.rules';
 import { QuotesMailer } from './quotes.mailer';
 
 const notFound = () =>
@@ -82,8 +83,12 @@ export class QuotesService {
       });
     }
 
-    await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
-    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+    const commune = await this.geo.assertCommune(
+      dto.addressPostalCode,
+      dto.addressCity,
+      'addressCity',
+    );
+    await this.geo.checkStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
 
     // Checked here and not in the browser: the form can be replayed by anything.
     const open = await this.prisma.quote.findMany({
@@ -115,6 +120,14 @@ export class QuotesService {
     const chef = dto.chefProfileId
       ? await this.requestableChef(dto.chefProfileId, user.id)
       : null;
+    // The form only offers chefs who cover the town; this is for a replayed form or
+    // a chef's link.
+    if (chef && commune && !coversCommune(chef.interventionZones, commune)) {
+      throw new UnprocessableEntityException({
+        code: 'CHEF_OUT_OF_AREA',
+        message: 'chefProfileId does not cover the town of the request.',
+      });
+    }
     // A day the batch cooker closed is never offered: no request for it either.
     if (chef) await this.availability.assertOpenOn(chef.id, desiredDate);
 
@@ -527,7 +540,7 @@ export class QuotesService {
   private async requestableChef(chefProfileId: string, clientUserId: string) {
     const chef = await this.prisma.chefProfile.findFirst({
       where: { id: chefProfileId, isVerified: true, user: { deletedAt: null } },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, interventionZones: true },
     });
     if (!chef) {
       throw new UnprocessableEntityException({
