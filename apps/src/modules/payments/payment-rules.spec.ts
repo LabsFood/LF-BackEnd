@@ -32,6 +32,22 @@ describe('paymentPhase', () => {
     expect(paymentPhase({ status: 'pending', endsAt: after }, NOW)).toBe('due');
   });
 
+  it('a CGV V1 request is never paid while the batch cooker has not accepted it', () => {
+    expect(
+      paymentPhase({ status: 'pending', endsAt: before, paymentMethod: 'cb' }, NOW),
+    ).toBe('not_due');
+  });
+
+  it('an accepted card booking made on short notice is due at acceptance (7.3)', () => {
+    const accepted = { status: 'confirmed' as const, endsAt: after, startsAt: after };
+    expect(
+      paymentPhase({ ...accepted, paymentMethod: 'cb', acceptedAt: before }, NOW),
+    ).toBe('due');
+    expect(
+      paymentPhase({ ...accepted, paymentMethod: 'cesu', acceptedAt: before }, NOW),
+    ).toBe('not_due');
+  });
+
   it('a cancelled booking is never paid', () => {
     expect(paymentPhase({ status: 'cancelled', endsAt: before }, NOW)).toBe('cancelled');
   });

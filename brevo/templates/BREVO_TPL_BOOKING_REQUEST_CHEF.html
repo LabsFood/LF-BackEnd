@@ -1,0 +1,11 @@
+<!-- subject: Nouvelle demande de réservation à accepter avant le {{ params.acceptBy }} -->
+{% comment %}
+params: firstName reference when acceptBy amount clientName spaceUrl
+Sent to the batch cooker when a client's card is saved (CGV V1 5.2), and again halfway through the 48 h. Unanswered at acceptBy, the request expires and the client is told. clientName is first name and initial only.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Une demande de réservation vous attend</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{{ params.clientName }} souhaite réserver une session avec vous. Acceptez ou refusez la demande avant le <strong>{{ params.acceptBy }}</strong>&nbsp;: sans réponse, elle sera annulée et le créneau libéré.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1F2A37;">{% if params.reference %}Référence&nbsp;: {{ params.reference }}<br>{% endif %}{{ params.when }}<br>Montant&nbsp;: <strong>{{ params.amount }}</strong></td></tr></table>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Le client a déjà choisi son moyen de paiement et enregistré sa carte&nbsp;: rien n’est prélevé avant la fin de la session.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#2C3E50;"><a href="{{ params.spaceUrl }}" style="display:inline-block;padding:14px 24px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Répondre à la demande</a></td></tr></table>

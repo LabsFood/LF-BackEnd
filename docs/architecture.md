@@ -58,7 +58,7 @@ apps/src/
     ├── chef-onboarding/       # candidatures, KYC documents, referentials, daily dossier job (FLOW-01)
     ├── dishes/                # chef dishes and menus, public vitrine, moderation, recipe sheet and shopping list (FLOW-02)
     ├── catalog/               # admin meals/menu-weeks/formules (Lab's Food content)
-    ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job
+    ├── bookings/              # /me/bookings, /chef/bookings, /admin/bookings; 72 h unpaid hold job; CGV V1 requests (`booking-requests.service.ts`)
     ├── calendar/              # working hours, agenda, blocks, free slots, .ics feed (/chef/availability, /chef/agenda, /chef/calendar-feed)
     ├── quotes/                # custom requests and offers; accepting an offer creates the booking (BLK-10)
     ├── messaging/             # conversations, attachments, /ws gateway, unread-message emails
@@ -115,6 +115,18 @@ admins). A `pending` booking becomes `confirmed` once its payments cover it — 
 CESU payment the batch cooker confirms (the e-CESU proof is required to declare it) or the URSSAF
 answer — never by a PATCH except an admin's. Unpaid, it holds the slot 72 h: both sides are reminded
 at 48 h, then it is cancelled.
+
+**CGV V1 request (decision of 2026-11-19).** A client booking that names `paymentMethod`
+(`cb`, `avance_immediate`, `cesu`) is a request: nothing is paid. The client saves a card whatever
+the method (`POST /me/bookings/{id}/card`, Stripe Checkout `setup`); that sends the request to the
+batch cooker, who accepts or refuses within 48 h, cut short at the start (`POST
+/chef/bookings/{id}/accept|refuse`). Acceptance makes it `confirmed` and sets `concludedAt` (14-day
+withdrawal, contract e-mail); refusal or expiry cancels it, nothing charged. After the session the
+job `bookings-charge-after` charges the saved card off session, sends the advance to URSSAF (the card
+if the link never became active), or reminds a CESU client and charges the card 48 h after the end.
+A card booking made less than 48 h before the start is charged at acceptance. One attempt per
+booking; a refusal is the client's to settle on the payment screen (CGV 7.5). Rules:
+`bookings/domain/booking-request.rules.ts`.
 
 The batch cooker moves it to `shopping`, `cooking` (the arrival on site, from 2 h before the start:
 `arrivedAt`) and `delivered`; either side closes it `completed`. Client or batch cooker cancel only

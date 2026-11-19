@@ -44,6 +44,12 @@ export type ChefOnboardingEmail =
   | 'bookingContractClient'
   | 'bookingWithdrawalAck'
   | 'bookingWithdrawalAdmin'
+  // CGV V1 direct booking (decision of 2026-11-19): the request to the batch cooker,
+  // its refusal or expiry, the charge after the session refused, the CESU reminder.
+  | 'bookingRequestChef'
+  | 'bookingRequestDeclined'
+  | 'bookingChargeFailed'
+  | 'bookingCesuReminder'
   // Recettes lot 6, art. 8: the message before the groceries (the one double-channel
   // signal of the module), its delivery confirmed by the Brevo webhook.
   | 'groceriesNotice';

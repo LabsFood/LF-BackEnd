@@ -112,8 +112,10 @@ export const STATUS_HELP =
   'start: it records `arrivedAt`) and `delivered`; either side closes it ' +
   '`completed`. Client or batch cooker may cancel while nothing is paid and, once ' +
   'confirmed, before the start.\n\n' +
-  'An unpaid `pending` booking holds its slot 72 h: both sides are reminded at 48 h, ' +
-  'then it is cancelled.';
+  'A CGV V1 request (`request` set) is `pending` until the batch cooker accepts it ' +
+  '(`POST /chef/bookings/{id}/accept`, within 48 h) or refuses it; unanswered, it is ' +
+  'cancelled. An unpaid `pending` booking of the older model holds its slot 72 h: ' +
+  'both sides are reminded at 48 h, then it is cancelled.';
 
 export const RESCHEDULE_EXAMPLE = {
   id: '5b2e…',

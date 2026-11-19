@@ -523,7 +523,8 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   (for a client the batch cooker already knows) and `POST /admin/bookings`
   (availability not checked, audited) make it `pending`, priced on the server:
   paying it confirms it, and unpaid it holds the slot 72 h before it is
-  cancelled. See _Booking lifecycle_ in [`docs/architecture.md`](docs/architecture.md).
+  cancelled. A client booking with `paymentMethod` is a CGV V1 request instead:
+  card saved, the batch cooker accepts within 48 h, charged after the session. See _Booking lifecycle_ in [`docs/architecture.md`](docs/architecture.md).
 
 | Actor        | Routes                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |

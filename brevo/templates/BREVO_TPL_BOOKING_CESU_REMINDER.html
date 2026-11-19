@@ -1,0 +1,11 @@
+<!-- subject: Session {{ params.reference }} : déclarez vos CESU -->
+{% comment %}
+params: firstName reference when amount chefName payUrl
+Sent to the client who chose prefinanced CESU, once the session is over. 48 h after the end, what is left is charged on the saved card.
+{% endcomment %}
+<h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;font-weight:bold;color:#2C3E50;">Votre session est terminée&nbsp;: déclarez vos CESU</h1>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">{% if params.firstName %}Bonjour {{ params.firstName }},{% else %}Bonjour,{% endif %}</p>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Vous avez choisi de régler votre session avec {{ params.chefName }} en CESU préfinancés. Il est temps de déclarer vos titres depuis votre espace.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td style="padding:14px 16px;background:#F1F5F8;border-left:3px solid #F39C12;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1F2A37;">{% if params.reference %}Référence&nbsp;: {{ params.reference }}<br>{% endif %}{{ params.when }}<br>Reste à régler&nbsp;: <strong>{{ params.amount }}</strong></td></tr></table>
+<p style="margin:0 0 16px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1F2A37;">Sans déclaration dans les <strong>48 heures</strong>, le montant restant sera prélevé sur la carte enregistrée lors de votre réservation.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#2C3E50;"><a href="{{ params.payUrl }}" style="display:inline-block;padding:14px 24px;font-family:'Montserrat','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Déclarer mes CESU</a></td></tr></table>

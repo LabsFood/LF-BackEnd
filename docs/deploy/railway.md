@@ -247,7 +247,9 @@ Five jobs run in-process via `@nestjs/schedule`. There is no queue.
 | `ChefDossierCron` | daily, 06:00 UTC (the container's clock) | Document expiry warnings, automatic suspension, retention purge |
 | `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
 | `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
-| `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h |
+| `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h (older model, no `paymentMethod`) |
+| `bookings-requests` | every 10 min | CGV V1 requests: drops one whose card is not saved after 1 h, reminds the batch cooker at 24 h, expires it at `acceptBy` |
+| `bookings-charge-after` | every 30 min | CGV V1: charges the saved card, sends the advance to URSSAF or reminds a CESU client once the price falls due |
 | `booking-reschedules-expiry` | hourly | Lapses reschedule proposals nobody answered in time |
 
 Each job checks in to a Sentry cron monitor of the same slug (`chef-dossier-daily`

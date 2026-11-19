@@ -28,6 +28,15 @@ import { UrssafGateway } from './urssaf.gateway';
 
 const BPS = 10_000;
 
+const BOOKING_PAY_INCLUDE = {
+  chefProfile: {
+    include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+  },
+  serviceOffer: CONTRACT_SELECT.serviceOffer,
+} satisfies Prisma.BookingInclude;
+
+type PayBooking = Prisma.BookingGetPayload<{ include: typeof BOOKING_PAY_INCLUDE }>;
+
 /** What the payment screen shows for the prestation as a whole (FLOW-03 §2). */
 export type BookingPaymentState = 'not-due' | 'due' | 'processing' | 'paid' | 'failed';
 
@@ -204,8 +213,17 @@ export class BookingPaymentsService {
         currency: booking.currency.toLowerCase(),
       },
       methods,
-      // ponytail: no Stripe customer is kept per client yet, so no card is remembered.
-      savedCards: [] as never[],
+      /** CGV V1 (decision of 2026-11-19): the method chosen at booking, preselected. */
+      chosenMethod:
+        booking.paymentMethod === 'cb'
+          ? 'card'
+          : booking.paymentMethod === 'avance_immediate'
+            ? 'urssaf'
+            : (booking.paymentMethod ?? null),
+      /** The card saved at booking (7.2), charged after the session without the client. */
+      savedCards: booking.cardLast4
+        ? [{ brand: booking.cardBrand, last4: booking.cardLast4 }]
+        : [],
       /**
        * Recettes lot 6: the groceries, a second amount paid apart, by card only (e-CESU
        * and the immediate advance cover the service, never the ingredients). Null when
@@ -231,11 +249,7 @@ export class BookingPaymentsService {
   }
 
   private async state(
-    booking: {
-      id: string;
-      status: Parameters<typeof paymentPhase>[0]['status'];
-      endsAt: Date;
-    },
+    booking: Parameters<typeof paymentPhase>[0] & { id: string; endsAt: Date },
     fullyCovered: boolean,
   ): Promise<BookingPaymentState> {
     if (fullyCovered) return 'paid';
@@ -266,6 +280,24 @@ export class BookingPaymentsService {
   async settleWithUrssaf(clerkUserId: string, bookingId: string) {
     this.assertEnabled();
     const { booking, client } = await this.ownBooking(clerkUserId, bookingId);
+    return this.sendToUrssaf(booking, client.id);
+  }
+
+  /**
+   * CGV V1 7.3 (decision of 2026-11-19): the end-of-session job sends a booking whose
+   * client chose the advance, without them. Same checks as the client's own request.
+   */
+  async settleWithUrssafFor(bookingId: string) {
+    this.assertEnabled();
+    const booking = await this.prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: BOOKING_PAY_INCLUDE,
+    });
+    return this.sendToUrssaf(booking, booking.clientId);
+  }
+
+  private async sendToUrssaf(booking: PayBooking, clientId: string) {
+    const client = { id: clientId };
     assertPayable(booking);
 
     const chef = booking.chefProfile;
@@ -854,12 +886,7 @@ export class BookingPaymentsService {
     const client = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: client.id },
-      include: {
-        chefProfile: {
-          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
-        },
-        serviceOffer: CONTRACT_SELECT.serviceOffer,
-      },
+      include: BOOKING_PAY_INCLUDE,
     });
     if (!booking) throw new NotFoundException('Booking not found.');
     return { booking, client };
