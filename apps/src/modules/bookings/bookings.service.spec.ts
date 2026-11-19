@@ -82,6 +82,7 @@ const OFFER = {
   currency: 'EUR',
   shoppingIncluded: false,
   shoppingFeeCents: 0,
+  mealsIncluded: null,
   chefProfile: { userId: 'chef-user' },
 };
 
@@ -361,6 +362,51 @@ describe('BookingsService', () => {
       });
     });
 
+    it('takes exactly the dishes a fixed-count offer includes, creating nothing else', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 3 });
+      prisma.meal.count.mockResolvedValue(2);
+
+      await expect(
+        service.create('client', 'clerk_1', {
+          ...dto,
+          meals: [{ mealId: 'meal-1' }, { mealId: 'meal-2' }],
+        }),
+      ).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'MEAL_COUNT_MISMATCH', mealsIncluded: 3 },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('sells no extra dish on a fixed-count offer', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 3 });
+
+      await expect(
+        service.create('client', 'clerk_1', { ...dto, extraMeals: 1 }),
+      ).rejects.toMatchObject({ response: { code: 'EXTRA_MEALS_NOT_OFFERED' } });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('books the dishes of a fixed-count offer at the portions the client asked', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 2 });
+      prisma.meal.count.mockResolvedValue(2);
+
+      await service.create('client', 'clerk_1', {
+        ...dto,
+        meals: [
+          { mealId: 'meal-1', portions: 6 },
+          { mealId: 'meal-2', portions: 6 },
+        ],
+      });
+
+      expect(prisma.booking.create.mock.calls[0][0].data.bookingMeals).toEqual({
+        create: [
+          { mealId: 'meal-1', portions: 6 },
+          { mealId: 'meal-2', portions: 6 },
+        ],
+      });
+    });
+
     it('pins the recipes of the dishes booked', async () => {
       prisma.meal.count.mockResolvedValue(1);
 
@@ -585,6 +631,19 @@ describe('BookingsService', () => {
       await expect(
         service.update('client', 'clerk_1', 'booking-1', { addressCity: 'Marseille' }),
       ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      expect(prisma.booking.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a changed menu to the count of a fixed-count offer', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ serviceOffer: { ...row().serviceOffer, mealsIncluded: 3 } }),
+      );
+
+      await expect(
+        service.update('client', 'clerk_1', 'booking-1', {
+          meals: [{ mealId: 'meal-1' }],
+        }),
+      ).rejects.toMatchObject({ response: { code: 'MEAL_COUNT_MISMATCH' } });
       expect(prisma.booking.update).not.toHaveBeenCalled();
     });
 

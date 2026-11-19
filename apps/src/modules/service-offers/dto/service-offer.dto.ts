@@ -68,6 +68,21 @@ export class CreateServiceOfferDto {
   shoppingFeeCents?: number;
 
   @ApiPropertyOptional({
+    minimum: 1,
+    maximum: 20,
+    nullable: true,
+    description:
+      'Dishes the offer includes, a fixed count: the client picks exactly that many ' +
+      'and buys no extra dish. Null takes any count (the offers made before 19/11).',
+    example: 3,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  mealsIncluded?: number | null;
+
+  @ApiPropertyOptional({
     default: true,
     description: 'Offered to clients. Turn off instead of deleting a booked offer.',
   })

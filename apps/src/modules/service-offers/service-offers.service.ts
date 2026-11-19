@@ -31,6 +31,7 @@ const SELECT = {
   currency: true,
   shoppingIncluded: true,
   shoppingFeeCents: true,
+  mealsIncluded: true,
   isActive: true,
 } satisfies Prisma.ServiceOfferSelect;
 
@@ -108,6 +109,7 @@ export class ServiceOffersService {
         priceCents: dto.priceCents,
         shoppingIncluded: dto.shoppingIncluded ?? false,
         shoppingFeeCents: dto.shoppingFeeCents ?? 0,
+        mealsIncluded: dto.mealsIncluded ?? null,
         isActive: dto.active ?? true,
       },
       select: SELECT,
@@ -118,6 +120,7 @@ export class ServiceOffersService {
       offerId: row.id,
       durationMinutes: row.durationMinutes,
       priceCents: row.priceCents,
+      mealsIncluded: row.mealsIncluded,
     });
     return view(row);
   }
@@ -143,6 +146,7 @@ export class ServiceOffersService {
         priceCents: dto.priceCents,
         shoppingIncluded: dto.shoppingIncluded,
         shoppingFeeCents,
+        mealsIncluded: dto.mealsIncluded,
         isActive: dto.active,
       },
       select: SELECT,

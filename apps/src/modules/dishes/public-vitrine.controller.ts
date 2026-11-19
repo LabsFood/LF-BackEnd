@@ -166,6 +166,7 @@ export class PublicVitrineController {
           priceCents: 18000,
           shoppingIncluded: true,
           shoppingFeeCents: 1500,
+          mealsIncluded: 3,
         },
       ],
       dishes: [CARD_DISH],

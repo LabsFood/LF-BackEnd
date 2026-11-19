@@ -48,6 +48,7 @@ import {
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
 import { contractConsentRequired } from './domain/contract.errors';
 import { frozenSince, isMenuFrozen } from './domain/menu-freeze.rules';
+import { mealCountProblem } from './domain/meal-count.rules';
 import {
   acceptedConsents,
   chefShops,
@@ -107,6 +108,28 @@ const notFound = () =>
 
 const invalid = (message: string, code = 'VALIDATION_FAILED') =>
   new UnprocessableEntityException({ code, message });
+
+/**
+ * The dishes against the offer's fixed count (`MEAL_COUNT_MISMATCH`, naming the
+ * count, or `EXTRA_MEALS_NOT_OFFERED`); nothing to check on an offer without one.
+ */
+const assertMealCount = (
+  mealsIncluded: number | null,
+  chosen: number,
+  extraMeals: number,
+) => {
+  const problem = mealCountProblem(mealsIncluded, chosen, extraMeals);
+  if (problem === 'EXTRA_MEALS_NOT_OFFERED') {
+    throw invalid('This offer is a fixed number of dishes: no extra dish.', problem);
+  }
+  if (problem) {
+    throw new UnprocessableEntityException({
+      code: problem,
+      message: `This offer includes ${mealsIncluded} dishes: choose exactly that many.`,
+      mealsIncluded,
+    });
+  }
+};
 
 /** The names of the fields a PATCH sent, for the log and the audit; never their values. */
 const changedKeys = (dto: object) =>
@@ -221,6 +244,7 @@ export class BookingsService {
         currency: true,
         shoppingIncluded: true,
         shoppingFeeCents: true,
+        mealsIncluded: true,
         chefProfile: { select: { userId: true } },
       },
     });
@@ -258,6 +282,7 @@ export class BookingsService {
     if (dto.formuleId && !formule) {
       throw invalid('This formule is not offered.', 'FORMULE_UNAVAILABLE');
     }
+    assertMealCount(offer.mealsIncluded, dto.meals?.length ?? 0, dto.extraMeals ?? 0);
     let portions = DEFAULT_PORTIONS;
     if (dto.meals?.length) {
       await this.assertMeals(offer.chefProfileId, dto.meals);
@@ -397,6 +422,7 @@ export class BookingsService {
             durationMinutes: true,
             shoppingIncluded: true,
             shoppingFeeCents: true,
+            mealsIncluded: true,
           },
         },
         quote: { select: { allergies: true } },
@@ -430,6 +456,13 @@ export class BookingsService {
     // Recettes lot 3 (LF-0269, R40): 72 hours before the start the dishes no longer
     // change. A Lab's Food admin may still, for support, and it is recorded below.
     const frozenMenuEdit = meals !== undefined && isMenuFrozen(booking.startsAt, now);
+    if (meals !== undefined || fields.extraMeals !== undefined) {
+      assertMealCount(
+        booking.serviceOffer.mealsIncluded,
+        meals?.length ?? 0,
+        fields.extraMeals ?? booking.extraMeals,
+      );
+    }
     if (frozenMenuEdit && !admin) throw menuFrozen(frozenSince(booking.startsAt));
 
     const moving = status !== undefined && status !== booking.status;

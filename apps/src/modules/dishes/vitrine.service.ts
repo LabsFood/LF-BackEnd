@@ -211,6 +211,7 @@ export class VitrineService {
           priceCents: true,
           shoppingIncluded: true,
           shoppingFeeCents: true,
+          mealsIncluded: true,
         },
       }),
       this.prisma.chefProfile.findUnique({
