@@ -8,9 +8,13 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 import { QueryBoolean } from '../../../common/dto/query-boolean';
+
+/** The slot an offer blocks when the chef gives no duration: the custom-quote length. */
+export const DEFAULT_OFFER_MINUTES = 240;
 
 export class CreateServiceOfferDto {
   @ApiProperty({ minLength: 1, maxLength: 160, example: 'Session 4 heures' })
@@ -24,16 +28,20 @@ export class CreateServiceOfferDto {
   @MaxLength(2000)
   description?: string | null;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     minimum: 30,
     maximum: 720,
-    description: 'Length of the visit. It sets the slot a client books.',
+    default: DEFAULT_OFFER_MINUTES,
+    description:
+      'Length of the visit. Only blocks the slot a client books; the offer card does ' +
+      `not feature it. Omitted: ${DEFAULT_OFFER_MINUTES} minutes.`,
     example: 240,
   })
+  @IsOptional()
   @IsInt()
   @Min(30)
   @Max(720)
-  durationMinutes!: number;
+  durationMinutes?: number;
 
   @ApiProperty({
     minimum: 1,
@@ -67,20 +75,18 @@ export class CreateServiceOfferDto {
   @Max(100_000)
   shoppingFeeCents?: number;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     minimum: 1,
     maximum: 20,
-    nullable: true,
     description:
       'Dishes the offer includes, a fixed count: the client picks exactly that many ' +
-      'and buys no extra dish. Null takes any count (the offers made before 19/11).',
+      'and buys no extra dish. More dishes is a custom request, not an offer.',
     example: 3,
   })
-  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(20)
-  mealsIncluded?: number | null;
+  mealsIncluded!: number;
 
   @ApiPropertyOptional({
     default: true,
@@ -91,7 +97,15 @@ export class CreateServiceOfferDto {
   active?: boolean;
 }
 
-export class UpdateServiceOfferDto extends PartialType(CreateServiceOfferDto) {}
+export class UpdateServiceOfferDto extends PartialType(CreateServiceOfferDto) {
+  /** Optional, but never null: an offer cannot go back to « any count ». */
+  @ApiPropertyOptional({ minimum: 1, maximum: 20, example: 3 })
+  @ValidateIf((o: UpdateServiceOfferDto) => o.mealsIncluded !== undefined)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  mealsIncluded?: number;
+}
 
 /** `GET /service-offers/{id}/price`: what the client would book. */
 export class OfferPriceQueryDto {

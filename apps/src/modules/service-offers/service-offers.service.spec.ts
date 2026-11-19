@@ -83,12 +83,21 @@ describe('ServiceOffersService', () => {
       priceCents: 18000,
       shoppingIncluded: true,
       shoppingFeeCents: 1500,
+      mealsIncluded: 3,
     });
     expect(prisma.serviceOffer.create.mock.calls[0][0].data).toMatchObject({
       chefProfileId: 'chef-1',
       name: 'Session 4 heures',
       shoppingFeeCents: 1500,
       isActive: true,
+    });
+  });
+
+  it('blocks the default slot when the chef gives no duration', async () => {
+    await service.create('clerk-1', { name: 'Douceur', priceCents: 9000, mealsIncluded: 3 });
+    expect(prisma.serviceOffer.create.mock.calls[0][0].data).toMatchObject({
+      durationMinutes: 240,
+      mealsIncluded: 3,
     });
   });
 
@@ -99,6 +108,7 @@ describe('ServiceOffersService', () => {
         durationMinutes: 60,
         priceCents: 100,
         shoppingFeeCents: 500,
+        mealsIncluded: 3,
       }),
     ).rejects.toMatchObject({ response: { code: 'SHOPPING_FEE_WITHOUT_SHOPPING' } });
     expect(prisma.serviceOffer.create).not.toHaveBeenCalled();
@@ -110,6 +120,7 @@ describe('ServiceOffersService', () => {
         name: 'Prestation sur-mesure',
         durationMinutes: 60,
         priceCents: 100,
+        mealsIncluded: 3,
       }),
     ).rejects.toMatchObject({ response: { code: 'OFFER_NAME_INVALID' } });
   });

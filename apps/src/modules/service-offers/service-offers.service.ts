@@ -18,6 +18,7 @@ import { CUSTOM_OFFER_NAME } from '../quotes/quote-offers.service';
 import { UsersService } from '../users/users.service';
 import {
   CreateServiceOfferDto,
+  DEFAULT_OFFER_MINUTES,
   OfferPriceQueryDto,
   UpdateServiceOfferDto,
 } from './dto/service-offer.dto';
@@ -105,11 +106,11 @@ export class ServiceOffersService {
         chefProfileId: chef.chefProfileId,
         name: dto.name.trim(),
         description: dto.description ?? null,
-        durationMinutes: dto.durationMinutes,
+        durationMinutes: dto.durationMinutes ?? DEFAULT_OFFER_MINUTES,
         priceCents: dto.priceCents,
         shoppingIncluded: dto.shoppingIncluded ?? false,
         shoppingFeeCents: dto.shoppingFeeCents ?? 0,
-        mealsIncluded: dto.mealsIncluded ?? null,
+        mealsIncluded: dto.mealsIncluded,
         isActive: dto.active ?? true,
       },
       select: SELECT,
