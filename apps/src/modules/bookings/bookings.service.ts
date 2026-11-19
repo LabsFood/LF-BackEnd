@@ -295,6 +295,7 @@ export class BookingsService {
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
     await this.geo.checkStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+    const address = await this.bookingAddress(clientId, dto);
 
     // CGV art. 5.1: the client's boxes come with the booking. A batch cooker or an
     // admin cannot tick them: the client does, before paying (`assertPayable`).
@@ -344,9 +345,7 @@ export class BookingsService {
             formuleId: formule?.id ?? null,
             ...schedule(dto.startsAt, endsAt),
             persons: dto.persons ?? null,
-            addressLine: dto.addressLine ?? null,
-            addressCity: dto.addressCity ?? null,
-            addressPostalCode: dto.addressPostalCode ?? null,
+            ...address,
             notes: dto.notes ?? null,
             shoppingByClient: dto.shoppingByClient ?? false,
             status: 'pending',
@@ -1051,6 +1050,32 @@ export class BookingsService {
    * Portions for a dish booked without any (Recettes §9.1, BLK-27): the client's
    * household, a child as half a portion. Read only when a dish needs it.
    */
+  /**
+   * Where the session happens: the address given, or else the client's own. A batch
+   * cooker booking for a known client no longer types it (2026-11-19).
+   */
+  private async bookingAddress(
+    clientId: string,
+    dto: Pick<NewBookingDto, 'addressLine' | 'addressCity' | 'addressPostalCode'>,
+  ) {
+    if (dto.addressLine || dto.addressCity || dto.addressPostalCode) {
+      return {
+        addressLine: dto.addressLine ?? null,
+        addressCity: dto.addressCity ?? null,
+        addressPostalCode: dto.addressPostalCode ?? null,
+      };
+    }
+    const profile = await this.prisma.clientProfile.findUnique({
+      where: { userId: clientId },
+      select: { addressStreet: true, addressCity: true, addressPostalCode: true },
+    });
+    return {
+      addressLine: profile?.addressStreet ?? null,
+      addressCity: profile?.addressCity ?? null,
+      addressPostalCode: profile?.addressPostalCode ?? null,
+    };
+  }
+
   private async householdPortions(clientId: string, meals: BookingMealDto[]) {
     if (meals.every((meal) => meal.portions != null)) return DEFAULT_PORTIONS;
     const household = await this.prisma.clientProfile.findUnique({

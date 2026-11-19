@@ -451,6 +451,46 @@ describe('BookingsService', () => {
       );
     });
 
+    it('takes the client’s own address when the batch cooker gives none', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        addressStreet: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      await service.create('chef', 'clerk_1', { ...dto, clientId: 'client-1' });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        addressLine: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+    });
+
+    it('keeps the address the batch cooker gives over the client’s', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        addressStreet: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      await service.create('chef', 'clerk_1', {
+        ...dto,
+        clientId: 'client-1',
+        addressLine: '1 rue Neuve',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        addressLine: '1 rue Neuve',
+      });
+    });
+
     it('stops a batch cooker whose commission could not be collected', async () => {
       prisma.commissionInvoice.findFirst.mockResolvedValue({ invoiceNumber: 'LF-COM-1' });
 
