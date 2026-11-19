@@ -110,7 +110,6 @@ export const envValidationSchema = Joi.object({
    * enters each request on the intermediary's online space and records its answer
    * here. Real requests, real answers, so it runs beside live Stripe keys.
    */
-  URSSAF_INTERMEDIARY: Joi.string().max(60).default('Unipros'),
   /**
    * AES-256 key (32 bytes, base64) sealing the clients' URSSAF dossiers in the KYC
    * bucket. Required in `manual` mode, where those dossiers are collected.

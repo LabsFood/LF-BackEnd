@@ -67,8 +67,6 @@ export interface PaymentMethodOption {
   dueNowCents: number;
   /** Immediate advance only: what URSSAF takes from their account afterwards. */
   debitedLaterCents?: number;
-  /** Immediate advance, manual mode: the cooperative it goes through ("par Unipros"). */
-  intermediary?: string;
   /** CESU only: the most that can be declared, and the number to pay the cook with. */
   maxCesuCents?: number;
   crcesuNan?: string | null;
@@ -167,9 +165,6 @@ export class BookingPaymentsService {
         // Nothing is paid on the site: URSSAF debits the client's share afterwards.
         dueNowCents: 0,
         debitedLaterCents: afterTaxCredit(remaining),
-        ...(this.urssaf.manual
-          ? { intermediary: this.config.get<string>('urssaf.intermediary', 'Unipros') }
-          : {}),
       });
     }
     if (chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled) {

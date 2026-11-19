@@ -62,8 +62,6 @@ export interface AppConfig {
      * There is no `live` yet: it arrives with the URSSAF API access, behind `UrssafGateway`.
      */
     gateway: UrssafGatewayMode;
-    /** The cooperative the admin goes through in `manual` mode (shown at checkout). */
-    intermediary: string;
     /** Base64 AES-256 key for the clients' URSSAF dossiers. */
     kycEncryptionKey?: string;
   };
@@ -218,7 +216,6 @@ export const configLoader = (): AppConfig => ({
   urssaf: {
     // Joi (env.validation.ts) rejects any other value, and `simulated` beside live Stripe keys.
     gateway: (process.env.URSSAF_GATEWAY ?? 'disabled') as UrssafGatewayMode,
-    intermediary: process.env.URSSAF_INTERMEDIARY ?? 'Unipros',
     kycEncryptionKey: process.env.KYC_ENCRYPTION_KEY,
   },
   payments: {
