@@ -35,7 +35,7 @@ import { householdPortions } from '../dishes/domain/recipes.rules';
 
 /** A dish booked for a client without a household on file. */
 const DEFAULT_PORTIONS = 4;
-import { advanceAccepted, cesuAccepted } from '../payments/chef-cesu-info';
+import { OFFERED_METHODS_SELECT, offeredMethods } from '../payments/chef-cesu-info';
 import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
@@ -798,23 +798,10 @@ export class BookingsService {
   ) {
     const chef = await this.prisma.chefProfile.findUniqueOrThrow({
       where: { id: chefProfileId },
-      select: {
-        stripeAccountId: true,
-        stripeChargesEnabled: true,
-        stripePayoutsEnabled: true,
-        sapProfile: true,
-        sepaMandate: { select: { status: true } },
-      },
+      select: OFFERED_METHODS_SELECT,
     });
     const urssafMode = this.config.get<string>('urssaf.gateway', 'disabled');
-    const offered = {
-      cb: Boolean(
-        chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled,
-      ),
-      avance_immediate:
-        urssafMode !== 'disabled' && advanceAccepted(chef.sapProfile, chef.sepaMandate),
-      cesu: cesuAccepted(chef.sapProfile, chef.sepaMandate),
-    };
+    const offered = offeredMethods(chef, urssafMode);
     const link =
       method === 'avance_immediate'
         ? await this.prisma.urssafLink.findUnique({
