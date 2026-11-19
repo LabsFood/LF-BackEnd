@@ -283,7 +283,7 @@ describe('MessagingService', () => {
       });
     });
 
-    it('leaves the text readable once the contact details are released', async () => {
+    it('masks contact details even right before the prestation', async () => {
       prisma.booking.findMany.mockResolvedValue([booking('confirmed', 24)]);
       asParticipant(conversation(), 'client');
 
@@ -291,10 +291,8 @@ describe('MessagingService', () => {
         body: 'Appelez-moi au 06 12 34 56 78',
       });
 
-      expect(sent.body).toBe('Appelez-moi au 06 12 34 56 78');
-      expect(sent.contactMasked).toBe(false);
-      // Still recorded: the thread is masked again after the prestation.
-      expect(tx.message.create.mock.calls[0][0].data.contactDetected).toBe(true);
+      expect(sent.body).toBe(`Appelez-moi au ${CONTACT_MASK}`);
+      expect(sent.contactMasked).toBe(true);
     });
 
     it('tells both people and the admins, each with their own text', async () => {
@@ -502,17 +500,15 @@ describe('MessagingService', () => {
   });
 
   describe('the conversation header', () => {
-    it('hides the phone number until the release, then shows it', async () => {
+    it('never shows the phone number, even right before the prestation', async () => {
       asParticipant(conversation(), 'client');
-      const before = await service.getMine('clerk_1', CONVERSATION);
-      expect(before.contactReleased).toBe(false);
-      expect(before.counterpart).toMatchObject({ name: 'Marie Dupont', phone: null });
-      expect(before.contactReleaseAt).toBeInstanceOf(Date);
-
       prisma.booking.findMany.mockResolvedValue([booking('confirmed', 24)]);
-      const after = await service.getMine('clerk_1', CONVERSATION);
-      expect(after.contactReleased).toBe(true);
-      expect(after.counterpart.phone).toBe('0622222222');
+
+      const view = await service.getMine('clerk_1', CONVERSATION);
+
+      expect(view.contactReleased).toBe(false);
+      expect(view.contactReleaseAt).toBeNull();
+      expect(view.counterpart).toMatchObject({ name: 'Marie Dupont', phone: null });
     });
 
     it('shows a batch cooker a shortened client name', async () => {

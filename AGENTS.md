@@ -337,9 +337,10 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
   to both participants and the conversation is flagged for admins, who read the
   original. Detection is a regex (`domain/contact-detector.ts`): deterrence, not a
   guarantee.
-- **J-2**: masking is lifted, and the other person's phone shown, from 48 h before
-  a _confirmed_ booking until it ends (`domain/messaging.rules.ts`). Nothing is
-  stored: moving or cancelling the booking changes the answer.
+- **No release, ever**: a client and a batch cooker never get each other's phone
+  or email, not even before the prestation. `counterpart.phone` is always `null`,
+  `contactReleased` always `false`, `contactReleaseAt` always `null` (fields kept
+  so existing front ends still parse the view).
 - **Writable** while a booking between the two is pending or confirmed, and for 14
   days after a completed one; then `409 CONVERSATION_READ_ONLY`. Support threads
   are always open. Admins can write in a closed thread.

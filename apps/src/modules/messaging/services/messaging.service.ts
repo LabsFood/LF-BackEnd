@@ -20,9 +20,7 @@ import {
   MAX_MESSAGE_PAGE_SIZE,
   PairBooking,
   currentBooking,
-  isContactReleased,
   isWritable,
-  nextContactReleaseAt,
   shortName,
 } from '../domain/messaging.rules';
 import {
@@ -333,8 +331,7 @@ export class MessagingService {
   ): Promise<{ message: LoadedMessage; masked: boolean }> {
     const bookings = await this.bookingsOf(conversation);
     const now = new Date();
-    const masked =
-      conversation.type === 'chef_client' && !isContactReleased(bookings, now);
+    const masked = conversation.type === 'chef_client';
 
     if (dto.clientMessageId) {
       const existing = await this.findByClientMessageId(
@@ -773,7 +770,7 @@ export class MessagingService {
 
   private async isMasked(conversation: LoadedConversation): Promise<boolean> {
     if (conversation.type !== 'chef_client') return false;
-    return !isContactReleased(await this.bookingsOf(conversation), new Date());
+    return true;
   }
 
   private async assertWritable(conversation: LoadedConversation): Promise<void> {
@@ -816,20 +813,18 @@ export class MessagingService {
     now: Date,
     openRequest = false,
   ): ConversationView {
-    const released =
-      conversation.type === 'chef_client' && isContactReleased(bookings, now);
-    const masked = conversation.type === 'chef_client' && !released;
+    const masked = conversation.type === 'chef_client';
     const last = conversation.messages[0];
     return {
       id: conversation.id,
       type: conversation.type,
       viewerRole: membership.role,
-      counterpart: counterpartOf(conversation, membership.role, released),
+      counterpart: counterpartOf(conversation, membership.role),
       booking: toBookingSummary(currentBooking(bookings, now)),
       writable: writable(conversation, bookings, now, openRequest),
-      contactReleased: released,
-      contactReleaseAt:
-        conversation.type === 'chef_client' ? nextContactReleaseAt(bookings, now) : null,
+      // Kept so existing clients still parse the view: contacts are never released.
+      contactReleased: false,
+      contactReleaseAt: null,
       lastMessage: last ? toMessageView(last, masked) : null,
       lastMessageAt: conversation.lastMessageAt,
       unreadCount: membership.unreadCount,
@@ -859,7 +854,6 @@ function writable(
 function counterpartOf(
   conversation: LoadedConversation,
   viewerRole: SenderRole,
-  released: boolean,
 ): CounterpartView {
   if (conversation.type === 'support') {
     return { role: 'support', name: SUPPORT_NAME, avatarUrl: null, phone: null };
@@ -870,7 +864,7 @@ function counterpartOf(
       role: 'chef',
       name: chef?.displayName ?? 'Batch cooker',
       avatarUrl: chef?.user.avatarUrl ?? null,
-      phone: released ? (chef?.user.phone ?? null) : null,
+      phone: null,
     };
   }
   const client = conversation.client;
@@ -878,7 +872,7 @@ function counterpartOf(
     role: 'client',
     name: shortName(client?.fullName),
     avatarUrl: client?.avatarUrl ?? null,
-    phone: released ? (client?.phone ?? null) : null,
+    phone: null,
   };
 }
 

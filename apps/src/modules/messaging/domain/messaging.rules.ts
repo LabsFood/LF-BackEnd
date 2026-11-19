@@ -1,14 +1,11 @@
 /**
  * The rules of a client ↔ batch cooker thread, as pure functions of the bookings
- * between the two. No rule is stored: a booking that moves or is cancelled
+ * between the two. Phone numbers and emails are never shared between a client and
+ * a batch cooker: there is no release rule. No rule is stored: a booking that moves or is cancelled
  * changes the answer at the next read.
  */
 
 import type { BookingStatus } from '../../../generated/prisma/client';
-import { GOING_AHEAD } from '../../bookings/domain/booking-status';
-
-/** Contact details are released this long before a confirmed prestation (J-2). */
-export const CONTACT_RELEASE_HOURS = 48;
 
 /** A thread stays open for writing this long after a completed prestation. */
 export const WRITE_GRACE_DAYS = 14;
@@ -22,8 +19,7 @@ export const MAX_MESSAGE_PAGE_SIZE = 100;
 /** Messages one person may send per window, across all their conversations. */
 export const SEND_RATE_LIMIT = { limit: 20, windowSeconds: 60 } as const;
 
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The part of a booking the rules read. Cancelled bookings are never passed in. */
 export interface PairBooking {
@@ -32,31 +28,6 @@ export interface PairBooking {
   status: Exclude<BookingStatus, 'cancelled'>;
   startsAt: Date;
   endsAt: Date;
-}
-
-/**
- * Phone numbers and emails are readable from 48 h before a prestation that is going
- * ahead (confirmed, or under way) until it ends. Outside that window they are
- * masked again, so the release of one prestation does not carry over to the next.
- */
-export function isContactReleased(bookings: PairBooking[], now: Date): boolean {
-  return bookings.some(
-    (b) =>
-      GOING_AHEAD.includes(b.status) &&
-      b.startsAt.getTime() - CONTACT_RELEASE_HOURS * HOUR_MS <= now.getTime() &&
-      now.getTime() <= b.endsAt.getTime(),
-  );
-}
-
-/** When the next release happens, for the notice in the thread. Null if none is due. */
-export function nextContactReleaseAt(bookings: PairBooking[], now: Date): Date | null {
-  if (isContactReleased(bookings, now)) return null;
-  const upcoming = bookings
-    .filter((b) => GOING_AHEAD.includes(b.status) && b.startsAt.getTime() > now.getTime())
-    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())[0];
-  return upcoming
-    ? new Date(upcoming.startsAt.getTime() - CONTACT_RELEASE_HOURS * HOUR_MS)
-    : null;
 }
 
 /**
