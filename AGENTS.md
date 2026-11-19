@@ -335,8 +335,10 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
 - **Contact details are masked when served, not when stored.** `messages.body` is
   always what was written; a detected phone number or email is served as `•••••`
   to both participants and the conversation is flagged for admins, who read the
-  original. Detection is a regex (`domain/contact-detector.ts`): deterrence, not a
-  guarantee.
+  original. Detection (`domain/contact-detector.ts`) reads digits, French number words
+  ("zéro six douze…"), "arobase / (at) / point" emails, and a number split over
+  several messages (the sender's last 12 within 6 h; the earlier pieces are flagged
+  and masked too). Deterrence, not a guarantee.
 - **No release, ever**: a client and a batch cooker never get each other's phone
   or email, not even before the prestation. `counterpart.phone` is always `null`,
   `contactReleased` always `false`, `contactReleaseAt` always `null` (fields kept

@@ -88,7 +88,7 @@ const booking = (status: string, inHours: number) => ({
 describe('MessagingService', () => {
   let service: MessagingService;
   let tx: {
-    message: { create: jest.Mock };
+    message: { create: jest.Mock; updateMany: jest.Mock };
     conversation: { update: jest.Mock };
     conversationParticipant: { updateMany: jest.Mock };
   };
@@ -123,6 +123,7 @@ describe('MessagingService', () => {
           ...data,
           attachments: [],
         })),
+        updateMany: jest.fn(),
       },
       conversation: { update: jest.fn().mockResolvedValue({ adminUnreadCount: 0 }) },
       conversationParticipant: { updateMany: jest.fn() },
@@ -293,6 +294,39 @@ describe('MessagingService', () => {
 
       expect(sent.body).toBe(`Appelez-moi au ${CONTACT_MASK}`);
       expect(sent.contactMasked).toBe(true);
+    });
+
+    it('catches a number sent one digit per message and flags the earlier digits', async () => {
+      asParticipant(conversation(), 'client');
+      // Newest first, as the query returns them.
+      prisma.message.findMany.mockResolvedValue(
+        ['7', '6', '5', '4', '3', '2', '1', '6', '0'].map((body, i) => ({
+          id: `m${i}`,
+          body,
+        })),
+      );
+
+      const sent = await service.sendMessage('clerk_1', CONVERSATION, { body: '8' });
+
+      expect(sent.contactMasked).toBe(true);
+      expect(sent.body).toBe(CONTACT_MASK);
+      expect(tx.message.create.mock.calls[0][0].data.contactDetected).toBe(true);
+      expect(tx.message.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'] } },
+        data: { contactDetected: true },
+      });
+      expect(tx.conversation.update.mock.calls[0][0].data).toHaveProperty(
+        'contactFlaggedAt',
+      );
+    });
+
+    it('does not look at past messages when the text has no digit', async () => {
+      asParticipant(conversation(), 'client');
+      prisma.message.findMany.mockResolvedValue([{ id: 'm0', body: '06 12 34 56' }]);
+
+      await service.sendMessage('clerk_1', CONVERSATION, { body: 'merci !' });
+
+      expect(tx.message.updateMany).not.toHaveBeenCalled();
     });
 
     it('tells both people and the admins, each with their own text', async () => {

@@ -14,7 +14,11 @@ import { BrevoService } from '../../../integrations/brevo.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { allergyLabels } from '../../allergies/domain/allergies.rules';
 import { UsersService } from '../../users/users.service';
-import { detectContact, maskContact } from '../domain/contact-detector';
+import {
+  detectContact,
+  detectSplitContact,
+  maskContact,
+} from '../domain/contact-detector';
 import {
   DEFAULT_MESSAGE_PAGE_SIZE,
   MAX_MESSAGE_PAGE_SIZE,
@@ -47,6 +51,10 @@ import { MessagingStorageService } from './messaging-storage.service';
 export const SUPPORT_NAME = 'Support Lab’s Food';
 
 /** A custom request the two sides may still talk about. */
+/** A number sent in pieces is looked for among the sender's last messages of this window. */
+const SPLIT_WINDOW_MS = 6 * 60 * 60 * 1000;
+const SPLIT_MAX_MESSAGES = 12;
+
 const OPEN_REQUEST = ['submitted', 'in_review', 'quoted', 'declined'] as const;
 
 const PERSON = {
@@ -366,8 +374,25 @@ export class MessagingService {
     );
 
     // The team is not policed, and a support thread hides nothing.
-    const contactDetected =
-      !sender.isAdmin && conversation.type === 'chef_client' && detectContact(body);
+    const policed = !sender.isAdmin && conversation.type === 'chef_client';
+    let contactDetected = policed && detectContact(body);
+    // A number sent in pieces: this message completes it, so the earlier ones are flagged too.
+    let fragmentIds: string[] = [];
+    if (policed && !contactDetected) {
+      const recent = await this.prisma.message.findMany({
+        where: {
+          conversationId: conversation.id,
+          senderUserId: sender.userId,
+          createdAt: { gte: new Date(now.getTime() - SPLIT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: SPLIT_MAX_MESSAGES,
+        select: { id: true, body: true },
+      });
+      const count = detectSplitContact(recent.map((m) => m.body).reverse(), body);
+      contactDetected = count > 0;
+      fragmentIds = recent.slice(0, count).map((m) => m.id);
+    }
     const toTeam = conversation.type === 'support' && !sender.isAdmin;
 
     let message: LoadedMessage;
@@ -393,6 +418,12 @@ export class MessagingService {
           },
           include: MESSAGE_INCLUDE,
         });
+        if (fragmentIds.length) {
+          await tx.message.updateMany({
+            where: { id: { in: fragmentIds } },
+            data: { contactDetected: true },
+          });
+        }
         const updated = await tx.conversation.update({
           where: { id: conversation.id },
           data: {
@@ -908,11 +939,13 @@ function toAttachmentViews(message: LoadedMessage): AttachmentView[] {
 /** What a participant reads. `masked`: the thread's contact details are not released. */
 export function toMessageView(message: LoadedMessage, masked: boolean): MessageView {
   const hide = masked && message.contactDetected;
+  // Nothing found alone: the message is a piece of a split number, hide its digits.
+  const hidden = hide ? maskContact(message.body) : message.body;
   return {
     id: message.id,
     conversationId: message.conversationId,
     senderRole: message.senderRole,
-    body: hide ? maskContact(message.body) : message.body,
+    body: hide && hidden === message.body ? maskContact(message.body, true) : hidden,
     contactMasked: hide,
     attachments: toAttachmentViews(message),
     clientMessageId: message.clientMessageId,
