@@ -142,6 +142,10 @@ model ServiceOffer {
   /// The chef does the shopping for this offer. Priced by `shoppingFeeCents`, which stays 0 otherwise.
   shoppingIncluded Boolean     @default(false) @map("shopping_included")
   shoppingFeeCents Int         @default(0) @map("shopping_fee_cents")
+  /// Dishes the offer includes, a fixed count (« Douceur : 3 repas »): the client picks
+  /// exactly that many and buys no extra dish. Null on the offers made before 19/11,
+  /// which take any count. 1 to 20, checked in the database.
+  mealsIncluded    Int?        @map("meals_included")
   createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookings         Booking[]
