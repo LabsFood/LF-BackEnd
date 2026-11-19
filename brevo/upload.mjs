@@ -26,6 +26,8 @@ if (flags.size || (check && update) || (force && !update)) {
 async function brevo(path, init = {}) {
   const response = await fetch(`https://api.brevo.com/v3${path}`, {
     ...init,
+    // Runs at container start: a slow Brevo must not hold the API back.
+    signal: AbortSignal.timeout(15_000),
     headers: {
       'api-key': process.env.BREVO_API_KEY,
       accept: 'application/json',

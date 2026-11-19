@@ -1,7 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 const BREVO_BASE_URL = 'https://api.brevo.com/v3';
+/** Startup must not hang on Brevo: past this, the ids from the env alone are used. */
+const LOOKUP_TIMEOUT_MS = 10_000;
+
+/**
+ * `BREVO_TPL_BOOKING_REQUEST_CHEF` → `bookingRequestChef`: the repo names each Brevo
+ * template after the env var of its id (`brevo/templates/`), and the config key is that
+ * name in camelCase. Null for a template the repo did not create.
+ */
+export function templateKeyOf(name: string): string | null {
+  const match = /^BREVO_TPL_([A-Z0-9_]+)$/.exec(name);
+  if (!match) return null;
+  return match[1]
+    .toLowerCase()
+    .replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
 
 /** The transactional emails, named as their Brevo template id is in config. */
 export type ChefOnboardingEmail =
@@ -55,7 +70,7 @@ export type ChefOnboardingEmail =
   | 'groceriesNotice';
 
 @Injectable()
-export class BrevoService {
+export class BrevoService implements OnModuleInit {
   private readonly logger = new Logger(BrevoService.name);
   readonly apiKey?: string;
   readonly senderEmail: string;
@@ -65,11 +80,54 @@ export class BrevoService {
     this.apiKey = config.get<string>('brevo.apiKey');
     this.senderEmail = config.get<string>('brevo.senderEmail', 'noreply@labsfood.com');
     this.senderName = config.get<string>('brevo.senderName', 'Labs Food');
-    this.templates = config.get('brevo.templates', {});
+    // A copy: the lookup fills it in place, never the config object.
+    this.templates = { ...config.get('brevo.templates', {}) };
   }
 
-  /** Brevo template ids per onboarding email (FLOW-01 §2, §5.2, §5.4, §6, §7). */
+  /**
+   * Brevo template ids per email. Found by name at startup (`onModuleInit`); a
+   * `BREVO_TPL_*` env var, when set, wins over the lookup.
+   */
   readonly templates: Partial<Record<ChefOnboardingEmail, number>>;
+
+  /**
+   * Reads the account's templates once and fills every id the env left unset, so a
+   * template `brevo/upload.mjs` created at deploy is used without a Railway variable.
+   * Best-effort: Brevo down or slow, the API starts with the env ids alone.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.configured) return;
+    try {
+      const response = await fetch(`${BREVO_BASE_URL}/smtp/templates?limit=1000`, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        this.logger.warn({
+          event: 'brevo.template_lookup_failed',
+          status: response.status,
+        });
+        return;
+      }
+      const { templates = [] } = (await response.json()) as {
+        templates?: { id: number; name: string }[];
+      };
+      const found: string[] = [];
+      const ids = this.templates as Record<string, number | undefined>;
+      for (const template of templates) {
+        const key = templateKeyOf(template.name);
+        if (!key || ids[key]) continue;
+        ids[key] = template.id;
+        found.push(key);
+      }
+      this.logger.log({ event: 'brevo.templates_resolved', byName: found.length });
+    } catch (error) {
+      this.logger.warn({
+        event: 'brevo.template_lookup_failed',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   get configured(): boolean {
     return Boolean(this.apiKey);
