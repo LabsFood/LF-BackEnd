@@ -94,7 +94,11 @@ describe('ServiceOffersService', () => {
   });
 
   it('blocks the default slot when the chef gives no duration', async () => {
-    await service.create('clerk-1', { name: 'Douceur', priceCents: 9000, mealsIncluded: 3 });
+    await service.create('clerk-1', {
+      name: 'Douceur',
+      priceCents: 9000,
+      mealsIncluded: 3,
+    });
     expect(prisma.serviceOffer.create.mock.calls[0][0].data).toMatchObject({
       durationMinutes: 240,
       mealsIncluded: 3,

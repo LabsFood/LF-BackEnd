@@ -22,9 +22,9 @@ describe('CreateServiceOfferDto', () => {
   it('requires a dish count: more dishes is a custom request', async () => {
     const { mealsIncluded: _, ...noCount } = VALID;
     expect(await check(CreateServiceOfferDto, noCount)).toEqual(['mealsIncluded']);
-    expect(await check(CreateServiceOfferDto, { ...VALID, mealsIncluded: null })).toEqual([
-      'mealsIncluded',
-    ]);
+    expect(await check(CreateServiceOfferDto, { ...VALID, mealsIncluded: null })).toEqual(
+      ['mealsIncluded'],
+    );
   });
 
   it('keeps the dish count between 1 and 20', async () => {
