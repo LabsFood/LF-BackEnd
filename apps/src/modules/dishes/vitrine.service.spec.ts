@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 
 import { MealStatus } from '../../generated/prisma/client';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { dishRow, menuRow } from './dishes.test-helpers';
@@ -51,12 +52,21 @@ function vitrine(data: {
   const availability = {
     slotsLeftFor: jest.fn(async () => new Map(Object.entries(data.slotsLeft ?? {}))),
   };
+  // The real commune check, over a stubbed geo.api.gouv.fr: 06000 serves Nice only.
+  const geo = Object.assign(new GeoService(), {
+    communesByPostcode: jest.fn(async (code: string) =>
+      code === '06000'
+        ? [{ nom: 'Nice', code: '06088', codeDepartement: '06', codeRegion: '93' }]
+        : [],
+    ),
+  });
   return {
     prisma,
     availability,
     service: new VitrineService(
       prisma as unknown as PrismaService,
       availability as unknown as AvailabilityService,
+      geo,
     ),
   };
 }
@@ -308,5 +318,63 @@ describe('VitrineService', () => {
   it('answers 404 for a chef who is not listed', async () => {
     const { service } = vitrine({ chefs: [] });
     await expect(service.chef('nobody')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('VitrineService — GET /chefs (custom request: who covers the town)', () => {
+  const nice = { postalCode: '06000', city: 'nice' };
+
+  it('lists the online chefs whose zones cover the commune, by name', async () => {
+    const { service } = vitrine({
+      chefs: [
+        chef('c', { displayName: 'Zoé', city: 'Nice' }),
+        chef('a', {
+          displayName: 'Anna',
+          city: 'Antibes',
+          interventionZones: [
+            { regionCode: '93', scope: 'cities', cities: [{ insee: '06088' }] },
+          ],
+        }),
+        chef('b', {
+          displayName: 'Bob',
+          interventionZones: [
+            { regionCode: '93', scope: 'cities', cities: [{ insee: '06004' }] },
+          ],
+        }),
+        chef('d', {
+          displayName: 'Dan',
+          interventionZones: [{ regionCode: '11', scope: 'region', cities: [] }],
+        }),
+      ],
+    });
+
+    await expect(service.covering(nice)).resolves.toEqual({
+      data: [
+        { id: 'a', displayName: 'Anna', city: 'Antibes' },
+        { id: 'c', displayName: 'Zoé', city: 'Nice' },
+      ],
+    });
+  });
+
+  it('reads only what the list shows, of approved chefs who are online', async () => {
+    const { prisma, service } = vitrine({});
+    await service.covering(nice);
+
+    expect(prisma.chefProfile.findMany).toHaveBeenCalledWith({
+      where: { isVerified: true, isActive: true },
+      select: { id: true, displayName: true, city: true, interventionZones: true },
+    });
+  });
+
+  it('refuses a town the postcode does not serve: 422 ADDRESS_CITY_MISMATCH', async () => {
+    const { prisma, service } = vitrine({ chefs: [chef('a')] });
+
+    const error = await service
+      .covering({ postalCode: '06000', city: 'Marseille' })
+      .catch((e: unknown) => e);
+    expect((error as { getResponse(): { code: string } }).getResponse().code).toBe(
+      'ADDRESS_CITY_MISMATCH',
+    );
+    expect(prisma.chefProfile.findMany).not.toHaveBeenCalled();
   });
 });

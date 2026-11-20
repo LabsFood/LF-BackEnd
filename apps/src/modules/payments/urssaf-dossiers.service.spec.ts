@@ -1,8 +1,10 @@
 import type { ConfigService } from '@nestjs/config';
+import { UnprocessableEntityException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 
 import type { AuditService } from '../../common/audit/audit.service';
 import { seal } from '../../common/crypto/field-cipher';
+import type { GeoService } from '../../integrations/geo.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import type { UsersService } from '../users/users.service';
@@ -83,14 +85,16 @@ function setup(opts: { key?: string; existing?: { storagePath: string } | null }
   const config = {
     get: () => ('key' in opts ? opts.key : KEY.toString('base64')),
   };
+  const geo = { assertCommune: jest.fn().mockResolvedValue(undefined) };
   const service = new UrssafDossiersService(
     prisma as unknown as PrismaService,
     users as unknown as UsersService,
     storage as unknown as KycStorageService,
     config as unknown as ConfigService,
     audit as unknown as AuditService,
+    geo as unknown as GeoService,
   );
-  return { service, prisma, storage, audit };
+  return { service, prisma, storage, audit, geo };
 }
 
 describe('UrssafDossiersService', () => {
@@ -108,6 +112,22 @@ describe('UrssafDossiersService', () => {
         create: { userId: 'u1', storagePath: path, ibanLast4: '0189' },
       }),
     );
+  });
+
+  it('refuses a town the postcode does not serve, storing nothing', async () => {
+    const { service, storage, geo } = setup();
+    geo.assertCommune.mockRejectedValue(
+      new UnprocessableEntityException({ code: 'ADDRESS_CITY_MISMATCH' }),
+    );
+
+    await expect(
+      service.save('clerk', {
+        ...DOSSIER,
+        address: { ...DOSSIER.address, postalCode: '77127', city: 'Marseille' },
+      }),
+    ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+    expect(geo.assertCommune).toHaveBeenCalledWith('77127', 'Marseille', 'address.city');
+    expect(storage.putObject).not.toHaveBeenCalled();
   });
 
   it('replaces the previous object on a new save', async () => {

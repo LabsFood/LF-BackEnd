@@ -36,6 +36,7 @@ import {
   photoStepsHelp,
 } from '../dishes/dto/photo.dto';
 import { BookingPhotosService } from './booking-photos.service';
+import { BookingRequestsService } from './booking-requests.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
 import { BookingsService } from './bookings.service';
 import {
@@ -43,6 +44,7 @@ import {
   ChefBookingsQueryDto,
   ChefUpdateBookingDto,
   NewBookingForClientDto,
+  RefuseBookingDto,
   ReplaceMealDto,
   RescheduleAnswerDto,
   RescheduleDto,
@@ -87,6 +89,7 @@ export class ChefBookingsController {
     private readonly bookings: BookingsService,
     private readonly photos: BookingPhotosService,
     private readonly reschedules: BookingReschedulesService,
+    private readonly requests: BookingRequestsService,
   ) {}
 
   @Get()
@@ -135,7 +138,7 @@ export class ChefBookingsController {
     description:
       'For a client I already know: a booking or a conversation between us. Created ' +
       '`pending`, on one of my offers, at a time I am free; the client accepts it by ' +
-      'paying it, within 72 h.',
+      'paying it, within 72 h (the older pay-to-confirm model).',
   })
   @ApiCreatedResponse({ description: 'The prestation.', example: BOOKING_DETAIL_EXAMPLE })
   @ApiNotFoundResponse({ description: '`OFFER_NOT_FOUND` or `CLIENT_NOT_FOUND`.' })
@@ -149,6 +152,49 @@ export class ChefBookingsController {
   @ApiClerkAuthResponses()
   create(@CurrentClerkUser() user: ClerkUser, @Body() body: NewBookingForClientDto) {
     return this.bookings.create('chef', user.userId, body);
+  }
+
+  @Post(':id/accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Accept a booking request (CGV 5.2)',
+    description:
+      'Before `request.acceptBy` (48 h after the request, cut short at the start). The ' +
+      'contract is concluded now: the booking is `confirmed`, the 14-day withdrawal ' +
+      'period starts and the client gets the contract e-mail. The price is charged ' +
+      'after the session; a card booking made less than 48 h before the start is ' +
+      'charged now (7.3).',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The prestation.', example: BOOKING_DETAIL_EXAMPLE })
+  @ApiNotFoundResponse({ description: NO_CHEF })
+  @ApiConflictResponse({
+    description: '`NOT_A_REQUEST` (not waiting for me) or `REQUEST_EXPIRED`.',
+  })
+  @ApiClerkAuthResponses()
+  accept(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.requests.accept(user.userId, id);
+  }
+
+  @Post(':id/refuse')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refuse a booking request (CGV 5.2)',
+    description:
+      'The booking is `cancelled`, the slot freed, nothing is charged. The client is ' +
+      'told by e-mail, with my reason if I give one.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The prestation.', example: BOOKING_DETAIL_EXAMPLE })
+  @ApiNotFoundResponse({ description: NO_CHEF })
+  @ApiConflictResponse({ description: '`NOT_A_REQUEST`.' })
+  @ApiClerkAuthResponses()
+  refuse(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RefuseBookingDto,
+  ) {
+    return this.requests.refuse(user.userId, id, body.reason);
   }
 
   @Patch(':id')

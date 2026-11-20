@@ -9,7 +9,12 @@ import {
 import { GeoService } from './geo.service';
 
 describe('GeoService', () => {
-  const montreuil = { nom: 'Montreuil', code: '93048', codeDepartement: '93' };
+  const montreuil = {
+    nom: 'Montreuil',
+    code: '93048',
+    codeDepartement: '93',
+    codeRegion: '11',
+  };
   let fetchMock: jest.SpyInstance;
   const geo = new GeoService();
 
@@ -26,7 +31,7 @@ describe('GeoService', () => {
 
     await expect(geo.communesByPostcode('93100')).resolves.toEqual([montreuil]);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      'https://geo.api.gouv.fr/communes?codePostal=93100&fields=nom,code,codeDepartement',
+      'https://geo.api.gouv.fr/communes?codePostal=93100&fields=nom,code,codeDepartement,codeRegion',
     );
   });
 
@@ -35,7 +40,7 @@ describe('GeoService', () => {
 
     await geo.communesByRegion('11');
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      'https://geo.api.gouv.fr/communes?codeRegion=11&fields=nom,code,codeDepartement',
+      'https://geo.api.gouv.fr/communes?codeRegion=11&fields=nom,code,codeDepartement,codeRegion',
     );
   });
 
@@ -54,11 +59,11 @@ describe('GeoService', () => {
       });
     });
 
-    it('accepts the commune however it is typed', async () => {
+    it('accepts the commune however it is typed, and returns it', async () => {
       answer(200, [montreuil]);
       await expect(
         geo.assertCommune(' 93100 ', 'montreuil', 'addressCity'),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual(montreuil);
       expect(String(fetchMock.mock.calls[0][0])).toContain('codePostal=93100&');
     });
 
@@ -159,13 +164,13 @@ describe('GeoService', () => {
     });
   });
 
-  describe('assertStreet — the street must exist in the postcode, spelling forgiven', () => {
+  describe('checkStreet — the street must exist in the postcode, spelling forgiven', () => {
     const hit = (score: number) => ({ features: [{ properties: { score } }] });
 
     it('asks the Géoplateforme for the best match of the street in the postcode', async () => {
       answer(200, hit(0.9));
 
-      await geo.assertStreet('12 rue de la Paix', ' 75002 ', 'addressLine');
+      await geo.checkStreet('12 rue de la Paix', ' 75002 ', 'addressLine');
 
       const url = new URL(String(fetchMock.mock.calls[0][0]));
       expect(url.origin + url.pathname).toBe('https://data.geopf.fr/geocodage/search');
@@ -178,27 +183,33 @@ describe('GeoService', () => {
       'accepts a loose match (score %p): typos, lieux-dits',
       async (score) => {
         answer(200, hit(score));
-        await expect(
-          geo.assertStreet('rue Hoche', '93100', 'addressLine'),
-        ).resolves.toBeUndefined();
+        await expect(geo.checkStreet('rue Hoche', '93100', 'addressLine')).resolves.toBe(
+          true,
+        );
       },
     );
 
     it.each([
       ['nothing found', { features: [] }],
       ['a match too weak to be that street', hit(0.2)],
-    ])('refuses an address with %s: 422 ADDRESS_NOT_FOUND', async (_why, body) => {
-      answer(200, body);
+    ])(
+      'keeps an address with %s, with a warning that names neither',
+      async (_why, body) => {
+        const warned = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+        answer(200, body);
 
-      const error = await geo
-        .assertStreet('azerty qwerty', '33000', 'addressLine')
-        .catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(UnprocessableEntityException);
-      expect((error as UnprocessableEntityException).getResponse()).toEqual({
-        code: 'ADDRESS_NOT_FOUND',
-        message: 'addressLine was not found in postcode 33000.',
-      });
-    });
+        await expect(
+          geo.checkStreet('azerty qwerty', '33000', 'addressLine'),
+        ).resolves.toBe(false);
+        const [[line]] = warned.mock.calls as unknown as [[Record<string, unknown>]];
+        expect(line).toMatchObject({
+          event: 'geo.street_not_found',
+          field: 'addressLine',
+        });
+        expect(JSON.stringify(line)).not.toMatch(/azerty|33000/);
+        warned.mockRestore();
+      },
+    );
 
     it.each([
       [undefined, '75002'],
@@ -207,9 +218,7 @@ describe('GeoService', () => {
     ])(
       'has nothing to check while half the address is missing (%p, %p)',
       async (line, postcode) => {
-        await expect(
-          geo.assertStreet(line, postcode, 'addressLine'),
-        ).resolves.toBeUndefined();
+        await expect(geo.checkStreet(line, postcode, 'addressLine')).resolves.toBe(true);
         expect(fetchMock).not.toHaveBeenCalled();
       },
     );
@@ -219,7 +228,7 @@ describe('GeoService', () => {
       fetchMock.mockResolvedValue(new Response('down', { status: 503 }));
 
       const error = await geo
-        .assertStreet('12 rue de la Paix', '75002', 'addressLine')
+        .checkStreet('12 rue de la Paix', '75002', 'addressLine')
         .catch((e: HttpException) => e);
 
       expect(error).toBeInstanceOf(BadGatewayException);
@@ -238,7 +247,7 @@ describe('GeoService', () => {
     it('fails closed on an answer that is not a list of matches', async () => {
       answer(200, { nope: true });
       await expect(
-        geo.assertStreet('12 rue de la Paix', '75002', 'addressLine'),
+        geo.checkStreet('12 rue de la Paix', '75002', 'addressLine'),
       ).rejects.toBeInstanceOf(BadGatewayException);
     });
   });

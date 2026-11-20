@@ -13,7 +13,12 @@ import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { parisHhmm, parisToday } from '../../common/paris-time';
-import { BookingStatus, MealStatus, Prisma } from '../../generated/prisma/client';
+import {
+  BookingStatus,
+  MealStatus,
+  type PaymentMethod,
+  Prisma,
+} from '../../generated/prisma/client';
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -30,6 +35,7 @@ import { householdPortions } from '../dishes/domain/recipes.rules';
 
 /** A dish booked for a client without a household on file. */
 const DEFAULT_PORTIONS = 4;
+import { OFFERED_METHODS_SELECT, offeredMethods } from '../payments/chef-cesu-info';
 import { rateInForce } from '../payments/commission-policy';
 import { assertNoCommissionBlock } from '../payments/commission-standing';
 import type { CommissionRates } from '../payments/commission.util';
@@ -48,6 +54,7 @@ import {
 import { ARRIVAL_WINDOW_MS, canTransition } from './domain/booking-status';
 import { contractConsentRequired } from './domain/contract.errors';
 import { frozenSince, isMenuFrozen } from './domain/menu-freeze.rules';
+import { mealCountProblem } from './domain/meal-count.rules';
 import {
   acceptedConsents,
   chefShops,
@@ -56,6 +63,12 @@ import {
   mergeConsents,
   type ContractState,
 } from './domain/contract.rules';
+import {
+  ACCEPT_WINDOW_MS,
+  CARD_WAIT_MS,
+  methodProblem,
+  type MethodProblem,
+} from './domain/booking-request.rules';
 import {
   bookingAmounts,
   reprice,
@@ -99,14 +112,50 @@ const MONEY_IN = {
 
 const UNPAID_HOLD = {
   status: 'pending',
+  // A CGV V1 request waits for the batch cooker, not for a payment.
+  paymentMethod: null,
   payments: { none: MONEY_IN },
 } satisfies Prisma.BookingWhereInput;
+
+/** Addressed to the client, in French: the screen shows them as written. */
+const METHOD_PROBLEM_MESSAGES: Record<MethodProblem, string> = {
+  METHOD_NOT_OFFERED: 'Ce batch cooker n’accepte pas ce moyen de paiement.',
+  CARD_NOT_AVAILABLE:
+    'Ce batch cooker ne peut pas encore recevoir de paiement : réservation impossible pour le moment.',
+  URSSAF_LINK_REFUSED: 'L’URSSAF a refusé le rattachement à ce batch cooker.',
+  URSSAF_LINK_NONE:
+    'L’avance immédiate demande un rattachement à ce batch cooker, à faire une fois avant de réserver.',
+  URSSAF_DOSSIER_MISSING:
+    'L’avance immédiate demande d’abord votre dossier URSSAF (identité, coordonnées bancaires).',
+};
 
 const notFound = () =>
   new NotFoundException({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' });
 
 const invalid = (message: string, code = 'VALIDATION_FAILED') =>
   new UnprocessableEntityException({ code, message });
+
+/**
+ * The dishes against the offer's fixed count (`MEAL_COUNT_MISMATCH`, naming the
+ * count, or `EXTRA_MEALS_NOT_OFFERED`); nothing to check on an offer without one.
+ */
+const assertMealCount = (
+  mealsIncluded: number | null,
+  chosen: number,
+  extraMeals: number,
+) => {
+  const problem = mealCountProblem(mealsIncluded, chosen, extraMeals);
+  if (problem === 'EXTRA_MEALS_NOT_OFFERED') {
+    throw invalid('This offer is a fixed number of dishes: no extra dish.', problem);
+  }
+  if (problem) {
+    throw new UnprocessableEntityException({
+      code: problem,
+      message: `This offer includes ${mealsIncluded} dishes: choose exactly that many.`,
+      mealsIncluded,
+    });
+  }
+};
 
 /** The names of the fields a PATCH sent, for the log and the audit; never their values. */
 const changedKeys = (dto: object) =>
@@ -130,9 +179,10 @@ export const schedule = (startsAt: Date, endsAt: Date) => ({
  * prestations (`/chef/bookings`), every booking (`/admin/bookings`). The audience's
  * filter is applied last to every query, so a booking outside it is a 404.
  *
- * A booking is created `pending`, priced here, and confirmed by its payment
- * (`settlePayment`), never by a PATCH except an admin's. Unpaid, it holds the
- * batch cooker's slot 72 h (`expireUnpaid`).
+ * A booking is created `pending` and priced here. A CGV V1 request (`paymentMethod`
+ * set) is confirmed by the batch cooker's acceptance (`BookingRequestsService`); an
+ * older one by its payment (`settlePayment`), unpaid holding the slot 72 h
+ * (`expireUnpaid`). Never by a PATCH except an admin's.
  */
 @Injectable()
 export class BookingsService {
@@ -221,6 +271,7 @@ export class BookingsService {
         currency: true,
         shoppingIncluded: true,
         shoppingFeeCents: true,
+        mealsIncluded: true,
         chefProfile: { select: { userId: true } },
       },
     });
@@ -258,6 +309,7 @@ export class BookingsService {
     if (dto.formuleId && !formule) {
       throw invalid('This formule is not offered.', 'FORMULE_UNAVAILABLE');
     }
+    assertMealCount(offer.mealsIncluded, dto.meals?.length ?? 0, dto.extraMeals ?? 0);
     let portions = DEFAULT_PORTIONS;
     if (dto.meals?.length) {
       await this.assertMeals(offer.chefProfileId, dto.meals);
@@ -269,7 +321,15 @@ export class BookingsService {
       portions = await this.householdPortions(clientId, dto.meals);
     }
     await this.geo.assertCommune(dto.addressPostalCode, dto.addressCity, 'addressCity');
-    await this.geo.assertStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+    await this.geo.checkStreet(dto.addressLine, dto.addressPostalCode, 'addressLine');
+    const address = await this.bookingAddress(clientId, dto);
+
+    // CGV V1 5.1 (decision of 2026-11-19): a client who names the method makes a
+    // request the batch cooker accepts; nothing is charged before the session.
+    const paymentMethod = caller.role === 'client' ? (dto.paymentMethod ?? null) : null;
+    if (paymentMethod) {
+      await this.assertPaymentMethod(offer.chefProfileId, clientId, paymentMethod);
+    }
 
     // CGV art. 5.1: the client's boxes come with the booking. A batch cooker or an
     // admin cannot tick them: the client does, before paying (`assertPayable`).
@@ -281,8 +341,11 @@ export class BookingsService {
       const missing = contractGaps(consents, {
         chefShops: chefShops(offer, { shoppingByClient: dto.shoppingByClient ?? false }),
         startsAt: dto.startsAt,
-        // Paid at the end of the hold at the latest: the 14 days start no later.
-        latestConclusion: new Date(now.getTime() + HOLD_MS),
+        // Concluded at the latest when the hold ends (paid) or the batch cooker's delay
+        // runs out (request): the 14 days start no later.
+        latestConclusion: new Date(
+          now.getTime() + (paymentMethod ? CARD_WAIT_MS + ACCEPT_WINDOW_MS : HOLD_MS),
+        ),
         bookedAt: now,
       });
       if (missing.length) throw contractConsentRequired(missing, 'booking');
@@ -319,12 +382,11 @@ export class BookingsService {
             formuleId: formule?.id ?? null,
             ...schedule(dto.startsAt, endsAt),
             persons: dto.persons ?? null,
-            addressLine: dto.addressLine ?? null,
-            addressCity: dto.addressCity ?? null,
-            addressPostalCode: dto.addressPostalCode ?? null,
+            ...address,
             notes: dto.notes ?? null,
             shoppingByClient: dto.shoppingByClient ?? false,
             status: 'pending',
+            paymentMethod,
             extraMeals: dto.extraMeals ?? 0,
             ...amounts,
             currency: offer.currency,
@@ -353,6 +415,7 @@ export class BookingsService {
       chefProfileId: offer.chefProfileId,
       by: caller.role,
       meals: dto.meals?.length ?? 0,
+      paymentMethod,
       amountTtc: amounts.amountTtc,
       extraPersonsCents: amounts.extraPersonsCents,
       extraMealsCents: amounts.extraMealsCents,
@@ -397,6 +460,7 @@ export class BookingsService {
             durationMinutes: true,
             shoppingIncluded: true,
             shoppingFeeCents: true,
+            mealsIncluded: true,
           },
         },
         quote: { select: { allergies: true } },
@@ -430,6 +494,13 @@ export class BookingsService {
     // Recettes lot 3 (LF-0269, R40): 72 hours before the start the dishes no longer
     // change. A Lab's Food admin may still, for support, and it is recorded below.
     const frozenMenuEdit = meals !== undefined && isMenuFrozen(booking.startsAt, now);
+    if (meals !== undefined || fields.extraMeals !== undefined) {
+      assertMealCount(
+        booking.serviceOffer.mealsIncluded,
+        meals?.length ?? 0,
+        fields.extraMeals ?? booking.extraMeals,
+      );
+    }
     if (frozenMenuEdit && !admin) throw menuFrozen(frozenSince(booking.startsAt));
 
     const moving = status !== undefined && status !== booking.status;
@@ -711,6 +782,55 @@ export class BookingsService {
         { event: 'booking.shopping_list_not_rebuilt', bookingId: id },
         stackOf(error),
       );
+    }
+  }
+
+  /**
+   * CGV V1 5.1: the method must be one this batch cooker takes, and the card payable
+   * with them, since every request saves one (7.2). The advance also needs the client
+   * enrolled with this cook at URSSAF, a link under review being enough.
+   */
+  private async assertPaymentMethod(
+    chefProfileId: string,
+    clientId: string,
+    method: PaymentMethod,
+  ) {
+    const chef = await this.prisma.chefProfile.findUniqueOrThrow({
+      where: { id: chefProfileId },
+      select: OFFERED_METHODS_SELECT,
+    });
+    const urssafMode = this.config.get<string>('urssaf.gateway', 'disabled');
+    const offered = offeredMethods(chef, urssafMode);
+    const link =
+      method === 'avance_immediate'
+        ? await this.prisma.urssafLink.findUnique({
+            where: { clientId_chefProfileId: { clientId, chefProfileId } },
+            select: { status: true },
+          })
+        : null;
+    const dossierMissing =
+      method === 'avance_immediate' &&
+      urssafMode === 'manual' &&
+      link?.status !== 'active' &&
+      (await this.prisma.urssafClientDossier.count({ where: { userId: clientId } })) ===
+        0;
+    const problem = methodProblem(
+      method,
+      offered,
+      (link?.status as 'pending' | 'active' | 'refused' | undefined) ?? null,
+      dossierMissing,
+    );
+    if (problem) {
+      this.logger.warn({
+        event: 'booking.method_refused',
+        chefProfileId,
+        method,
+        problem,
+      });
+      throw new UnprocessableEntityException({
+        code: problem,
+        message: METHOD_PROBLEM_MESSAGES[problem],
+      });
     }
   }
 
@@ -1018,6 +1138,32 @@ export class BookingsService {
    * Portions for a dish booked without any (Recettes §9.1, BLK-27): the client's
    * household, a child as half a portion. Read only when a dish needs it.
    */
+  /**
+   * Where the session happens: the address given, or else the client's own. A batch
+   * cooker booking for a known client no longer types it (2026-11-19).
+   */
+  private async bookingAddress(
+    clientId: string,
+    dto: Pick<NewBookingDto, 'addressLine' | 'addressCity' | 'addressPostalCode'>,
+  ) {
+    if (dto.addressLine || dto.addressCity || dto.addressPostalCode) {
+      return {
+        addressLine: dto.addressLine ?? null,
+        addressCity: dto.addressCity ?? null,
+        addressPostalCode: dto.addressPostalCode ?? null,
+      };
+    }
+    const profile = await this.prisma.clientProfile.findUnique({
+      where: { userId: clientId },
+      select: { addressStreet: true, addressCity: true, addressPostalCode: true },
+    });
+    return {
+      addressLine: profile?.addressStreet ?? null,
+      addressCity: profile?.addressCity ?? null,
+      addressPostalCode: profile?.addressPostalCode ?? null,
+    };
+  }
+
   private async householdPortions(clientId: string, meals: BookingMealDto[]) {
     if (meals.every((meal) => meal.portions != null)) return DEFAULT_PORTIONS;
     const household = await this.prisma.clientProfile.findUnique({

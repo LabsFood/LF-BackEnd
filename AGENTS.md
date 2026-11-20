@@ -335,11 +335,14 @@ Lab's Food team. In-house (Stream was dropped): module `modules/messaging/`.
 - **Contact details are masked when served, not when stored.** `messages.body` is
   always what was written; a detected phone number or email is served as `•••••`
   to both participants and the conversation is flagged for admins, who read the
-  original. Detection is a regex (`domain/contact-detector.ts`): deterrence, not a
-  guarantee.
-- **J-2**: masking is lifted, and the other person's phone shown, from 48 h before
-  a _confirmed_ booking until it ends (`domain/messaging.rules.ts`). Nothing is
-  stored: moving or cancelling the booking changes the answer.
+  original. Detection (`domain/contact-detector.ts`) reads digits, French number words
+  ("zéro six douze…"), "arobase / (at) / point" emails, and a number split over
+  several messages (the sender's last 12 within 6 h; the earlier pieces are flagged
+  and masked too). Deterrence, not a guarantee.
+- **No release, ever**: a client and a batch cooker never get each other's phone
+  or email, not even before the prestation. `counterpart.phone` is always `null`,
+  `contactReleased` always `false`, `contactReleaseAt` always `null` (fields kept
+  so existing front ends still parse the view).
 - **Writable** while a booking between the two is pending or confirmed, and for 14
   days after a completed one; then `409 CONVERSATION_READ_ONLY`. Support threads
   are always open. Admins can write in a closed thread.
@@ -523,7 +526,8 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   (for a client the batch cooker already knows) and `POST /admin/bookings`
   (availability not checked, audited) make it `pending`, priced on the server:
   paying it confirms it, and unpaid it holds the slot 72 h before it is
-  cancelled. See _Booking lifecycle_ in [`docs/architecture.md`](docs/architecture.md).
+  cancelled. A client booking with `paymentMethod` is a CGV V1 request instead:
+  card saved, the batch cooker accepts within 48 h, charged after the session. See _Booking lifecycle_ in [`docs/architecture.md`](docs/architecture.md).
 
 | Actor        | Routes                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |

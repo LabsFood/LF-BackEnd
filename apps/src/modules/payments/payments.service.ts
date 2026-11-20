@@ -174,6 +174,101 @@ export class PaymentsService {
     };
   }
 
+  /**
+   * CGV V1 7.3 (decision of 2026-11-19): what is left on a booking, charged off session
+   * on the card saved at booking. Same destination charge and commission as the
+   * client's own card payment; the webhook settles it. The payment row is written first
+   * and seeds the idempotency key, so a replay is the same charge, never a second one.
+   *
+   * Never throws for a refused card: the outcome says so, and the client settles on the
+   * payment screen (7.5).
+   */
+  async chargeSavedCard(
+    bookingId: string,
+  ): Promise<{ ok: true; paymentId: string } | { ok: false; code: string }> {
+    if (!this.stripe.configured) return { ok: false, code: 'PAYMENTS_UNAVAILABLE' };
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { chefProfile: true, serviceOffer: CONTRACT_SELECT.serviceOffer },
+    });
+    if (!booking?.stripeCustomerId || !booking.stripePaymentMethodId) {
+      return { ok: false, code: 'CARD_NOT_SAVED' };
+    }
+    const chef = booking.chefProfile;
+    if (!chef.stripeAccountId || !chef.stripeChargesEnabled) {
+      return { ok: false, code: 'CHEF_ACCOUNT_NOT_READY' };
+    }
+    try {
+      assertPayable(booking);
+      await assertNoPendingCesu(this.prisma, booking.id);
+    } catch (error) {
+      const code =
+        (error as { response?: { code?: string } }).response?.code ?? 'NOT_PAYABLE';
+      return { ok: false, code };
+    }
+    const amountTtc = (await bookingCoverage(this.prisma, booking)).remainingAmountCents;
+    if (amountTtc <= 0) return { ok: false, code: 'ALREADY_PAID' };
+
+    const commission = await this.commissionOn(booking, amountTtc);
+    const payment = await this.openCardPayment(
+      booking,
+      chef.id,
+      amountTtc,
+      commission,
+      {},
+    );
+    let intent: Stripe.PaymentIntent | null = null;
+    let code = 'card_error';
+    try {
+      intent = await this.stripe.getClient().paymentIntents.create(
+        {
+          amount: amountTtc,
+          currency: booking.currency.toLowerCase(),
+          customer: booking.stripeCustomerId,
+          payment_method: booking.stripePaymentMethodId,
+          payment_method_types: ['card'],
+          off_session: true,
+          confirm: true,
+          on_behalf_of: chef.stripeAccountId,
+          transfer_data: { destination: chef.stripeAccountId },
+          ...(commission.amountTtcCents > 0
+            ? { application_fee_amount: commission.amountTtcCents }
+            : {}),
+          metadata: {
+            bookingId: booking.id,
+            bookingReference: booking.reference ?? '',
+            paymentId: payment.id,
+            purpose: 'service',
+          },
+        },
+        { idempotencyKey: `booking-charge-${payment.id}` },
+      );
+      code = intent.status;
+    } catch (error) {
+      const failure = error as { code?: string; decline_code?: string };
+      code = failure.decline_code ?? failure.code ?? code;
+    }
+
+    if (intent) {
+      // The webhook may have linked it already through `metadata.paymentId`.
+      await this.prisma.payment.updateMany({
+        where: { id: payment.id, stripePaymentIntentId: null },
+        data: { stripePaymentIntentId: intent.id },
+      });
+    }
+    if (intent && (intent.status === 'succeeded' || intent.status === 'processing')) {
+      this.logger.log({
+        event: 'booking.card_charged',
+        bookingId,
+        paymentId: payment.id,
+      });
+      return { ok: true, paymentId: payment.id };
+    }
+    await this.retireAttempt(payment.id, `Off-session charge refused: ${code}.`);
+    this.logger.warn({ event: 'booking.card_charge_refused', bookingId, code });
+    return { ok: false, code };
+  }
+
   /** What Lab's Food keeps on this payment: the accepted offer's deal, or the rate in force. */
   private commissionOn(
     booking: { id: string },

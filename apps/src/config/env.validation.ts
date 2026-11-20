@@ -110,7 +110,6 @@ export const envValidationSchema = Joi.object({
    * enters each request on the intermediary's online space and records its answer
    * here. Real requests, real answers, so it runs beside live Stripe keys.
    */
-  URSSAF_INTERMEDIARY: Joi.string().max(60).default('Unipros'),
   /**
    * AES-256 key (32 bytes, base64) sealing the clients' URSSAF dossiers in the KYC
    * bucket. Required in `manual` mode, where those dossiers are collected.
@@ -167,6 +166,10 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_BOOKING_CONTRACT_CLIENT: Joi.number().optional(),
   BREVO_TPL_BOOKING_WITHDRAWAL_ACK: Joi.number().optional(),
   BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN: Joi.number().optional(),
+  BREVO_TPL_BOOKING_REQUEST_CHEF: Joi.number().optional(),
+  BREVO_TPL_BOOKING_REQUEST_DECLINED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CHARGE_FAILED: Joi.number().optional(),
+  BREVO_TPL_BOOKING_CESU_REMINDER: Joi.number().optional(),
 
   /** Contact forms: who is told about a new message, and where the console lives. */
   CONTACT_NOTIFICATION_EMAIL: Joi.string().email().allow('').optional(),

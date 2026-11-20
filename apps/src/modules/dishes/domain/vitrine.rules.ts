@@ -66,6 +66,24 @@ export function coversArea(
 }
 
 /**
+ * Whether stored zones (`chef_profiles.intervention_zones`, raw JSON) cover a commune
+ * of the official base: its INSEE `code`, and its region for whole-region zones.
+ * Anything that is not a list of zones covers nothing.
+ */
+export function coversCommune(
+  zones: unknown,
+  commune: { code: string; codeRegion?: string },
+): boolean {
+  return (
+    Array.isArray(zones) &&
+    coversArea(zones as InterventionZone[], {
+      region: commune.codeRegion,
+      city: commune.code,
+    })
+  );
+}
+
+/**
  * The diets **every** dish of a menu satisfies (§5.1): a "gluten-free" menu only
  * means something if each dish is. An empty menu covers nothing.
  */

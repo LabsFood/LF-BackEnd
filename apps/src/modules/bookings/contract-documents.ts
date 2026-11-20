@@ -92,7 +92,7 @@ export function renderWithdrawalFormPdf(input: WithdrawalFormInput): Promise<Buf
     `À l’attention de ${LEGAL_NAME}, agissant au nom et pour le compte du batch ` +
       `cooker concerné : par e-mail à ${WITHDRAWAL_EMAIL}, ou par courrier recommandé ` +
       `avec accusé de réception au ${POSTAL_ADDRESS}. Vous pouvez aussi utiliser le ` +
-      'bouton « Se rétracter » de votre espace, rubrique « Mes sessions ».',
+      'bouton « Se rétracter » de votre espace, rubrique « Paramètres », section « Droit de rétractation ».',
   );
   section(doc, 'Déclaration', WITHDRAWAL_DECLARATION);
   doc.y += 10;

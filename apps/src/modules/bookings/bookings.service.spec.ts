@@ -82,6 +82,7 @@ const OFFER = {
   currency: 'EUR',
   shoppingIncluded: false,
   shoppingFeeCents: 0,
+  mealsIncluded: null,
   chefProfile: { userId: 'chef-user' },
 };
 
@@ -274,16 +275,14 @@ describe('BookingsService', () => {
       );
     });
 
-    it('refuses a street the postcode has no trace of, creating nothing', async () => {
-      await expect(
-        service.create('client', 'clerk_1', {
-          ...dto,
-          addressPostalCode: '93100',
-          addressCity: 'Montreuil',
-          addressLine: '99 rue Azerty',
-        }),
-      ).rejects.toMatchObject({ status: 422, response: { code: 'ADDRESS_NOT_FOUND' } });
-      expect(prisma.booking.create).not.toHaveBeenCalled();
+    it('keeps a street the postcode has no trace of: only a warning is logged', async () => {
+      await service.create('client', 'clerk_1', {
+        ...dto,
+        addressPostalCode: '93100',
+        addressCity: 'Montreuil',
+        addressLine: '99 rue Azerty',
+      });
+      expect(prisma.booking.create).toHaveBeenCalledTimes(1);
     });
 
     it('refuses a town the postcode does not serve, creating nothing', async () => {
@@ -361,6 +360,51 @@ describe('BookingsService', () => {
       });
     });
 
+    it('takes exactly the dishes a fixed-count offer includes, creating nothing else', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 3 });
+      prisma.meal.count.mockResolvedValue(2);
+
+      await expect(
+        service.create('client', 'clerk_1', {
+          ...dto,
+          meals: [{ mealId: 'meal-1' }, { mealId: 'meal-2' }],
+        }),
+      ).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'MEAL_COUNT_MISMATCH', mealsIncluded: 3 },
+      });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('sells no extra dish on a fixed-count offer', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 3 });
+
+      await expect(
+        service.create('client', 'clerk_1', { ...dto, extraMeals: 1 }),
+      ).rejects.toMatchObject({ response: { code: 'EXTRA_MEALS_NOT_OFFERED' } });
+      expect(prisma.booking.create).not.toHaveBeenCalled();
+    });
+
+    it('books the dishes of a fixed-count offer at the portions the client asked', async () => {
+      prisma.serviceOffer.findFirst.mockResolvedValue({ ...OFFER, mealsIncluded: 2 });
+      prisma.meal.count.mockResolvedValue(2);
+
+      await service.create('client', 'clerk_1', {
+        ...dto,
+        meals: [
+          { mealId: 'meal-1', portions: 6 },
+          { mealId: 'meal-2', portions: 6 },
+        ],
+      });
+
+      expect(prisma.booking.create.mock.calls[0][0].data.bookingMeals).toEqual({
+        create: [
+          { mealId: 'meal-1', portions: 6 },
+          { mealId: 'meal-2', portions: 6 },
+        ],
+      });
+    });
+
     it('pins the recipes of the dishes booked', async () => {
       prisma.meal.count.mockResolvedValue(1);
 
@@ -405,6 +449,46 @@ describe('BookingsService', () => {
       expect(prisma.serviceOffer.findFirst.mock.calls[1][0].where.chefProfileId).toBe(
         'chef-1',
       );
+    });
+
+    it('takes the client’s own address when the batch cooker gives none', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        addressStreet: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      await service.create('chef', 'clerk_1', { ...dto, clientId: 'client-1' });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        addressLine: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+    });
+
+    it('keeps the address the batch cooker gives over the client’s', async () => {
+      prisma.conversation.count.mockResolvedValue(1);
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        ...DECLARED,
+        addressStreet: '12 rue des Lilas',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      await service.create('chef', 'clerk_1', {
+        ...dto,
+        clientId: 'client-1',
+        addressLine: '1 rue Neuve',
+        addressCity: 'Montreuil',
+        addressPostalCode: '93100',
+      });
+
+      expect(prisma.booking.create.mock.calls[0][0].data).toMatchObject({
+        addressLine: '1 rue Neuve',
+      });
     });
 
     it('stops a batch cooker whose commission could not be collected', async () => {
@@ -585,6 +669,19 @@ describe('BookingsService', () => {
       await expect(
         service.update('client', 'clerk_1', 'booking-1', { addressCity: 'Marseille' }),
       ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      expect(prisma.booking.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a changed menu to the count of a fixed-count offer', async () => {
+      prisma.booking.findFirst.mockResolvedValue(
+        row({ serviceOffer: { ...row().serviceOffer, mealsIncluded: 3 } }),
+      );
+
+      await expect(
+        service.update('client', 'clerk_1', 'booking-1', {
+          meals: [{ mealId: 'meal-1' }],
+        }),
+      ).rejects.toMatchObject({ response: { code: 'MEAL_COUNT_MISMATCH' } });
       expect(prisma.booking.update).not.toHaveBeenCalled();
     });
 

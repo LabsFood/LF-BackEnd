@@ -18,6 +18,7 @@ import { CUSTOM_OFFER_NAME } from '../quotes/quote-offers.service';
 import { UsersService } from '../users/users.service';
 import {
   CreateServiceOfferDto,
+  DEFAULT_OFFER_MINUTES,
   OfferPriceQueryDto,
   UpdateServiceOfferDto,
 } from './dto/service-offer.dto';
@@ -31,6 +32,7 @@ const SELECT = {
   currency: true,
   shoppingIncluded: true,
   shoppingFeeCents: true,
+  mealsIncluded: true,
   isActive: true,
 } satisfies Prisma.ServiceOfferSelect;
 
@@ -104,10 +106,11 @@ export class ServiceOffersService {
         chefProfileId: chef.chefProfileId,
         name: dto.name.trim(),
         description: dto.description ?? null,
-        durationMinutes: dto.durationMinutes,
+        durationMinutes: dto.durationMinutes ?? DEFAULT_OFFER_MINUTES,
         priceCents: dto.priceCents,
         shoppingIncluded: dto.shoppingIncluded ?? false,
         shoppingFeeCents: dto.shoppingFeeCents ?? 0,
+        mealsIncluded: dto.mealsIncluded,
         isActive: dto.active ?? true,
       },
       select: SELECT,
@@ -118,6 +121,7 @@ export class ServiceOffersService {
       offerId: row.id,
       durationMinutes: row.durationMinutes,
       priceCents: row.priceCents,
+      mealsIncluded: row.mealsIncluded,
     });
     return view(row);
   }
@@ -143,6 +147,7 @@ export class ServiceOffersService {
         priceCents: dto.priceCents,
         shoppingIncluded: dto.shoppingIncluded,
         shoppingFeeCents,
+        mealsIncluded: dto.mealsIncluded,
         isActive: dto.active,
       },
       select: SELECT,

@@ -8,6 +8,7 @@ import {
   MealStatus,
 } from '../../generated/prisma/client';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { cesuAccepted } from '../payments/chef-cesu-info';
@@ -16,6 +17,7 @@ import { toPublicDish } from './dishes.views';
 import {
   coveredDiets,
   coversArea,
+  coversCommune,
   InterventionZone,
   parisDay,
   parisMidnight,
@@ -23,7 +25,11 @@ import {
   weekOf,
 } from './domain/vitrine.rules';
 import { validationFailed } from './domain/content.errors';
-import { ChefShowcaseQueryDto, WeekMenusQueryDto } from './dto/vitrine.dto';
+import {
+  ChefShowcaseQueryDto,
+  CoveringChefsQueryDto,
+  WeekMenusQueryDto,
+} from './dto/vitrine.dto';
 import { CHEF_LEGAL_SELECT, publicChefLegalIdentity } from '../users/chef-legal.views';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,7 +84,38 @@ export class VitrineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
+    private readonly geo: GeoService,
   ) {}
+
+  /**
+   * The chefs a client can address a custom request to, for the town of the
+   * prestation: approved, online, and covering it. The commune is checked against
+   * the official base first, which gives its INSEE code and region. Names only, so
+   * the form's list stays light.
+   *
+   * ponytail: filters every listed chef in memory, like `week`. Move the zone match
+   * into SQL when there are thousands of chefs.
+   */
+  async covering(query: CoveringChefsQueryDto) {
+    const commune = await this.geo.assertCommune(query.postalCode, query.city, 'city');
+    if (!commune) return { data: [] };
+
+    const chefs = await this.prisma.chefProfile.findMany({
+      where: LISTED_CHEF,
+      select: { id: true, displayName: true, city: true, interventionZones: true },
+    });
+    const data = chefs
+      .filter((chef) => coversCommune(chef.interventionZones, commune))
+      .map(({ id, displayName, city }) => ({ id, displayName, city }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
+
+    this.logger.debug({
+      event: 'vitrine.covering_listed',
+      listed: chefs.length,
+      covering: data.length,
+    });
+    return { data };
+  }
 
   /**
    * §5.1. Chefs who cover the area and are not fully booked, then filtered by
@@ -211,6 +248,7 @@ export class VitrineService {
           priceCents: true,
           shoppingIncluded: true,
           shoppingFeeCents: true,
+          mealsIncluded: true,
         },
       }),
       this.prisma.chefProfile.findUnique({

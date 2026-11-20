@@ -9,11 +9,7 @@ import {
 import { Prisma, User, UserRole } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UsersService } from '../../users/users.service';
-import {
-  PairBooking,
-  currentBooking,
-  isContactReleased,
-} from '../domain/messaging.rules';
+import { PairBooking, currentBooking } from '../domain/messaging.rules';
 import {
   AdminListConversationsQueryDto,
   CreateAttachmentUploadDto,
@@ -258,8 +254,7 @@ function toAdminView(
       : null,
     supportUser: supportUser ? { ...party(supportUser), role: supportRole } : null,
     booking: toBookingSummary(currentBooking(bookings, now)),
-    contactReleased:
-      conversation.type === 'chef_client' && isContactReleased(bookings, now),
+    contactReleased: false,
     contactFlaggedAt: conversation.contactFlaggedAt,
     lastMessage: last ? toAdminMessageView(last) : null,
     lastMessageAt: conversation.lastMessageAt,

@@ -50,6 +50,7 @@ const OFFER_EXAMPLE = {
   currency: 'EUR',
   shoppingIncluded: true,
   shoppingFeeCents: 1500,
+  mealsIncluded: 3,
   active: true,
 };
 

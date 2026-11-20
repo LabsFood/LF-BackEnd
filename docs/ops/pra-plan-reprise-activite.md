@@ -364,7 +364,9 @@ et rejoue les webhooks pendant 3 jours ; l'API déduplique par identifiant d'év
 
 **Reprise**
 1. Panne Stripe : communiquer, laisser les réservations en `pending` (elles ne sont
-   annulées qu'à 72 h, job `bookings-unpaid-hold`). Si la panne dure, prolonger à la main
+   annulées qu'à 72 h, job `bookings-unpaid-hold` ; une demande CGV V1 n'attend pas
+   Stripe : son débit après la session, job `bookings-charge-after`, est tenté une fois,
+   à relancer à la main si la panne tombe à ce moment). Si la panne dure, prolonger à la main
    dans la console les réservations concernées plutôt que de les laisser expirer.
 2. Panne de **notre** API pendant que Stripe encaisse : au retour, Stripe → Webhooks →
    vérifier qu'il n'y a plus d'événements en échec ; sinon **Resend**. Contrôler dans la

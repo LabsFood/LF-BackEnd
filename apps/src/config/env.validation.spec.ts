@@ -93,10 +93,6 @@ describe('envValidationSchema — URSSAF_GATEWAY', () => {
     });
     expect(error?.message).toMatch(/KYC_ENCRYPTION_KEY/);
   });
-
-  it('names Unipros as the intermediary unless told otherwise', () => {
-    expect(validate({}).value.URSSAF_INTERMEDIARY).toBe('Unipros');
-  });
 });
 
 describe('envValidationSchema — SUPABASE_SECRET_KEY', () => {

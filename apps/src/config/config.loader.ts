@@ -62,8 +62,6 @@ export interface AppConfig {
      * There is no `live` yet: it arrives with the URSSAF API access, behind `UrssafGateway`.
      */
     gateway: UrssafGatewayMode;
-    /** The cooperative the admin goes through in `manual` mode (shown at checkout). */
-    intermediary: string;
     /** Base64 AES-256 key for the clients' URSSAF dossiers. */
     kycEncryptionKey?: string;
   };
@@ -126,6 +124,10 @@ export interface AppConfig {
       bookingContractClient?: number;
       bookingWithdrawalAck?: number;
       bookingWithdrawalAdmin?: number;
+      bookingRequestChef?: number;
+      bookingRequestDeclined?: number;
+      bookingChargeFailed?: number;
+      bookingCesuReminder?: number;
       groceriesNotice?: number;
     };
     webhookToken?: string;
@@ -218,7 +220,6 @@ export const configLoader = (): AppConfig => ({
   urssaf: {
     // Joi (env.validation.ts) rejects any other value, and `simulated` beside live Stripe keys.
     gateway: (process.env.URSSAF_GATEWAY ?? 'disabled') as UrssafGatewayMode,
-    intermediary: process.env.URSSAF_INTERMEDIARY ?? 'Unipros',
     kycEncryptionKey: process.env.KYC_ENCRYPTION_KEY,
   },
   payments: {
@@ -292,6 +293,12 @@ export const configLoader = (): AppConfig => ({
       bookingWithdrawalAdmin: optionalNumber(
         process.env.BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN,
       ),
+      bookingRequestChef: optionalNumber(process.env.BREVO_TPL_BOOKING_REQUEST_CHEF),
+      bookingRequestDeclined: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_REQUEST_DECLINED,
+      ),
+      bookingChargeFailed: optionalNumber(process.env.BREVO_TPL_BOOKING_CHARGE_FAILED),
+      bookingCesuReminder: optionalNumber(process.env.BREVO_TPL_BOOKING_CESU_REMINDER),
       groceriesNotice: optionalNumber(process.env.BREVO_TPL_GROCERIES_NOTICE),
     },
     /** Recettes lot 6: the secret the Brevo webhook URL carries (`?token=`). */

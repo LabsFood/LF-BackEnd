@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { cipherKey, open, seal } from '../../common/crypto/field-cipher';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
@@ -54,6 +55,7 @@ export class UrssafDossiersService {
     private readonly storage: KycStorageService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly geo: GeoService,
   ) {}
 
   /** `PUT /me/urssaf-dossier`: creates or replaces the whole dossier. */
@@ -71,6 +73,14 @@ export class UrssafDossiersService {
         })),
       });
     }
+
+    // The town must be a commune of the postcode (ADDRESS_CITY_MISMATCH, naming the
+    // right ones); fails closed when geo.api.gouv.fr does not answer.
+    await this.geo.assertCommune(
+      dossier.address.postalCode,
+      dossier.address.city,
+      'address.city',
+    );
 
     const sealed = this.sealed(user.id, JSON.stringify(dossier));
     const previous = await this.prisma.urssafClientDossier.findUnique({

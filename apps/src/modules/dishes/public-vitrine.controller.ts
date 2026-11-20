@@ -10,8 +10,13 @@ import {
 
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
-import { ChefShowcaseQueryDto, WeekMenusQueryDto } from './dto/vitrine.dto';
+import {
+  ChefShowcaseQueryDto,
+  CoveringChefsQueryDto,
+  WeekMenusQueryDto,
+} from './dto/vitrine.dto';
 import { MENU_ID, PUBLIC_DISH_EXAMPLE } from './swagger-examples';
 import { VitrineService } from './vitrine.service';
 
@@ -131,6 +136,34 @@ export class PublicVitrineController {
     return this.vitrine.week(query);
   }
 
+  @Get('chefs')
+  @ApiTags(TAGS.catalog)
+  @ApiOperation({
+    summary: 'List the batch cookers who cover a town',
+    description:
+      'For the custom request form: the client gives the town of the prestation ' +
+      'first, then picks among the batch cookers who work there. Approved and online ' +
+      'only, covering the commune through a whole-region zone or one that lists the ' +
+      'town. Names only, sorted by name; a chef fully booked this week is still ' +
+      'listed, a request is for any date. Public.\n\n' +
+      'The commune is checked against the official base (geo.api.gouv.fr): a town ' +
+      'the postcode does not serve is refused, `ADDRESS_CITY_MISMATCH`.\n\n' +
+      'Example: `?postalCode=77127&city=Lieusaint`.',
+  })
+  @ApiOkResponse({
+    description: 'The batch cookers covering the town, possibly none.',
+    example: { data: [{ id: CHEF_ID, displayName: 'Ivy Siyaptze', city: 'Nice' }] },
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`ADDRESS_CITY_MISMATCH`: the town is not a commune of the postcode; `communes` ' +
+      'names those it serves.',
+  })
+  @ApiGeoResponses()
+  listCovering(@Query() query: CoveringChefsQueryDto) {
+    return this.vitrine.covering(query);
+  }
+
   @Get('chefs/:id')
   @ApiTags(TAGS.catalog)
   @ApiOperation({
@@ -166,6 +199,7 @@ export class PublicVitrineController {
           priceCents: 18000,
           shoppingIncluded: true,
           shoppingFeeCents: 1500,
+          mealsIncluded: 3,
         },
       ],
       dishes: [CARD_DISH],

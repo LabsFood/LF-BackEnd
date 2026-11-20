@@ -44,7 +44,12 @@ function setup() {
       findUnique: jest.fn(),
     },
     chefProfile: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'chef-1', userId: 'u-chef' }),
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'chef-1',
+        userId: 'u-chef',
+        interventionZones: [{ regionCode: '93', scope: 'region', cities: [] }],
+      }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
   const users = { findByClerkId: jest.fn().mockResolvedValue({ id: 'u1' }) };
@@ -57,7 +62,9 @@ function setup() {
   // The real address check, over a stubbed geo.api.gouv.fr.
   const geo = Object.assign(new GeoService(), {
     communesByPostcode: jest.fn(async (code: string) =>
-      code === '06000' ? [{ nom: 'Nice', code: '06088', codeDepartement: '06' }] : [],
+      code === '06000'
+        ? [{ nom: 'Nice', code: '06088', codeDepartement: '06', codeRegion: '93' }]
+        : [],
     ),
     // The official address base knows every street but the made-up one.
     bestStreetScore: jest.fn(async (line: string) => (/azerty/i.test(line) ? null : 0.9)),
@@ -86,16 +93,11 @@ describe('QuotesService.createQuote', () => {
     expect(prisma.quote.create).not.toHaveBeenCalled();
   });
 
-  it('refuses a street the postcode has no trace of, storing nothing', async () => {
+  it('keeps a street the postcode has no trace of: only a warning is logged', async () => {
     const { service, prisma } = setup();
 
-    await expect(
-      service.createQuote('clerk_1', form({ addressLine: '99 rue Azerty' })),
-    ).rejects.toMatchObject({
-      status: 422,
-      response: { code: 'ADDRESS_NOT_FOUND' },
-    });
-    expect(prisma.quote.create).not.toHaveBeenCalled();
+    await service.createQuote('clerk_1', form({ addressLine: '99 rue Azerty' }));
+    expect(prisma.quote.create).toHaveBeenCalledTimes(1);
   });
 
   it('numbers the request after the ones of the year and stores it', async () => {
@@ -188,6 +190,20 @@ describe('QuotesService and closed days', () => {
       'chef-1',
       new Date(`${inDays(10)}T00:00:00.000Z`),
     );
+    expect(prisma.quote.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a batch cooker who does not cover the town: 422 CHEF_OUT_OF_AREA', async () => {
+    const { service, prisma } = setup();
+    prisma.chefProfile.findFirst.mockResolvedValue({
+      id: 'chef-1',
+      userId: 'u-chef',
+      interventionZones: [{ regionCode: '11', scope: 'region', cities: [] }],
+    });
+
+    await expect(
+      service.createQuote('clerk_1', form({ chefProfileId: 'chef-1' })),
+    ).rejects.toMatchObject({ response: { code: 'CHEF_OUT_OF_AREA' } });
     expect(prisma.quote.create).not.toHaveBeenCalled();
   });
 

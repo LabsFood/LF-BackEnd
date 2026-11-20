@@ -12,7 +12,13 @@ import type { CesuSettlementStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
-import { CHEF_CESU_INFO_SELECT, cesuAccepted, toChefCesuInfo } from './chef-cesu-info';
+import {
+  CHEF_CESU_INFO_SELECT,
+  OFFERED_METHODS_SELECT,
+  cesuAccepted,
+  offeredMethods,
+  toChefCesuInfo,
+} from './chef-cesu-info';
 import { CommissionDebitsService } from './commission-debits.service';
 import { assertNoCommissionBlock } from './commission-standing';
 import { commissionForPayment } from './commission-policy';
@@ -350,6 +356,25 @@ export class CesuPaymentsService {
       throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
     }
     return toChefCesuInfo(chef);
+  }
+
+  /**
+   * `GET /chefs/{id}/payment-methods` (CGV V1 5.1): what the booking screen offers. The
+   * card is the one every booking saves, so without it nothing can be booked.
+   */
+  async getChefPaymentMethods(chefProfileId: string) {
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { id: chefProfileId },
+      select: { ...OFFERED_METHODS_SELECT, isActive: true, isVerified: true },
+    });
+    if (!chef || !chef.isActive || !chef.isVerified) {
+      throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+    const offered = offeredMethods(
+      chef,
+      this.config.get<string>('urssaf.gateway', 'disabled'),
+    );
+    return { card: offered.cb, urssaf: offered.avance_immediate, cesu: offered.cesu };
   }
 
   /** `GET /me/chef/cesu-payments`. */

@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -109,4 +109,22 @@ export class ChefShowcaseQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   @IsISO8601({ strict: true })
   to?: string;
+}
+
+/** `GET /chefs`: the town of a custom request, as the client typed it. */
+export class CoveringChefsQueryDto {
+  @ApiProperty({
+    description: 'Postcode of the prestation, five digits.',
+    example: '77127',
+  })
+  @Matches(/^\d{5}$/)
+  postalCode!: string;
+
+  @ApiProperty({
+    description: 'Commune of that postcode, as named in the official base.',
+    example: 'Lieusaint',
+  })
+  @IsString()
+  @Length(1, 120)
+  city!: string;
 }

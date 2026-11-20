@@ -24,7 +24,6 @@ fix this file.
 | Variable | Value for this test |
 |----------|---------------------|
 | `URSSAF_GATEWAY` | `manual` (allowed beside live Stripe keys, unlike `simulated`) |
-| `URSSAF_INTERMEDIARY` | `Unipros` (default; it is the name the site shows) |
 | `KYC_ENCRYPTION_KEY` | 32 bytes, base64 (`openssl rand -base64 32`). Required in manual mode: the API refuses to start without it (or with a key that is not 32 bytes) |
 
 - The migrations `20261013120000_urssaf_links` and `20261116120000_urssaf_client_dossiers`
@@ -157,7 +156,7 @@ prestation with that chef.
    - If the CGV boxes show (« Avant de payer, acceptez les conditions de cette
      prestation »), tick them and click « Valider, puis payer avec obligation de paiement ».
 3. Under **« Comment souhaitez-vous régler ? »**, the option reads
-   **« Avance immédiate (crédit d’impôt 50 %) par Unipros »**, tagline
+   **« Avance immédiate (crédit d’impôt 50 %) »**, tagline
    « Rien à régler ici », amount **« Rien à payer »**. It is greyed out, with the reason:
 
    | State | Reason shown | Action link |
@@ -197,15 +196,15 @@ Audit: `urssaf.link_recorded`.
 
 ## 6. Client: pay with the advance
 
-1. Reload the payment screen. The option **« Avance immédiate (crédit d’impôt 50 %) par
-   Unipros »** is now selectable.
+1. Reload the payment screen. The option **« Avance immédiate (crédit d’impôt 50 %) »**
+   is now selectable.
 2. Select it. In the **« Récapitulatif »**: « Prix de la prestation », « Crédit d’impôt
    déduit immédiatement », and **« À régler aujourd’hui sur le site »** at 0 €. Below:
    « L’URSSAF prélèvera ensuite {50 %} sur le compte de votre rattachement et réglera
    {prénom} directement. »
 3. Click **« Confirmer la prestation »**. The confirmation reads « Vous confirmez que la
-   prestation du {date} a bien eu lieu. Lab’s Food transmet la demande à l’URSSAF par
-   Unipros : rien n’est encaissé ici. »
+   prestation du {date} a bien eu lieu. Lab’s Food s’occupe de l’inscription et de la gestion
+   administrative de la demande : rien n’est encaissé ici. »
 4. Click **« Oui, je confirme »**.
    - The page becomes **« Règlement en cours »** (« Votre demande est enregistrée pour
      {référence}… »). It refreshes on its own.
