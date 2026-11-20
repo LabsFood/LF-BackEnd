@@ -1,7 +1,8 @@
 import { ConflictException } from '@nestjs/common';
 
-import type { BookingStatus, Prisma } from '../../generated/prisma/client';
+import type { BookingStatus, PaymentMethod, Prisma } from '../../generated/prisma/client';
 import { contractConsentRequired } from '../bookings/domain/contract.errors';
+import { chargeDueAt } from '../bookings/domain/booking-request.rules';
 import {
   chefShops,
   contractGaps,
@@ -15,12 +16,19 @@ import {
  * **after** it took place (FLOW-03): nothing is asked for a session that has not
  * happened. A `pending` booking is the other model, where paying is what confirms
  * it; it stays payable at once.
+ *
+ * A CGV V1 direct booking (`paymentMethod` set, decision of 2026-11-19) is never paid
+ * while it waits for the batch cooker; once accepted it falls due at `chargeDueAt`: the
+ * end of the session, or acceptance for a card booking made on short notice (7.3).
  */
 export type PaymentPhase = 'not_due' | 'due' | 'cancelled' | 'disputed';
 
 export interface PayableBooking {
   status: BookingStatus;
   endsAt?: Date | null;
+  paymentMethod?: PaymentMethod | null;
+  acceptedAt?: Date | null;
+  startsAt?: Date;
 }
 
 export function paymentPhase(
@@ -33,12 +41,21 @@ export function paymentPhase(
     case 'disputed':
       return 'disputed';
     case 'pending':
+      return booking.paymentMethod ? 'not_due' : 'due';
     case 'completed':
       return 'due';
-    default:
-      return booking.endsAt && booking.endsAt.getTime() <= now.getTime()
-        ? 'due'
-        : 'not_due';
+    default: {
+      const dueAt =
+        booking.paymentMethod && booking.acceptedAt && booking.startsAt && booking.endsAt
+          ? chargeDueAt(
+              booking.paymentMethod,
+              booking.acceptedAt,
+              booking.startsAt,
+              booking.endsAt,
+            )
+          : booking.endsAt;
+      return dueAt && dueAt.getTime() <= now.getTime() ? 'due' : 'not_due';
+    }
   }
 }
 
@@ -106,4 +123,4 @@ export function assertPayable(
  * already took place must never be turned away because of their cook's debts.
  */
 export const commissionBlockApplies = (booking: PayableBooking): boolean =>
-  booking.status === 'pending';
+  booking.status === 'pending' && !booking.paymentMethod;

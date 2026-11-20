@@ -20,7 +20,7 @@ import {
 } from 'class-validator';
 
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
-import type { BookingStatus } from '../../../generated/prisma/client';
+import type { BookingStatus, PaymentMethod } from '../../../generated/prisma/client';
 import { PhotoConfirmDto } from '../../dishes/dto/photo.dto';
 import { BOOKING_STATUSES } from '../domain/booking-status';
 
@@ -241,6 +241,21 @@ export class NewBookingDto {
   @ValidateNested()
   @Type(() => ContractConsentsDto)
   consents?: ContractConsentsDto;
+
+  @ApiPropertyOptional({
+    enum: ['cb', 'avance_immediate', 'cesu'],
+    description:
+      'CGV V1 5.1 (decision of 2026-11-19): how the client will pay, chosen now, paid ' +
+      'after the session. With it, the booking is a **request**: the client saves a ' +
+      'card (`POST /me/bookings/{id}/card`, whatever the method), the batch cooker ' +
+      'accepts within 48 h, and the price is charged after the session. Without it, ' +
+      'the older model: paying confirms the booking. Ignored when a batch cooker or an ' +
+      'admin books. `METHOD_NOT_OFFERED`, `CARD_NOT_AVAILABLE`, `URSSAF_LINK_NONE`, ' +
+      '`URSSAF_LINK_REFUSED`, `URSSAF_DOSSIER_MISSING` (422); a link under review is fine.',
+  })
+  @IsOptional()
+  @IsIn(['cb', 'avance_immediate', 'cesu'])
+  paymentMethod?: PaymentMethod;
 }
 
 export class NewBookingForClientDto extends NewBookingDto {
@@ -251,7 +266,12 @@ export class NewBookingForClientDto extends NewBookingDto {
 
 /** What a client may change: the details while `pending`, and two statuses. */
 export class UpdateBookingDto extends PartialType(
-  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId', 'consents'] as const),
+  OmitType(NewBookingDto, [
+    'serviceOfferId',
+    'formuleId',
+    'consents',
+    'paymentMethod',
+  ] as const),
 ) {
   @ApiPropertyOptional({
     enum: ['cancelled', 'completed'],
@@ -274,7 +294,12 @@ export class ChefUpdateBookingDto {
 }
 
 export class AdminUpdateBookingDto extends PartialType(
-  OmitType(NewBookingDto, ['serviceOfferId', 'formuleId', 'consents'] as const),
+  OmitType(NewBookingDto, [
+    'serviceOfferId',
+    'formuleId',
+    'consents',
+    'paymentMethod',
+  ] as const),
 ) {
   @ApiPropertyOptional({
     enum: BOOKING_STATUSES,
@@ -355,4 +380,34 @@ export class ReplaceMealDto {
   })
   @IsUUID()
   to!: string;
+}
+
+/** A batch cooker's answer to a request (CGV 5.2): only a refusal carries a reason. */
+export class RefuseBookingDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    description: 'Shown to the client in the refusal e-mail.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/** Where the card setup page sends the client back. */
+export class BookingCardSetupDto {
+  @ApiProperty({ example: 'https://batchcooking.labsfood.fr/reservation/carte?ok=1' })
+  @IsString()
+  successUrl!: string;
+
+  @ApiProperty({ example: 'https://batchcooking.labsfood.fr/reservation/carte?ok=0' })
+  @IsString()
+  cancelUrl!: string;
+}
+
+export class BookingCardConfirmDto {
+  @ApiProperty({ description: 'The `session_id` Stripe put on the return URL.' })
+  @IsString()
+  @MaxLength(255)
+  sessionId!: string;
 }

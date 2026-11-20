@@ -58,6 +58,9 @@ COPY apps/src/supabase/db-connection.ts ./src/supabase/db-connection.ts
 COPY apps/src/config/trusted-roots.ts ./src/config/trusted-roots.ts
 COPY apps/certs ./certs
 COPY apps/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+# The Brevo templates, created at start by the entrypoint (brevo/upload.mjs).
+COPY brevo/layout.html brevo/templates.mjs brevo/upload.mjs ./brevo/
+COPY brevo/templates ./brevo/templates
 
 RUN chmod +x ./scripts/docker-entrypoint.sh
 

@@ -1,11 +1,4 @@
-import {
-  PairBooking,
-  currentBooking,
-  isContactReleased,
-  isWritable,
-  nextContactReleaseAt,
-  shortName,
-} from './messaging.rules';
+import { PairBooking, currentBooking, isWritable, shortName } from './messaging.rules';
 
 const NOW = new Date('2026-10-08T10:00:00.000Z');
 const hours = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
@@ -23,39 +16,6 @@ const booking = (
 });
 
 describe('messaging rules', () => {
-  describe('isContactReleased', () => {
-    it('stays masked more than 48 h before a confirmed prestation', () => {
-      expect(isContactReleased([booking('confirmed', 49)], NOW)).toBe(false);
-    });
-
-    it('releases from 48 h before until the prestation ends', () => {
-      expect(isContactReleased([booking('confirmed', 47)], NOW)).toBe(true);
-      expect(isContactReleased([booking('confirmed', -2)], NOW)).toBe(true);
-    });
-
-    it('masks again once the prestation is over', () => {
-      expect(isContactReleased([booking('confirmed', -5)], NOW)).toBe(false);
-      expect(isContactReleased([booking('completed', -5)], NOW)).toBe(false);
-    });
-
-    it('never releases for a booking that is not confirmed', () => {
-      expect(isContactReleased([booking('pending', 10)], NOW)).toBe(false);
-    });
-
-    it.each(['shopping', 'cooking', 'delivered'] as const)(
-      'keeps releasing while the prestation is %s',
-      (status) => {
-        expect(isContactReleased([booking(status, -1)], NOW)).toBe(true);
-      },
-    );
-  });
-
-  it('tells when the next release is due', () => {
-    expect(nextContactReleaseAt([booking('confirmed', 72)], NOW)).toEqual(hours(24));
-    expect(nextContactReleaseAt([booking('confirmed', 10)], NOW)).toBeNull();
-    expect(nextContactReleaseAt([booking('pending', 72)], NOW)).toBeNull();
-  });
-
   describe('isWritable', () => {
     it('is open while a booking is pending or confirmed', () => {
       expect(isWritable([booking('pending', 100)], NOW)).toBe(true);

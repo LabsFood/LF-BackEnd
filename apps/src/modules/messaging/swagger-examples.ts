@@ -34,7 +34,7 @@ export const CONVERSATION_EXAMPLE = {
   },
   writable: true,
   contactReleased: false,
-  contactReleaseAt: '2026-10-13T07:00:00.000Z',
+  contactReleaseAt: null,
   lastMessage: MESSAGE_EXAMPLE,
   lastMessageAt: '2026-10-06T08:30:00.000Z',
   unreadCount: 1,
@@ -112,9 +112,9 @@ export const ADMIN_CONVERSATION_EXAMPLE = {
 export const errorExample = (code: string, message: string) => ({ code, message });
 
 export const MASKING_HELP =
-  'While the contact details are not released, a phone number or an email in a ' +
-  'message is served as `•••••` and `contactMasked` is true. They are released from ' +
-  '48 hours before a confirmed prestation until it ends (`contactReleased`).';
+  'A phone number or an email in a client ↔ batch cooker message is always served ' +
+  'as `•••••` and `contactMasked` is true. Contact details are never shared between ' +
+  'the two (`contactReleased` is always false); admins read the text as written.';
 
 export const WEBSOCKET_HELP =
   'New messages are pushed over the `/ws` WebSocket. After connecting, send ' +

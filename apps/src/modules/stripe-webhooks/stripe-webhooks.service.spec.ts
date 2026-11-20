@@ -96,6 +96,7 @@ describe('StripeWebhooksService', () => {
       commissionDebits as unknown as CommissionDebitsService,
       prisma as unknown as PrismaService,
       groceries as never,
+      { handleSetupIntentSucceeded: jest.fn().mockResolvedValue(false) } as never,
     );
   });
 

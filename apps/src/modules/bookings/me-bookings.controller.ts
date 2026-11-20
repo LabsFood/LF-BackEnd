@@ -35,11 +35,14 @@ import { ApiGeoResponses } from '../../common/swagger/geo-responses';
 import { TAGS } from '../../common/swagger/tags';
 import { CalendarFeedService } from '../calendar/calendar-feed.service';
 import { BookingDocumentsService } from './booking-documents.service';
+import { BookingRequestsService } from './booking-requests.service';
 import { BookingReschedulesService } from './booking-reschedules.service';
 import { BookingWithdrawalsService } from './booking-withdrawals.service';
 import { BookingsService } from './bookings.service';
 import type { BookingDocumentKind } from './bookings.views';
 import {
+  BookingCardConfirmDto,
+  BookingCardSetupDto,
   BookingsQueryDto,
   ContractConsentsDto,
   NewBookingDto,
@@ -71,6 +74,7 @@ export class MeBookingsController {
     private readonly reschedules: BookingReschedulesService,
     private readonly withdrawals: BookingWithdrawalsService,
     private readonly documents: BookingDocumentsService,
+    private readonly requests: BookingRequestsService,
   ) {}
 
   @Get()
@@ -177,7 +181,13 @@ export class MeBookingsController {
       'Creates a `pending` booking: priced here (the formule’s price when one is ' +
       'chosen, otherwise the offer’s), ending after the offer’s duration, with the ' +
       'recipes of its dishes pinned. The time must be free (`GET ' +
-      '/chefs/{id}/availability`). Paying it is what confirms it; unpaid, it holds the ' +
+      '/chefs/{id}/availability`).\n\n' +
+      '**With `paymentMethod`** (CGV V1, the model of the booking screen): a request. ' +
+      'Nothing is charged. Save the card next (`POST /me/bookings/{id}/card`), which ' +
+      'sends the request to the batch cooker; they accept within 48 h (`request.acceptBy`), ' +
+      'which concludes the contract, and the price is charged after the session. ' +
+      'Refused or unanswered: cancelled, nothing charged.\n\n' +
+      '**Without it** (older model): paying it is what confirms it; unpaid, it holds the ' +
       'slot 72 h.',
   })
   @ApiCreatedResponse({ description: 'The booking.', example: CLIENT_DETAIL })
@@ -198,6 +208,57 @@ export class MeBookingsController {
   @ApiClerkAuthResponses()
   create(@CurrentClerkUser() user: ClerkUser, @Body() body: NewBookingDto) {
     return this.bookings.create('client', user.userId, body);
+  }
+
+  @Post(':id/card')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Save my card for a booking request (CGV 7.2)',
+    description:
+      'For a booking made with `paymentMethod`: a Stripe Checkout page in `setup` ' +
+      'mode, whatever the method. **Nothing is charged.** The card pays the price after ' +
+      'the session (card), or stands in when the advance or CESU do not (7.5). Saving it ' +
+      'sends the request to the batch cooker, who has 48 h to answer (`request.acceptBy`). ' +
+      'A request whose card is not saved within the hour is dropped.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({
+    example: { sessionId: 'cs_test_…', url: 'https://checkout.stripe.com/…' },
+  })
+  @ApiNotFoundResponse({ description: '`BOOKING_NOT_FOUND`.' })
+  @ApiConflictResponse({
+    description: '`NOT_A_REQUEST`: no method chosen, or already answered.',
+  })
+  @ApiClerkAuthResponses()
+  startCard(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: BookingCardSetupDto,
+  ) {
+    return this.requests.startCard(user.userId, id, body);
+  }
+
+  @Post(':id/card/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Back from the card page',
+    description:
+      'Saves the card (brand and last 4 digits only) and sends the request to the batch ' +
+      'cooker. The webhook does the same if the client never comes back; both are ' +
+      'idempotent.',
+  })
+  @ApiBookingId()
+  @ApiOkResponse({ description: 'The booking.', example: CLIENT_DETAIL })
+  @ApiConflictResponse({
+    description: '`CARD_NOT_SAVED`, `CARD_SETUP_MISMATCH` or `NOT_A_REQUEST`.',
+  })
+  @ApiClerkAuthResponses()
+  confirmCard(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: BookingCardConfirmDto,
+  ) {
+    return this.requests.confirmCard(user.userId, id, body.sessionId);
   }
 
   @Post(':id/consents')

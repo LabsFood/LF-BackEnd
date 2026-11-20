@@ -33,7 +33,10 @@ Upload commands need `BREVO_API_KEY` in the env file (`node --env-file=<repo-roo
 2. In the backend, add `BREVO_TPL_<NAME>` to `env.validation.ts`, `config.loader.ts` (`brevo.templates`),
    `.env.example`, and a mailer method that sends exactly the params listed in step 1.
 3. `node --test brevo/*.test.mjs`, then a PR.
-4. After merge: `upload.mjs` creates it and prints `BREVO_TPL_<NAME>=<id>`. Set that on Railway and in `.env`.
+4. Nothing to do on Railway: at each start the API container runs `upload.mjs` (creates the missing
+   templates, prints `BREVO_TPL_<NAME>=<id>` in the deploy logs) then `--check`, never blocking the start,
+   and the API finds each id by its template name. A `BREVO_TPL_<NAME>` variable still overrides the
+   lookup (local `.env`, or pinning another template).
 
 ## Edit a template
 
