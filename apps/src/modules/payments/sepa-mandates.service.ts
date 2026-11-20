@@ -393,29 +393,16 @@ export class SepaMandatesService {
       await addCustomerConfiguration(stripe, chef.stripeAccountId);
       return chef.stripeAccountId;
     }
-    let customerId: string;
     try {
       const customer = await stripe.customers.create({
         email: chef.email,
         name: chef.displayName,
         metadata: { chefProfileId: chef.chefProfileId },
       });
-      customerId = customer.id;
+      return customer.id;
     } catch (error) {
       throw this.stripeFailure('customer_create', chef.chefProfileId, error);
     }
-    // Kept before the Checkout call, so a retry after a failed page reuses this
-    // customer instead of leaving one more unused `cus_…` in Stripe.
-    await this.prisma.sepaMandate.upsert({
-      where: { chefProfileId: chef.chefProfileId },
-      update: { stripeCustomerId: customerId },
-      create: {
-        chefProfileId: chef.chefProfileId,
-        stripeCustomerId: customerId,
-        status: 'pending',
-      },
-    });
-    return customerId;
   }
 
   private async statusOf(chefProfileId: string): Promise<SepaMandateStatusDto | null> {

@@ -36,8 +36,10 @@ export async function createConnectedAccount(
         // micro-entreprise or a company, and guessing wrong blocks the form.
         identity: { country: 'fr' },
         configuration: {
-          // Destination charges need both: `merchant` so `charges_enabled` turns true on
-          // the account, `recipient` so the platform can transfer the net amount to it.
+          // Card payments go out as destination charges with `on_behalf_of` (payments.service):
+          // the chef is merchant of record, so the account needs `merchant` with
+          // `card_payments` (Stripe adds `stripe_balance.payouts` to it, the payout to the
+          // chef's bank), and `recipient` with `stripe_transfers` for `transfer_data`.
           merchant: { capabilities: { card_payments: { requested: true } } },
           recipient: {
             capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },

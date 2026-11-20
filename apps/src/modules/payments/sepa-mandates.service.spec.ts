@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -163,11 +164,14 @@ describe('SepaMandatesService', () => {
       );
     });
 
-    it('keeps a new customer even when the Stripe page fails, so a retry reuses it', async () => {
+    it('logs what opens the failed call in Stripe, and keeps no customer for it', async () => {
+      const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
       stripeClient.checkout.sessions.create.mockRejectedValue(
-        Object.assign(new Error('Invalid request'), {
+        Object.assign(new Error('No such customer: chef@example.com'), {
           type: 'StripeInvalidRequestError',
+          param: 'payment_method_types',
           statusCode: 400,
+          requestId: 'req_1',
         }),
       );
 
@@ -175,11 +179,19 @@ describe('SepaMandatesService', () => {
         service.createCheckoutSession('clerk_1', RETURN_URL),
       ).rejects.toMatchObject({ response: { code: 'STRIPE_UNAVAILABLE' } });
 
-      expect(prisma.sepaMandate.upsert).toHaveBeenCalledWith({
-        where: { chefProfileId: 'chef-1' },
-        update: { stripeCustomerId: 'cus_1' },
-        create: { chefProfileId: 'chef-1', stripeCustomerId: 'cus_1', status: 'pending' },
+      expect(logged).toHaveBeenCalledWith({
+        event: 'sepa.stripe_failed',
+        step: 'checkout_create',
+        chefProfileId: 'chef-1',
+        type: 'StripeInvalidRequestError',
+        code: undefined,
+        param: 'payment_method_types',
+        statusCode: 400,
+        stripeRequestId: 'req_1',
       });
+      // The next try picks the connected account if the chef has one by then.
+      expect(prisma.sepaMandate.upsert).not.toHaveBeenCalled();
+      logged.mockRestore();
     });
 
     it('signs on the chef’s connected account once they have one (Accounts v2)', async () => {
