@@ -7,6 +7,7 @@ import {
 import type Stripe from 'stripe';
 
 import { StripeService } from '../../integrations/stripe.service';
+import { BookingRequestsService } from '../bookings/booking-requests.service';
 import { GroceriesService } from '../groceries/groceries.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommissionDebitsService } from '../payments/commission-debits.service';
@@ -44,6 +45,7 @@ export class StripeWebhooksService {
     private readonly commissionDebits: CommissionDebitsService,
     private readonly prisma: PrismaService,
     private readonly groceries: GroceriesService,
+    private readonly bookingRequests: BookingRequestsService,
   ) {}
 
   /**
@@ -120,7 +122,9 @@ export class StripeWebhooksService {
         await this.stripeConnect.handleAccountUpdated(event.data.object);
         return;
       case 'setup_intent.succeeded':
-        // A client's grocery card (lot 6), found by its SetupIntent id; else a SEPA mandate.
+        // A booking's card (CGV 7.2), a client's grocery card (lot 6), else a SEPA mandate.
+        if (await this.bookingRequests.handleSetupIntentSucceeded(event.data.object))
+          return;
         if (await this.groceries.handleSetupIntentSucceeded(event.data.object)) return;
         await this.sepaMandates.handleSetupIntentSucceeded(event.data.object);
         return;

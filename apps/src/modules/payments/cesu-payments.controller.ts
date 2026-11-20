@@ -92,6 +92,22 @@ export class PublicCesuController {
   ): Promise<ChefCesuInfoDto> {
     return this.cesu.getChefCesuInfo(chefProfileId);
   }
+
+  @Get(':chefProfileId/payment-methods')
+  @ApiOperation({
+    summary: 'Public: the payment methods this chef takes at booking',
+    description:
+      'CGV V1 5.1: the booking screen offers these, chosen at booking and paid after ' +
+      'the session. `card` false means no booking is possible yet (every booking saves ' +
+      'a card). `urssaf` true still needs the client enrolled with this chef ' +
+      '(`GET /me/urssaf-links`); a link under review is enough to book.',
+  })
+  @ApiParam({ name: 'chefProfileId', description: 'Chef profile uuid.' })
+  @ApiOkResponse({ example: { card: true, urssaf: true, cesu: false } })
+  @ApiNotFoundResponse({ description: 'No such chef, or not open for bookings.' })
+  getChefPaymentMethods(@Param('chefProfileId', ParseUUIDPipe) chefProfileId: string) {
+    return this.cesu.getChefPaymentMethods(chefProfileId);
+  }
 }
 
 @ApiTags('Payments')

@@ -88,7 +88,7 @@ const booking = (status: string, inHours: number) => ({
 describe('MessagingService', () => {
   let service: MessagingService;
   let tx: {
-    message: { create: jest.Mock };
+    message: { create: jest.Mock; updateMany: jest.Mock };
     conversation: { update: jest.Mock };
     conversationParticipant: { updateMany: jest.Mock };
   };
@@ -123,6 +123,7 @@ describe('MessagingService', () => {
           ...data,
           attachments: [],
         })),
+        updateMany: jest.fn(),
       },
       conversation: { update: jest.fn().mockResolvedValue({ adminUnreadCount: 0 }) },
       conversationParticipant: { updateMany: jest.fn() },
@@ -283,7 +284,7 @@ describe('MessagingService', () => {
       });
     });
 
-    it('leaves the text readable once the contact details are released', async () => {
+    it('masks contact details even right before the prestation', async () => {
       prisma.booking.findMany.mockResolvedValue([booking('confirmed', 24)]);
       asParticipant(conversation(), 'client');
 
@@ -291,10 +292,41 @@ describe('MessagingService', () => {
         body: 'Appelez-moi au 06 12 34 56 78',
       });
 
-      expect(sent.body).toBe('Appelez-moi au 06 12 34 56 78');
-      expect(sent.contactMasked).toBe(false);
-      // Still recorded: the thread is masked again after the prestation.
+      expect(sent.body).toBe(`Appelez-moi au ${CONTACT_MASK}`);
+      expect(sent.contactMasked).toBe(true);
+    });
+
+    it('catches a number sent one digit per message and flags the earlier digits', async () => {
+      asParticipant(conversation(), 'client');
+      // Newest first, as the query returns them.
+      prisma.message.findMany.mockResolvedValue(
+        ['7', '6', '5', '4', '3', '2', '1', '6', '0'].map((body, i) => ({
+          id: `m${i}`,
+          body,
+        })),
+      );
+
+      const sent = await service.sendMessage('clerk_1', CONVERSATION, { body: '8' });
+
+      expect(sent.contactMasked).toBe(true);
+      expect(sent.body).toBe(CONTACT_MASK);
       expect(tx.message.create.mock.calls[0][0].data.contactDetected).toBe(true);
+      expect(tx.message.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'] } },
+        data: { contactDetected: true },
+      });
+      expect(tx.conversation.update.mock.calls[0][0].data).toHaveProperty(
+        'contactFlaggedAt',
+      );
+    });
+
+    it('does not look at past messages when the text has no digit', async () => {
+      asParticipant(conversation(), 'client');
+      prisma.message.findMany.mockResolvedValue([{ id: 'm0', body: '06 12 34 56' }]);
+
+      await service.sendMessage('clerk_1', CONVERSATION, { body: 'merci !' });
+
+      expect(tx.message.updateMany).not.toHaveBeenCalled();
     });
 
     it('tells both people and the admins, each with their own text', async () => {
@@ -502,17 +534,15 @@ describe('MessagingService', () => {
   });
 
   describe('the conversation header', () => {
-    it('hides the phone number until the release, then shows it', async () => {
+    it('never shows the phone number, even right before the prestation', async () => {
       asParticipant(conversation(), 'client');
-      const before = await service.getMine('clerk_1', CONVERSATION);
-      expect(before.contactReleased).toBe(false);
-      expect(before.counterpart).toMatchObject({ name: 'Marie Dupont', phone: null });
-      expect(before.contactReleaseAt).toBeInstanceOf(Date);
-
       prisma.booking.findMany.mockResolvedValue([booking('confirmed', 24)]);
-      const after = await service.getMine('clerk_1', CONVERSATION);
-      expect(after.contactReleased).toBe(true);
-      expect(after.counterpart.phone).toBe('0622222222');
+
+      const view = await service.getMine('clerk_1', CONVERSATION);
+
+      expect(view.contactReleased).toBe(false);
+      expect(view.contactReleaseAt).toBeNull();
+      expect(view.counterpart).toMatchObject({ name: 'Marie Dupont', phone: null });
     });
 
     it('shows a batch cooker a shortened client name', async () => {

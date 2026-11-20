@@ -67,7 +67,7 @@ export interface ConversationView {
   booking: BookingSummary | null;
   writable: boolean;
   contactReleased: boolean;
-  /** When phone numbers and emails become readable, if a release is due. */
+  /** Always null: contact details are never released. */
   contactReleaseAt: Date | null;
   lastMessage: MessageView | null;
   lastMessageAt: Date | null;

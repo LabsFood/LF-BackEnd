@@ -255,6 +255,108 @@ export class BookingsMailer {
     });
   }
 
+  /**
+   * CGV V1 5.2: to the batch cooker, a request to accept or refuse before `acceptBy`;
+   * sent again halfway through the delay.
+   */
+  async requestChef(input: {
+    bookingId: string;
+    reference: string | null;
+    startsAt: Date;
+    acceptBy: Date;
+    amountTtcCents: number;
+    clientName: string | null;
+    chef: { email: string; fullName: string | null };
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingRequestChef,
+      to: { email: input.chef.email, name: input.chef.fullName ?? undefined },
+      label: 'booking-request-chef',
+      params: {
+        firstName: firstName(input.chef.fullName),
+        reference: input.reference ?? '',
+        when: WHEN.format(input.startsAt),
+        acceptBy: WHEN.format(input.acceptBy),
+        amount: euros(input.amountTtcCents),
+        clientName: shortName(input.clientName),
+        spaceUrl: this.spaceUrl('chef', input.bookingId),
+      },
+    });
+  }
+
+  /** To the client: the batch cooker refused, or let the 48 h pass. Nothing charged. */
+  async requestDeclined(input: {
+    reference: string | null;
+    startsAt: Date;
+    client: { email: string; fullName: string | null };
+    chefName: string;
+    reason: string | null;
+    expired: boolean;
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingRequestDeclined,
+      to: { email: input.client.email, name: input.client.fullName ?? undefined },
+      label: 'booking-request-declined',
+      params: {
+        firstName: firstName(input.client.fullName),
+        reference: input.reference ?? '',
+        when: WHEN.format(input.startsAt),
+        chefName: input.chefName,
+        reason: input.reason ?? '',
+        expired: input.expired,
+        searchUrl: `${this.site}/chefs`,
+      },
+    });
+  }
+
+  /** CGV 7.5: the charge after the session was refused; 48 h to settle it. */
+  async chargeFailed(input: {
+    bookingId: string;
+    reference: string | null;
+    startsAt: Date;
+    amountCents: number;
+    client: { email: string; fullName: string | null };
+    chefName: string;
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingChargeFailed,
+      to: { email: input.client.email, name: input.client.fullName ?? undefined },
+      label: 'booking-charge-failed',
+      params: {
+        firstName: firstName(input.client.fullName),
+        reference: input.reference ?? '',
+        when: WHEN.format(input.startsAt),
+        amount: euros(input.amountCents),
+        chefName: input.chefName,
+        payUrl: this.spaceUrl('client', input.bookingId),
+      },
+    });
+  }
+
+  /** The session is over and the client chose CESU: declare the titles within 48 h. */
+  async cesuReminder(input: {
+    bookingId: string;
+    reference: string | null;
+    startsAt: Date;
+    amountCents: number;
+    client: { email: string; fullName: string | null };
+    chefName: string;
+  }) {
+    await this.brevo.sendTemplate({
+      templateId: this.brevo.templates.bookingCesuReminder,
+      to: { email: input.client.email, name: input.client.fullName ?? undefined },
+      label: 'booking-cesu-reminder',
+      params: {
+        firstName: firstName(input.client.fullName),
+        reference: input.reference ?? '',
+        when: WHEN.format(input.startsAt),
+        amount: euros(input.amountCents),
+        chefName: input.chefName,
+        payUrl: this.spaceUrl('client', input.bookingId),
+      },
+    });
+  }
+
   private spaceUrl(side: 'client' | 'chef', bookingId: string) {
     return side === 'client'
       ? `${this.site}/espace-client/commandes/${bookingId}`

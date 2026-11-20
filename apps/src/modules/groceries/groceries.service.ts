@@ -458,6 +458,35 @@ export class GroceriesService {
       // Two first calls at once: the unique booking id keeps one run.
       if ((error as { code?: string }).code !== 'P2002') throw error;
     }
+    // CGV V1 (decision of 2026-11-19): the card saved at booking pays the groceries too,
+    // so the client does not fill a second card form.
+    const card = await this.prisma.booking.findUnique({
+      where: { id: booking.id },
+      select: {
+        stripeCustomerId: true,
+        stripePaymentMethodId: true,
+        cardBrand: true,
+        cardLast4: true,
+        cardSavedAt: true,
+      },
+    });
+    if (card?.stripeCustomerId && card.stripePaymentMethodId) {
+      await this.prisma.groceryRun.updateMany({
+        where: {
+          bookingId: booking.id,
+          stripePaymentMethodId: null,
+          status: 'awaiting_card',
+        },
+        data: {
+          stripeCustomerId: card.stripeCustomerId,
+          stripePaymentMethodId: card.stripePaymentMethodId,
+          cardBrand: card.cardBrand,
+          cardLast4: card.cardLast4,
+          cardSavedAt: card.cardSavedAt,
+          status: 'card_saved',
+        },
+      });
+    }
     // The PDF as it reads with its Budget, hashed for the proof.
     try {
       const pdf = await this.documents.mandatePdf(booking.id);

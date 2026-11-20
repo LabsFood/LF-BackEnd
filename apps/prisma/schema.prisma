@@ -235,6 +235,27 @@ model Booking {
   withdrawnAt           DateTime?           @map("withdrawn_at") @db.Timestamptz(6)
   withdrawalDueCents    Int?                @map("withdrawal_due_cents")
   withdrawalAckSentAt   DateTime?           @map("withdrawal_ack_sent_at") @db.Timestamptz(6)
+  /// CGV V1 direct booking (decision of 2026-11-19): the method chosen at booking. Null
+  /// on a pay-to-confirm booking. See `domain/booking-request.rules.ts`.
+  paymentMethod         PaymentMethod?      @map("payment_method")
+  /// The card saved at booking whatever the method (CGV 7.2): ids and display only.
+  stripeCustomerId      String?             @map("stripe_customer_id") @db.VarChar(128)
+  stripePaymentMethodId String?             @map("stripe_payment_method_id") @db.VarChar(128)
+  /// The Checkout setup page until the card is saved, then its SetupIntent.
+  cardSetupSessionId    String?             @map("card_setup_session_id") @db.VarChar(128)
+  cardBrand             String?             @map("card_brand") @db.VarChar(32)
+  cardLast4             String?             @map("card_last4") @db.VarChar(4)
+  cardSavedAt           DateTime?           @map("card_saved_at") @db.Timestamptz(6)
+  /// When the request reached the batch cooker (card saved), and their deadline (5.2).
+  requestedAt           DateTime?           @map("requested_at") @db.Timestamptz(6)
+  acceptBy              DateTime?           @map("accept_by") @db.Timestamptz(6)
+  acceptedAt            DateTime?           @map("accepted_at") @db.Timestamptz(6)
+  refusedAt             DateTime?           @map("refused_at") @db.Timestamptz(6)
+  refusalReason         String?             @map("refusal_reason") @db.VarChar(500)
+  /// The end-of-session job's one attempt, claimed here (7.3); a failure is the
+  /// client's to settle on the payment screen (7.5).
+  autoChargedAt         DateTime?           @map("auto_charged_at") @db.Timestamptz(6)
+  cesuReminderSentAt    DateTime?           @map("cesu_reminder_sent_at") @db.Timestamptz(6)
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   bookingMeals          BookingMeal[]

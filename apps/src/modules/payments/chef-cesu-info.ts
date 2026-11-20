@@ -103,3 +103,36 @@ export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
     supportedIssuers: [...CESU_SUPPORTED_ISSUERS],
   };
 }
+
+/** Prisma `select` for `offeredMethods`. */
+export const OFFERED_METHODS_SELECT = {
+  stripeAccountId: true,
+  stripeChargesEnabled: true,
+  stripePayoutsEnabled: true,
+  sapProfile: true,
+  sepaMandate: { select: { status: true } },
+} as const;
+
+/**
+ * Which methods a client can choose with this chef at booking (CGV V1 5.1). The card
+ * needs a finished Stripe account; the advance an open URSSAF gateway (`urssaf.gateway`
+ * not `disabled`).
+ */
+export const offeredMethods = (
+  chef: {
+    stripeAccountId: string | null;
+    stripeChargesEnabled: boolean;
+    stripePayoutsEnabled: boolean;
+    sapProfile: Parameters<typeof advanceAccepted>[0] &
+      Parameters<typeof cesuAccepted>[0];
+    sepaMandate: { status: string } | null;
+  },
+  urssafMode: string,
+) => ({
+  cb: Boolean(
+    chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled,
+  ),
+  avance_immediate:
+    urssafMode !== 'disabled' && advanceAccepted(chef.sapProfile, chef.sepaMandate),
+  cesu: cesuAccepted(chef.sapProfile, chef.sepaMandate),
+});

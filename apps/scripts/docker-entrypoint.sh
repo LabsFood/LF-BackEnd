@@ -15,5 +15,20 @@ fi
 echo "Running Prisma migrations (migrate deploy)..."
 npx prisma migrate deploy
 
+# The Brevo templates of the repo (brevo/templates/): create the missing ones, then
+# report how each compares with Brevo. Never blocks the start: Brevo down, or a
+# template edited in Brevo, is logged and the API starts with what Brevo holds. The
+# API finds the ids by name (BrevoService.onModuleInit): no Railway variable needed.
+# ponytail: two replicas starting at once could both create a missing template;
+# start one replica first if that ever happens (duplicates are deleted in Brevo).
+if [ -n "${BREVO_API_KEY:-}" ]; then
+  echo "Creating missing Brevo templates (brevo/upload.mjs)..."
+  node brevo/upload.mjs || echo "WARN: Brevo template upload failed; starting anyway." >&2
+  echo "Comparing Brevo with the repo (brevo/upload.mjs --check)..."
+  node brevo/upload.mjs --check || echo "WARN: some Brevo templates differ from the repo (see above)." >&2
+else
+  echo "WARN: BREVO_API_KEY unset; Brevo templates not checked." >&2
+fi
+
 echo "Starting NestJS API..."
 exec node dist/main.js

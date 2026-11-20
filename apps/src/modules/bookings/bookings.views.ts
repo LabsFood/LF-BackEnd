@@ -1,3 +1,4 @@
+import { chargeDueAt, requestState } from './domain/booking-request.rules';
 import { ymd } from '../../common/paris-time';
 import type { Prisma } from '../../generated/prisma/client';
 import {
@@ -206,6 +207,35 @@ export function toBookingListItem(
     paidCents: paid.reduce((sum, payment) => sum + payment.amountTtc, 0),
     /** Set when the client withdrew online (CGV art. 15): the booking is `cancelled`. */
     withdrawnAt: booking.withdrawnAt,
+    /**
+     * CGV V1 direct booking (decision of 2026-11-19): the method chosen at booking, the
+     * card kept for it, and where the request to the batch cooker stands. Null on a
+     * booking of the pay-to-confirm model.
+     */
+    request: booking.paymentMethod
+      ? {
+          paymentMethod: booking.paymentMethod,
+          state: requestState(booking),
+          card: booking.cardLast4
+            ? { brand: booking.cardBrand, last4: booking.cardLast4 }
+            : null,
+          requestedAt: booking.requestedAt,
+          acceptBy: booking.acceptBy,
+          acceptedAt: booking.acceptedAt,
+          refusedAt: booking.refusedAt,
+          refusalReason: booking.refusalReason,
+          /** When the price is charged (7.3); null until accepted. */
+          chargeAt: booking.acceptedAt
+            ? chargeDueAt(
+                booking.paymentMethod,
+                booking.acceptedAt,
+                booking.startsAt,
+                booking.endsAt,
+              )
+            : null,
+          chargedAt: booking.autoChargedAt,
+        }
+      : null,
     ...(audience !== 'client' &&
       rates &&
       bookingEarnings({ ...booking, offer: booking.quote?.offers[0] ?? null }, rates)),

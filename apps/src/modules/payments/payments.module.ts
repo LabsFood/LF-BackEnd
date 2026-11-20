@@ -74,6 +74,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
   ],
   exports: [
     PaymentsService,
+    BookingPaymentsService,
     CesuPaymentsService,
     CommissionDebitsService,
     StripeConnectService,

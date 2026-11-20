@@ -124,6 +124,10 @@ export interface AppConfig {
       bookingContractClient?: number;
       bookingWithdrawalAck?: number;
       bookingWithdrawalAdmin?: number;
+      bookingRequestChef?: number;
+      bookingRequestDeclined?: number;
+      bookingChargeFailed?: number;
+      bookingCesuReminder?: number;
       groceriesNotice?: number;
     };
     webhookToken?: string;
@@ -289,6 +293,12 @@ export const configLoader = (): AppConfig => ({
       bookingWithdrawalAdmin: optionalNumber(
         process.env.BREVO_TPL_BOOKING_WITHDRAWAL_ADMIN,
       ),
+      bookingRequestChef: optionalNumber(process.env.BREVO_TPL_BOOKING_REQUEST_CHEF),
+      bookingRequestDeclined: optionalNumber(
+        process.env.BREVO_TPL_BOOKING_REQUEST_DECLINED,
+      ),
+      bookingChargeFailed: optionalNumber(process.env.BREVO_TPL_BOOKING_CHARGE_FAILED),
+      bookingCesuReminder: optionalNumber(process.env.BREVO_TPL_BOOKING_CESU_REMINDER),
       groceriesNotice: optionalNumber(process.env.BREVO_TPL_GROCERIES_NOTICE),
     },
     /** Recettes lot 6: the secret the Brevo webhook URL carries (`?token=`). */
