@@ -1,3 +1,43 @@
+## [2.2.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.1.0...v2.2.0) (2026-11-20)
+
+### Features
+
+* add mealsIncluded field to ServiceOffer model and update contract document withdrawal section ([9efc0c0](https://github.com/LabsFood/LF-BackEnd/commit/9efc0c0249053fc9e1574d41c603dbaa01a88c0e))
+* add mealsIncluded to service offers and enforce fixed meal count rules ([6aea1ab](https://github.com/LabsFood/LF-BackEnd/commit/6aea1abf10275d726ca61e2895eca63caf55511e))
+* address of test feedback 2026-11-09 (referentials, street check, dish notes) ([2400715](https://github.com/LabsFood/LF-BackEnd/commit/2400715c7551f1b55a89f715a0f44216d4dc7da0))
+* **bookings:** a booking made without an address takes the client's profile address ([e210365](https://github.com/LabsFood/LF-BackEnd/commit/e2103656ba833a300e061aca80adc3a7ab3d55dd))
+* **bookings:** CGV V1 legal backend (consents, withdrawal, contract documents, chef identity) ([a91f4c7](https://github.com/LabsFood/LF-BackEnd/commit/a91f4c74d75bdcd6abdbf0a67a3b831418d233dc))
+* **bookings:** CGV V1 request flow — method chosen at booking, chef accepts within 48 h, charged after the session ([#100](https://github.com/LabsFood/LF-BackEnd/issues/100)) ([64963c1](https://github.com/LabsFood/LF-BackEnd/commit/64963c19e03b2523131587f03d6ba2fa51489647))
+* **brevo:** the two Recettes e-mails, recipes migrated and allergens to confirm ([d3efc42](https://github.com/LabsFood/LF-BackEnd/commit/d3efc42ca0c79a81369641b2fd9b23c717fe5ed1)), closes [#88](https://github.com/LabsFood/LF-BackEnd/issues/88)
+* **catalog:** publish a Lab's Food meal only when its recipe is ready ([2f2257c](https://github.com/LabsFood/LF-BackEnd/commit/2f2257c4709929e13bb6ae9774bcbca70547e653))
+* **chef-onboarding:** admins can open a candidature for a batch cooker ([c3c431b](https://github.com/LabsFood/LF-BackEnd/commit/c3c431b35a1c8fe2338f791b8886edaa2b02c44a))
+* **chef-zones:** a batch cooker changes their own zones; zones and countries listed alphabetically ([994da6f](https://github.com/LabsFood/LF-BackEnd/commit/994da6fd90d2c2a4fccf31a2d2d397a4b869207c))
+* **ingredients:** seed a starting common ingredient list ([bbc7b43](https://github.com/LabsFood/LF-BackEnd/commit/bbc7b433a62e5c75a9e88b0ae30f8b63d94cd04d))
+* **messaging:** email the team when a support thread gets a message ([69253f2](https://github.com/LabsFood/LF-BackEnd/commit/69253f207528d143459878c59856f1e798ae19f5))
+* **observability:** keep develop out of Sentry production and monitor every job ([e0c780b](https://github.com/LabsFood/LF-BackEnd/commit/e0c780b0f60f6c945059f3c4a7743873a8cd92a7))
+* **payments:** avance immédiate, manual route through Unipros ([#92](https://github.com/LabsFood/LF-BackEnd/issues/92)) ([368cc19](https://github.com/LabsFood/LF-BackEnd/commit/368cc19687a66ae1c303eee89f8d05d7f54c699d))
+* **privacy:** dietary preferences need the health consent; ship the V1 legal PDFs ([aa28ec4](https://github.com/LabsFood/LF-BackEnd/commit/aa28ec421b5192960d9e9f5bf68f5d1425920a2d))
+* **quotes:** dishes and menus in a custom request's offer ([#94](https://github.com/LabsFood/LF-BackEnd/issues/94)) ([554db9e](https://github.com/LabsFood/LF-BackEnd/commit/554db9e2ced72387db75be33fa060df674e7cb7b))
+* **quotes:** GET /chefs lists the batch cookers covering a town; street check no longer blocks ([e6d4e5f](https://github.com/LabsFood/LF-BackEnd/commit/e6d4e5faea2be94085740e72bc987f2795639131))
+* **recettes:** « Courses faites », list reminders and re-send after a menu change ([#89](https://github.com/LabsFood/LF-BackEnd/issues/89)) ([07cc713](https://github.com/LabsFood/LF-BackEnd/commit/07cc71330208582763dc731672298c99c1b6dc07))
+* **recettes:** lot 6 groundwork — payment purpose, grocery amounts, « Forfait courses » ([#90](https://github.com/LabsFood/LF-BackEnd/issues/90)) ([e35728d](https://github.com/LabsFood/LF-BackEnd/commit/e35728df46411bad71383ec05eb5abf567fc2e9c))
+* **recettes:** lot 6, groceries paid apart under the débours mandate ([#97](https://github.com/LabsFood/LF-BackEnd/issues/97)) ([d398478](https://github.com/LabsFood/LF-BackEnd/commit/d39847815c6bb7e3dc4bd36c9e6279afac3dcf4f))
+* **recettes:** recipe foundation V4 (lot 2b) and frozen menu (lot 3 API) ([#88](https://github.com/LabsFood/LF-BackEnd/issues/88)) ([5db849f](https://github.com/LabsFood/LF-BackEnd/commit/5db849f4b5982fc54bd1794a75361ea65a33cdf6))
+* **service-offers:** dish count required, duration optional ([4775232](https://github.com/LabsFood/LF-BackEnd/commit/4775232b2837eb4f1bd7cafef8d92f43dee6ecba))
+
+### Bug Fixes
+
+* **bookings:** name Lab's Food's postal address on the withdrawal form ([d60938c](https://github.com/LabsFood/LF-BackEnd/commit/d60938c73f03c4ef1b0a6027b75f1ab8d48aa208))
+* **ci:** resolve a branch name in Deploy production ([6e218bb](https://github.com/LabsFood/LF-BackEnd/commit/6e218bb6e8b27ad92ee9ff5af8fba6507b6bd419)), closes [#86](https://github.com/LabsFood/LF-BackEnd/issues/86)
+* **deps:** patch glob and minimatch flagged by Dependabot ([fb566d2](https://github.com/LabsFood/LF-BackEnd/commit/fb566d2fb25f22ab8e68368d29027a0afc3a8096))
+* **groceries,urssaf:** closed bookings offer no groceries; dossier needs an address ([97aaef9](https://github.com/LabsFood/LF-BackEnd/commit/97aaef969e454d88e544a4cc8d592e35aba524b3))
+* **ops:** bump db-backup image to postgres 17.12 ([#101](https://github.com/LabsFood/LF-BackEnd/issues/101)) ([4cf74be](https://github.com/LabsFood/LF-BackEnd/commit/4cf74be77ada79c8a8910d4406651b776208eaf3))
+* **recettes:** tie the loose ends of the Recettes v5 report ([#96](https://github.com/LabsFood/LF-BackEnd/issues/96)) ([2bfbc14](https://github.com/LabsFood/LF-BackEnd/commit/2bfbc141f3ba07d05c3947bf61e3390039c7c4c3))
+* **users:** close getSapProfileByClerkUserId before updateOwnChefZones ([e35affe](https://github.com/LabsFood/LF-BackEnd/commit/e35affe4fa351a917dfa819b682b371dd7b47e61))
+* **users:** give the chef legal identity insurance and mediator as text ([6b27030](https://github.com/LabsFood/LF-BackEnd/commit/6b27030d399a0b4ea29bd9824ff81ebe020ca23b))
+* **users:** journal a self-deletion without the actor id once the row is gone ([00dd7c6](https://github.com/LabsFood/LF-BackEnd/commit/00dd7c612f56bc1b43b867deb6ffa9cf7d078329))
+* **users:** record the CGU consent on Clerk at sign-up ([c180c50](https://github.com/LabsFood/LF-BackEnd/commit/c180c50c68cbdf32e7a1deb8f36464513192cc71))
+
 ## [2.1.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.0.0...v2.1.0) (2026-11-10)
 
 ### Features
