@@ -30,6 +30,11 @@ export const stackOf = (error: unknown): string | undefined =>
 const isEvent = (message: unknown): message is Record<string, unknown> =>
   typeof message === 'object' && message !== null && !Array.isArray(message);
 
+const pickTags = (event: Record<string, unknown>, keys: string[]) =>
+  Object.fromEntries(
+    keys.flatMap((key) => (typeof event[key] === 'string' ? [[key, event[key]]] : [])),
+  );
+
 /** Some lines still quote a recipient (Brevo): never let one reach Sentry. */
 const redactEmails = (text: string): string =>
   text.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]');
@@ -62,7 +67,13 @@ function reportError(message: unknown, params: unknown[], ownContext?: string): 
   }
 
   Sentry.captureException(error, {
-    tags: { requestId: request?.requestId, route: request?.route },
+    tags: {
+      requestId: request?.requestId,
+      route: request?.route,
+      // The failing step and the provider's error code, searchable on the issue
+      // instead of only inside each event's extra data.
+      ...(isEvent(message) && pickTags(message, ['step', 'code'])),
+    },
     user: request?.userId ? { id: request.userId } : undefined,
     // Event fields are ids, codes and counts by AppLogger's rule: safe to send.
     extra: isEvent(message) && !(message instanceof Error) ? message : undefined,

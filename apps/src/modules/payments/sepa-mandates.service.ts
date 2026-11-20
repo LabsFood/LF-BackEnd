@@ -25,6 +25,8 @@ import {
   addCustomerConfiguration,
   customerAccountOptions,
   customerRef,
+  paymentMethodTypes,
+  stripeErrorFields,
 } from './stripe-accounts-v2';
 
 /** The creditor named on the mandate and on every debit (facture B is in this name). */
@@ -93,7 +95,7 @@ export class SepaMandatesService {
     const params = {
       mode: 'setup',
       currency: 'eur',
-      payment_method_types: ['sepa_debit'],
+      ...paymentMethodTypes(customerId, ['sepa_debit']),
       ...customerRef(customerId),
       locale: 'fr',
       // Both carry the chef: the session for `confirmCheckout`, the SetupIntent for the
@@ -218,7 +220,7 @@ export class SepaMandatesService {
 
     const params = {
       ...customerRef(customerId),
-      payment_method_types: ['sepa_debit'],
+      ...paymentMethodTypes(customerId, ['sepa_debit']),
       usage: 'off_session',
       metadata: { chefProfileId: chef.chefProfileId },
     } as Stripe.SetupIntentCreateParams;
@@ -418,16 +420,13 @@ export class SepaMandatesService {
     };
   }
 
-  /** Logs type and code only — Stripe's message can echo the chef's e-mail or IBAN. */
+  /** Never Stripe's message: it can echo the chef's e-mail or IBAN. */
   private stripeFailure(step: string, chefProfileId: string, error: unknown) {
-    const err = error as { type?: string; code?: string; statusCode?: number };
     this.logger.error({
       event: 'sepa.stripe_failed',
       step,
       chefProfileId,
-      type: err.type,
-      code: err.code,
-      statusCode: err.statusCode,
+      ...stripeErrorFields(error),
     });
     return new ServiceUnavailableException({
       code: 'STRIPE_UNAVAILABLE',

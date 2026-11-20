@@ -32,15 +32,12 @@ export class StripeConnectService {
    */
   async createOnboardingLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
     this.assertStripeConfigured();
-    const { chefProfile, email } = await this.requireChefProfile(clerkUserId);
+    const { chefProfile } = await this.requireChefProfile(clerkUserId);
     const stripe = this.stripe.getClient();
 
     let accountId = chefProfile.stripeAccountId;
     if (!accountId) {
-      accountId = await createConnectedAccount(stripe, {
-        email,
-        displayName: chefProfile.displayName,
-      });
+      accountId = await createConnectedAccount(stripe, { chefProfileId: chefProfile.id });
       await this.prisma.chefProfile.update({
         where: { id: chefProfile.id },
         data: { stripeAccountId: accountId },
@@ -131,7 +128,7 @@ export class StripeConnectService {
 
   private async requireChefProfile(
     clerkUserId: string,
-  ): Promise<{ chefProfile: ChefProfile; email: string }> {
+  ): Promise<{ chefProfile: ChefProfile }> {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const chefProfile = await this.prisma.chefProfile.findUnique({
       where: { userId: user.id },
@@ -141,6 +138,6 @@ export class StripeConnectService {
         'No chef profile yet. Complete `PATCH /me/chef-profile` first.',
       );
     }
-    return { chefProfile, email: user.email };
+    return { chefProfile };
   }
 }

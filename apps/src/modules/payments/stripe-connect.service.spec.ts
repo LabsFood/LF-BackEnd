@@ -78,7 +78,7 @@ describe('StripeConnectService', () => {
         'POST',
         '/v2/core/accounts',
         expect.objectContaining({
-          contact_email: 'chef@example.com',
+          metadata: { chefProfileId: 'chef-1' },
           dashboard: 'express',
           identity: { country: 'fr' },
           configuration: {
@@ -91,6 +91,14 @@ describe('StripeConnectService', () => {
         }),
         { apiVersion: '2026-09-30.endive' },
       );
+      // A platform in France may send these only inside an account token.
+      const [, , body] = stripeClient.rawRequest.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+      ];
+      expect(body).not.toHaveProperty('contact_email');
+      expect(body).not.toHaveProperty('display_name');
       expect(prisma.chefProfile.update).toHaveBeenCalledWith({
         where: { id: 'chef-1' },
         data: { stripeAccountId: 'acct_new' },

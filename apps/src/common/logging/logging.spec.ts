@@ -130,6 +130,28 @@ describe('AppLogger error reporting', () => {
     });
   });
 
+  it('tags the failing step and error code of an event', () => {
+    silenced(() =>
+      new AppLogger({ json: true }).error(
+        {
+          event: 'stripe.v2_call_failed',
+          step: 'create_account',
+          code: 'account_token_required',
+          statusCode: 400,
+        },
+        undefined,
+        'StripeAccountsV2',
+      ),
+    );
+    const [, hint] = captureException.mock.calls[0];
+    expect(hint.tags).toEqual({
+      requestId: undefined,
+      route: undefined,
+      step: 'create_account',
+      code: 'account_token_required',
+    });
+  });
+
   it('reports an Error passed as the message as it is', () => {
     const thrown = new RangeError('out of slots');
     silenced(() => new AppLogger({ json: true }).error(thrown));
