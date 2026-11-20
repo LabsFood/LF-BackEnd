@@ -1,3 +1,10 @@
+## [2.2.1](https://github.com/LabsFood/LF-BackEnd/compare/v2.2.0...v2.2.1) (2026-11-20)
+
+### Bug Fixes
+
+* **deps:** bump node in /apps ([#104](https://github.com/LabsFood/LF-BackEnd/issues/104)) ([3ff95e9](https://github.com/LabsFood/LF-BackEnd/commit/3ff95e93fd6f783849406bc7a6171db8597aeca1))
+* **payments:** unblock Stripe Connect onboarding for a platform in France ([#105](https://github.com/LabsFood/LF-BackEnd/issues/105)) ([45b4e84](https://github.com/LabsFood/LF-BackEnd/commit/45b4e849c948151da33c8ea834bf83f70d744d12)), closes [#104](https://github.com/LabsFood/LF-BackEnd/issues/104) [#104](https://github.com/LabsFood/LF-BackEnd/issues/104)
+
 ## [2.2.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.1.0...v2.2.0) (2026-11-20)
 
 ### Features
