@@ -163,6 +163,25 @@ describe('SepaMandatesService', () => {
       );
     });
 
+    it('keeps a new customer even when the Stripe page fails, so a retry reuses it', async () => {
+      stripeClient.checkout.sessions.create.mockRejectedValue(
+        Object.assign(new Error('Invalid request'), {
+          type: 'StripeInvalidRequestError',
+          statusCode: 400,
+        }),
+      );
+
+      await expect(
+        service.createCheckoutSession('clerk_1', RETURN_URL),
+      ).rejects.toMatchObject({ response: { code: 'STRIPE_UNAVAILABLE' } });
+
+      expect(prisma.sepaMandate.upsert).toHaveBeenCalledWith({
+        where: { chefProfileId: 'chef-1' },
+        update: { stripeCustomerId: 'cus_1' },
+        create: { chefProfileId: 'chef-1', stripeCustomerId: 'cus_1', status: 'pending' },
+      });
+    });
+
     it('signs on the chef’s connected account once they have one (Accounts v2)', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue({
         id: 'chef-1',

@@ -25,6 +25,7 @@ import {
   addCustomerConfiguration,
   customerAccountOptions,
   customerRef,
+  stripeErrorFields,
 } from './stripe-accounts-v2';
 
 /** The creditor named on the mandate and on every debit (facture B is in this name). */
@@ -392,16 +393,29 @@ export class SepaMandatesService {
       await addCustomerConfiguration(stripe, chef.stripeAccountId);
       return chef.stripeAccountId;
     }
+    let customerId: string;
     try {
       const customer = await stripe.customers.create({
         email: chef.email,
         name: chef.displayName,
         metadata: { chefProfileId: chef.chefProfileId },
       });
-      return customer.id;
+      customerId = customer.id;
     } catch (error) {
       throw this.stripeFailure('customer_create', chef.chefProfileId, error);
     }
+    // Kept before the Checkout call, so a retry after a failed page reuses this
+    // customer instead of leaving one more unused `cus_…` in Stripe.
+    await this.prisma.sepaMandate.upsert({
+      where: { chefProfileId: chef.chefProfileId },
+      update: { stripeCustomerId: customerId },
+      create: {
+        chefProfileId: chef.chefProfileId,
+        stripeCustomerId: customerId,
+        status: 'pending',
+      },
+    });
+    return customerId;
   }
 
   private async statusOf(chefProfileId: string): Promise<SepaMandateStatusDto | null> {
@@ -418,16 +432,13 @@ export class SepaMandatesService {
     };
   }
 
-  /** Logs type and code only — Stripe's message can echo the chef's e-mail or IBAN. */
+  /** Never Stripe's message: it can echo the chef's e-mail or IBAN. */
   private stripeFailure(step: string, chefProfileId: string, error: unknown) {
-    const err = error as { type?: string; code?: string; statusCode?: number };
     this.logger.error({
       event: 'sepa.stripe_failed',
       step,
       chefProfileId,
-      type: err.type,
-      code: err.code,
-      statusCode: err.statusCode,
+      ...stripeErrorFields(error),
     });
     return new ServiceUnavailableException({
       code: 'STRIPE_UNAVAILABLE',
