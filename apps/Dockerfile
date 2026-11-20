@@ -2,13 +2,13 @@
 
 # Every stage runs the same exact Node build. Dependabot opens the bump PR when
 # Node ships a release; `.nvmrc` must carry the same version (CI checks it).
-FROM node:24.22.1-alpine3.24 AS deps
+FROM node:24.22.2-alpine3.24 AS deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci
 
-FROM node:24.22.1-alpine3.24 AS builder
+FROM node:24.22.2-alpine3.24 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/package.json apps/package-lock.json apps/tsconfig.json apps/tsconfig.build.json apps/nest-cli.json ./
@@ -16,13 +16,13 @@ COPY apps/prisma ./prisma
 COPY apps/src ./src
 RUN npx prisma generate && npm run build
 
-FROM node:24.22.1-alpine3.24 AS prod-deps
+FROM node:24.22.2-alpine3.24 AS prod-deps
 WORKDIR /app
 COPY apps/package.json apps/package-lock.json ./
 COPY apps/prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate && npm cache clean --force
 
-FROM node:24.22.1-alpine3.24 AS runtime
+FROM node:24.22.2-alpine3.24 AS runtime
 WORKDIR /app
 
 RUN apk update && apk upgrade --no-cache
