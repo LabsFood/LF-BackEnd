@@ -214,8 +214,13 @@ describe('SepaMandatesService', () => {
         Record<string, unknown>,
         Record<string, unknown>,
       ];
-      expect(params).toMatchObject({ customer_account: 'acct_1' });
+      expect(params).toMatchObject({
+        customer_account: 'acct_1',
+        // Endive refuses `payment_method_types` with a 400.
+        allowed_payment_method_types: ['sepa_debit'],
+      });
       expect(params).not.toHaveProperty('customer');
+      expect(params).not.toHaveProperty('payment_method_types');
       expect(options).toEqual({ apiVersion: '2026-09-30.endive' });
     });
 
@@ -406,6 +411,22 @@ describe('SepaMandatesService', () => {
           }),
         }),
       );
+    });
+
+    it('asks Endive for SEPA with the parameter it still accepts', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        displayName: 'Chef Marie D.',
+        stripeAccountId: 'acct_1',
+      });
+
+      await service.createSetupIntent('clerk_1');
+
+      const [params] = stripeClient.setupIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ allowed_payment_method_types: ['sepa_debit'] });
+      expect(params).not.toHaveProperty('payment_method_types');
     });
 
     it('requires a chef profile', async () => {

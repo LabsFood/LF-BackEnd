@@ -18,7 +18,11 @@ import type {
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SEPA_CLAWBACK_WINDOW_DAYS } from './commission.util';
-import { customerAccountOptions, customerRef } from './stripe-accounts-v2';
+import {
+  customerAccountOptions,
+  customerRef,
+  paymentMethodTypes,
+} from './stripe-accounts-v2';
 
 export { SEPA_CLAWBACK_WINDOW_DAYS };
 
@@ -328,7 +332,7 @@ export class CommissionDebitsService {
           // Naming the mandate makes the debit deterministic instead of letting Stripe
           // pick among the customer's mandates.
           mandate: mandate!.stripeMandateId ?? undefined,
-          payment_method_types: ['sepa_debit'],
+          ...paymentMethodTypes(mandate!.stripeCustomerId!, ['sepa_debit']),
           ...(options.targetDateOffsetDays
             ? {
                 payment_method_options: {

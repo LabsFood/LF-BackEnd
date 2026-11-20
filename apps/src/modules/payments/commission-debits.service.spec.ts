@@ -296,8 +296,14 @@ describe('CommissionDebitsService', () => {
         Record<string, unknown>,
         Record<string, unknown>,
       ];
-      expect(params).toMatchObject({ customer_account: 'acct_1', mandate: 'mandate_1' });
+      expect(params).toMatchObject({
+        customer_account: 'acct_1',
+        mandate: 'mandate_1',
+        // Endive refuses `payment_method_types` with a 400.
+        allowed_payment_method_types: ['sepa_debit'],
+      });
       expect(params).not.toHaveProperty('customer');
+      expect(params).not.toHaveProperty('payment_method_types');
       expect(options).toEqual({
         idempotencyKey: 'commission-debit-debit-1',
         apiVersion: '2026-09-30.endive',

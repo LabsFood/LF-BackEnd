@@ -25,6 +25,7 @@ import {
   addCustomerConfiguration,
   customerAccountOptions,
   customerRef,
+  paymentMethodTypes,
   stripeErrorFields,
 } from './stripe-accounts-v2';
 
@@ -94,7 +95,7 @@ export class SepaMandatesService {
     const params = {
       mode: 'setup',
       currency: 'eur',
-      payment_method_types: ['sepa_debit'],
+      ...paymentMethodTypes(customerId, ['sepa_debit']),
       ...customerRef(customerId),
       locale: 'fr',
       // Both carry the chef: the session for `confirmCheckout`, the SetupIntent for the
@@ -219,7 +220,7 @@ export class SepaMandatesService {
 
     const params = {
       ...customerRef(customerId),
-      payment_method_types: ['sepa_debit'],
+      ...paymentMethodTypes(customerId, ['sepa_debit']),
       usage: 'off_session',
       metadata: { chefProfileId: chef.chefProfileId },
     } as Stripe.SetupIntentCreateParams;

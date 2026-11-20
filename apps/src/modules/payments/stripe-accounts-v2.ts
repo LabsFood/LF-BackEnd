@@ -118,6 +118,21 @@ export function customerRef(
   return id.startsWith('acct_') ? { customer_account: id } : { customer: id };
 }
 
+/**
+ * The payment method types of a Checkout Session, SetupIntent or PaymentIntent, under
+ * the parameter its API version takes: `payment_method_types` on the SDK's pinned v1
+ * version, `allowed_payment_method_types` on Endive (sent with `customer_account`),
+ * which answers the old one with a 400.
+ */
+export function paymentMethodTypes(
+  id: string,
+  types: string[],
+): { payment_method_types: string[] } | { allowed_payment_method_types: string[] } {
+  return id.startsWith('acct_')
+    ? { allowed_payment_method_types: types }
+    : { payment_method_types: types };
+}
+
 /** Request option for a call that carries `customer_account`. */
 export const customerAccountOptions = options;
 
