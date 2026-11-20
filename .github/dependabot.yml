@@ -1,8 +1,9 @@
 version: 2
 
 # Opens a PR when Node publishes a new node:24 image, so a Node security release
-# reaches the image without anyone watching for it. The PR must also bump `.nvmrc`
-# and `apps/.nvmrc`: CI fails until they match the Dockerfile.
+# reaches the image without anyone watching for it. Dependabot cannot edit `.nvmrc`:
+# workflows/dependabot-node-sync.yml copies the new version into both `.nvmrc` files
+# on the PR, since CI fails until they match the Dockerfile.
 updates:
   - package-ecosystem: docker
     directory: /apps

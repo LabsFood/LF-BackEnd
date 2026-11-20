@@ -18,7 +18,7 @@ Monolithic backend for the Labs Food architecture: REST API (OpenAPI/Swagger) on
 | Hosting                         | **Railway**                                                                   |
 
 > **Node version.** Every stage of [`apps/Dockerfile`](./apps/Dockerfile), `.nvmrc` and `apps/.nvmrc`
-> pin the same Node (24.22.1), so nvm, the CI lint and test job and the image all run it. CI fails
+> pin the same Node (24.22.3), so nvm, the CI lint and test job and the image all run it. CI fails
 > if they disagree, and Dependabot opens the PR for each new `node:24` image.
 
 ## Third-party services

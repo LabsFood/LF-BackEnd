@@ -26,7 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       # Tests must run on the Node the image ships. A Dependabot bump of the
-      # Dockerfile fails here until both .nvmrc files carry the same version.
+      # Dockerfile fails here until both .nvmrc files carry the same version
+      # (dependabot-node-sync.yml writes them on Dependabot's PR).
       - name: Node version matches the image
         working-directory: .
         run: |

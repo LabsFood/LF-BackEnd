@@ -1,0 +1,54 @@
+name: Dependabot Node sync
+
+# Dependabot bumps the node image in apps/Dockerfile but cannot edit .nvmrc, and
+# CI fails until both .nvmrc files carry the image's version (ci.yml). This copies
+# the version over on Dependabot's own PR, then reruns CI on the new commit: a push
+# made with GITHUB_TOKEN starts no pull_request run of its own.
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths: [apps/Dockerfile]
+
+permissions:
+  contents: write # push the .nvmrc commit to Dependabot's branch
+  actions: write # dispatch ci.yml on it
+
+jobs:
+  sync:
+    # Dependabot's PRs only, from this repository: never a fork with a write token.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Copy the image's Node version into .nvmrc
+        id: sync
+        run: |
+          set -eu
+          v="$(sed -n 's/^FROM node:\([0-9][0-9.]*\)-alpine.*/\1/p' apps/Dockerfile | sort -u)"
+          if [ -z "$v" ] || [ "$(printf '%s\n' "$v" | wc -l)" -ne 1 ]; then
+            echo "::error::the FROM lines of apps/Dockerfile must name one Node version"; exit 1
+          fi
+          printf '%s\n' "$v" > .nvmrc
+          printf '%s\n' "$v" > apps/.nvmrc
+          sed -i "s/pin the same Node ([0-9.]*)/pin the same Node ($v)/" README.md stack.md
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -qam "fix(deps): pin Node $v in .nvmrc"
+          git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::.nvmrc set to Node $v"
+      - name: Rerun CI on the new commit
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --ref "$BRANCH"

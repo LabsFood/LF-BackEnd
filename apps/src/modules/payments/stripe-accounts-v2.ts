@@ -19,22 +19,27 @@ const options = { apiVersion: STRIPE_V2_API_VERSION };
 /** The chef paid on the site by card and by transfer, and billed for the commission. */
 export async function createConnectedAccount(
   stripe: Stripe,
-  input: { email: string; displayName: string },
+  input: { chefProfileId: string },
 ): Promise<string> {
   const account = await call<{ id: string }>('create_account', () =>
     stripe.rawRequest(
       'POST',
       '/v2/core/accounts',
       {
-        contact_email: input.email,
-        display_name: input.displayName,
+        // A platform based in France may send `contact_email`, `display_name` and
+        // `identity` (except `identity.country`) on a merchant account only inside an
+        // account token, which only the browser can make (`account_token_required`).
+        // The hosted onboarding collects them from the chef instead.
+        metadata: { chefProfileId: input.chefProfileId },
         dashboard: 'express',
         // `entity_type` is left for the hosted onboarding to ask: a chef may be a
         // micro-entreprise or a company, and guessing wrong blocks the form.
         identity: { country: 'fr' },
         configuration: {
-          // Destination charges need both: `merchant` so `charges_enabled` turns true on
-          // the account, `recipient` so the platform can transfer the net amount to it.
+          // Card payments go out as destination charges with `on_behalf_of` (payments.service):
+          // the chef is merchant of record, so the account needs `merchant` with
+          // `card_payments` (Stripe adds `stripe_balance.payouts` to it, the payout to the
+          // chef's bank), and `recipient` with `stripe_transfers` for `transfer_data`.
           merchant: { capabilities: { card_payments: { requested: true } } },
           recipient: {
             capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
@@ -113,6 +118,21 @@ export function customerRef(
   return id.startsWith('acct_') ? { customer_account: id } : { customer: id };
 }
 
+/**
+ * The payment method types of a Checkout Session, SetupIntent or PaymentIntent, under
+ * the parameter its API version takes: `payment_method_types` on the SDK's pinned v1
+ * version, `allowed_payment_method_types` on Endive (sent with `customer_account`),
+ * which answers the old one with a 400.
+ */
+export function paymentMethodTypes(
+  id: string,
+  types: string[],
+): { payment_method_types: string[] } | { allowed_payment_method_types: string[] } {
+  return id.startsWith('acct_')
+    ? { allowed_payment_method_types: types }
+    : { payment_method_types: types };
+}
+
 /** Request option for a call that carries `customer_account`. */
 export const customerAccountOptions = options;
 
@@ -120,18 +140,32 @@ async function call<T = unknown>(step: string, run: () => Promise<unknown>): Pro
   try {
     return (await run()) as T;
   } catch (error) {
-    const err = error as { type?: string; code?: string; statusCode?: number };
-    // Type and code only: Stripe's message can echo the e-mail we sent.
-    logger.error({
-      event: 'stripe.v2_call_failed',
-      step,
-      type: err.type,
-      code: err.code,
-      statusCode: err.statusCode,
-    });
+    // Never Stripe's message: it can echo the e-mail of the account.
+    logger.error({ event: 'stripe.v2_call_failed', step, ...stripeErrorFields(error) });
     throw new BadGatewayException({
       code: 'STRIPE_ACCOUNTS_V2_ERROR',
       message: 'Stripe could not complete this step. Try again in a moment.',
     });
   }
+}
+
+/**
+ * What a Stripe error safely tells: the parameter at fault, never Stripe's message, and
+ * the `req_…` id that opens the full error in the Stripe Dashboard logs.
+ */
+export function stripeErrorFields(error: unknown) {
+  const err = error as {
+    type?: string;
+    code?: string;
+    param?: string;
+    statusCode?: number;
+    requestId?: string;
+  };
+  return {
+    type: err.type,
+    code: err.code,
+    param: err.param,
+    statusCode: err.statusCode,
+    stripeRequestId: err.requestId,
+  };
 }
