@@ -1,6 +1,6 @@
 ---
 name: lf-security-audit
-description: "Audit de sécurité relançable de LF-BackEnd (NestJS/Fastify/Prisma/Clerk/Stripe). Relit les surfaces sensibles (auth, autorisation objet/BOLA, webhooks, config, secrets, injections, logique métier paiement) sur l'état COURANT du code, régénère un bilan noir/rouge/orange en diff vs baseline, et sort une checklist de tests dynamiques. Lecture seule : ne touche ni DB ni prod, ne commit rien. Déclencher avec /lf-security-audit, ou pour toute demande d'audit sécu / revue de menaces / pentest théorique sur LF-BackEnd."
+description: "Audit de sécurité relançable de LF-BackEnd (NestJS/Fastify/Prisma/Clerk/Stripe). Relit les surfaces sensibles (auth, autorisation objet/BOLA, webhooks, config, secrets, injections, logique métier paiement) sur l'état COURANT du code, fait la veille CVE / avis éditeurs / supply chain sur les dépendances, le runtime et l'image, régénère un bilan noir/rouge/orange en diff vs baseline, et sort une checklist de tests dynamiques. Lecture seule : ne touche ni DB ni prod, ne commit rien. Déclencher avec /lf-security-audit, ou pour toute demande d'audit sécu / revue de menaces / pentest théorique sur LF-BackEnd."
 ---
 
 # /lf-security-audit
@@ -21,8 +21,10 @@ du 2026-10-20 (plan de référence : `docs/security/audit-securite-plan.md`).
 ```
 /lf-security-audit                 # audit complet, régénère le bilan en diff vs baseline
 /lf-security-audit --quick         # seulement les 3 cibles connues (régression express)
-/lf-security-audit --surface auth  # cible une surface : auth | authz | webhooks | config | secrets | injections | logic
+/lf-security-audit --surface auth  # cible une surface : auth | authz | webhooks | config | secrets | injections | logic | veille
+/lf-security-audit --surface veille  # seulement la Phase 4bis (CVE, avis éditeurs, supply chain)
 ```
+`--quick` lance aussi `npm audit --omit=dev` (Phase 4bis B), sans la veille web.
 
 ## Procédure
 
@@ -73,12 +75,69 @@ grep -rniE "queryRawUnsafe|executeRawUnsafe" apps/src --include="*.ts" | grep -v
 - **Logique paiement** : `domain/pricing.ts` recalcule-t-il le montant côté serveur (jamais depuis le body) ? `URSSAF_GATEWAY=simulated` impossible avec `sk_live_` ? Commission : verrou `FOR UPDATE`, nb max de tentatives ?
 - Transitions d'état booking (`PATCH /me/bookings/:id`) : pas de saut `pending→completed` sans paiement.
 
+### Phase 4bis — Veille vulnérabilités (CVE, avis éditeurs, supply chain)
+Ce qui n'est pas dans le code mais tourne avec lui : dépendances npm, runtime Node, image Docker, services gérés.
+Toujours en lecture seule : on **mesure** l'exposition, on ne met rien à jour (proposer les montées de version dans le rapport).
+
+**A. Inventaire des versions** (la base de toute la phase)
+```bash
+cd apps
+node -e 'const l=require("./package-lock.json").packages;
+for (const n of ["@nestjs/core","@nestjs/platform-fastify","@nestjs/platform-ws","@nestjs/throttler","@nestjs/swagger",
+  "fastify","@fastify/helmet","@fastify/static","@fastify/cors","@fastify/middie","find-my-way","ws","@clerk/backend",
+  "stripe","@prisma/client","prisma","@prisma/config","effect","deepmerge-ts","pg","@supabase/supabase-js",
+  "@aws-sdk/client-s3","@sentry/nestjs","ioredis","pdfkit","fontkit","class-validator","class-transformer","joi",
+  "validator","libphonenumber-js","swagger-ui-dist","path-to-regexp","cookie","semver"]) {
+  const p=l["node_modules/"+n]; if(p) console.log(n, p.version, p.dev?"(dev)":""); }'
+grep -n "^FROM" Dockerfile; cat ../.nvmrc          # Node + Alpine de l'image
+grep -n "^FROM" ../ops/db-backup/Dockerfile        # image du service db-backup (postgres + alpine)
+```
+
+**B. Scanners automatiques**
+```bash
+npm audit --omit=dev --json   # prod (ce que la CI gate, au niveau critical seulement)
+npm audit --json              # tout, dev inclus (runners CI = surface supply chain)
+# OSV (base Google, plus large que GHSA) : osv-scanner --lockfile=package-lock.json
+#   ou l'API https://api.osv.dev/v1/querybatch. Si le proxy réseau la refuse : le noter dans le rapport.
+# Image : trivy image <image> (ou docker scout) si Docker/trivy sont disponibles ; sinon décrire la commande
+#   dans la checklist humaine.
+```
+`npm audit` ne voit que les avis déjà publiés dans GitHub Advisory : un 0 ici ne suffit pas, d'où C.
+
+**C. Veille web (WebSearch, mode `extended`, requêtes envoyées dans le même tour)**
+Chercher les avis des **60 derniers jours** pour chaque brique, puis croiser chaque CVE avec la version de A :
+- runtime : `Node.js security release <mois> <année>` ; image `node:<ver>-alpine<ver>` (OpenSSL, musl, busybox) ;
+- framework : NestJS (core, platform-fastify, platform-ws, throttler, swagger), Fastify + plugins (`@fastify/*`, find-my-way) ;
+- auth / paiement : `@clerk/backend` (avis GHSA de `clerk/javascript`), SDK `stripe` Node ;
+- données : Prisma (et ses dépendances `effect`, `deepmerge-ts`), `pg`, PostgreSQL (Supabase géré + image db-backup) ;
+- autres : `ws`, `@supabase/supabase-js`, `@sentry/nestjs`, `pdfkit`/`fontkit`, `class-validator`/`class-transformer` ;
+- supply chain : `npm supply chain attack compromised packages <mois> <année>`. Pour chaque campagne,
+  chercher les noms dans le lockfile (prod **et** dev) et vérifier la date de publication de la version
+  installée (`npm view <pkg>@<ver> time --json`) par rapport à la fenêtre de compromission.
+
+Règles :
+- **Sources primaires d'abord** : GHSA (github.com/advisories), NVD/cve.org, blog/annonce de l'éditeur
+  (nodejs.org, postgresql.org, postmortem). Les agrégateurs (SentinelOne, Strix, VulDB, OffSeq, Aikido…)
+  se contredisent souvent sur les versions et les scores : un CVE vu **seulement** chez un agrégateur
+  est marqué « non confirmé ».
+- **Applicabilité** : une version vulnérable n'est pas une faille tant que le code n'emprunte pas le
+  chemin touché (option activée, transport utilisé, HTTP/2 ou TLS servi par Node ou terminé au bord Railway…).
+  Le dire, preuve à l'appui (grep).
+- Ne mettre dans les requêtes que des **noms et versions publics** de paquets ; jamais le nom du
+  projet, de domaine, d'utilisateur ni de dépôt.
+
+**Sévérité** : version vulnérable **et** chemin atteignable → appliquer la rubrique (RCE / contournement
+d'auth exploitable à distance = ⚫, DoS distant non authentifié ou fuite mémoire = 🔴). Version
+vulnérable mais chemin non atteignable, ou avis non confirmé → 🟠 « mettre à jour ».
+
 ### Phase 5 — Bilan & livrable
 Produire `docs/security/audit-securite-rapport-AAAA-MM-JJ.md` :
 1. **Diff vs baseline** : NOUVEAU / RÉSOLU / INCHANGÉ pour chaque item.
 2. **Bilan ⚫🔴🟠** (rubrique ci-dessous).
 3. **Checklist tests dynamiques** à lancer sur env de test (ci-dessous).
 4. Mapping CNIL art. 32 / Fiche 25 / OWASP API Top 10 pour chaque ⚫🔴.
+5. **Veille vulnérabilités** (Phase 4bis) : tableau `CVE / avis | composant | version chez nous | version corrigée | applicable ? | action`,
+   résultat des scanners (et ceux qui n'ont pas pu tourner), campagnes supply chain vérifiées, liste des sources.
 
 ## Rubrique de sévérité
 - **⚫ NOIR (critique)** : contournement d'auth, prise de contrôle de compte, fuite massive de PII, mouvement de fonds non autorisé. Exploitable seul ou sous mauvaise config plausible.
