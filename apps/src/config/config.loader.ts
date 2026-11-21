@@ -129,6 +129,8 @@ export interface AppConfig {
       bookingChargeFailed?: number;
       bookingCesuReminder?: number;
       groceriesNotice?: number;
+      // Budget IA: an admin heads-up when AI spending crosses its alert or its cap.
+      aiBudgetAlert?: number;
     };
     webhookToken?: string;
   };
@@ -300,6 +302,7 @@ export const configLoader = (): AppConfig => ({
       bookingChargeFailed: optionalNumber(process.env.BREVO_TPL_BOOKING_CHARGE_FAILED),
       bookingCesuReminder: optionalNumber(process.env.BREVO_TPL_BOOKING_CESU_REMINDER),
       groceriesNotice: optionalNumber(process.env.BREVO_TPL_GROCERIES_NOTICE),
+      aiBudgetAlert: optionalNumber(process.env.BREVO_TPL_AI_BUDGET_ALERT),
     },
     /** Recettes lot 6: the secret the Brevo webhook URL carries (`?token=`). */
     webhookToken: process.env.BREVO_WEBHOOK_TOKEN,

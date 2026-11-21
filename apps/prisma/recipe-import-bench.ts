@@ -25,7 +25,7 @@ import { loadRepoEnv } from '../src/config/env-files';
 import { formatReport, runBench } from '../src/modules/recipe-import/bench/bench.runner';
 import {
   PROVIDER_IDS,
-  providerFor,
+  benchProvider,
   type Effort,
   type ProviderId,
   type SourceFile,
@@ -102,7 +102,7 @@ async function main() {
 
   const report = await runBench(
     files,
-    ids.map((id) => providerFor(id, effort)),
+    ids.map((id) => benchProvider(id, effort)),
     index,
     { log: (line) => console.log(line) },
   );

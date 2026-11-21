@@ -2140,3 +2140,51 @@ enum GroceryDisputeFault {
 
   @@map("grocery_dispute_fault")
 }
+
+/// Budget IA (DAT 6 bis): one row per call to an AI provider, written by `AiGateway`
+/// only, failures and refusals included. `chef_profile_id` has no foreign key on
+/// purpose: the spending history survives an account's deletion.
+model AiUsage {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Closed list `AI_POSTES` (code): `recettes`, `vitrine`, `assistant`, ...
+  poste         String   @db.VarChar(32)
+  feature       String   @db.VarChar(48)
+  tags          String[] @default([])
+  /// `mistral` | `anthropic`
+  provider      String   @db.VarChar(16)
+  model         String   @db.VarChar(64)
+  chefProfileId String?  @map("chef_profile_id") @db.Uuid
+  /// 1 for the first model, 2 for the fallback.
+  attempt       Int      @default(1) @db.SmallInt
+  inputTokens   Int      @default(0) @map("input_tokens")
+  outputTokens  Int      @default(0) @map("output_tokens")
+  pages         Int      @default(0)
+  /// Millionths of a euro, at the prices in force when the call was made.
+  costMicroEur  Int      @default(0) @map("cost_micro_eur")
+  durationMs    Int      @default(0) @map("duration_ms")
+  /// `ok` | `failed` | `invalid_output` | `refused_budget`
+  outcome       String   @db.VarChar(24)
+  error         String?  @db.VarChar(500)
+  requestId     String?  @map("request_id") @db.VarChar(64)
+
+  @@index([createdAt], map: "idx_ai_usage_created_at")
+  @@index([poste, createdAt], map: "idx_ai_usage_poste_created_at")
+  @@index([chefProfileId, createdAt], map: "idx_ai_usage_chef_profile_created_at")
+  @@map("ai_usage")
+}
+
+/// Budget IA: one row per alert sent, so each threshold alerts once per period.
+model AiBudgetAlert {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// `global` or a poste code.
+  scope     String   @db.VarChar(32)
+  period    String   @db.VarChar(16)
+  /// `YYYY-MM-DD`: start of the fixed period, or the Paris day for a rolling window.
+  periodKey String   @map("period_key") @db.VarChar(10)
+  threshold Int      @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([scope, period, periodKey, threshold], map: "uq_ai_budget_alerts")
+  @@map("ai_budget_alerts")
+}

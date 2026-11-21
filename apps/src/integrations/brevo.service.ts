@@ -67,7 +67,9 @@ export type ChefOnboardingEmail =
   | 'bookingCesuReminder'
   // Recettes lot 6, art. 8: the message before the groceries (the one double-channel
   // signal of the module), its delivery confirmed by the Brevo webhook.
-  | 'groceriesNotice';
+  | 'groceriesNotice'
+  // Budget IA: AI spending crossed its alert threshold or its cap.
+  | 'aiBudgetAlert';
 
 @Injectable()
 export class BrevoService implements OnModuleInit {

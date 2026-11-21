@@ -149,6 +149,12 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_RECIPE_ALLERGENS_CHANGED: Joi.number().optional(),
   BREVO_TPL_RECIPES_MIGRATED: Joi.number().optional(),
   BREVO_TPL_GROCERIES_NOTICE: Joi.number().optional(),
+  BREVO_TPL_AI_BUDGET_ALERT: Joi.number().optional(),
+  // Budget IA: one key per poste (`<PROVIDER>_API_KEY_<POSTE>`), the bare key as fallback.
+  MISTRAL_API_KEY: Joi.string().allow('').optional(),
+  MISTRAL_API_KEY_RECETTES: Joi.string().allow('').optional(),
+  ANTHROPIC_API_KEY: Joi.string().allow('').optional(),
+  ANTHROPIC_API_KEY_RECETTES: Joi.string().allow('').optional(),
   BREVO_WEBHOOK_TOKEN: Joi.string().min(24).optional(),
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
   BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
