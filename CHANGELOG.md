@@ -1,3 +1,11 @@
+## [2.3.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.2.1...v2.3.0) (2026-11-21)
+
+### Features
+
+* **dishes:** la décongélation n'est plus requise pour qu'une fiche soit Prête ([74ba0a3](https://github.com/LabsFood/LF-BackEnd/commit/74ba0a307056c43bdd0e4382291645ebfcdf5c7b))
+* **payments:** upfront Stripe onboarding and real return/refresh URLs ([fe8c487](https://github.com/LabsFood/LF-BackEnd/commit/fe8c4873cd8ae5454c30f619dce741c2a651d41b))
+* **vitrine:** formules au prix client, courses comprises, et filtre courses ([7b777d8](https://github.com/LabsFood/LF-BackEnd/commit/7b777d806277dd56b539390329d045bb78634f30))
+
 ## [2.2.1](https://github.com/LabsFood/LF-BackEnd/compare/v2.2.0...v2.2.1) (2026-11-20)
 
 ### Bug Fixes
