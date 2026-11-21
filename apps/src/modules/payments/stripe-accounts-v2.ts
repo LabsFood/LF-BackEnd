@@ -1,4 +1,4 @@
-import { BadGatewayException, Logger } from '@nestjs/common';
+import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type Stripe from 'stripe';
 
 /**
@@ -146,8 +146,19 @@ async function call<T = unknown>(step: string, run: () => Promise<unknown>): Pro
   try {
     return (await run()) as T;
   } catch (error) {
+    const fields = stripeErrorFields(error);
+    // Stripe refuses every account until Connect is activated on the platform account in
+    // its Dashboard: no retry helps, so the team is told, not the chef asked to try again.
+    if (fields.code === 'account_create_activation_required') {
+      logger.error({ event: 'stripe.platform_not_activated', step, ...fields });
+      throw new ServiceUnavailableException({
+        code: 'STRIPE_PLATFORM_NOT_ACTIVATED',
+        message:
+          'Card payments cannot be set up yet. The Lab’s Food team is on it: come back later.',
+      });
+    }
     // Never Stripe's message: it can echo the e-mail of the account.
-    logger.error({ event: 'stripe.v2_call_failed', step, ...stripeErrorFields(error) });
+    logger.error({ event: 'stripe.v2_call_failed', step, ...fields });
     throw new BadGatewayException({
       code: 'STRIPE_ACCOUNTS_V2_ERROR',
       message: 'Stripe could not complete this step. Try again in a moment.',

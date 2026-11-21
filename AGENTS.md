@@ -137,6 +137,10 @@ Change register: [`docs/evolution/payments-stripe-cb-evolution.md`](docs/evoluti
 - Chef: `POST/GET /me/chef-profile/stripe-connect/{link,status}` (Express onboarding — links are
   single-use, never cache them), `POST/GET /me/chef-profile/sepa-mandate*` (the mandate the CESU and
   immediate-advance commissions are debited against), `GET/PATCH /me/chef-profile/sap` (NOVA vs cooperative declaration).
+- Stripe answers `account_create_activation_required` while Connect is not activated on the
+  platform account (Stripe Dashboard). The link route then returns
+  `503 STRIPE_PLATFORM_NOT_ACTIVATED` and logs `stripe.platform_not_activated` at error level.
+  No retry helps: activate the platform.
 - Fiscal attestation totals: `GET /me/fiscal-attestations/:year`, `GET /admin/fiscal-attestations[/:clientId]`.
   JSON only — no PDF.
 - Without `STRIPE_SECRET_KEY` every payment route answers `503`; the webhook also needs

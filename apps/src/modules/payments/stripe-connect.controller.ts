@@ -4,6 +4,7 @@ import {
   ApiConflictResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
 
@@ -33,6 +34,11 @@ export class StripeConnectController {
   @ApiOkResponse({ type: StripeConnectLinkDto, description: 'Hosted onboarding URL.' })
   @ApiConflictResponse({
     description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiServiceUnavailableResponse({
+    description:
+      'Stripe is not configured, or `STRIPE_PLATFORM_NOT_ACTIVATED`: Stripe refuses to ' +
+      'create connected accounts until the platform activates Connect. A retry does not help.',
   })
   @ApiClerkAuthResponses()
   createLink(@CurrentClerkUser() user: ClerkUser): Promise<StripeConnectLinkDto> {

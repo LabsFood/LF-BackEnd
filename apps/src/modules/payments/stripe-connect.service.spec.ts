@@ -170,6 +170,25 @@ describe('StripeConnectService', () => {
       });
     });
 
+    it('answers a non-retryable 503 when Connect is not activated on the platform', async () => {
+      stripeClient.rawRequest.mockRejectedValue(
+        Object.assign(new Error('Activate your account to create connected accounts'), {
+          type: 'StripeInvalidRequestError',
+          code: 'account_create_activation_required',
+          statusCode: 400,
+        }),
+      );
+
+      const error = await service
+        .createOnboardingLink('clerk_1')
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ServiceUnavailableException);
+      expect(error).toMatchObject({
+        response: { code: 'STRIPE_PLATFORM_NOT_ACTIVATED' },
+      });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
     it('requires a chef profile', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(null);
 
