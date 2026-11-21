@@ -39,11 +39,10 @@ export async function createConnectedAccount(
           // Card payments go out as destination charges with `on_behalf_of` (payments.service):
           // the chef is merchant of record, so the account needs `merchant` with
           // `card_payments` (Stripe adds `stripe_balance.payouts` to it, the payout to the
-          // chef's bank), and `recipient` with `stripe_transfers` for `transfer_data`.
+          // chef's bank). `recipient` (for `transfer_data`) is added after onboarding by
+          // `addRecipientConfiguration`: Stripe refuses it without a contact e-mail, which
+          // only the hosted onboarding may set here.
           merchant: { capabilities: { card_payments: { requested: true } } },
-          recipient: {
-            capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
-          },
           // Lets the platform debit the commission from this account (`customer_account`).
           customer: {},
         },
@@ -109,6 +108,30 @@ export async function addCustomerConfiguration(
       'POST',
       `/v2/core/accounts/${accountId}`,
       { configuration: { customer: {} } },
+      options,
+    ),
+  );
+}
+
+/**
+ * `recipient` with `stripe_transfers`, the destination of `transfer_data`. Sent once the
+ * hosted onboarding has given the account its contact e-mail (`account.updated`).
+ */
+export async function addRecipientConfiguration(
+  stripe: Stripe,
+  accountId: string,
+): Promise<void> {
+  await call('add_recipient_configuration', () =>
+    stripe.rawRequest(
+      'POST',
+      `/v2/core/accounts/${accountId}`,
+      {
+        configuration: {
+          recipient: {
+            capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
+          },
+        },
+      },
       options,
     ),
   );

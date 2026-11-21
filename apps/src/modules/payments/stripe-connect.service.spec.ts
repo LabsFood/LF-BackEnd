@@ -82,10 +82,9 @@ describe('StripeConnectService', () => {
           dashboard: 'express',
           identity: { country: 'fr' },
           configuration: {
+            // No `recipient` yet: Stripe wants a contact e-mail with it, which only the
+            // hosted onboarding may set for a platform in France.
             merchant: { capabilities: { card_payments: { requested: true } } },
-            recipient: {
-              capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
-            },
             customer: {},
           },
         }),
@@ -249,6 +248,38 @@ describe('StripeConnectService', () => {
           stripeDetailsSubmitted: true,
         },
       });
+    });
+
+    it('adds the recipient configuration once onboarding gave the account an e-mail', async () => {
+      await service.handleAccountUpdated({
+        id: 'acct_1',
+        email: 'chef@example.com',
+        capabilities: { card_payments: 'active' },
+      } as unknown as Stripe.Account);
+
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts/acct_1',
+        {
+          configuration: {
+            recipient: {
+              capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
+            },
+          },
+        },
+        { apiVersion: '2026-09-30.endive' },
+      );
+    });
+
+    it('leaves the configuration alone without an e-mail or once transfers exist', async () => {
+      await service.handleAccountUpdated({ id: 'acct_1' } as unknown as Stripe.Account);
+      await service.handleAccountUpdated({
+        id: 'acct_1',
+        email: 'chef@example.com',
+        capabilities: { transfers: 'pending' },
+      } as unknown as Stripe.Account);
+
+      expect(stripeClient.rawRequest).not.toHaveBeenCalled();
     });
 
     it('ignores an account this platform does not know', async () => {

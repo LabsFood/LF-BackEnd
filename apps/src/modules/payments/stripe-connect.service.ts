@@ -12,7 +12,11 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
-import { createConnectedAccount, createOnboardingLink } from './stripe-accounts-v2';
+import {
+  addRecipientConfiguration,
+  createConnectedAccount,
+  createOnboardingLink,
+} from './stripe-accounts-v2';
 
 @Injectable()
 export class StripeConnectService {
@@ -116,6 +120,12 @@ export class StripeConnectService {
       `Synced Stripe account ${account.id}: charges=${account.charges_enabled} ` +
         `payouts=${account.payouts_enabled} details=${account.details_submitted}`,
     );
+    // The account is created without `recipient` (see createConnectedAccount). A failure
+    // here fails the webhook, so Stripe redelivers it and the call is retried.
+    if (account.email && !account.capabilities?.transfers) {
+      await addRecipientConfiguration(this.stripe.getClient(), account.id);
+      this.logger.log({ event: 'stripe.recipient_added', accountId: account.id });
+    }
   }
 
   private assertStripeConfigured(): void {
