@@ -19,7 +19,7 @@ const options = { apiVersion: STRIPE_V2_API_VERSION };
 /** The chef paid on the site by card and by transfer, and billed for the commission. */
 export async function createConnectedAccount(
   stripe: Stripe,
-  input: { chefProfileId: string },
+  input: { chefProfileId: string; accountToken: string },
 ): Promise<string> {
   const account = await call<{ id: string }>('create_account', () =>
     stripe.rawRequest(
@@ -28,8 +28,10 @@ export async function createConnectedAccount(
       {
         // A platform based in France may send `contact_email`, `display_name` and
         // `identity` (except `identity.country`) on a merchant account only inside an
-        // account token, which only the browser can make (`account_token_required`).
-        // The hosted onboarding collects them from the chef instead.
+        // account token, made in the browser with the publishable key
+        // (`account_token_required`). The token carries the chef's contact e-mail, which
+        // `recipient` requires. Those fields may not be sent beside it.
+        account_token: input.accountToken,
         metadata: { chefProfileId: input.chefProfileId },
         dashboard: 'express',
         // `entity_type` is left for the hosted onboarding to ask: a chef may be a

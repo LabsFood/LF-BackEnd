@@ -1,4 +1,8 @@
-import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Stripe from 'stripe';
 
@@ -71,13 +75,16 @@ describe('StripeConnectService', () => {
   });
 
   describe('createOnboardingLink', () => {
-    it('creates a French Express account on first use and stores its id', async () => {
-      const result = await service.createOnboardingLink('clerk_1');
+    it('creates a French Express account from the browser account token', async () => {
+      const result = await service.createOnboardingLink('clerk_1', 'acct_tok_1');
 
       expect(stripeClient.rawRequest).toHaveBeenCalledWith(
         'POST',
         '/v2/core/accounts',
         expect.objectContaining({
+          // The contact e-mail travels inside the token: a platform in France may not
+          // send it in clear (`account_token_required`).
+          account_token: 'acct_tok_1',
           metadata: { chefProfileId: 'chef-1' },
           dashboard: 'express',
           identity: { country: 'fr' },
@@ -91,7 +98,7 @@ describe('StripeConnectService', () => {
         }),
         { apiVersion: '2026-09-30.endive' },
       );
-      // A platform in France may send these only inside an account token.
+      // Sending them beside the token is refused (`param_alongside_account_token`).
       const [, , body] = stripeClient.rawRequest.mock.calls[0] as [
         string,
         string,
@@ -104,6 +111,13 @@ describe('StripeConnectService', () => {
         data: { stripeAccountId: 'acct_new' },
       });
       expect(result).toEqual({ url: 'https://connect.stripe.com/setup/e/1' });
+    });
+
+    it('refuses to create an account without a token, before calling Stripe', async () => {
+      await expect(service.createOnboardingLink('clerk_1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(stripeClient.rawRequest).not.toHaveBeenCalled();
     });
 
     it('reuses the existing account on a second call', async () => {
@@ -165,7 +179,9 @@ describe('StripeConnectService', () => {
         }),
       );
 
-      await expect(service.createOnboardingLink('clerk_1')).rejects.toMatchObject({
+      await expect(
+        service.createOnboardingLink('clerk_1', 'acct_tok_1'),
+      ).rejects.toMatchObject({
         response: { code: 'STRIPE_ACCOUNTS_V2_ERROR' },
       });
     });

@@ -1,5 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, Matches, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+
+export class CreateStripeConnectLinkDto {
+  @ApiPropertyOptional({
+    description:
+      'Stripe account token (`POST /v2/core/account_tokens`, made in the browser with the ' +
+      'publishable key) holding the chef contact e-mail. Required on the first call, ' +
+      'which creates the account; ignored once the account exists.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  accountToken?: string;
+}
 
 export class StripeConnectLinkDto {
   @ApiProperty({

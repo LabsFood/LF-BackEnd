@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -30,14 +31,27 @@ export class StripeConnectService {
    * account (Express dashboard) on first call. Account links are single-use and short-lived, so a fresh one is minted
    * on every call rather than stored.
    */
-  async createOnboardingLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
+  async createOnboardingLink(
+    clerkUserId: string,
+    accountToken?: string,
+  ): Promise<StripeConnectLinkDto> {
     this.assertStripeConfigured();
     const { chefProfile } = await this.requireChefProfile(clerkUserId);
     const stripe = this.stripe.getClient();
 
     let accountId = chefProfile.stripeAccountId;
     if (!accountId) {
-      accountId = await createConnectedAccount(stripe, { chefProfileId: chefProfile.id });
+      // Checked before Stripe: without the token the call can only fail.
+      if (!accountToken) {
+        throw new BadRequestException({
+          code: 'STRIPE_ACCOUNT_TOKEN_REQUIRED',
+          message: 'Creating the Stripe account needs an account token from the browser.',
+        });
+      }
+      accountId = await createConnectedAccount(stripe, {
+        chefProfileId: chefProfile.id,
+        accountToken,
+      });
       await this.prisma.chefProfile.update({
         where: { id: chefProfile.id },
         data: { stripeAccountId: accountId },

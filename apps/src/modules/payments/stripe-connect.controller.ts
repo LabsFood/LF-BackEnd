@@ -1,4 +1,12 @@
-import { Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -10,7 +18,11 @@ import {
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
-import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
+import {
+  CreateStripeConnectLinkDto,
+  StripeConnectLinkDto,
+  StripeConnectStatusDto,
+} from './dto/stripe-connect.dto';
 import { StripeConnectService } from './stripe-connect.service';
 
 @ApiTags('Payments')
@@ -25,7 +37,7 @@ export class StripeConnectController {
   @ApiOperation({
     summary: 'Start or resume Stripe Connect onboarding',
     description:
-      'Creates the chef Express account on first call, then returns a single-use Stripe ' +
+      'Creates the chef Express account on first call (from `accountToken`), then returns a single-use Stripe ' +
       'hosted onboarding URL. Links expire quickly — call this again rather than caching ' +
       'the URL. A chef cannot be paid until onboarding leaves `chargesEnabled` and ' +
       '`payoutsEnabled` true.',
@@ -35,8 +47,11 @@ export class StripeConnectController {
     description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
   })
   @ApiClerkAuthResponses()
-  createLink(@CurrentClerkUser() user: ClerkUser): Promise<StripeConnectLinkDto> {
-    return this.stripeConnect.createOnboardingLink(user.userId);
+  createLink(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: CreateStripeConnectLinkDto,
+  ): Promise<StripeConnectLinkDto> {
+    return this.stripeConnect.createOnboardingLink(user.userId, body.accountToken);
   }
 
   @Post('dashboard-link')
