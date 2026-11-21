@@ -172,6 +172,8 @@ export interface AppConfig {
     kycBucket: string;
     /** Private bucket holding the files sent in conversations. Never publicly readable. */
     messagingBucket: string;
+    /** Private bucket holding the recipes chefs send to the AI import, purged after 30 days. */
+    recipeImportsBucket: string;
     /** Private bucket holding the clients' invoices (facture A). Never publicly readable. */
     invoicesBucket: string;
   };
@@ -337,6 +339,8 @@ export const configLoader = (): AppConfig => ({
     secretKey: process.env.SUPABASE_SECRET_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
     messagingBucket: process.env.SUPABASE_MESSAGING_BUCKET ?? 'labsfood-messages',
+    recipeImportsBucket:
+      process.env.SUPABASE_RECIPE_IMPORTS_BUCKET ?? 'labsfood-recipe-imports',
     invoicesBucket: process.env.SUPABASE_INVOICES_BUCKET ?? 'labsfood-invoices',
   },
   r2: {

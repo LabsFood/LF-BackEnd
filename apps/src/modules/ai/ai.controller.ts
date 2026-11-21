@@ -12,6 +12,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsObject,
@@ -135,8 +136,14 @@ class RecipeImportDto {
   })
   @IsArray()
   @ArrayMaxSize(200)
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   betaChefProfileIds!: string[];
+
+  @ApiProperty({
+    description: 'Renfort par Claude (hors UE) quand Mistral échoue ou lit mal.',
+  })
+  @IsBoolean()
+  allowNonEuFallback!: boolean;
 }
 
 const BREAKDOWNS: BreakdownBy[] = [
@@ -276,7 +283,7 @@ export class AiController {
   @ApiOperation({ summary: 'Read who can import recipes with AI' })
   @ApiOkResponse({
     description: '`off` by default.',
-    example: { mode: 'beta', betaChefProfileIds: [] },
+    example: { mode: 'beta', betaChefProfileIds: [], allowNonEuFallback: false },
   })
   recipeImport() {
     return recipeImportInForce(this.prisma);

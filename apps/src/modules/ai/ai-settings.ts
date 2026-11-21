@@ -31,11 +31,17 @@ export type RecipeImportMode = 'off' | 'beta' | 'all';
 export interface RecipeImportSettings {
   mode: RecipeImportMode;
   betaChefProfileIds: string[];
+  /**
+   * Renfort par Claude (hors UE) quand Mistral échoue ou lit mal. Faux par défaut :
+   * décision à prendre après le banc J2 (politique de confidentialité à jour d'abord).
+   */
+  allowNonEuFallback: boolean;
 }
 
 export const DEFAULT_RECIPE_IMPORT: RecipeImportSettings = {
   mode: 'off',
   betaChefProfileIds: [],
+  allowNonEuFallback: false,
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,7 +55,11 @@ export function recipeImportFrom(value: unknown): RecipeImportSettings {
         (id): id is string => typeof id === 'string' && UUID.test(id),
       )
     : [];
-  return { mode, betaChefProfileIds: [...new Set(ids)] };
+  return {
+    mode,
+    betaChefProfileIds: [...new Set(ids)],
+    allowNonEuFallback: v.allowNonEuFallback === true,
+  };
 }
 
 export const recipeImportInForce = async (db: Db): Promise<RecipeImportSettings> =>

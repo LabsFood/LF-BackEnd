@@ -217,6 +217,7 @@ export const envValidationSchema = Joi.object({
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
   /** Private bucket for conversation attachments. Must not allow public reads. */
   SUPABASE_MESSAGING_BUCKET: Joi.string().default('labsfood-messages'),
+  SUPABASE_RECIPE_IMPORTS_BUCKET: Joi.string().default('labsfood-recipe-imports'),
   /** Private bucket for the clients' invoices (facture A). Must not allow public reads. */
   SUPABASE_INVOICES_BUCKET: Joi.string().default('labsfood-invoices'),
   /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */

@@ -126,6 +126,7 @@ model ChefProfile {
   timeBlocks             ChefTimeBlock[]
   ingredients            ChefIngredient[]
   calendarFeed           ChefCalendarFeed?
+  recipeImports          RecipeImport[]
 
   @@map("chef_profiles")
 }
@@ -421,6 +422,9 @@ model Meal {
   // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
   chefProfile            ChefProfile?        @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
   createdBy              User?               @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
+  /// Recipe import (AI) this draft came from; null for a dish written by hand.
+  importedFromId         String?             @map("imported_from_id") @db.Uuid
+  importedFrom           RecipeImport?       @relation(fields: [importedFromId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_imported_from_id")
 
   /// Adoption is idempotent per (chef, suggestion). NULLs never collide, so a
   /// chef's own dishes and Lab's Food rows are unaffected.
@@ -2187,4 +2191,40 @@ model AiBudgetAlert {
 
   @@unique([scope, period, periodKey, threshold], map: "uq_ai_budget_alerts")
   @@map("ai_budget_alerts")
+}
+
+/// Import de recettes (DAT 4.1): one source a batch cooker sent (file, text, link or
+/// title), its processing, and the drafts it gave. The file itself lives in the
+/// private bucket under `storage_paths`, purged after 30 days.
+model RecipeImport {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId String      @map("chef_profile_id") @db.Uuid
+  /// `file` | `text` | `url` | `title`
+  sourceType    String      @map("source_type") @db.VarChar(8)
+  storagePaths  String[]    @default([]) @map("storage_paths")
+  sourceText    String?     @map("source_text")
+  sourceUrl     String?     @map("source_url") @db.VarChar(2048)
+  sourceTitle   String?     @map("source_title") @db.VarChar(255)
+  /// `pending` | `processing` | `review` (several recipes or a duplicate: the chef
+  /// chooses) | `done` | `failed`
+  status        String      @default("pending") @db.VarChar(12)
+  errorCode     String?     @map("error_code") @db.VarChar(48)
+  errorMessage  String?     @map("error_message") @db.VarChar(500)
+  /// The recipes read by the model (schema `recipe_extraction`), kept until chosen.
+  extraction    Json?
+  /// Per draft: estimated fields, warnings, allergen gaps, duplicate.
+  report        Json        @default("{}")
+  provider      String?     @db.VarChar(16)
+  model         String?     @db.VarChar(64)
+  costMicroEur  Int         @default(0) @map("cost_micro_eur")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt     DateTime?   @map("started_at") @db.Timestamptz(6)
+  finishedAt    DateTime?   @map("finished_at") @db.Timestamptz(6)
+  filesPurgedAt DateTime?   @map("files_purged_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_recipe_imports_chef_profile_id")
+  meals         Meal[]
+
+  @@index([chefProfileId, createdAt], map: "idx_recipe_imports_chef_created_at")
+  @@index([status, startedAt], map: "idx_recipe_imports_status_started_at")
+  @@map("recipe_imports")
 }
