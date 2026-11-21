@@ -81,6 +81,12 @@ export async function createOnboardingLink(
           account_onboarding: {
             refresh_url: urls.refreshUrl,
             return_url: urls.returnUrl,
+            // Upfront onboarding: the chef fills everything once, so payouts are not
+            // paused later by a requirement that came due after their first bookings.
+            collection_options: {
+              fields: 'eventually_due',
+              future_requirements: 'include',
+            },
           },
         },
       },
