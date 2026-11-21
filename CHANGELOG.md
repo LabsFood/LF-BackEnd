@@ -1,3 +1,13 @@
+## [2.4.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.3.0...v2.4.0) (2026-11-21)
+
+### Features
+
+* **payments:** create the Stripe account from a browser account token ([5c64dcd](https://github.com/LabsFood/LF-BackEnd/commit/5c64dcd1f94fca3ad3f2b0b1c7bf18a4f3a9f66c))
+
+### Bug Fixes
+
+* **payments:** add the recipient configuration after Stripe onboarding ([4de358c](https://github.com/LabsFood/LF-BackEnd/commit/4de358c910002357502b9c9a26bf0f3fd4c32aea))
+
 ## [2.3.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.2.1...v2.3.0) (2026-11-21)
 
 ### Features
