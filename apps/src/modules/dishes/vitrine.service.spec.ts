@@ -32,6 +32,7 @@ function vitrine(data: {
   dishes?: unknown[];
   documents?: unknown[];
   legal?: unknown;
+  offers?: unknown[];
 }) {
   const prisma = {
     chefProfile: {
@@ -45,8 +46,17 @@ function vitrine(data: {
     chefDocument: { findMany: jest.fn(async () => data.documents ?? []) },
     booking: { groupBy: jest.fn(async () => []) },
     serviceOffer: {
-      groupBy: jest.fn(async () => [{ chefProfileId: 'a', _min: { priceCents: 15000 } }]),
-      findMany: jest.fn(async () => []),
+      findMany: jest.fn(
+        async () =>
+          data.offers ?? [
+            {
+              chefProfileId: 'a',
+              priceCents: 15000,
+              shoppingIncluded: false,
+              shoppingFeeCents: 0,
+            },
+          ],
+      ),
     },
   };
   const availability = {
@@ -198,6 +208,36 @@ describe('VitrineService', () => {
       expect((await service.week({ shoppingIncluded: true })).data).toEqual([]);
     });
 
+    it('counts an offer that does the shopping: its fee in the price, and the filter finds the chef', async () => {
+      const { service } = vitrine({
+        chefs: [chef('a')],
+        offers: [
+          {
+            chefProfileId: 'a',
+            priceCents: 5000,
+            shoppingIncluded: true,
+            shoppingFeeCents: 1500,
+          },
+          {
+            chefProfileId: 'a',
+            priceCents: 6000,
+            shoppingIncluded: false,
+            shoppingFeeCents: 0,
+          },
+        ],
+      });
+
+      const { data } = await service.week({ shoppingIncluded: true });
+
+      expect(data).toHaveLength(1);
+      expect(data[0]).toMatchObject({
+        shoppingIncluded: true,
+        // 50 € + 15 € of shopping is 65 €: the 60 € offer is the cheapest.
+        sessionFromCents: 6000,
+        afterTaxCreditCents: 3000,
+      });
+    });
+
     it('turns validated documents into badges, and ignores a refused newer version', async () => {
       const { service } = vitrine({
         chefs: [chef('a')],
@@ -313,6 +353,31 @@ describe('VitrineService', () => {
       businessAddress: null,
     });
     expect(legalIdentity).not.toHaveProperty('missing');
+  });
+
+  it('gives each offer what the client pays, shopping fee included, before and after the tax credit', async () => {
+    const { service } = vitrine({
+      chefs: [chef('a')],
+      offers: [
+        {
+          chefProfileId: 'a',
+          id: 'o1',
+          name: 'Escale',
+          description: 'Un plat, courses faites.',
+          priceCents: 5000,
+          shoppingIncluded: true,
+          shoppingFeeCents: 1500,
+        },
+      ],
+    });
+
+    const { serviceOffers } = await service.chef('a');
+
+    expect(serviceOffers[0]).toMatchObject({
+      description: 'Un plat, courses faites.',
+      clientPriceCents: 6500,
+      afterTaxCreditCents: 3250,
+    });
   });
 
   it('answers 404 for a chef who is not listed', async () => {

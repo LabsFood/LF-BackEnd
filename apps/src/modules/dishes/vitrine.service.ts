@@ -12,6 +12,7 @@ import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
 import { cesuAccepted } from '../payments/chef-cesu-info';
+import { afterTaxCredit } from '../quotes/domain/quote.rules';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
 import { toPublicDish } from './dishes.views';
 import {
@@ -67,6 +68,13 @@ type PublicChef = Pick<
   sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
   sepaMandate: { status: string } | null;
 };
+
+/** An offer alone, as booked: the shopping fee is billed with it when the chef shops. */
+const offerClientCents = (offer: {
+  priceCents: number;
+  shoppingIncluded: boolean;
+  shoppingFeeCents: number;
+}) => offer.priceCents + (offer.shoppingIncluded ? offer.shoppingFeeCents : 0);
 
 /** A menu's published dishes: a draft or suspended one never shows (§3.4). */
 const publishedDishes = (menu: MenuWithDishes) =>
@@ -182,7 +190,10 @@ export class VitrineService {
           pitch: live?.pitch ?? null,
           imageUrl: live?.imageUrl ?? null,
           coveredDiets: coveredDiets(shown.map((dish) => ({ diets: dish.dietaryTags }))),
-          shoppingIncluded: live?.shoppingIncluded ?? false,
+          // The week's menu, or one of the chef's offers: the client can book
+          // the shopping done either way, and the filter must find this chef.
+          shoppingIncluded:
+            Boolean(live?.shoppingIncluded) || extras.offersShopping(chef.id),
           ...extras.price(chef.id),
           slotsLeft: left,
           dishes: shown.map(toPublicDish),
@@ -244,6 +255,7 @@ export class VitrineService {
         select: {
           id: true,
           name: true,
+          description: true,
           durationMinutes: true,
           priceCents: true,
           shoppingIncluded: true,
@@ -278,7 +290,16 @@ export class VitrineService {
           ),
         ),
       ...extras.price(chef.id),
-      serviceOffers,
+      // The amounts the client reads before booking, signed in or not: the
+      // shopping fee comes with the offer, and the tax credit covers both.
+      serviceOffers: serviceOffers.map((offer) => {
+        const clientPriceCents = offerClientCents(offer);
+        return {
+          ...offer,
+          clientPriceCents,
+          afterTaxCreditCents: afterTaxCredit(clientPriceCents),
+        };
+      }),
       dishes: dishes.map(toPublicDish),
       menus: menus.map(toPublicMenu),
     };
@@ -345,10 +366,15 @@ export class VitrineService {
         where: { chefProfileId: { in: ids }, status: BookingStatus.completed },
         _count: { _all: true },
       }),
-      this.prisma.serviceOffer.groupBy({
-        by: ['chefProfileId'],
+      // The internal custom offer is never active, so it never shows here.
+      this.prisma.serviceOffer.findMany({
         where: { chefProfileId: { in: ids }, isActive: true },
-        _min: { priceCents: true },
+        select: {
+          chefProfileId: true,
+          priceCents: true,
+          shoppingIncluded: true,
+          shoppingFeeCents: true,
+        },
       }),
     ]);
 
@@ -386,18 +412,25 @@ export class VitrineService {
           languages: chef.languages,
         };
       },
+      /** A chef does the shopping in at least one active offer. */
+      offersShopping: (chefId: string) =>
+        offers.some((row) => row.chefProfileId === chefId && row.shoppingIncluded),
       /**
-       * ponytail: the cheapest active service offer as stored. The spec wants the
+       * ponytail: the cheapest active service offer, shopping fee included. The spec wants the
        * client price (chef's net plus commission); the commission lives on the
        * payments branch. Add it here when that lands.
        */
       price: (chefId: string) => {
-        const from =
-          offers.find((row) => row.chefProfileId === chefId)?._min.priceCents ?? null;
+        // What the client pays for the offer alone: the shopping fee is billed
+        // with it when the chef does the shopping (`bookingAmounts`).
+        const totals = offers
+          .filter((row) => row.chefProfileId === chefId)
+          .map(offerClientCents);
+        const from = totals.length > 0 ? Math.min(...totals) : null;
         return {
           sessionFromCents: from,
           // "Services à la personne": half comes back as a tax credit.
-          afterTaxCreditCents: from === null ? null : Math.round(from / 2),
+          afterTaxCreditCents: from === null ? null : afterTaxCredit(from),
         };
       },
     };
