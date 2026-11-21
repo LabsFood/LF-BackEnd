@@ -13,6 +13,27 @@ import { BookingsMailer } from './bookings.mailer';
 import { BookingsService, HOLD_MS, REMIND_AFTER_MS } from './bookings.service';
 
 const START = new Date('2030-03-12T08:00:00.000Z'); // 09:00 in Paris
+
+/**
+ * These blocks test the booking itself, not the CGV V1 boxes (tested in their own
+ * block): the clock is set before the V1 came into force (21/11/2026), so a
+ * client booking sent without boxes stays valid. Without it, they broke on that day.
+ */
+function beforeCgvV1() {
+  beforeEach(() => {
+    jest.useFakeTimers({
+      now: new Date('2026-11-15T09:00:00.000Z'),
+      doNotFake: [
+        'nextTick',
+        'setImmediate',
+        'setTimeout',
+        'setInterval',
+        'queueMicrotask',
+      ],
+    });
+  });
+  afterEach(() => jest.useRealTimers());
+}
 const prismaError = (code: string) =>
   new Prisma.PrismaClientKnownRequestError(code, { code, clientVersion: 'test' });
 
@@ -248,6 +269,8 @@ describe('BookingsService', () => {
   });
 
   describe('create', () => {
+    beforeCgvV1();
+
     const dto = { serviceOfferId: 'offer-1', startsAt: START };
 
     it('opens a pending booking priced from the offer, ending after its duration', async () => {
@@ -1019,6 +1042,8 @@ describe('BookingsService', () => {
   });
 
   describe('allergies (Recettes lot 1)', () => {
+    beforeCgvV1();
+
     const withMeals = {
       serviceOfferId: 'offer-1',
       startsAt: START,
@@ -1166,6 +1191,8 @@ describe('BookingsService', () => {
   });
 
   describe('logs', () => {
+    beforeCgvV1();
+
     const PERSONAL = [
       'sophie@example.com',
       'marie@example.com',
