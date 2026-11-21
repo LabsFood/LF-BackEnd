@@ -145,7 +145,10 @@ describe('StripeConnectService', () => {
         expect.objectContaining({
           use_case: expect.objectContaining({
             account_onboarding: expect.objectContaining({
-              collection_options: { fields: 'eventually_due', future_requirements: 'include' },
+              collection_options: {
+                fields: 'eventually_due',
+                future_requirements: 'include',
+              },
             }),
           }),
         }),
