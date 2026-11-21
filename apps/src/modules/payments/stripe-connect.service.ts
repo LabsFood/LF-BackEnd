@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -12,11 +13,7 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
-import {
-  addRecipientConfiguration,
-  createConnectedAccount,
-  createOnboardingLink,
-} from './stripe-accounts-v2';
+import { createConnectedAccount, createOnboardingLink } from './stripe-accounts-v2';
 
 @Injectable()
 export class StripeConnectService {
@@ -34,14 +31,27 @@ export class StripeConnectService {
    * account (Express dashboard) on first call. Account links are single-use and short-lived, so a fresh one is minted
    * on every call rather than stored.
    */
-  async createOnboardingLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
+  async createOnboardingLink(
+    clerkUserId: string,
+    accountToken?: string,
+  ): Promise<StripeConnectLinkDto> {
     this.assertStripeConfigured();
     const { chefProfile } = await this.requireChefProfile(clerkUserId);
     const stripe = this.stripe.getClient();
 
     let accountId = chefProfile.stripeAccountId;
     if (!accountId) {
-      accountId = await createConnectedAccount(stripe, { chefProfileId: chefProfile.id });
+      // Checked before Stripe: without the token the call can only fail.
+      if (!accountToken) {
+        throw new BadRequestException({
+          code: 'STRIPE_ACCOUNT_TOKEN_REQUIRED',
+          message: 'Creating the Stripe account needs an account token from the browser.',
+        });
+      }
+      accountId = await createConnectedAccount(stripe, {
+        chefProfileId: chefProfile.id,
+        accountToken,
+      });
       await this.prisma.chefProfile.update({
         where: { id: chefProfile.id },
         data: { stripeAccountId: accountId },
@@ -120,12 +130,6 @@ export class StripeConnectService {
       `Synced Stripe account ${account.id}: charges=${account.charges_enabled} ` +
         `payouts=${account.payouts_enabled} details=${account.details_submitted}`,
     );
-    // The account is created without `recipient` (see createConnectedAccount). A failure
-    // here fails the webhook, so Stripe redelivers it and the call is retried.
-    if (account.email && !account.capabilities?.transfers) {
-      await addRecipientConfiguration(this.stripe.getClient(), account.id);
-      this.logger.log({ event: 'stripe.recipient_added', accountId: account.id });
-    }
   }
 
   private assertStripeConfigured(): void {
