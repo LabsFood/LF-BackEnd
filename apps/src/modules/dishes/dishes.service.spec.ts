@@ -1392,18 +1392,14 @@ describe('DishesService', () => {
         expect(h.mealRecipeVersion.create).not.toHaveBeenCalled();
       });
 
-      it('still reports months and thawing for freezable true without them', () => {
+      it('still reports the months, not the thawing, for freezable true without them', () => {
         const result = readiness({
           ...readyDishRow(),
           storage: { method: 'fridge', days: 3, freezable: true },
         } as never);
         const fields = result.problems.map((p) => p.field);
-        expect(fields).toEqual(
-          expect.arrayContaining([
-            'recipe.storage.freezerMonths',
-            'recipe.storage.thawing',
-          ]),
-        );
+        expect(fields).toContain('recipe.storage.freezerMonths');
+        expect(fields).not.toContain('recipe.storage.thawing');
       });
     });
   });

@@ -227,15 +227,22 @@ describe('readiness (Recettes §4.11)', () => {
     ]);
   });
 
-  it('asks for the freezer months and the thawing when it can be frozen', () => {
+  it('asks for the freezer months, not the thawing, when it can be frozen', () => {
     const result = readiness({
       ...DISH,
       storage: { method: 'fridge', days: 3, freezable: true },
     });
     expect(result.problems.map((p) => [p.code, p.field])).toEqual([
       ['VALIDATION_FAILED', 'recipe.storage.freezerMonths'],
-      ['VALIDATION_FAILED', 'recipe.storage.thawing'],
     ]);
+  });
+
+  it('accepts a freezable dish with its months and no thawing', () => {
+    const result = readiness({
+      ...DISH,
+      storage: { method: 'fridge', days: 3, freezable: true, freezerMonths: 3 },
+    });
+    expect(result.problems).toEqual([]);
   });
 
   it('accepts a freezable dish with its months and thawing', () => {

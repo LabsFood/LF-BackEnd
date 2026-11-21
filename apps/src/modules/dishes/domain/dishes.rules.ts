@@ -284,13 +284,9 @@ export function readiness(dish: ReadinessDish, fridgeAlertDays = FRIDGE_ALERT_DA
   }
   if (storage && typeof storage.freezable !== 'boolean') {
     missing('recipe.storage.freezable', 'Say whether the dish can be frozen.');
-  } else if (storage?.freezable === true) {
-    if (typeof storage.freezerMonths !== 'number') {
-      missing('recipe.storage.freezerMonths', 'Say for how many months it freezes.');
-    }
-    if (typeof storage.thawing !== 'string' || !storage.thawing.trim()) {
-      missing('recipe.storage.thawing', 'Say how to thaw it.');
-    }
+  } else if (storage?.freezable === true && typeof storage.freezerMonths !== 'number') {
+    // The thawing note is optional: it never keeps the recipe from being "Prête".
+    missing('recipe.storage.freezerMonths', 'Say for how many months it freezes.');
   }
 
   const reheating = isObject(dish.reheating) ? dish.reheating : null;
