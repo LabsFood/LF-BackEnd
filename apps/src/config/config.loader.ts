@@ -236,10 +236,10 @@ export const configLoader = (): AppConfig => ({
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
     stripeConnectRefreshUrl:
       process.env.STRIPE_CONNECT_REFRESH_URL ??
-      'http://localhost:3005/chef/onboarding/stripe/refresh',
+      'http://localhost:3005/retour-stripe?vers=/espace-chef/remuneration&stripe=expire',
     stripeConnectReturnUrl:
       process.env.STRIPE_CONNECT_RETURN_URL ??
-      'http://localhost:3005/chef/onboarding/stripe/return',
+      'http://localhost:3005/retour-stripe?vers=/espace-chef/remuneration&stripe=retour',
   },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,

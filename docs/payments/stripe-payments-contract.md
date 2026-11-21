@@ -346,8 +346,8 @@ amountTtcCents = amountHtCents + amountVatCents   → application_fee_amount
 | `PAYMENTS_COMMISSION_INVOICE_PREFIX` | `LF-COM` | Facture B numbering: `<prefix>-<year>-NNNN` |
 | `PAYMENTS_THROTTLE_TTL_MS`, `PAYMENTS_THROTTLE_LIMIT` | `60000`, `20` | Rate limit on the money-moving routes |
 | `URSSAF_GATEWAY` | `disabled` | `simulated` runs the immediate advance with an admin answering; refused beside a live Stripe key |
-| `STRIPE_CONNECT_RETURN_URL` | `http://localhost:3005/chef/onboarding/stripe/return` | Where Stripe sends a chef who finished (or abandoned) onboarding |
-| `STRIPE_CONNECT_REFRESH_URL` | `http://localhost:3005/chef/onboarding/stripe/refresh` | Where Stripe sends a chef whose onboarding link expired |
+| `STRIPE_CONNECT_RETURN_URL` | `http://localhost:3005/retour-stripe?vers=/espace-chef/remuneration&stripe=retour` | Where Stripe sends a chef who finished (or abandoned) onboarding |
+| `STRIPE_CONNECT_REFRESH_URL` | `http://localhost:3005/retour-stripe?vers=/espace-chef/remuneration&stripe=expire` | Where Stripe sends a chef whose onboarding link expired |
 
 Port 3005 is batchcooking-web (see [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts)).
 Validation lives in [`apps/src/config/env.validation.ts`](../../apps/src/config/env.validation.ts)

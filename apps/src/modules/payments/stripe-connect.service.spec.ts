@@ -131,6 +131,28 @@ describe('StripeConnectService', () => {
       );
     });
 
+    it('asks for everything Stripe will ever need in one go (upfront onboarding)', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_existing',
+      });
+
+      await service.createOnboardingLink('clerk_1');
+
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/account_links',
+        expect.objectContaining({
+          use_case: expect.objectContaining({
+            account_onboarding: expect.objectContaining({
+              collection_options: { fields: 'eventually_due', future_requirements: 'include' },
+            }),
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
     it('answers with a typed error, not Stripe’s message, when Stripe refuses', async () => {
       stripeClient.rawRequest.mockRejectedValue(
         Object.assign(new Error('Invalid email chef@example.com'), {
