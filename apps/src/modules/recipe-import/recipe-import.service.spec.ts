@@ -223,10 +223,9 @@ describe('RecipeImportService', () => {
     await service.create('clerk', { sourceType: 'title', title: 'Tarte' });
     await service.process('imp-1', 'clerk');
     expect(rows.get('imp-1')).toMatchObject({ status: 'review' });
-    expect((await service.get('clerk', 'imp-1')).candidates.map((c) => c.name)).toEqual([
-      'Tarte',
-      'Quiche',
-    ]);
+    const chefView = await service.get('clerk', 'imp-1');
+    expect(chefView.candidates.map((c) => c.name)).toEqual(['Tarte', 'Quiche']);
+    expect(chefView.trace).toMatchObject({ provider: 'mistral', belowThreshold: false });
     await service.choose('clerk', 'imp-1', 1);
     expect(dishes.create).toHaveBeenCalledWith(
       'clerk',
