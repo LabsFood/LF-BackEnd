@@ -12,6 +12,31 @@ import type { ExtractedRecipe } from '../extraction/schema';
 
 /** Seuil de renfort : part des lignes lues avec certitude qui se relient. */
 export const CERTAIN_LINK_THRESHOLD = 0.7;
+/** Conservation au réfrigérateur proposée quand la source n'en dit rien. */
+export const DEFAULT_STORAGE_DAYS = 3;
+
+/** Le type d'une étape que l'IA n'a pas typée, d'après ses mots. */
+export function guessStepType(text: string): string {
+  const t = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (
+    /\b(boite|bocal|bocaux|contenant|portionn|repartir|repartis|etiquet|conditionn)/.test(
+      t,
+    )
+  )
+    return 'mise_en_boite';
+  if (/\b(refroidi|laisser tiedir|tiedir|refrigerat|au frais)/.test(t))
+    return 'refroidissement';
+  if (
+    /\b(cuire|cuisson|cuit|mijot|four|enfourn|frire|poel|saisir|saisis|bouillir|bouillon|griller|rotir|dorer|faire revenir|braiser|vapeur|blanchir|reduire)/.test(
+      t,
+    )
+  )
+    return 'cuisson';
+  return 'preparation';
+}
 
 export interface DraftLine {
   name: string;
@@ -140,11 +165,15 @@ export function toDishDraft(
   }
   const steps = recipe.steps
     .slice(0, RECIPE_LIMITS.steps)
-    .map((s) => ({
-      text: s.text.trim().slice(0, RECIPE_LIMITS.stepLength),
-      type: s.type,
-      durationMinutes: intIn(s.durationMinutes, 0, 1440),
-    }))
+    .map((s) => {
+      const text = s.text.trim().slice(0, RECIPE_LIMITS.stepLength);
+      let type = s.type;
+      if (!type && text) {
+        type = guessStepType(text);
+        estimated.add('stepTypes');
+      }
+      return { text, type, durationMinutes: intIn(s.durationMinutes, 0, 1440) };
+    })
     .filter((s) => s.text);
   if (recipe.steps.length > RECIPE_LIMITS.steps) {
     warnings.push(`Plus de ${RECIPE_LIMITS.steps} étapes : la liste a été coupée.`);
@@ -171,7 +200,23 @@ export function toDishDraft(
     estimated.add('prepMinutes');
   }
 
-  const storageDays = intIn(recipe.storageDays, 0, 365);
+  // Sans durée lue : 3 jours au réfrigérateur, la règle prudente de l'ANSES pour
+  // un plat cuisiné maison, à confirmer par le cuisinier.
+  let storageDays = intIn(recipe.storageDays, 0, 365);
+  if (storageDays === null) {
+    storageDays = DEFAULT_STORAGE_DAYS;
+    estimated.add('storageDays');
+  }
+  // Sans temps de cuisson lu : la somme des étapes de cuisson minutées.
+  let cookMinutes = intIn(recipe.cookMinutes, 0, 1440);
+  const cookSteps = steps.filter((s) => s.type === 'cuisson' && s.durationMinutes);
+  if (cookMinutes === null && cookSteps.length) {
+    cookMinutes = Math.min(
+      1440,
+      cookSteps.reduce((n, s) => n + (s.durationMinutes ?? 0), 0),
+    );
+    estimated.add('cookMinutes');
+  }
   const reheating = clip(recipe.reheatingNote, 300);
   const dish: DishDraft = {
     name: clip(recipe.name, 255) ?? 'Recette importée',
@@ -180,7 +225,7 @@ export function toDishDraft(
     category: recipe.category,
     portions,
     prepMinutes,
-    cookMinutes: intIn(recipe.cookMinutes, 0, 1440),
+    cookMinutes,
     difficulty: recipe.difficulty,
     equipment: [
       ...new Set(recipe.equipment.map((e) => e.trim().slice(0, 60)).filter(Boolean)),
