@@ -36,6 +36,12 @@ import {
   sniffType,
   IMPORT_MIME_TYPES,
 } from './domain/import-file.rules';
+import {
+  IGNORED_NAMES_KEY,
+  ignoredFrom,
+  unlinkedProposals,
+  withIgnored,
+} from './domain/unlinked-names.rules';
 import { pageForModel } from './domain/url-source.rules';
 import {
   EXTRACTION_SCHEMA,
@@ -604,12 +610,33 @@ export class RecipeImportService {
       FROM recipe_imports ri,
            jsonb_array_elements_text(COALESCE(ri.report->'unlinkedNames', '[]'::jsonb)) AS n(name)
       WHERE ri.created_at >= ${since}
-      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 200`;
-    return rows.map((r) => ({
-      name: r.name,
-      count: Number(r.count),
-      chefs: Number(r.chefs),
-    }));
+      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 500`;
+    const [entries, ignored] = await Promise.all([
+      this.prisma.catalogIngredient.findMany({
+        where: { chefProfileId: null, status: 'active' },
+        select: { id: true, name: true, aliases: true },
+      }),
+      this.prisma.platformSetting.findUnique({ where: { key: IGNORED_NAMES_KEY } }),
+    ]);
+    return unlinkedProposals(
+      rows.map((r) => ({ name: r.name, count: Number(r.count), chefs: Number(r.chefs) })),
+      entries,
+      ignoredFrom(ignored?.value ?? null),
+    ).slice(0, 200);
+  }
+
+  /** L'admin écarte un nom (« huile », « échalote et ail ») : il ne remonte plus. */
+  async ignoreUnlinkedName(name: string, adminUserId: string) {
+    const current = await this.prisma.platformSetting.findUnique({
+      where: { key: IGNORED_NAMES_KEY },
+    });
+    const keys = withIgnored(ignoredFrom(current?.value ?? null), name);
+    await this.prisma.platformSetting.upsert({
+      where: { key: IGNORED_NAMES_KEY },
+      update: { value: { keys }, updatedByUserId: adminUserId },
+      create: { key: IGNORED_NAMES_KEY, value: { keys }, updatedByUserId: adminUserId },
+    });
+    return { ignored: keys.length };
   }
 }
 

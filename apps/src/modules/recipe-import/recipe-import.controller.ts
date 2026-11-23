@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -39,13 +40,23 @@ import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
 } from '../../common/swagger/auth-responses';
+import { AuditService } from '../../common/audit/audit.service';
 import { TAGS } from '../../common/swagger/tags';
+import { UsersService } from '../users/users.service';
 import {
   IMPORT_MIME_TYPES,
   MAX_IMPORT_BYTES,
   MAX_IMPORT_FILES,
 } from './domain/import-file.rules';
 import { MAX_TEXT, RecipeImportService, type SourceType } from './recipe-import.service';
+
+class IgnoreNameDto {
+  @ApiProperty({ example: 'échalote et ail', maxLength: 120 })
+  @IsString()
+  @MaxLength(120)
+  @Matches(/\S/)
+  name!: string;
+}
 
 class ImportUploadUrlDto {
   @ApiProperty({ enum: IMPORT_MIME_TYPES, example: 'application/pdf' })
@@ -135,7 +146,11 @@ const IMPORT_EXAMPLE = {
 @ApiBearerAuth()
 @UseGuards(ClerkAuthGuard)
 export class RecipeImportController {
-  constructor(private readonly imports: RecipeImportService) {}
+  constructor(
+    private readonly imports: RecipeImportService,
+    private readonly users: UsersService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get('me/recipe-imports/availability')
   @ApiTags(TAGS.chefContent)
@@ -225,13 +240,57 @@ export class RecipeImportController {
     summary: 'Read the ingredient names imports could not link',
     description:
       'Most frequent first, with how many batch cookers met them: candidates for the ' +
-      'common list, or for another name of an existing entry.',
+      'common list, or for another name of an existing entry. Spellings with the same ' +
+      'match key are grouped; names the common list now knows and names an admin ' +
+      'ignored are left out. `suggestion` is the existing entry whose name or other ' +
+      'name sits, in whole words, in the name read (longest first), or `null`.',
   })
   @ApiQuery({ name: 'days', required: false, description: '1 to 366, 30 by default.' })
-  @ApiOkResponse({ example: [{ name: 'piment d’espelette', count: 4, chefs: 3 }] })
+  @ApiOkResponse({
+    example: [
+      {
+        name: 'piment rouge thaï',
+        count: 4,
+        chefs: 3,
+        suggestion: { id: '0b6f…', name: 'Piment rouge', aliases: [] },
+      },
+    ],
+  })
   @ApiAdminAuthResponses()
   unlinked(@Query('days') days?: string) {
     const n = Number(days);
     return this.imports.unlinkedNames(Number.isInteger(n) && n >= 1 && n <= 366 ? n : 30);
+  }
+
+  @Post('admin/recipe-imports/unlinked-names/ignore')
+  @HttpCode(200)
+  @UseGuards(AdminGuard)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: 'Ignore an unlinked ingredient name',
+    description:
+      'The name (by its match key) no longer comes up in the unlinked names: for ' +
+      'what is no ingredient ("huile", "échalote et ail"). Recorded in the audit log.',
+  })
+  @ApiOkResponse({ example: { ignored: 12 } })
+  @ApiAdminAuthResponses()
+  async ignore(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: IgnoreNameDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    const result = await this.imports.ignoreUnlinkedName(body.name.trim(), admin.id);
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'recipe_import.unlinked_name_ignored',
+      subjectType: 'platform_setting',
+      metadata: { name: body.name.trim() },
+      requestId: typeof req.id === 'string' ? req.id : undefined,
+    });
+    return result;
   }
 }
