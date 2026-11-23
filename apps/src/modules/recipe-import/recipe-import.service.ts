@@ -28,6 +28,7 @@ import {
   duplicateOf,
   linkIndex,
   toDishDraft,
+  type DishDraft,
 } from './domain/draft.rules';
 import {
   fileProblem,
@@ -60,6 +61,8 @@ export const IMPORTS_IN_FLIGHT = 3;
 export const STUCK_AFTER_MS = 5 * 60 * 1000;
 export const KEEP_FILES_DAYS = 30;
 export const MAX_TEXT = 30_000;
+/** Dossier des fichiers déposés depuis la console. */
+export const ADMIN_STORAGE_PREFIX = 'admin';
 
 export type SourceType = 'file' | 'text' | 'url' | 'title';
 
@@ -95,6 +98,17 @@ interface Report {
   duplicateOf?: { id: string; name: string } | null;
   candidates?: { index: number; name: string; ingredients: number }[];
   belowThreshold?: boolean;
+  /** Import de la console : un brouillon par recette lue, que l'admin enregistre. */
+  drafts?: AdminDraft[];
+}
+
+export interface AdminDraft {
+  dish: DishDraft;
+  estimatedFields: string[];
+  warnings: string[];
+  suspectedAllergens: string[];
+  linked: number;
+  toVerify: number;
 }
 
 const quotaReached = (message: string) =>
@@ -140,6 +154,11 @@ export class RecipeImportService {
 
   async uploadUrl(clerkUserId: string, mimeType: string, sizeBytes: number) {
     const { chef } = await this.openChef(clerkUserId);
+    this.assertFile(mimeType, sizeBytes);
+    return this.storage.createUploadUrl(chef.id, mimeType);
+  }
+
+  private assertFile(mimeType: string, sizeBytes: number) {
     if (!(IMPORT_MIME_TYPES as readonly string[]).includes(mimeType)) {
       throw new UnprocessableEntityException({
         code: 'UNSUPPORTED_MEDIA_TYPE',
@@ -152,12 +171,11 @@ export class RecipeImportService {
         message: `Fichier trop lourd : ${MAX_IMPORT_BYTES / 1024 / 1024} Mo au plus.`,
       });
     }
-    return this.storage.createUploadUrl(chef.id, mimeType);
   }
 
   async create(clerkUserId: string, input: CreateImportInput) {
     const { chef } = await this.openChef(clerkUserId);
-    await this.assertQuota(chef.id);
+    await this.assertQuota({ chefProfileId: chef.id });
     const data = this.sourceFields(chef.id, input);
     const row = await this.prisma.recipeImport.create({
       data: { chefProfileId: chef.id, sourceType: input.sourceType, ...data },
@@ -207,6 +225,76 @@ export class RecipeImportService {
     return this.get(clerkUserId, id);
   }
 
+  /* ── Console : l'admin importe pour le catalogue Lab's Food ─────────────────
+     Même lecture et même liaison au référentiel que pour un cuisinier, mais aucun
+     plat n'est créé : la console reçoit un brouillon par recette lue, le met dans
+     son formulaire, et l'admin enregistre lui-même (POST /admin/meals). Ouvert
+     quel que soit le réglage d'ouverture aux cuisiniers ; le budget IA s'applique. */
+
+  async adminUploadUrl(mimeType: string, sizeBytes: number) {
+    this.assertFile(mimeType, sizeBytes);
+    return this.storage.createUploadUrl(ADMIN_STORAGE_PREFIX, mimeType);
+  }
+
+  async adminCreate(adminUserId: string, input: CreateImportInput) {
+    await this.assertQuota({ createdByUserId: adminUserId });
+    const data = this.sourceFields(ADMIN_STORAGE_PREFIX, input);
+    const row = await this.prisma.recipeImport.create({
+      data: { createdByUserId: adminUserId, sourceType: input.sourceType, ...data },
+      include: { meals: { select: { id: true, name: true } } },
+    });
+    setImmediate(() => void this.process(row.id, ''));
+    return adminView(row);
+  }
+
+  async adminGet(adminUserId: string, id: string) {
+    const row = await this.prisma.recipeImport.findFirst({
+      where: { id, createdByUserId: adminUserId, chefProfileId: null },
+      include: { meals: { select: { id: true, name: true } } },
+    });
+    if (!row) throw new NotFoundException('Import introuvable.');
+    return adminView(row);
+  }
+
+  private async toAdminDrafts(row: ImportRow, extraction: Extraction, report: Report) {
+    const index = await this.indexFor(null);
+    const drafts: AdminDraft[] = extraction.recipes.map((recipe) => {
+      const draft = toDishDraft(recipe, index);
+      return {
+        dish: draft.dish,
+        estimatedFields: draft.estimatedFields,
+        warnings: draft.warnings,
+        suspectedAllergens: recipe.suspectedAllergens,
+        linked: draft.linked,
+        toVerify: draft.toVerify,
+      };
+    });
+    const warnings = [...extraction.warnings];
+    if (row.sourceType === 'title') {
+      warnings.unshift(
+        "Recette proposée par l'IA à partir d'un titre : relisez-la avant de la publier.",
+      );
+    }
+    const unlinked = [
+      ...new Set(extraction.recipes.flatMap((r) => toDishDraft(r, index).unlinkedNames)),
+    ];
+    await this.prisma.recipeImport.update({
+      where: { id: row.id },
+      data: {
+        status: 'done',
+        finishedAt: new Date(),
+        errorCode: null,
+        errorMessage: null,
+        report: {
+          ...report,
+          warnings,
+          drafts,
+          unlinkedNames: unlinked,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   private async owned(clerkUserId: string, id: string): Promise<ImportRow> {
     const chef = await this.access.chef(clerkUserId);
     const row = await this.prisma.recipeImport.findFirst({
@@ -218,14 +306,16 @@ export class RecipeImportService {
     return row;
   }
 
-  private async assertQuota(chefProfileId: string) {
+  private async assertQuota(
+    owner: { chefProfileId: string } | { createdByUserId: string },
+  ) {
     const since = parisMinute(parisToday(), 0);
     const [today, inFlight] = await Promise.all([
       this.prisma.recipeImport.count({
-        where: { chefProfileId, createdAt: { gte: since } },
+        where: { ...owner, createdAt: { gte: since } },
       }),
       this.prisma.recipeImport.count({
-        where: { chefProfileId, status: { in: ['pending', 'processing'] } },
+        where: { ...owner, status: { in: ['pending', 'processing'] } },
       }),
     ]);
     if (today >= IMPORTS_PER_DAY) {
@@ -330,6 +420,10 @@ export class RecipeImportService {
         );
       }
       const report: Report = { belowThreshold: result.belowThreshold };
+      if (row.chefProfileId === null) {
+        await this.toAdminDrafts(row, extraction, report);
+        return;
+      }
       const existing = await this.prisma.meal.findMany({
         where: { chefProfileId: row.chefProfileId },
         select: { id: true, name: true },
@@ -352,7 +446,7 @@ export class RecipeImportService {
                 name: r.name,
                 ingredients: r.ingredients.length,
               })),
-            } as Prisma.InputJsonValue,
+            } as unknown as Prisma.InputJsonValue,
           },
         });
         return;
@@ -404,7 +498,7 @@ export class RecipeImportService {
           linked: draft.linked,
           toVerify: draft.toVerify,
           unlinkedNames: draft.unlinkedNames,
-        } as Prisma.InputJsonValue,
+        } as unknown as Prisma.InputJsonValue,
       },
     });
   }
@@ -505,12 +599,15 @@ export class RecipeImportService {
   }
 
   /** La liste commune active et les ingrédients privés du cuisinier (Recettes §4.10). */
-  private async indexFor(chefProfileId: string) {
+  private async indexFor(chefProfileId: string | null) {
     const rows = await this.prisma.catalogIngredient.findMany({
       where: {
         OR: [
           { chefProfileId: null, status: 'active' },
-          { chefProfileId, status: { in: ['active', 'pending'] } },
+          // Import de la console : la liste commune seulement.
+          ...(chefProfileId
+            ? [{ chefProfileId, status: { in: ['active', 'pending'] } }]
+            : []),
         ],
       },
       select: { id: true, name: true, aliases: true },
@@ -662,6 +759,21 @@ export function view(row: ImportRow) {
     toVerify: report.toVerify ?? null,
     duplicateOf: report.duplicateOf ?? null,
     candidates: report.candidates ?? [],
+    createdAt: row.createdAt,
+    finishedAt: row.finishedAt,
+  };
+}
+
+/** Ce que la console voit d'un import qu'elle a lancé. */
+export function adminView(row: ImportRow) {
+  const report = (row.report ?? {}) as Report;
+  return {
+    id: row.id,
+    sourceType: row.sourceType,
+    status: row.status,
+    error: row.errorCode ? { code: row.errorCode, message: row.errorMessage } : null,
+    warnings: report.warnings ?? [],
+    drafts: report.drafts ?? [],
     createdAt: row.createdAt,
     finishedAt: row.finishedAt,
   };

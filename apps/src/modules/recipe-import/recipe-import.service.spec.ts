@@ -74,6 +74,8 @@ function setup(
           status: 'pending',
           storagePaths: [],
           createdAt: new Date(),
+          chefProfileId: null,
+          createdByUserId: null,
           ...data,
         };
         rows.set('imp-1', row);
@@ -102,14 +104,13 @@ function setup(
       findUniqueOrThrow: jest.fn(({ where }: { where: { id: string } }) =>
         Promise.resolve(withMeals(rows.get(where.id))),
       ),
-      findFirst: jest.fn(
-        ({ where }: { where: { id: string; chefProfileId: string } }) => {
-          const row = rows.get(where.id);
-          return Promise.resolve(
-            row && row.chefProfileId === where.chefProfileId ? withMeals(row) : null,
-          );
-        },
-      ),
+      findFirst: jest.fn(({ where }: { where: Record<string, unknown> }) => {
+        const row = rows.get(where.id as string);
+        const matches =
+          row &&
+          Object.entries(where).every(([k, v]) => k === 'id' || (row[k] ?? null) === v);
+        return Promise.resolve(matches ? withMeals(row) : null);
+      }),
     },
     catalogIngredient: {
       findMany: jest.fn(() =>
@@ -309,6 +310,76 @@ describe('RecipeImportService', () => {
       service.create('clerk', { sourceType: 'file', uploadIds: ['ri_x'] }),
     ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'VALIDATION_FAILED' }),
+    });
+  });
+
+  describe('import de la console', () => {
+    const ADMIN = '33333333-3333-4333-8333-333333333333';
+
+    it('lit les recettes sans créer de plat et rend un brouillon par recette', async () => {
+      const { service, rows, gateway, dishes, prisma } = setup({
+        settings: { mode: 'off', betaChefProfileIds: [] },
+        extraction: {
+          recipes: [recipe('Poulet basquaise'), recipe('Riz pilaf')],
+          warnings: [],
+        },
+      });
+      const created = await service.adminCreate(ADMIN, {
+        sourceType: 'text',
+        text: 'Poulet basquaise et riz pilaf pour 4 personnes...',
+      });
+      expect(created.status).toBe('pending');
+      expect(rows.get('imp-1')).toMatchObject({ createdByUserId: ADMIN });
+      expect(rows.get('imp-1')?.chefProfileId ?? null).toBeNull();
+      await service.process('imp-1', '');
+      expect(gateway.run).toHaveBeenCalledWith(
+        expect.objectContaining({ chefProfileId: null }),
+      );
+      expect(dishes.create).not.toHaveBeenCalled();
+      expect(prisma.catalogIngredient.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { OR: [{ chefProfileId: null, status: 'active' }] },
+        }),
+      );
+      const view = await service.adminGet(ADMIN, 'imp-1');
+      expect(view.status).toBe('done');
+      expect(view.drafts.map((d) => d.dish.name)).toEqual([
+        'Poulet basquaise',
+        'Riz pilaf',
+      ]);
+      expect(view.drafts[0]).toMatchObject({
+        suspectedAllergens: ['celery'],
+        linked: 1,
+        dish: {
+          recipe: {
+            ingredients: [
+              expect.objectContaining({
+                catalogIngredientId: '0c7b2a0e-1b6f-4b0e-8f3a-1d2c3b4a5f6e',
+              }),
+            ],
+          },
+        },
+      });
+    });
+
+    it("compte le quota par admin et cache l'import aux autres", async () => {
+      const { service, prisma } = setup({ counts: [30, 0] });
+      await expect(
+        service.adminCreate(ADMIN, { sourceType: 'title', title: 'Mafé' }),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(prisma.recipeImport.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ createdByUserId: ADMIN }),
+        }),
+      );
+      const other = setup();
+      await other.service.adminCreate(ADMIN, { sourceType: 'title', title: 'Mafé' });
+      await expect(
+        other.service.adminGet('someone-else', 'imp-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(other.service.get('clerk', 'imp-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 });

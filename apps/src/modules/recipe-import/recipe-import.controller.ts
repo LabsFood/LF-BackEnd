@@ -293,4 +293,58 @@ export class RecipeImportController {
     });
     return result;
   }
+
+  @Post('admin/recipe-imports/upload-url')
+  @UseGuards(AdminGuard)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: 'Get a URL to upload a recipe file (console)',
+    description:
+      "As `POST /me/recipe-imports/upload-url`, for an import into the Lab's Food catalogue.",
+  })
+  @ApiOkResponse({ description: 'The signed upload.' })
+  @ApiAdminAuthResponses()
+  adminUploadUrl(@Body() body: ImportUploadUrlDto) {
+    return this.imports.adminUploadUrl(body.mimeType, body.sizeBytes);
+  }
+
+  @Post('admin/recipe-imports')
+  @HttpCode(202)
+  @UseGuards(AdminGuard)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: "Read a recipe with AI for the Lab's Food catalogue",
+    description:
+      "Same sources and quotas as a chef's import, open whatever the chef opening " +
+      'setting says (the AI budget applies). No meal is created: poll ' +
+      '`GET /admin/recipe-imports/{id}`; once `done`, `drafts` holds one draft per ' +
+      'recipe read, for the console form, which the admin saves with `POST /admin/meals`.',
+  })
+  @ApiAcceptedResponse({
+    example: { id: IMPORT_EXAMPLE.id, status: 'pending', drafts: [] },
+  })
+  @ApiAdminAuthResponses()
+  async adminCreate(@CurrentClerkUser() user: ClerkUser, @Body() body: CreateImportDto) {
+    return this.imports.adminCreate(await this.adminId(user), body);
+  }
+
+  @Get('admin/recipe-imports/:id')
+  @UseGuards(AdminGuard)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({ summary: 'Follow a console import' })
+  @ApiOkResponse({ description: 'The import, with `drafts` once `done`.' })
+  @ApiAdminAuthResponses()
+  async adminGet(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.imports.adminGet(await this.adminId(user), id);
+  }
+
+  private async adminId(user: ClerkUser) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return admin.id;
+  }
 }
