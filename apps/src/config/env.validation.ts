@@ -149,6 +149,12 @@ export const envValidationSchema = Joi.object({
   BREVO_TPL_RECIPE_ALLERGENS_CHANGED: Joi.number().optional(),
   BREVO_TPL_RECIPES_MIGRATED: Joi.number().optional(),
   BREVO_TPL_GROCERIES_NOTICE: Joi.number().optional(),
+  BREVO_TPL_AI_BUDGET_ALERT: Joi.number().optional(),
+  // Budget IA: one key per poste (`<PROVIDER>_API_KEY_<POSTE>`), the bare key as fallback.
+  MISTRAL_API_KEY: Joi.string().allow('').optional(),
+  MISTRAL_API_KEY_RECETTES: Joi.string().allow('').optional(),
+  ANTHROPIC_API_KEY: Joi.string().allow('').optional(),
+  ANTHROPIC_API_KEY_RECETTES: Joi.string().allow('').optional(),
   BREVO_WEBHOOK_TOKEN: Joi.string().min(24).optional(),
   BREVO_TPL_NEW_MESSAGE: Joi.number().optional(),
   BREVO_TPL_CONTACT_RECEIVED_ADMIN: Joi.number().optional(),
@@ -211,6 +217,7 @@ export const envValidationSchema = Joi.object({
   SUPABASE_KYC_BUCKET: Joi.string().default('labsfood-kyc'),
   /** Private bucket for conversation attachments. Must not allow public reads. */
   SUPABASE_MESSAGING_BUCKET: Joi.string().default('labsfood-messages'),
+  SUPABASE_RECIPE_IMPORTS_BUCKET: Joi.string().default('labsfood-recipe-imports'),
   /** Private bucket for the clients' invoices (facture A). Must not allow public reads. */
   SUPABASE_INVOICES_BUCKET: Joi.string().default('labsfood-invoices'),
   /** Cloudflare R2 for dish and profile photos. All five, or photo routes answer 503. */
