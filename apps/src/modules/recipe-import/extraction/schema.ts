@@ -56,9 +56,10 @@ export interface Extraction {
 
 const str = { type: 'string' } as const;
 const nullable = (type: string) => ({ type: [type, 'null'] });
+// anyOf plutôt que `type: ['string', 'null']` + enum : Anthropic refuse un enum
+// déclaré sur un type multiple (« Enum value … does not match declared type »).
 const nullableEnum = (values: readonly string[]) => ({
-  type: ['string', 'null'],
-  enum: [...values, null],
+  anyOf: [{ type: 'string', enum: [...values] }, { type: 'null' }],
 });
 const strict = (properties: Record<string, unknown>) => ({
   type: 'object',

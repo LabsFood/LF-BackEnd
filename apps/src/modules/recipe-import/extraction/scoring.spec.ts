@@ -100,3 +100,15 @@ describe('EXTRACTION_SCHEMA', () => {
     check(EXTRACTION_SCHEMA);
   });
 });
+
+describe('EXTRACTION_SCHEMA, enums', () => {
+  it('ne déclare jamais un enum sur un type multiple (refusé par Anthropic)', () => {
+    const check = (node: unknown): void => {
+      if (typeof node !== 'object' || node === null) return;
+      const obj = node as Record<string, unknown>;
+      if ('enum' in obj) expect(typeof obj.type).toBe('string');
+      Object.values(obj).forEach(check);
+    };
+    check(EXTRACTION_SCHEMA);
+  });
+});
