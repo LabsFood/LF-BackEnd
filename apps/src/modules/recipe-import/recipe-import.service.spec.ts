@@ -343,6 +343,11 @@ describe('RecipeImportService', () => {
       );
       const view = await service.adminGet(ADMIN, 'imp-1');
       expect(view.status).toBe('done');
+      expect(view.trace).toMatchObject({
+        provider: 'mistral',
+        model: 'mistral-small-latest',
+        belowThreshold: false,
+      });
       expect(view.drafts.map((d) => d.dish.name)).toEqual([
         'Poulet basquaise',
         'Riz pilaf',

@@ -774,6 +774,15 @@ export function adminView(row: ImportRow) {
     error: row.errorCode ? { code: row.errorCode, message: row.errorMessage } : null,
     warnings: report.warnings ?? [],
     drafts: report.drafts ?? [],
+    // La trace de la lecture, pour l'afficher pas à pas dans la console : ce qui
+    // s'est réellement passé, jamais un récit reconstitué.
+    trace: {
+      provider: row.provider,
+      model: row.model,
+      startedAt: row.startedAt,
+      belowThreshold: report.belowThreshold ?? false,
+      unlinkedNames: report.unlinkedNames ?? [],
+    },
     createdAt: row.createdAt,
     finishedAt: row.finishedAt,
   };
