@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsInt,
@@ -114,11 +115,29 @@ class CreateImportDto {
 }
 
 class ChooseDto {
-  @ApiProperty({ minimum: 0, description: 'L’index de la recette dans `candidates`.' })
+  @ApiPropertyOptional({
+    minimum: 0,
+    description: 'L’index de la recette dans `candidates`.',
+  })
+  @IsOptional()
   @IsInt()
   @Min(0)
   @Max(50)
-  index!: number;
+  index?: number;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    description:
+      'Plusieurs recettes à créer d’un coup (index dans `candidates`). Le premier brouillon est celui à ouvrir.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(50, { each: true })
+  indexes?: number[];
 }
 
 const IMPORT_EXAMPLE = {
@@ -221,7 +240,7 @@ export class RecipeImportController {
   @ApiOperation({
     summary: 'Choose the recipe to import',
     description:
-      'For an import in `review`: the chosen recipe becomes a draft (a variant if the name exists).',
+      'For an import in `review`: each chosen recipe (`indexes`, or a single `index`) becomes a draft (a variant if the name exists). `meals[0]` is the one to open.',
   })
   @ApiOkResponse({ example: IMPORT_EXAMPLE })
   @ApiClerkAuthResponses()
@@ -230,7 +249,11 @@ export class RecipeImportController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: ChooseDto,
   ) {
-    return this.imports.choose(user.userId, id, body.index);
+    return this.imports.choose(
+      user.userId,
+      id,
+      body.indexes ?? (body.index !== undefined ? [body.index] : []),
+    );
   }
 
   @Get('admin/recipe-imports/unlinked-names')

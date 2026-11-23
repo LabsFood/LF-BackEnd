@@ -84,8 +84,14 @@ class ImportFailure extends Error {
   }
 }
 
+/** Les plats d'un import, dans l'ordre de création : le premier est celui à ouvrir. */
+const MEALS_IN_ORDER = {
+  select: { id: true, name: true },
+  orderBy: { createdAt: 'asc' },
+} satisfies Prisma.RecipeImport$mealsArgs;
+
 type ImportRow = Prisma.RecipeImportGetPayload<{
-  include: { meals: { select: { id: true; name: true } } };
+  include: { meals: typeof MEALS_IN_ORDER };
 }>;
 
 interface Report {
@@ -98,8 +104,19 @@ interface Report {
   duplicateOf?: { id: string; name: string } | null;
   candidates?: { index: number; name: string; ingredients: number }[];
   belowThreshold?: boolean;
+  /** Plusieurs brouillons créés d'un même import : ce qu'il faut relire, plat par plat. */
+  perMeal?: Record<string, MealReport>;
   /** Import de la console : un brouillon par recette lue, que l'admin enregistre. */
   drafts?: AdminDraft[];
+}
+
+export interface MealReport {
+  estimatedFields: string[];
+  warnings: string[];
+  allergenGaps: string[];
+  linked: number;
+  toVerify: number;
+  unlinkedNames: string[];
 }
 
 export interface AdminDraft {
@@ -179,7 +196,7 @@ export class RecipeImportService {
     const data = this.sourceFields(chef.id, input);
     const row = await this.prisma.recipeImport.create({
       data: { chefProfileId: chef.id, sourceType: input.sourceType, ...data },
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     // Après la réponse : le cuisinier suit l'avancement par GET.
     setImmediate(() => void this.process(row.id, clerkUserId));
@@ -196,13 +213,18 @@ export class RecipeImportService {
       where: { chefProfileId: chef.id },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     return rows.map(view);
   }
 
   /** Après `review` : la recette choisie devient un brouillon. */
-  async choose(clerkUserId: string, id: string, index: number) {
+  /**
+   * Le cuisinier répond à un import en `review` : une ou plusieurs recettes
+   * deviennent des brouillons, créés l'un après l'autre (une variante si le nom
+   * existe déjà). Le premier est celui que l'espace chef ouvre.
+   */
+  async choose(clerkUserId: string, id: string, indexes: number[]) {
     const row = await this.owned(clerkUserId, id);
     if (row.status !== 'review') {
       throw new HttpException(
@@ -214,14 +236,24 @@ export class RecipeImportService {
       );
     }
     const extraction = row.extraction as unknown as Extraction | null;
-    const recipe = extraction?.recipes[index];
-    if (!recipe) {
+    const unique = [...new Set(indexes)];
+    if (
+      !extraction ||
+      unique.length === 0 ||
+      unique.some((i) => !extraction.recipes[i])
+    ) {
       throw new UnprocessableEntityException({
         code: 'VALIDATION_FAILED',
         message: 'Recette inconnue.',
       });
     }
-    await this.toDraft(row, extraction, index, clerkUserId, (row.report ?? {}) as Report);
+    await this.toDrafts(
+      row,
+      extraction,
+      unique,
+      clerkUserId,
+      (row.report ?? {}) as Report,
+    );
     return this.get(clerkUserId, id);
   }
 
@@ -241,7 +273,7 @@ export class RecipeImportService {
     const data = this.sourceFields(ADMIN_STORAGE_PREFIX, input);
     const row = await this.prisma.recipeImport.create({
       data: { createdByUserId: adminUserId, sourceType: input.sourceType, ...data },
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     setImmediate(() => void this.process(row.id, ''));
     return adminView(row);
@@ -250,7 +282,7 @@ export class RecipeImportService {
   async adminGet(adminUserId: string, id: string) {
     const row = await this.prisma.recipeImport.findFirst({
       where: { id, createdByUserId: adminUserId, chefProfileId: null },
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     if (!row) throw new NotFoundException('Import introuvable.');
     return adminView(row);
@@ -299,7 +331,7 @@ export class RecipeImportService {
     const chef = await this.access.chef(clerkUserId);
     const row = await this.prisma.recipeImport.findFirst({
       where: { id, chefProfileId: chef.id },
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     // Même réponse pour l'import d'un autre et un import inconnu.
     if (!row) throw new NotFoundException('Import introuvable.');
@@ -373,7 +405,7 @@ export class RecipeImportService {
     if (claimed.count === 0) return;
     const row = await this.prisma.recipeImport.findUniqueOrThrow({
       where: { id },
-      include: { meals: { select: { id: true, name: true } } },
+      include: { meals: MEALS_IN_ORDER },
     });
     try {
       const settings = await recipeImportInForce(this.prisma);
@@ -451,38 +483,53 @@ export class RecipeImportService {
         });
         return;
       }
-      await this.toDraft(row, extraction, 0, clerkUserId, report);
+      await this.toDrafts(row, extraction, [0], clerkUserId, report);
     } catch (error) {
       await this.fail(id, error);
     }
   }
 
-  private async toDraft(
+  /** Crée un brouillon par recette choisie, puis clôt l'import avec ce qu'il faut relire. */
+  private async toDrafts(
     row: ImportRow,
     extraction: Extraction,
-    index: number,
+    indexes: number[],
     clerkUserId: string,
     report: Report,
   ) {
-    const recipe = extraction.recipes[index];
     const linkIdx = await this.indexFor(row.chefProfileId);
-    const draft = toDishDraft(recipe, linkIdx);
-    const warnings = [...extraction.warnings, ...draft.warnings];
-    if (row.sourceType === 'title') {
-      warnings.unshift(
-        "Recette proposée par l'IA à partir d'un titre : adaptez-la à votre façon de faire.",
-      );
+    const perMeal: Record<string, MealReport> = {};
+    for (const index of indexes) {
+      const recipe = extraction.recipes[index];
+      const draft = toDishDraft(recipe, linkIdx);
+      const warnings = [...extraction.warnings, ...draft.warnings];
+      if (row.sourceType === 'title') {
+        warnings.unshift(
+          "Recette proposée par l'IA à partir d'un titre : adaptez-la à votre façon de faire.",
+        );
+      }
+      const payload = await this.validDto(draft.dish);
+      const dish = await this.dishes.create(clerkUserId, payload);
+      await this.prisma.meal.update({
+        where: { id: dish.id },
+        data: { importedFromId: row.id },
+      });
+      perMeal[dish.id] = {
+        estimatedFields: draft.estimatedFields,
+        warnings,
+        allergenGaps: allergenGaps(
+          recipe.suspectedAllergens,
+          (dish as { allergens?: string[] }).allergens ?? [],
+        ),
+        linked: draft.linked,
+        toVerify: draft.toVerify,
+        unlinkedNames: draft.unlinkedNames,
+      };
     }
-    const payload = await this.validDto(draft.dish);
-    const dish = await this.dishes.create(clerkUserId, payload);
-    await this.prisma.meal.update({
-      where: { id: dish.id },
-      data: { importedFromId: row.id },
-    });
-    const gaps = allergenGaps(
-      recipe.suspectedAllergens,
-      (dish as { allergens?: string[] }).allergens ?? [],
-    );
+    // Les champs à plat restent ceux de l'ensemble (somme, union), pour un
+    // client qui ne lit pas `perMeal`.
+    const all = Object.values(perMeal);
+    const union = (pick: (m: MealReport) => string[]) => [...new Set(all.flatMap(pick))];
     await this.prisma.recipeImport.update({
       where: { id: row.id },
       data: {
@@ -492,12 +539,13 @@ export class RecipeImportService {
         errorMessage: null,
         report: {
           ...report,
-          estimatedFields: draft.estimatedFields,
-          warnings,
-          allergenGaps: gaps,
-          linked: draft.linked,
-          toVerify: draft.toVerify,
-          unlinkedNames: draft.unlinkedNames,
+          estimatedFields: union((m) => m.estimatedFields),
+          warnings: union((m) => m.warnings),
+          allergenGaps: union((m) => m.allergenGaps),
+          linked: all.reduce((n, m) => n + m.linked, 0),
+          toVerify: all.reduce((n, m) => n + m.toVerify, 0),
+          unlinkedNames: union((m) => m.unlinkedNames),
+          perMeal,
         } as unknown as Prisma.InputJsonValue,
       },
     });
@@ -759,6 +807,7 @@ export function view(row: ImportRow) {
     toVerify: report.toVerify ?? null,
     duplicateOf: report.duplicateOf ?? null,
     candidates: report.candidates ?? [],
+    perMeal: report.perMeal ?? {},
     trace: trace(row, report),
     createdAt: row.createdAt,
     finishedAt: row.finishedAt,
