@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { catalogIndexFromCsv, parseExtraction, scoreExtraction } from './scoring';
-import { EXTRACTION_SCHEMA } from './schema';
+import { EXTRACTION_SCHEMA, extractionPrompt, PUBLISHED_SOURCE_NOTE } from './schema';
 
 describe('catalogIndexFromCsv', () => {
   it('construit l’index depuis le CSV de référence, autres noms compris', () => {
@@ -146,5 +146,15 @@ describe('EXTRACTION_SCHEMA, unions', () => {
     expect(r.reheatingNote).toBe('Micro-ondes');
     expect(r.ingredients[0].preparation).toBeNull();
     expect(r.ingredients[0].group).toBe('Sauce');
+  });
+});
+
+describe('extractionPrompt, sources publiées', () => {
+  it('fait reformuler les étapes de toute source publiée, pas seulement les livres', () => {
+    const prompt = extractionPrompt();
+    expect(prompt).toContain('page web');
+    expect(prompt).toContain('reformule chaque étape');
+    expect(prompt).toContain('« source publiée »');
+    expect(PUBLISHED_SOURCE_NOTE).toContain('reformule');
   });
 });

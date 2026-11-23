@@ -47,6 +47,7 @@ import {
   EXTRACTION_SCHEMA,
   EXTRACTION_SCHEMA_NAME,
   extractionPrompt,
+  PUBLISHED_SOURCE_NOTE,
   type Extraction,
 } from './extraction/schema';
 import { parseExtraction } from './extraction/scoring';
@@ -465,7 +466,12 @@ export class RecipeImportService {
     if (row.sourceType === 'url') {
       try {
         const html = await fetchPublicPage(row.sourceUrl ?? '');
-        return [{ type: 'text', text: pageForModel(html, row.sourceUrl ?? '') }];
+        return [
+          {
+            type: 'text',
+            text: `${PUBLISHED_SOURCE_NOTE}\n${pageForModel(html, row.sourceUrl ?? '')}`,
+          },
+        ];
       } catch (error) {
         if (error instanceof UnsafeUrlError)
           throw new ImportFailure('URL_REFUSED', error.message);

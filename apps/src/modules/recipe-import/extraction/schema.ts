@@ -126,6 +126,10 @@ export const OPTIONAL_TEXT_FIELDS = {
 
 export const EXTRACTION_SCHEMA_NAME = 'recipe_extraction';
 
+/** Ajouté devant une page web : toujours une source publiée par un tiers. */
+export const PUBLISHED_SOURCE_NOTE =
+  'Source publiée par un tiers (page web) : reformule les étapes avec tes propres mots.';
+
 /** La consigne, en français, commune à tous les fournisseurs. */
 export function extractionPrompt(): string {
   return [
@@ -137,7 +141,7 @@ export function extractionPrompt(): string {
     '- rawText recopie la ligne d’ingrédient telle qu’écrite. name est le nom simple de l’ingrédient au singulier (« oignon », pas « 2 oignons émincés ») ; la préparation (« émincé ») va dans preparation.',
     '- certain = false quand la ligne est mal lisible ou ambiguë.',
     `- Types d’étape : ${STEP_TYPE_CODES.join(', ')}, ou null.`,
-    '- Pour une photo de livre publié, reformule les étapes avec tes propres mots (ne recopie pas le texte mot pour mot) et ajoute un avertissement « source publiée ».',
+    '- Source publiée par un tiers (page web, photo ou PDF d’un livre ou d’un magazine : numéro de page, éditeur, ISBN, mise en page imprimée, signature d’un autre auteur) : reprends la liste des ingrédients, mais reformule chaque étape avec tes propres mots, sans recopier aucune phrase, et ajoute l’avertissement « source publiée » dans warnings. Les notes personnelles du cuisinier (capture de Notes, texte collé, fiche maison) gardent leurs étapes telles qu’écrites.',
     `- suspectedAllergens : les allergènes (codes ${ALLERGEN_CODES.join(', ')}) que tu soupçonnes d’après les ingrédients ; ce n’est qu’une aide, le cuisinier confirmera.`,
     '- Écris en français. Mets dans warnings tout ce qui mérite une vérification (texte coupé, quantité illisible, portions incohérentes).',
   ].join('\n');
