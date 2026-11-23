@@ -122,11 +122,49 @@ describe('toDishDraft', () => {
       index,
     );
     expect(dish).toMatchObject({ portions: 4, prepMinutes: 15, cookMinutes: 45 });
-    expect(estimatedFields).toEqual(['portions', 'prepMinutes']);
+    expect(estimatedFields).toEqual(['portions', 'prepMinutes', 'storageDays']);
   });
 
-  it('remplit la conservation seulement quand la source la donne', () => {
-    expect(toDishDraft(recipe(), index).dish.recipe.storage).toBeUndefined();
+  it('déduit le temps de cuisson des étapes de cuisson minutées', () => {
+    const { dish, estimatedFields } = toDishDraft(
+      recipe({
+        cookMinutes: null,
+        steps: [
+          { text: 'Saisir la viande', type: 'cuisson', durationMinutes: 10 },
+          { text: 'Mijoter', type: 'cuisson', durationMinutes: 50 },
+        ],
+      }),
+      index,
+    );
+    expect(dish.cookMinutes).toBe(60);
+    expect(estimatedFields).toContain('cookMinutes');
+  });
+
+  it('type les étapes que l’IA a laissées sans type', () => {
+    const { dish, estimatedFields } = toDishDraft(
+      recipe({
+        steps: [
+          { text: 'Émincer les oignons', type: 'preparation', durationMinutes: null },
+          { text: 'Laisser mijoter 40 min', type: null, durationMinutes: 40 },
+          { text: 'Laisser tiédir', type: null, durationMinutes: null },
+          { text: 'Répartir dans les boîtes', type: null, durationMinutes: null },
+        ],
+      }),
+      index,
+    );
+    expect(dish.recipe.steps.map((s) => s.type)).toEqual([
+      'preparation',
+      'cuisson',
+      'refroidissement',
+      'mise_en_boite',
+    ]);
+    expect(estimatedFields).toContain('stepTypes');
+  });
+
+  it('propose 3 jours au réfrigérateur quand la source ne dit rien', () => {
+    const draft = toDishDraft(recipe(), index);
+    expect(draft.dish.recipe.storage).toEqual({ method: 'fridge', days: 3 });
+    expect(draft.estimatedFields).toContain('storageDays');
     expect(
       toDishDraft(recipe({ storageDays: 3, freezable: true }), index).dish.recipe.storage,
     ).toEqual({
