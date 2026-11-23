@@ -55,6 +55,9 @@ export interface Extraction {
 }
 
 const str = { type: 'string' } as const;
+// Anthropic limite à 16 les paramètres à type union (nullable ou anyOf). Les champs de
+// texte libre valent donc "" quand la source ne dit rien ; parseExtraction les remet à null.
+const optionalText = str;
 const nullable = (type: string) => ({ type: [type, 'null'] });
 // anyOf plutôt que `type: ['string', 'null']` + enum : Anthropic refuse un enum
 // déclaré sur un type multiple (« Enum value … does not match declared type »).
@@ -73,9 +76,9 @@ const ingredient = strict({
   qty: nullable('number'),
   unit: nullableEnum(UNIT_CODES),
   name: str,
-  preparation: nullable('string'),
+  preparation: optionalText,
   optional: { type: 'boolean' },
-  group: nullable('string'),
+  group: optionalText,
   certain: { type: 'boolean' },
 });
 
@@ -87,9 +90,9 @@ const step = strict({
 
 const recipe = strict({
   name: str,
-  description: nullable('string'),
+  description: optionalText,
   portions: nullable('integer'),
-  portionsNote: nullable('string'),
+  portionsNote: optionalText,
   prepMinutes: nullable('integer'),
   cookMinutes: nullable('integer'),
   difficulty: nullableEnum(['easy', 'medium', 'hard']),
@@ -99,7 +102,7 @@ const recipe = strict({
   steps: { type: 'array', items: step },
   storageDays: nullable('integer'),
   freezable: nullable('boolean'),
-  reheatingNote: nullable('string'),
+  reheatingNote: optionalText,
   equipment: { type: 'array', items: str },
   suspectedAllergens: {
     type: 'array',
@@ -115,6 +118,12 @@ export const EXTRACTION_SCHEMA = strict({
   warnings: { type: 'array', items: str },
 });
 
+/** Les champs de texte libre rendus "" quand la source ne dit rien. */
+export const OPTIONAL_TEXT_FIELDS = {
+  recipe: ['description', 'portionsNote', 'reheatingNote'],
+  ingredient: ['preparation', 'group'],
+} as const;
+
 export const EXTRACTION_SCHEMA_NAME = 'recipe_extraction';
 
 /** La consigne, en français, commune à tous les fournisseurs. */
@@ -123,7 +132,7 @@ export function extractionPrompt(): string {
     'Tu lis une fiche recette de cuisinier (PDF, capture de l’app Notes, photo de livre de cuisine ou texte collé).',
     'Rends chaque recette présente, en respectant strictement le schéma JSON. Si la source contient plusieurs recettes, liste-les toutes.',
     'Règles :',
-    '- Ne jamais inventer : un champ que la source ne donne pas vaut null. Si tu estimes une valeur (portions, temps, durée de conservation), mets le nom du champ dans estimatedFields.',
+    '- Ne jamais inventer : un champ que la source ne donne pas vaut null ("" pour description, preparation, group, portionsNote et reheatingNote). Si tu estimes une valeur (portions, temps, durée de conservation), mets le nom du champ dans estimatedFields.',
     `- Unités autorisées : ${UNIT_CODES.join(', ')}. Convertis « c. à s. » en tbsp, « c. à c. » en tsp, « une pincée » en pinch, « QS » ou « selon le goût » en to_taste. Sans unité claire, unit = null.`,
     '- rawText recopie la ligne d’ingrédient telle qu’écrite. name est le nom simple de l’ingrédient au singulier (« oignon », pas « 2 oignons émincés ») ; la préparation (« émincé ») va dans preparation.',
     '- certain = false quand la ligne est mal lisible ou ambiguë.',

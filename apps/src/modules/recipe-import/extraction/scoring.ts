@@ -9,7 +9,7 @@ import { parseIngredientCsv } from '../../ingredients/domain/ingredient-csv.rule
 import { matchIndex, type IndexEntry } from '../../dishes/domain/reprise.rules';
 import { UNIT_CODES } from '../../dishes/domain/units.rules';
 import { DEFAULT_RECIPE_AISLES } from '../../platform-settings/recipe-lists';
-import type { Extraction } from './schema';
+import { OPTIONAL_TEXT_FIELDS, type Extraction } from './schema';
 
 /** L'index de la liste commune construit depuis le CSV de référence. */
 export function catalogIndexFromCsv(csv: string): Map<string, string> {
@@ -115,5 +115,15 @@ export function parseExtraction(text: string): Extraction {
     throw new Error('Réponse sans tableau « recipes ».');
   }
   const extraction = value as Extraction;
+  const blankToNull = (obj: object, fields: readonly string[]) => {
+    const rec = obj as Record<string, unknown>;
+    for (const f of fields)
+      if (typeof rec[f] === 'string' && (rec[f] as string).trim() === '') rec[f] = null;
+  };
+  for (const recipe of extraction.recipes) {
+    blankToNull(recipe, OPTIONAL_TEXT_FIELDS.recipe);
+    for (const line of recipe.ingredients ?? [])
+      blankToNull(line, OPTIONAL_TEXT_FIELDS.ingredient);
+  }
   return { recipes: extraction.recipes, warnings: extraction.warnings ?? [] };
 }

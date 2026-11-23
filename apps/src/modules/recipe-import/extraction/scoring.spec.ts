@@ -112,3 +112,39 @@ describe('EXTRACTION_SCHEMA, enums', () => {
     check(EXTRACTION_SCHEMA);
   });
 });
+
+describe('EXTRACTION_SCHEMA, unions', () => {
+  it('reste sous la limite Anthropic de 16 paramètres à type union', () => {
+    let unions = 0;
+    const walk = (node: unknown): void => {
+      if (typeof node !== 'object' || node === null) return;
+      const obj = node as Record<string, unknown>;
+      if (Array.isArray(obj.type) || 'anyOf' in obj) unions++;
+      Object.values(obj).forEach(walk);
+    };
+    walk(EXTRACTION_SCHEMA);
+    expect(unions).toBeLessThanOrEqual(16);
+  });
+
+  it('remet à null les textes libres rendus vides', () => {
+    const out = parseExtraction(
+      JSON.stringify({
+        recipes: [
+          {
+            description: '',
+            portionsNote: ' ',
+            reheatingNote: 'Micro-ondes',
+            ingredients: [{ preparation: '', group: 'Sauce' }],
+          },
+        ],
+        warnings: [],
+      }),
+    );
+    const r = out.recipes[0];
+    expect(r.description).toBeNull();
+    expect(r.portionsNote).toBeNull();
+    expect(r.reheatingNote).toBe('Micro-ondes');
+    expect(r.ingredients[0].preparation).toBeNull();
+    expect(r.ingredients[0].group).toBe('Sauce');
+  });
+});
