@@ -1,4 +1,8 @@
-import { HttpException, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AiGateway } from '../ai/ai-gateway.service';
@@ -226,12 +230,62 @@ describe('RecipeImportService', () => {
     const chefView = await service.get('clerk', 'imp-1');
     expect(chefView.candidates.map((c) => c.name)).toEqual(['Tarte', 'Quiche']);
     expect(chefView.trace).toMatchObject({ provider: 'mistral', belowThreshold: false });
-    await service.choose('clerk', 'imp-1', 1);
+    await service.choose('clerk', 'imp-1', [1]);
     expect(dishes.create).toHaveBeenCalledWith(
       'clerk',
       expect.objectContaining({ name: 'Quiche' }),
     );
     expect(rows.get('imp-1')?.status).toBe('done');
+  });
+
+  it('crée un brouillon par recette cochée, avec ce qu’il faut relire plat par plat', async () => {
+    const { service, rows, dishes } = setup({
+      extraction: {
+        recipes: [recipe('Tarte'), recipe('Quiche'), recipe('Flan')],
+        warnings: [],
+      },
+    });
+    let n = 0;
+    dishes.create.mockImplementation(() =>
+      Promise.resolve({ id: `meal-${++n}`, allergens: [] }),
+    );
+    await service.create('clerk', { sourceType: 'title', title: 'Tarte' });
+    await service.process('imp-1', 'clerk');
+    await service.choose('clerk', 'imp-1', [2, 0, 2]);
+    expect(dishes.create).toHaveBeenCalledTimes(2);
+    expect(dishes.create).toHaveBeenNthCalledWith(
+      1,
+      'clerk',
+      expect.objectContaining({ name: 'Flan' }),
+    );
+    expect(dishes.create).toHaveBeenNthCalledWith(
+      2,
+      'clerk',
+      expect.objectContaining({ name: 'Tarte' }),
+    );
+    const report = rows.get('imp-1')?.report as {
+      perMeal: Record<string, { linked: number }>;
+      linked: number;
+    };
+    expect(rows.get('imp-1')?.status).toBe('done');
+    expect(Object.keys(report.perMeal)).toEqual(['meal-1', 'meal-2']);
+    expect(report.linked).toBe(
+      report.perMeal['meal-1'].linked + report.perMeal['meal-2'].linked,
+    );
+  });
+
+  it('refuse un choix vide ou hors liste', async () => {
+    const { service } = setup({
+      extraction: { recipes: [recipe('Tarte'), recipe('Quiche')], warnings: [] },
+    });
+    await service.create('clerk', { sourceType: 'title', title: 'Tarte' });
+    await service.process('imp-1', 'clerk');
+    await expect(service.choose('clerk', 'imp-1', [])).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(service.choose('clerk', 'imp-1', [0, 5])).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
   });
 
   it('signale un doublon avant de créer', async () => {
