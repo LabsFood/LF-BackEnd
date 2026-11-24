@@ -45,7 +45,9 @@ import { InterventionZoneDto } from '../chef-onboarding/dto/create-chef-applicat
 import { assertInterventionZones, sortZones } from './intervention-zones.check';
 import { UpdateChefLegalDto } from './dto/chef-legal.dto';
 import { chefTierLabels } from '../platform-settings/chef-tiers';
+import { parisToday } from '../../common/paris-time';
 import { clientOnboarding } from './domain/client-onboarding.rules';
+import { chefOnboarding } from './domain/chef-onboarding-steps.rules';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -471,6 +473,56 @@ export class UsersService {
       advanceOffered:
         this.config.get<string>('urssaf.gateway', 'disabled') !== 'disabled',
       urssafDossierFilled: dossiers > 0,
+    });
+  }
+
+  /**
+   * 2026-11-24: the chef's "getting started" checklist once approved, derived from
+   * what is stored (chef-onboarding-steps.rules.ts). Open to a chef still under
+   * review too: the steps simply read as not done yet.
+   */
+  async chefOnboarding(clerkUserId: string) {
+    const user = await this.ensurePersistedFromClerk(clerkUserId);
+    const profile = await this.prisma.chefProfile.findUnique({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        isVerified: true,
+        isActive: true,
+        bio: true,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+      },
+    });
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'NOT_A_CHEF',
+        message: 'This account has no batch cooker page.',
+      });
+    }
+    const today = parisToday();
+    const [activeOffers, workingHours, extras, publishedMenus] = await Promise.all([
+      this.prisma.serviceOffer.count({
+        where: { chefProfileId: profile.id, isActive: true },
+      }),
+      this.prisma.chefWorkingHour.count({ where: { chefProfileId: profile.id } }),
+      this.prisma.chefAvailabilityException.count({
+        where: { chefProfileId: profile.id, kind: 'extra', date: { gte: today } },
+      }),
+      this.prisma.menu.count({
+        where: { chefProfileId: profile.id, status: 'published' },
+      }),
+    ]);
+    return chefOnboarding({
+      isVerified: profile.isVerified,
+      isActive: profile.isActive,
+      avatarUrl: user.avatarUrl,
+      bio: profile.bio,
+      stripeChargesEnabled: profile.stripeChargesEnabled,
+      stripePayoutsEnabled: profile.stripePayoutsEnabled,
+      activeOffers,
+      openings: workingHours + extras,
+      publishedMenus,
     });
   }
 

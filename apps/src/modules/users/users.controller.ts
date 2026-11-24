@@ -170,6 +170,44 @@ export class UsersController {
     return this.users.clientOnboarding(user.userId);
   }
 
+  @Get('me/chef-onboarding')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'My batch cooker getting-started checklist',
+    description:
+      'The steps a batch cooker is invited to take once the dossier is approved, so ' +
+      'clients can find and book them, in order — `showcase` (photo and bio), ' +
+      '`payouts` (Stripe charges and payouts enabled), `service_offer` (an active ' +
+      'formule), `availability` (weekly hours or an upcoming extra opening), ' +
+      '`first_menu` (a published menu) — each `done` as soon as the data exists. ' +
+      'Nothing here blocks or publishes: `online` mirrors `isVerified && isActive`, ' +
+      'which stays an admin decision. 404 `NOT_A_CHEF` for an account without a ' +
+      'batch cooker page. The fronts word each step.',
+  })
+  @ApiOkResponse({
+    description: '`completed` out of `total`, each step, and whether the chef is online.',
+    schema: {
+      example: {
+        steps: [
+          { code: 'showcase', done: true },
+          { code: 'payouts', done: true },
+          { code: 'service_offer', done: false },
+          { code: 'availability', done: false },
+          { code: 'first_menu', done: false },
+        ],
+        completed: 2,
+        total: 5,
+        allDone: false,
+        verified: true,
+        online: false,
+      },
+    },
+  })
+  @ApiClerkAuthResponses()
+  chefOnboarding(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.chefOnboarding(user.userId);
+  }
+
   @Get('me/profile')
   @ApiTags(TAGS.me)
   @ApiOperation({
