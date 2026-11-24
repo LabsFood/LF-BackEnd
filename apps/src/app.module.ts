@@ -37,6 +37,8 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { AllergiesModule } from './modules/allergies/allergies.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
+import { AiModule } from './modules/ai/ai.module';
+import { RecipeImportModule } from './modules/recipe-import/recipe-import.module';
 import { RedisModule } from './redis/redis.module';
 
 @Module({
@@ -99,6 +101,8 @@ import { RedisModule } from './redis/redis.module';
     AllergiesModule,
     ContactModule,
     PlatformSettingsModule,
+    AiModule,
+    RecipeImportModule,
     PaymentsModule,
     GroceriesModule,
     StripeWebhooksModule,

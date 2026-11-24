@@ -30,12 +30,14 @@
     "db:backfill:clerk:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/sync-clerk-to-db.ts --dry-run",
     "db:recipes:reprise": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts",
     "db:recipes:reprise:dry": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipes-reprise.ts --dry-run",
+    "ai:bench:recipes": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/recipe-import-bench.ts",
     "db:studio": "prisma studio"
   },
   "keywords": [],
   "author": "Labs Food Developers Team",
   "license": "UNLICENSED",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "@aws-sdk/client-s3": "^3.1139.0",
     "@aws-sdk/s3-request-presigner": "^3.1139.0",
     "@clerk/backend": "^3.4.14",

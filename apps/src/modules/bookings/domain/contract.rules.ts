@@ -110,6 +110,22 @@ export function contractGaps(
   return gaps;
 }
 
+/**
+ * Who ticked the débours mandate box: IP and browser of the request that ticked it,
+ * kept with the box. Only when the box is newly ticked by this request: a mandate
+ * given earlier keeps its own proof.
+ */
+export function mandateProof(
+  newlyTicked: boolean,
+  request: { ip?: string; userAgent?: string } | undefined,
+): { deboursMandateIp?: string | null; deboursMandateUserAgent?: string | null } {
+  if (!newlyTicked) return {};
+  return {
+    deboursMandateIp: request?.ip?.slice(0, 64) ?? null,
+    deboursMandateUserAgent: request?.userAgent?.slice(0, 512) ?? null,
+  };
+}
+
 /** The audit row's metadata: the proof of which boxes were ticked, when, and to what text. */
 export function consentsAuditMetadata(consents: ContractState) {
   return {

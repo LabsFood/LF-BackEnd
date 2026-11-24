@@ -44,7 +44,9 @@ export class StripeConnectController {
   })
   @ApiOkResponse({ type: StripeConnectLinkDto, description: 'Hosted onboarding URL.' })
   @ApiConflictResponse({
-    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+    description:
+      'No chef profile yet — complete `PATCH /me/chef-profile` first. Or ' +
+      '`STRIPE_ONBOARDING_COMPLETE`: the Stripe file is already submitted; use `dashboard-link`.',
   })
   @ApiClerkAuthResponses()
   createLink(

@@ -644,6 +644,9 @@ describe('BookingsService', () => {
             cgvAcceptedAt: V1_NOW,
             deboursMandateAcceptedAt: V1_NOW,
             earlyExecutionRequestedAt: null,
+            // Outside an HTTP request: no IP or browser to keep.
+            deboursMandateIp: null,
+            deboursMandateUserAgent: null,
           },
         });
       });

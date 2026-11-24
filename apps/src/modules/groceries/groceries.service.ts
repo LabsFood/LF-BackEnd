@@ -70,6 +70,12 @@ const BOOKING_SELECT = {
   amountTtc: true,
   priceCents: true,
   deboursMandateAcceptedAt: true,
+  deboursMandateIp: true,
+  deboursMandateUserAgent: true,
+  /** The card saved at booking (CGV V1): it pays the groceries too. */
+  stripePaymentMethodId: true,
+  cardBrand: true,
+  cardLast4: true,
   serviceOffer: { select: { shoppingIncluded: true } },
   client: { select: { id: true, email: true, fullName: true } },
   chefProfile: {
@@ -102,6 +108,9 @@ const LIVE_HOLD: RunStatus[] = [
   'confirmed',
   'receipts_submitted',
 ];
+
+/** The hold waits for the batch cooker's Stripe account, not for the client's card. */
+const CHEF_NOT_READY = 'chef_account_not_ready';
 
 const receiptPrefix = (bookingId: string) => `grocery-receipts/${bookingId}`;
 const RECEIPT = 'receipt';
@@ -228,10 +237,17 @@ export class GroceriesService {
     const rules = run ? this.rulesOf(run) : mandateRules(budgetCents);
     const opensAt = lockAt(booking.startsAt, rules);
     const lines = run?.lines ?? [];
+    // Before the run opens, the card saved at booking is the one the groceries will use.
+    const bookingCard = !run && booking.stripePaymentMethodId && booking.cardLast4;
     return {
       bookingId: booking.id,
       applies,
-      status: (run?.status ?? (applies ? 'awaiting_card' : null)) as RunStatus | null,
+      status: (run?.status ??
+        (applies
+          ? bookingCard
+            ? 'card_saved'
+            : 'awaiting_card'
+          : null)) as RunStatus | null,
       budgetCents,
       /** « Budget garanti » for the chef once the hold is placed. */
       guaranteed: !!run?.holdPlacedAt && LIVE_HOLD.includes(run.status as RunStatus),
@@ -249,14 +265,29 @@ export class GroceriesService {
           }
         : null,
       card:
-        run?.cardLast4 && role !== 'chef'
-          ? {
-              brand: run.cardBrand,
-              last4: run.cardLast4,
-              expMonth: run.cardExpMonth,
-              expYear: run.cardExpYear,
-            }
-          : null,
+        role === 'chef'
+          ? null
+          : run?.cardLast4
+            ? {
+                brand: run.cardBrand,
+                last4: run.cardLast4,
+                expMonth: run.cardExpMonth,
+                expYear: run.cardExpYear,
+              }
+            : bookingCard
+              ? {
+                  brand: booking.cardBrand,
+                  last4: booking.cardLast4!,
+                  expMonth: null,
+                  expYear: null,
+                }
+              : null,
+      /**
+       * The hold waits on the batch cooker's payment account (Stripe Connect), not on
+       * the client's card: it is placed as soon as the account is ready.
+       */
+      waitingChefAccount:
+        run?.status === 'card_saved' && run.holdFailureCode === CHEF_NOT_READY,
       hold: run
         ? {
             placedAt: run.holdPlacedAt,
@@ -437,6 +468,7 @@ export class GroceriesService {
   private async ensureRun(
     booking: BookingRow,
     meta: { ip?: string | null; userAgent?: string | null } = {},
+    actor: 'client' | 'system' = 'client',
   ): Promise<RunRow> {
     const existing = await this.run(booking.id);
     if (existing) return existing;
@@ -450,8 +482,11 @@ export class GroceriesService {
           mandateVersion: MANDATE_VERSION,
           mandateRules: rules as unknown as Prisma.InputJsonValue,
           mandateAcceptedAt: booking.deboursMandateAcceptedAt!,
-          mandateIp: meta.ip?.slice(0, 64) ?? null,
-          mandateUserAgent: meta.userAgent?.slice(0, 512) ?? null,
+          // The proof of the box, as ticked; a booking from before it was kept falls
+          // back on the request that opens the run.
+          mandateIp: (booking.deboursMandateIp ?? meta.ip)?.slice(0, 64) ?? null,
+          mandateUserAgent:
+            (booking.deboursMandateUserAgent ?? meta.userAgent)?.slice(0, 512) ?? null,
         },
       });
     } catch (error) {
@@ -503,8 +538,8 @@ export class GroceriesService {
       );
     }
     await this.audit.record({
-      actorType: 'client',
-      actorUserId: booking.clientId,
+      actorType: actor,
+      actorUserId: actor === 'client' ? booking.clientId : null,
       action: 'groceries.mandate_recorded',
       subjectType: 'booking',
       subjectId: booking.id,
@@ -613,6 +648,30 @@ export class GroceriesService {
     });
     const { booking } = run;
     const chef = booking.chefProfile;
+    if (!chef.stripeAccountId || !chef.stripeChargesEnabled) {
+      // Not the client's card: the hold waits for the batch cooker's account, tried
+      // again on each clock until the shopping deadline (then the client shops).
+      const first = run.holdFailureCode !== CHEF_NOT_READY;
+      await this.prisma.groceryRun.update({
+        where: { id: run.id },
+        data: {
+          holdClaimedAt: null,
+          holdFailureCode: CHEF_NOT_READY,
+          ...(run.status === 'hold_failed'
+            ? { status: 'card_saved', holdFailedAt: null }
+            : {}),
+        },
+      });
+      if (first) {
+        await this.tell(chef.userId, 'groceries.chef_account_needed', booking.id);
+        this.logger.warn({
+          event: 'groceries.hold_waits_chef_account',
+          groceryRunId: run.id,
+          bookingId: booking.id,
+        });
+      }
+      return 'skipped';
+    }
     const payment = await this.prisma.payment.create({
       data: {
         bookingId: booking.id,
@@ -624,24 +683,16 @@ export class GroceriesService {
         metadata: { groceryRunId: run.id, kind: 'hold' },
       },
     });
-    const result =
-      chef.stripeAccountId && chef.stripeChargesEnabled
-        ? await this.stripe.placeHold({
-            runId: run.id,
-            paymentId: payment.id,
-            amountCents: run.budgetCents,
-            customerId: run.stripeCustomerId!,
-            paymentMethodId: run.stripePaymentMethodId!,
-            chefAccountId: chef.stripeAccountId,
-            bookingId: booking.id,
-            bookingReference: booking.reference,
-          })
-        : ({
-            ok: false,
-            code: 'chef_account_not_ready',
-            paymentIntentId: null,
-            needsAuthentication: false,
-          } as const);
+    const result = await this.stripe.placeHold({
+      runId: run.id,
+      paymentId: payment.id,
+      amountCents: run.budgetCents,
+      customerId: run.stripeCustomerId!,
+      paymentMethodId: run.stripePaymentMethodId!,
+      chefAccountId: chef.stripeAccountId,
+      bookingId: booking.id,
+      bookingReference: booking.reference,
+    });
 
     if (result.ok) {
       await this.prisma.$transaction([
@@ -1593,6 +1644,38 @@ export class GroceriesService {
   // ------------------------------------------------------------- the clock
 
   /** Holds due at the lock, for every run whose card is saved. */
+  /**
+   * Opens the groceries of every accepted prestation under a mandate (decision of
+   * 19/11: the card saved at booking pays them too): the run is created with the
+   * mandate's proof and that card, without waiting for the client to visit the page.
+   * A client without a card is asked to save one; without one by the shopping
+   * deadline, the run is cancelled and the client shops (`closeStaleRuns`).
+   */
+  async openDueRuns(now: Date) {
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        status: { in: ['confirmed', 'shopping'] },
+        shoppingByClient: false,
+        deboursMandateAcceptedAt: { not: null },
+        serviceOffer: { shoppingIncluded: true },
+        groceryRun: { is: null },
+        startsAt: { gt: now },
+      },
+      select: BOOKING_SELECT,
+      orderBy: { startsAt: 'asc' },
+      take: 200,
+    });
+    let opened = 0;
+    for (const booking of bookings) {
+      const run = await this.ensureRun(booking, {}, 'system');
+      opened += 1;
+      if (!run.stripePaymentMethodId) {
+        await this.tell(booking.clientId, 'groceries.card_needed', booking.id);
+      }
+    }
+    return opened;
+  }
+
   async placeDueHolds(now: Date) {
     const runs = await this.prisma.groceryRun.findMany({
       where: {

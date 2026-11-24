@@ -10,6 +10,12 @@ export interface RequestContext {
   route?: string;
   /** The caller's Clerk id, set by `ClerkAuthGuard`. An opaque id, not personal data. */
   userId?: string;
+  /**
+   * The caller's IP (behind Railway's edge) and browser, for the proofs a contract
+   * keeps (the débours mandate box). Personal data: never logged, never a tag.
+   */
+  ip?: string;
+  userAgent?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -32,6 +38,8 @@ export function registerRequestContext(fastify: FastifyInstance): void {
       requestId: request.id,
       method: request.method,
       route: request.routeOptions.url,
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
     };
     storage.run(context, () => {
       const scope = new AsyncResource('lf-request');

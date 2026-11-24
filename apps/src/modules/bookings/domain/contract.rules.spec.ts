@@ -3,6 +3,7 @@ import {
   acceptedConsents,
   chefShops,
   contractGaps,
+  mandateProof,
   mergeConsents,
   type ContractState,
 } from './contract.rules';
@@ -66,6 +67,23 @@ describe('mergeConsents', () => {
     };
     expect(mergeConsents(kept, all)).toEqual({ ...all, cgvAcceptedAt: earlier });
     expect(mergeConsents(kept, none)).toEqual(kept);
+  });
+});
+
+describe('mandateProof', () => {
+  it('keeps the IP and browser of the request that ticks the box', () => {
+    expect(mandateProof(true, { ip: '203.0.113.9', userAgent: 'Firefox' })).toEqual({
+      deboursMandateIp: '203.0.113.9',
+      deboursMandateUserAgent: 'Firefox',
+    });
+    expect(mandateProof(true, undefined)).toEqual({
+      deboursMandateIp: null,
+      deboursMandateUserAgent: null,
+    });
+  });
+
+  it('leaves the proof of a box ticked earlier alone', () => {
+    expect(mandateProof(false, { ip: '203.0.113.9', userAgent: 'Firefox' })).toEqual({});
   });
 });
 

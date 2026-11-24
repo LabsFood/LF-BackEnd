@@ -57,6 +57,7 @@ import { VitrineService } from './vitrine.service';
   ],
   // The legacy /admin/meals routes flag adopted copies when a suggestion changes.
   // Recettes §7.3: the common-list propagation e-mails the chefs it concerns.
-  exports: [SuggestionsService, ChefContentService, DishesMailer],
+  // The AI recipe import creates its drafts through DishesService.
+  exports: [SuggestionsService, ChefContentService, DishesMailer, DishesService],
 })
 export class DishesModule {}

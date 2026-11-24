@@ -8,43 +8,44 @@ datasource db {
 }
 
 model User {
-  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clerkUserId              String                    @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
-  email                    String                    @unique(map: "uq_users_email") @db.VarChar(320)
-  fullName                 String?                   @map("full_name") @db.VarChar(255)
-  role                     UserRole                  @default(client)
-  phone                    String?                   @db.VarChar(32)
+  id                         String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkUserId                String                    @unique(map: "uq_users_clerk_user_id") @map("clerk_user_id") @db.VarChar(128)
+  email                      String                    @unique(map: "uq_users_email") @db.VarChar(320)
+  fullName                   String?                   @map("full_name") @db.VarChar(255)
+  role                       UserRole                  @default(client)
+  phone                      String?                   @db.VarChar(32)
   /// Profile photo on Cloudflare R2, for every role. Set only by the photo upload,
   /// which checks the file.
-  avatarUrl                String?                   @map("avatar_url") @db.VarChar(512)
-  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  avatarUrl                  String?                   @map("avatar_url") @db.VarChar(512)
+  createdAt                  DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Set when Clerk deleted the account but bookings keep the row: its personal
   /// data is blanked (`UsersService.deleteByClerkId`).
-  deletedAt                DateTime?                 @map("deleted_at") @db.Timestamptz(6)
-  bookingsAsClient         Booking[]                 @relation("BookingClient")
-  paymentInvoices          PaymentInvoice[]
-  catalogIngredientsCreated  CatalogIngredient[] @relation("CatalogIngredientCreatedBy")
-  catalogIngredientsReviewed CatalogIngredient[] @relation("CatalogIngredientReviewedBy")
-  reschedulesProposed      BookingReschedule[]       @relation("BookingRescheduleProposer")
-  chefProfile              ChefProfile?
-  clientProfile            ClientProfile?
-  quotes                   Quote[]                   @relation("QuoteClient")
-  applicationsDecided      ChefApplication[]         @relation("ChefApplicationDecidedBy")
-  documentsDecided         ChefDocument[]            @relation("ChefDocumentDecidedBy")
-  auditEntries             AuditLog[]                @relation("AuditLogActor")
-  mealsAuthored            Meal[]                    @relation("MealAuthor")
-  menusAuthored            Menu[]                    @relation("MenuAuthor")
-  conversationsAsClient    Conversation[]            @relation("ConversationClient")
-  supportConversation      Conversation?             @relation("ConversationSupportUser")
-  conversationMemberships  ConversationParticipant[]
-  messagesSent             Message[]                 @relation("MessageSender")
-  messageAttachments       MessageAttachment[]       @relation("MessageAttachmentUploader")
-  contactReplies           ContactMessageReply[]     @relation("ContactReplySender")
-  cesuSettlementsConfirmed CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
-  urssafLinks              UrssafLink[]              @relation("UrssafLinkClient")
-  urssafDossier            UrssafClientDossier?
-  notifications            Notification[]
+  deletedAt                  DateTime?                 @map("deleted_at") @db.Timestamptz(6)
+  bookingsAsClient           Booking[]                 @relation("BookingClient")
+  paymentInvoices            PaymentInvoice[]
+  catalogIngredientsCreated  CatalogIngredient[]       @relation("CatalogIngredientCreatedBy")
+  catalogIngredientsReviewed CatalogIngredient[]       @relation("CatalogIngredientReviewedBy")
+  reschedulesProposed        BookingReschedule[]       @relation("BookingRescheduleProposer")
+  chefProfile                ChefProfile?
+  clientProfile              ClientProfile?
+  quotes                     Quote[]                   @relation("QuoteClient")
+  applicationsDecided        ChefApplication[]         @relation("ChefApplicationDecidedBy")
+  documentsDecided           ChefDocument[]            @relation("ChefDocumentDecidedBy")
+  auditEntries               AuditLog[]                @relation("AuditLogActor")
+  mealsAuthored              Meal[]                    @relation("MealAuthor")
+  recipeImportsLaunched      RecipeImport[]            @relation("RecipeImportAuthor")
+  menusAuthored              Menu[]                    @relation("MenuAuthor")
+  conversationsAsClient      Conversation[]            @relation("ConversationClient")
+  supportConversation        Conversation?             @relation("ConversationSupportUser")
+  conversationMemberships    ConversationParticipant[]
+  messagesSent               Message[]                 @relation("MessageSender")
+  messageAttachments         MessageAttachment[]       @relation("MessageAttachmentUploader")
+  contactReplies             ContactMessageReply[]     @relation("ContactReplySender")
+  cesuSettlementsConfirmed   CesuSettlement[]          @relation("CesuSettlementConfirmedBy")
+  urssafLinks                UrssafLink[]              @relation("UrssafLinkClient")
+  urssafDossier              UrssafClientDossier?
+  notifications              Notification[]
 
   @@map("users")
 }
@@ -126,6 +127,7 @@ model ChefProfile {
   timeBlocks             ChefTimeBlock[]
   ingredients            ChefIngredient[]
   calendarFeed           ChefCalendarFeed?
+  recipeImports          RecipeImport[]
 
   @@map("chef_profiles")
 }
@@ -170,107 +172,111 @@ model AvailabilitySlot {
 }
 
 model Booking {
-  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reference             String?             @unique(map: "bookings_reference_key") @db.VarChar(32)
-  clientId              String              @map("client_id") @db.Uuid
-  chefProfileId         String              @map("provider_id") @db.Uuid
-  serviceOfferId        String              @map("service_offer_id") @db.Uuid
-  formuleId             String?             @map("formule_id") @db.VarChar(32)
-  bookingDate           DateTime?           @map("booking_date") @db.Date
-  timeSlot              String?             @map("time_slot") @db.VarChar(64)
-  persons               Int?
-  startsAt              DateTime            @map("starts_at") @db.Timestamptz(6)
-  endsAt                DateTime            @map("ends_at") @db.Timestamptz(6)
-  status                BookingStatus       @default(pending)
-  priceCents            Int                 @map("price_cents")
-  amountTtc             Int?                @map("amount_ttc")
-  amountAfterTax        Int?                @map("amount_after_tax")
-  currency              String              @default("EUR") @db.VarChar(3)
-  shoppingByClient      Boolean             @default(false) @map("shopping_by_client")
+  id                        String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference                 String?                 @unique(map: "bookings_reference_key") @db.VarChar(32)
+  clientId                  String                  @map("client_id") @db.Uuid
+  chefProfileId             String                  @map("provider_id") @db.Uuid
+  serviceOfferId            String                  @map("service_offer_id") @db.Uuid
+  formuleId                 String?                 @map("formule_id") @db.VarChar(32)
+  bookingDate               DateTime?               @map("booking_date") @db.Date
+  timeSlot                  String?                 @map("time_slot") @db.VarChar(64)
+  persons                   Int?
+  startsAt                  DateTime                @map("starts_at") @db.Timestamptz(6)
+  endsAt                    DateTime                @map("ends_at") @db.Timestamptz(6)
+  status                    BookingStatus           @default(pending)
+  priceCents                Int                     @map("price_cents")
+  amountTtc                 Int?                    @map("amount_ttc")
+  amountAfterTax            Int?                    @map("amount_after_tax")
+  currency                  String                  @default("EUR") @db.VarChar(3)
+  shoppingByClient          Boolean                 @default(false) @map("shopping_by_client")
   /// The offer's shopping fee, shown apart; already counted in `amountTtc`. 0 when the
   /// offer has no shopping or the client does it.
-  shoppingFeeCents      Int                 @default(0) @map("shopping_fee_cents")
+  shoppingFeeCents          Int                     @default(0) @map("shopping_fee_cents")
   /// Extra dishes the client asked for, beyond what the offer covers ("Plats supp.").
-  extraMeals            Int                 @default(0) @map("extra_meals")
+  extraMeals                Int                     @default(0) @map("extra_meals")
   /// Adults beyond what the offer covers, and the extra dishes: each shown apart,
   /// already counted in `amountTtc`. Always 0 on a formule, which is a package.
-  extraPersonsCents     Int                 @default(0) @map("extra_persons_cents")
-  extraMealsCents       Int                 @default(0) @map("extra_meals_cents")
-  addressLine           String?             @map("address_line") @db.VarChar(255)
+  extraPersonsCents         Int                     @default(0) @map("extra_persons_cents")
+  extraMealsCents           Int                     @default(0) @map("extra_meals_cents")
+  addressLine               String?                 @map("address_line") @db.VarChar(255)
   /// The city, apart, so the agenda can show it without the street.
-  addressCity           String?             @map("address_city") @db.VarChar(120)
-  addressPostalCode     String?             @map("address_postal_code") @db.VarChar(16)
-  notes                 String?
-  stripePaymentIntentId String?             @map("stripe_payment_intent_id") @db.VarChar(128)
-  cronofyEventId        String?             @map("cronofy_event_id") @db.VarChar(128)
+  addressCity               String?                 @map("address_city") @db.VarChar(120)
+  addressPostalCode         String?                 @map("address_postal_code") @db.VarChar(16)
+  notes                     String?
+  stripePaymentIntentId     String?                 @map("stripe_payment_intent_id") @db.VarChar(128)
+  cronofyEventId            String?                 @map("cronofy_event_id") @db.VarChar(128)
   /// When the batch cooker arrived on site: set by the first move to `cooking`.
-  arrivedAt             DateTime?           @map("arrived_at") @db.Timestamptz(6)
+  arrivedAt                 DateTime?               @map("arrived_at") @db.Timestamptz(6)
   /// When the "24 h left to pay" reminder went out, so it goes out once.
-  holdReminderSentAt    DateTime?           @map("hold_reminder_sent_at") @db.Timestamptz(6)
+  holdReminderSentAt        DateTime?               @map("hold_reminder_sent_at") @db.Timestamptz(6)
   /// Recettes lot 4 (LF-0284): the batch cooker confirmed the groceries are done, and
   /// the receipt total they may have typed (for information; no payment before lot 6).
-  groceriesValidatedAt  DateTime?           @map("groceries_validated_at") @db.Timestamptz(6)
-  groceriesAmountCents  Int?                @map("groceries_amount_cents")
+  groceriesValidatedAt      DateTime?               @map("groceries_validated_at") @db.Timestamptz(6)
+  groceriesAmountCents      Int?                    @map("groceries_amount_cents")
   /// Recettes lot 4 (LF-0285): when each in-app reminder went out, so it goes out once.
   /// Chef at J-4 (list not sent), client at J-2 (final list not sent back), and at the
   /// list deadline: the client told it is frozen, the chef reminded to shop.
-  listReminderChefAt    DateTime?           @map("list_reminder_chef_at") @db.Timestamptz(6)
-  listReminderClientAt  DateTime?           @map("list_reminder_client_at") @db.Timestamptz(6)
-  listFrozenNotifiedAt  DateTime?           @map("list_frozen_notified_at") @db.Timestamptz(6)
-  groceriesReminderAt   DateTime?           @map("groceries_reminder_at") @db.Timestamptz(6)
+  listReminderChefAt        DateTime?               @map("list_reminder_chef_at") @db.Timestamptz(6)
+  listReminderClientAt      DateTime?               @map("list_reminder_client_at") @db.Timestamptz(6)
+  listFrozenNotifiedAt      DateTime?               @map("list_frozen_notified_at") @db.Timestamptz(6)
+  groceriesReminderAt       DateTime?               @map("groceries_reminder_at") @db.Timestamptz(6)
   /// When the contract was concluded: the move to `confirmed` (full payment, or an
   /// accepted quote offer). The 14-day withdrawal period runs from here (CGV art. 15).
-  concludedAt           DateTime?           @map("concluded_at") @db.Timestamptz(6)
+  concludedAt               DateTime?               @map("concluded_at") @db.Timestamptz(6)
   /// The CGV version the client accepted (`CONTRACT_TERMS.version`), and when.
-  contractVersion       String?             @map("contract_version") @db.VarChar(16)
-  cgvAcceptedAt         DateTime?           @map("cgv_accepted_at") @db.Timestamptz(6)
+  contractVersion           String?                 @map("contract_version") @db.VarChar(16)
+  cgvAcceptedAt             DateTime?               @map("cgv_accepted_at") @db.Timestamptz(6)
   /// The débours mandate box (CGV art. 10.12), ticked apart from the CGV.
-  deboursMandateAcceptedAt DateTime?        @map("debours_mandate_accepted_at") @db.Timestamptz(6)
+  deboursMandateAcceptedAt  DateTime?               @map("debours_mandate_accepted_at") @db.Timestamptz(6)
+  /// Who ticked the débours mandate box, as seen when it was ticked: the proof kept
+  /// with the mandate (copied on the grocery run).
+  deboursMandateIp          String?                 @map("debours_mandate_ip") @db.VarChar(64)
+  deboursMandateUserAgent   String?                 @map("debours_mandate_user_agent") @db.VarChar(512)
   /// The express request to start before the withdrawal period ends (art. 15.3).
-  earlyExecutionRequestedAt DateTime?       @map("early_execution_requested_at") @db.Timestamptz(6)
+  earlyExecutionRequestedAt DateTime?               @map("early_execution_requested_at") @db.Timestamptz(6)
   /// When the contract email (CGV and withdrawal form attached) went out.
-  contractMailSentAt    DateTime?           @map("contract_mail_sent_at") @db.Timestamptz(6)
+  contractMailSentAt        DateTime?               @map("contract_mail_sent_at") @db.Timestamptz(6)
   /// An online withdrawal: when it was sent, what remains due (null: an admin sets
   /// it), and when its acknowledgement email went out.
-  withdrawnAt           DateTime?           @map("withdrawn_at") @db.Timestamptz(6)
-  withdrawalDueCents    Int?                @map("withdrawal_due_cents")
-  withdrawalAckSentAt   DateTime?           @map("withdrawal_ack_sent_at") @db.Timestamptz(6)
+  withdrawnAt               DateTime?               @map("withdrawn_at") @db.Timestamptz(6)
+  withdrawalDueCents        Int?                    @map("withdrawal_due_cents")
+  withdrawalAckSentAt       DateTime?               @map("withdrawal_ack_sent_at") @db.Timestamptz(6)
   /// CGV V1 direct booking (decision of 2026-11-19): the method chosen at booking. Null
   /// on a pay-to-confirm booking. See `domain/booking-request.rules.ts`.
-  paymentMethod         PaymentMethod?      @map("payment_method")
+  paymentMethod             PaymentMethod?          @map("payment_method")
   /// The card saved at booking whatever the method (CGV 7.2): ids and display only.
-  stripeCustomerId      String?             @map("stripe_customer_id") @db.VarChar(128)
-  stripePaymentMethodId String?             @map("stripe_payment_method_id") @db.VarChar(128)
+  stripeCustomerId          String?                 @map("stripe_customer_id") @db.VarChar(128)
+  stripePaymentMethodId     String?                 @map("stripe_payment_method_id") @db.VarChar(128)
   /// The Checkout setup page until the card is saved, then its SetupIntent.
-  cardSetupSessionId    String?             @map("card_setup_session_id") @db.VarChar(128)
-  cardBrand             String?             @map("card_brand") @db.VarChar(32)
-  cardLast4             String?             @map("card_last4") @db.VarChar(4)
-  cardSavedAt           DateTime?           @map("card_saved_at") @db.Timestamptz(6)
+  cardSetupSessionId        String?                 @map("card_setup_session_id") @db.VarChar(128)
+  cardBrand                 String?                 @map("card_brand") @db.VarChar(32)
+  cardLast4                 String?                 @map("card_last4") @db.VarChar(4)
+  cardSavedAt               DateTime?               @map("card_saved_at") @db.Timestamptz(6)
   /// When the request reached the batch cooker (card saved), and their deadline (5.2).
-  requestedAt           DateTime?           @map("requested_at") @db.Timestamptz(6)
-  acceptBy              DateTime?           @map("accept_by") @db.Timestamptz(6)
-  acceptedAt            DateTime?           @map("accepted_at") @db.Timestamptz(6)
-  refusedAt             DateTime?           @map("refused_at") @db.Timestamptz(6)
-  refusalReason         String?             @map("refusal_reason") @db.VarChar(500)
+  requestedAt               DateTime?               @map("requested_at") @db.Timestamptz(6)
+  acceptBy                  DateTime?               @map("accept_by") @db.Timestamptz(6)
+  acceptedAt                DateTime?               @map("accepted_at") @db.Timestamptz(6)
+  refusedAt                 DateTime?               @map("refused_at") @db.Timestamptz(6)
+  refusalReason             String?                 @map("refusal_reason") @db.VarChar(500)
   /// The end-of-session job's one attempt, claimed here (7.3); a failure is the
   /// client's to settle on the payment screen (7.5).
-  autoChargedAt         DateTime?           @map("auto_charged_at") @db.Timestamptz(6)
-  cesuReminderSentAt    DateTime?           @map("cesu_reminder_sent_at") @db.Timestamptz(6)
-  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  bookingMeals          BookingMeal[]
-  client                User                @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
-  chefProfile           ChefProfile         @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
-  formule               Formule?            @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
-  shoppingList          ShoppingList?
-  quote                 Quote?              @relation("QuoteBooking")
-  serviceOffer          ServiceOffer        @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
-  payments              Payment[]
-  paymentInvoices       PaymentInvoice[]
-  groceryRun            GroceryRun?
-  photos                BookingPhoto[]
-  mealDateChanges       BookingMealDateChange[]
-  reschedules           BookingReschedule[]
+  autoChargedAt             DateTime?               @map("auto_charged_at") @db.Timestamptz(6)
+  cesuReminderSentAt        DateTime?               @map("cesu_reminder_sent_at") @db.Timestamptz(6)
+  createdAt                 DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bookingMeals              BookingMeal[]
+  client                    User                    @relation("BookingClient", fields: [clientId], references: [id], onUpdate: NoAction, map: "fk_bookings_client_id")
+  chefProfile               ChefProfile             @relation("BookingChefProfile", fields: [chefProfileId], references: [id], onUpdate: NoAction, map: "fk_bookings_chef_profile_id")
+  formule                   Formule?                @relation(fields: [formuleId], references: [id], onUpdate: NoAction, map: "bookings_formule_id_fkey")
+  shoppingList              ShoppingList?
+  quote                     Quote?                  @relation("QuoteBooking")
+  serviceOffer              ServiceOffer            @relation(fields: [serviceOfferId], references: [id], onUpdate: NoAction, map: "fk_bookings_service_offer_id")
+  payments                  Payment[]
+  paymentInvoices           PaymentInvoice[]
+  groceryRun                GroceryRun?
+  photos                    BookingPhoto[]
+  mealDateChanges           BookingMealDateChange[]
+  reschedules               BookingReschedule[]
 
   @@index([clientId], map: "ix_bookings_client_id")
   @@index([chefProfileId], map: "ix_bookings_chef_profile_id")
@@ -278,34 +284,34 @@ model Booking {
 }
 
 model ClientProfile {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId             String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
-  dietaryPreferences String[]            @default([]) @map("dietary_preferences")
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String              @unique(map: "client_profiles_user_id_key") @map("user_id") @db.Uuid
+  dietaryPreferences   String[]            @default([]) @map("dietary_preferences")
   /// The 14 regulated allergens only (codes of dishes.rules.ts): health data. Declared
   /// through PUT /me/profile/allergies, never in a list or an export.
-  allergies          String[]            @default([])
+  allergies            String[]            @default([])
   /// What the 14 codes do not cover, in the client's words.
-  customAllergies    String[]            @default([]) @map("custom_allergies")
+  customAllergies      String[]            @default([]) @map("custom_allergies")
   /// "No allergy", said explicitly; the database forbids it next to a listed one.
-  allergiesNone      Boolean             @default(false) @map("allergies_none")
+  allergiesNone        Boolean             @default(false) @map("allergies_none")
   /// Null: the client never answered, so no menu can be validated (fail-closed).
-  allergiesDeclaredAt DateTime?          @map("allergies_declared_at") @db.Timestamptz(6)
-  healthConsentAt    DateTime?           @map("health_consent_at") @db.Timestamptz(6)
+  allergiesDeclaredAt  DateTime?           @map("allergies_declared_at") @db.Timestamptz(6)
+  healthConsentAt      DateTime?           @map("health_consent_at") @db.Timestamptz(6)
   /// The version of the consent text accepted.
-  healthConsentVersion String?           @map("health_consent_version") @db.VarChar(32)
-  dislikes           String[]            @default([])
-  favorites          String[]            @default([])
-  spiceLevel         Int?                @map("spice_level")
-  householdAdults    Int                 @default(1) @map("household_adults")
-  householdKids      Int                 @default(0) @map("household_kids")
-  kitchenNotes       String?             @map("kitchen_notes")
-  addressStreet      String?             @map("address_street") @db.VarChar(255)
-  addressCity        String?             @map("address_city") @db.VarChar(120)
-  addressPostalCode  String?             @map("address_postal_code") @db.VarChar(16)
-  status             ClientProfileStatus @default(active)
-  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_profiles_user_id_fkey")
+  healthConsentVersion String?             @map("health_consent_version") @db.VarChar(32)
+  dislikes             String[]            @default([])
+  favorites            String[]            @default([])
+  spiceLevel           Int?                @map("spice_level")
+  householdAdults      Int                 @default(1) @map("household_adults")
+  householdKids        Int                 @default(0) @map("household_kids")
+  kitchenNotes         String?             @map("kitchen_notes")
+  addressStreet        String?             @map("address_street") @db.VarChar(255)
+  addressCity          String?             @map("address_city") @db.VarChar(120)
+  addressPostalCode    String?             @map("address_postal_code") @db.VarChar(16)
+  status               ClientProfileStatus @default(active)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_profiles_user_id_fkey")
 
   @@map("client_profiles")
 }
@@ -421,6 +427,9 @@ model Meal {
   // suggestion. booking_meals is RESTRICT, so a booked dish still blocks the delete.
   chefProfile            ChefProfile?        @relation("MealOwner", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_meals_chef_profile_id")
   createdBy              User?               @relation("MealAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_created_by_user_id")
+  /// Recipe import (AI) this draft came from; null for a dish written by hand.
+  importedFromId         String?             @map("imported_from_id") @db.Uuid
+  importedFrom           RecipeImport?       @relation(fields: [importedFromId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_meals_imported_from_id")
 
   /// Adoption is idempotent per (chef, suggestion). NULLs never collide, so a
   /// chef's own dishes and Lab's Food rows are unaffected.
@@ -477,32 +486,32 @@ model Formule {
 }
 
 model BookingMeal {
-  bookingId     String             @map("booking_id") @db.Uuid
-  mealId        String             @map("meal_id") @db.Uuid
+  bookingId            String             @map("booking_id") @db.Uuid
+  mealId               String             @map("meal_id") @db.Uuid
   /// Recettes BLK-27: a child counts as half a portion, so halves are possible.
-  portions      Float              @default(4)
+  portions             Float              @default(4)
   /// The recipe version this prestation cooks from, pinned once and kept (§9.2).
-  recipeVersion Int?               @map("recipe_version")
+  recipeVersion        Int?               @map("recipe_version")
   /// Recettes lot 3 (LF-0268): the dish's allergens when its version was pinned, kept
   /// for this prestation whatever the recipe becomes. Meaningful once `pinnedAt` is set.
-  allergensSnapshot String[]       @default([]) @map("allergens_snapshot")
+  allergensSnapshot    String[]           @default([]) @map("allergens_snapshot")
   /// When the version and the allergens were pinned: the menu was written (lot 3).
-  pinnedAt      DateTime?          @map("pinned_at") @db.Timestamptz(6)
+  pinnedAt             DateTime?          @map("pinned_at") @db.Timestamptz(6)
   /// Recettes lot 3 (LF-0270): the « à manger avant » date the chef set; null: the
   /// platform's (prestation day + the pinned recipe's fridge days).
-  eatBefore     DateTime?          @map("eat_before") @db.Date
-  eatBeforeSetAt DateTime?         @map("eat_before_set_at") @db.Timestamptz(6)
+  eatBefore            DateTime?          @map("eat_before") @db.Date
+  eatBeforeSetAt       DateTime?          @map("eat_before_set_at") @db.Timestamptz(6)
   /// Who set it; an id only, kept even if the account goes (no foreign key).
-  eatBeforeSetByUserId String?     @map("eat_before_set_by_user_id") @db.Uuid
+  eatBeforeSetByUserId String?            @map("eat_before_set_by_user_id") @db.Uuid
   /// What the batch cooker says of THIS dish as cooked in THIS prestation: how to
   /// reheat it, how to keep it. Written from `cooking` on, shown to the client once
   /// the prestation is done. Beside the recipe's own advice, never replacing it.
-  reheatingNote String?            @map("reheating_note") @db.VarChar(500)
-  storageNote   String?            @map("storage_note") @db.VarChar(500)
-  booking       Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
-  meal          Meal               @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
+  reheatingNote        String?            @map("reheating_note") @db.VarChar(500)
+  storageNote          String?            @map("storage_note") @db.VarChar(500)
+  booking              Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "booking_meals_booking_id_fkey")
+  meal                 Meal               @relation(fields: [mealId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "booking_meals_meal_id_fkey")
   /// The kept version this prestation cooks from; it can never be lost while pinned.
-  recipe        MealRecipeVersion? @relation(fields: [mealId, recipeVersion], references: [mealId, version], onDelete: Restrict, onUpdate: NoAction, map: "fk_booking_meals_recipe_version")
+  recipe               MealRecipeVersion? @relation(fields: [mealId, recipeVersion], references: [mealId, version], onDelete: Restrict, onUpdate: NoAction, map: "fk_booking_meals_recipe_version")
 
   @@id([bookingId, mealId])
   @@index([mealId], map: "ix_booking_meals_meal_id")
@@ -510,18 +519,18 @@ model BookingMeal {
 }
 
 model ShoppingList {
-  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bookingId   String         @unique(map: "shopping_lists_booking_id_key") @map("booking_id") @db.Uuid
-  generatedAt DateTime       @default(now()) @map("generated_at") @db.Timestamptz(6)
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId       String         @unique(map: "shopping_lists_booking_id_key") @map("booking_id") @db.Uuid
+  generatedAt     DateTime       @default(now()) @map("generated_at") @db.Timestamptz(6)
   /// Recettes §10.7, case 1: how many times the batch cooker sent the list (0 = never).
-  version         Int       @default(0)
-  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  version         Int            @default(0)
+  sentAt          DateTime?      @map("sent_at") @db.Timestamptz(6)
   /// When the client last sent their final list back.
-  finalReceivedAt DateTime? @map("final_received_at") @db.Timestamptz(6)
+  finalReceivedAt DateTime?      @map("final_received_at") @db.Timestamptz(6)
   /// The client's answer, keyed like the lines: `ClientMark[]` in shopping-list.rules.ts.
-  clientMarks     Json      @default("[]") @map("client_marks")
-  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
-  items       ShoppingItem[]
+  clientMarks     Json           @default("[]") @map("client_marks")
+  booking         Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
+  items           ShoppingItem[]
 
   @@map("shopping_lists")
 }
@@ -628,9 +637,9 @@ model QuoteOffer {
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  quote       Quote       @relation(fields: [quoteId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_quote_id")
+  quote       Quote            @relation(fields: [quoteId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_quote_id")
   dishes      QuoteOfferDish[]
-  chefProfile ChefProfile @relation("QuoteOfferChefProfile", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_chef_profile_id")
+  chefProfile ChefProfile      @relation("QuoteOfferChefProfile", fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quote_offers_chef_profile_id")
 
   @@index([quoteId, createdAt], map: "ix_quote_offers_quote_created_at")
   @@index([status, validUntil], map: "ix_quote_offers_status_valid_until")
@@ -1313,34 +1322,34 @@ model ContactMessageReply {
 /// a failed CB attempt must be retryable with a fresh PaymentIntent, so a booking may
 /// carry several rows — the most recent non-`failed` one is the live attempt.
 model Payment {
-  id                      String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  bookingId               String          @map("booking_id") @db.Uuid
-  method                  PaymentMethod   @default(cb)
+  id                      String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId               String           @map("booking_id") @db.Uuid
+  method                  PaymentMethod    @default(cb)
   /// Recettes lot 6: what the payment is for. `service`: the prestation, with the
   /// forfait courses and the supplements (invoiced, tax credit). `courses`: the
   /// groceries themselves (off the invoice, no commission, no tax credit). What is
   /// left to pay, the fiscal attestation and the CESU guard count `service` only.
-  purpose                 PaymentPurpose  @default(service)
-  status                  PaymentStatus   @default(pending)
-  amountTtc               Int             @map("amount_ttc")
-  currency                String          @default("EUR") @db.VarChar(3)
-  stripePaymentIntentId   String?         @unique(map: "uq_payments_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar(128)
-  stripeChargeId          String?         @map("stripe_charge_id") @db.VarChar(128)
-  taxCreditEligibleAmount Int?            @map("tax_credit_eligible_amount")
-  paidAt                  DateTime?       @map("paid_at") @db.Timestamptz(6)
-  refundedAmount          Int?            @map("refunded_amount")
-  refundedAt              DateTime?       @map("refunded_at") @db.Timestamptz(6)
-  failureReason           String?         @map("failure_reason")
+  purpose                 PaymentPurpose   @default(service)
+  status                  PaymentStatus    @default(pending)
+  amountTtc               Int              @map("amount_ttc")
+  currency                String           @default("EUR") @db.VarChar(3)
+  stripePaymentIntentId   String?          @unique(map: "uq_payments_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar(128)
+  stripeChargeId          String?          @map("stripe_charge_id") @db.VarChar(128)
+  taxCreditEligibleAmount Int?             @map("tax_credit_eligible_amount")
+  paidAt                  DateTime?        @map("paid_at") @db.Timestamptz(6)
+  refundedAmount          Int?             @map("refunded_amount")
+  refundedAt              DateTime?        @map("refunded_at") @db.Timestamptz(6)
+  failureReason           String?          @map("failure_reason")
   /// Extension slot for the avance immédiate / CESU flows — avoids a throwaway migration.
   metadata                Json?
-  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  booking                 Booking         @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  booking                 Booking          @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
   commission              Commission?
   cesuSettlement          CesuSettlement?
   invoice                 PaymentInvoice?
   /// Recettes lot 6: the courses hold this payment is, and the chargebacks on it.
-  groceryRun              GroceryRun?     @relation("GroceryRunHold")
+  groceryRun              GroceryRun?      @relation("GroceryRunHold")
   groceryDisputes         GroceryDispute[]
 
   /// `uq_payments_live_cesu_booking_id` — a partial unique index on
@@ -1525,38 +1534,38 @@ model CesuSettlement {
 /// destructive migration. `LF-COM-<year>-NNNN` is **the** numbering scheme for facture B —
 /// do not invent a second one.
 model CommissionInvoice {
-  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chefProfileId    String                     @map("chef_profile_id") @db.Uuid
-  invoiceNumber    String                     @unique(map: "uq_commission_invoices_invoice_number") @map("invoice_number") @db.VarChar(32)
-  issuedAt         DateTime                   @default(now()) @map("issued_at") @db.Timestamptz(6)
-  amountHtCents    Int                        @map("amount_ht_cents")
-  amountVatCents   Int                        @map("amount_vat_cents")
-  amountTtcCents   Int                        @map("amount_ttc_cents")
+  id                    String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chefProfileId         String                     @map("chef_profile_id") @db.Uuid
+  invoiceNumber         String                     @unique(map: "uq_commission_invoices_invoice_number") @map("invoice_number") @db.VarChar(32)
+  issuedAt              DateTime                   @default(now()) @map("issued_at") @db.Timestamptz(6)
+  amountHtCents         Int                        @map("amount_ht_cents")
+  amountVatCents        Int                        @map("amount_vat_cents")
+  amountTtcCents        Int                        @map("amount_ttc_cents")
   /// Copied from the billed commissions and frozen, exactly like on `Commission`.
-  rateBps          Int                        @map("rate_bps")
-  vatRateBps       Int                        @map("vat_rate_bps")
-  paymentMethod    PaymentMethod              @map("payment_method")
-  collectionMethod CommissionCollectionMethod @map("collection_method")
-  status           CommissionInvoiceStatus    @default(issued)
+  rateBps               Int                        @map("rate_bps")
+  vatRateBps            Int                        @map("vat_rate_bps")
+  paymentMethod         PaymentMethod              @map("payment_method")
+  collectionMethod      CommissionCollectionMethod @map("collection_method")
+  status                CommissionInvoiceStatus    @default(issued)
   /// Set only for a `monthly_batch` invoice; null when one payment produced one invoice.
-  periodStart      DateTime?                  @map("period_start") @db.Timestamptz(6)
-  periodEnd        DateTime?                  @map("period_end") @db.Timestamptz(6)
-  pdfObjectKey     String?                    @map("pdf_object_key") @db.VarChar(512)
-  s3ArchivedAt     DateTime?                  @map("s3_archived_at") @db.Timestamptz(6)
+  periodStart           DateTime?                  @map("period_start") @db.Timestamptz(6)
+  periodEnd             DateTime?                  @map("period_end") @db.Timestamptz(6)
+  pdfObjectKey          String?                    @map("pdf_object_key") @db.VarChar(512)
+  s3ArchivedAt          DateTime?                  @map("s3_archived_at") @db.Timestamptz(6)
   /// Recettes lot 6: a credit note (`credit_note`) shares the facture B sequence. It
   /// gives a chef back the commission of a prestation URSSAF took back (status 120):
   /// positive amounts, never debited, deducted from the next facture B
   /// (`appliedToInvoiceId`) or paid back by hand when there is none (`refundedAt`).
-  kind             CommissionInvoiceKind      @default(invoice)
-  creditForCommissionId String?               @map("credit_for_commission_id") @db.Uuid
-  appliedToInvoiceId    String?               @map("applied_to_invoice_id") @db.Uuid
-  creditReason     String?                    @map("credit_reason")
-  refundedAt       DateTime?                  @map("refunded_at") @db.Timestamptz(6)
-  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  chefProfile      ChefProfile                @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_commission_invoices_chef_profile_id")
-  commissions      Commission[]
-  debits           CommissionDebit[]
+  kind                  CommissionInvoiceKind      @default(invoice)
+  creditForCommissionId String?                    @map("credit_for_commission_id") @db.Uuid
+  appliedToInvoiceId    String?                    @map("applied_to_invoice_id") @db.Uuid
+  creditReason          String?                    @map("credit_reason")
+  refundedAt            DateTime?                  @map("refunded_at") @db.Timestamptz(6)
+  createdAt             DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chefProfile           ChefProfile                @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_commission_invoices_chef_profile_id")
+  commissions           Commission[]
+  debits                CommissionDebit[]
 
   @@index([chefProfileId], map: "ix_commission_invoices_chef_profile_id")
   @@index([status], map: "ix_commission_invoices_status")
@@ -2054,23 +2063,23 @@ model GroceryReceipt {
 /// agrees (`clientApprovedAt`). A line contested within 48 h is arbitrated by an admin:
 /// `upheld`, it is refunded to the client (or left out of the capture).
 model GroceryLine {
-  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  groceryRunId    String                  @map("grocery_run_id") @db.Uuid
-  receiptId       String?                 @map("receipt_id") @db.Uuid
-  label           String                  @db.VarChar(160)
-  amountCents     Int                     @map("amount_cents")
-  clientApprovedAt DateTime?              @map("client_approved_at") @db.Timestamptz(6)
-  contestedAt     DateTime?               @map("contested_at") @db.Timestamptz(6)
-  contestReason   String?                 @map("contest_reason")
-  decision        GroceryContestDecision?
-  decidedAt       DateTime?               @map("decided_at") @db.Timestamptz(6)
-  decidedByUserId String?                 @map("decided_by_user_id") @db.Uuid
-  decisionNote    String?                 @map("decision_note")
-  refundedCents   Int                     @default(0) @map("refunded_cents")
-  stripeRefundId  String?                 @map("stripe_refund_id") @db.VarChar(128)
-  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  groceryRun      GroceryRun              @relation(fields: [groceryRunId], references: [id], onDelete: Cascade, map: "fk_grocery_lines_run_id")
-  receipt         GroceryReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull, map: "fk_grocery_lines_receipt_id")
+  id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groceryRunId     String                  @map("grocery_run_id") @db.Uuid
+  receiptId        String?                 @map("receipt_id") @db.Uuid
+  label            String                  @db.VarChar(160)
+  amountCents      Int                     @map("amount_cents")
+  clientApprovedAt DateTime?               @map("client_approved_at") @db.Timestamptz(6)
+  contestedAt      DateTime?               @map("contested_at") @db.Timestamptz(6)
+  contestReason    String?                 @map("contest_reason")
+  decision         GroceryContestDecision?
+  decidedAt        DateTime?               @map("decided_at") @db.Timestamptz(6)
+  decidedByUserId  String?                 @map("decided_by_user_id") @db.Uuid
+  decisionNote     String?                 @map("decision_note")
+  refundedCents    Int                     @default(0) @map("refunded_cents")
+  stripeRefundId   String?                 @map("stripe_refund_id") @db.VarChar(128)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  groceryRun       GroceryRun              @relation(fields: [groceryRunId], references: [id], onDelete: Cascade, map: "fk_grocery_lines_run_id")
+  receipt          GroceryReceipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull, map: "fk_grocery_lines_receipt_id")
 
   @@index([groceryRunId], map: "ix_grocery_lines_run_id")
   @@map("grocery_lines")
@@ -2080,28 +2089,28 @@ model GroceryLine {
 /// bank handles it; once it is lost, an admin names who was at fault and Lab's Food
 /// recovers it from them: the chef (transfer reversed) or the client (by hand).
 model GroceryDispute {
-  id                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  groceryRunId      String                  @map("grocery_run_id") @db.Uuid
-  paymentId         String                  @map("payment_id") @db.Uuid
-  stripeDisputeId   String                  @unique(map: "uq_grocery_disputes_stripe_dispute_id") @map("stripe_dispute_id") @db.VarChar(128)
-  amountCents       Int                     @map("amount_cents")
-  reason            String?                 @db.VarChar(64)
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groceryRunId      String               @map("grocery_run_id") @db.Uuid
+  paymentId         String               @map("payment_id") @db.Uuid
+  stripeDisputeId   String               @unique(map: "uq_grocery_disputes_stripe_dispute_id") @map("stripe_dispute_id") @db.VarChar(128)
+  amountCents       Int                  @map("amount_cents")
+  reason            String?              @db.VarChar(64)
   /// `open`, `won` or `lost`, as the bank decided.
-  status            String                  @default("open") @db.VarChar(16)
-  openedAt          DateTime                @default(now()) @map("opened_at") @db.Timestamptz(6)
-  closedAt          DateTime?               @map("closed_at") @db.Timestamptz(6)
+  status            String               @default("open") @db.VarChar(16)
+  openedAt          DateTime             @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt          DateTime?            @map("closed_at") @db.Timestamptz(6)
   fault             GroceryDisputeFault?
-  faultDeclaredAt   DateTime?               @map("fault_declared_at") @db.Timestamptz(6)
-  faultDeclaredById String?                 @map("fault_declared_by_id") @db.Uuid
+  faultDeclaredAt   DateTime?            @map("fault_declared_at") @db.Timestamptz(6)
+  faultDeclaredById String?              @map("fault_declared_by_id") @db.Uuid
   /// `none`, `pending` (to recover), `recovered` or `written_off`.
-  recoveryStatus    String                  @default("none") @map("recovery_status") @db.VarChar(16)
-  recoveryReference String?                 @map("recovery_reference") @db.VarChar(255)
-  recoveredAt       DateTime?               @map("recovered_at") @db.Timestamptz(6)
+  recoveryStatus    String               @default("none") @map("recovery_status") @db.VarChar(16)
+  recoveryReference String?              @map("recovery_reference") @db.VarChar(255)
+  recoveredAt       DateTime?            @map("recovered_at") @db.Timestamptz(6)
   notes             String?
-  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  groceryRun        GroceryRun              @relation(fields: [groceryRunId], references: [id], onDelete: Cascade, map: "fk_grocery_disputes_run_id")
-  payment           Payment                 @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_grocery_disputes_payment_id")
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  groceryRun        GroceryRun           @relation(fields: [groceryRunId], references: [id], onDelete: Cascade, map: "fk_grocery_disputes_run_id")
+  payment           Payment              @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_grocery_disputes_payment_id")
 
   @@index([groceryRunId], map: "ix_grocery_disputes_run_id")
   @@map("grocery_disputes")
@@ -2139,4 +2148,93 @@ enum GroceryDisputeFault {
   platform
 
   @@map("grocery_dispute_fault")
+}
+
+/// Budget IA (DAT 6 bis): one row per call to an AI provider, written by `AiGateway`
+/// only, failures and refusals included. `chef_profile_id` has no foreign key on
+/// purpose: the spending history survives an account's deletion.
+model AiUsage {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Closed list `AI_POSTES` (code): `recettes`, `vitrine`, `assistant`, ...
+  poste         String   @db.VarChar(32)
+  feature       String   @db.VarChar(48)
+  tags          String[] @default([])
+  /// `mistral` | `anthropic`
+  provider      String   @db.VarChar(16)
+  model         String   @db.VarChar(64)
+  chefProfileId String?  @map("chef_profile_id") @db.Uuid
+  /// 1 for the first model, 2 for the fallback.
+  attempt       Int      @default(1) @db.SmallInt
+  inputTokens   Int      @default(0) @map("input_tokens")
+  outputTokens  Int      @default(0) @map("output_tokens")
+  pages         Int      @default(0)
+  /// Millionths of a euro, at the prices in force when the call was made.
+  costMicroEur  Int      @default(0) @map("cost_micro_eur")
+  durationMs    Int      @default(0) @map("duration_ms")
+  /// `ok` | `failed` | `invalid_output` | `refused_budget`
+  outcome       String   @db.VarChar(24)
+  error         String?  @db.VarChar(500)
+  requestId     String?  @map("request_id") @db.VarChar(64)
+
+  @@index([createdAt], map: "idx_ai_usage_created_at")
+  @@index([poste, createdAt], map: "idx_ai_usage_poste_created_at")
+  @@index([chefProfileId, createdAt], map: "idx_ai_usage_chef_profile_created_at")
+  @@map("ai_usage")
+}
+
+/// Budget IA: one row per alert sent, so each threshold alerts once per period.
+model AiBudgetAlert {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// `global` or a poste code.
+  scope     String   @db.VarChar(32)
+  period    String   @db.VarChar(16)
+  /// `YYYY-MM-DD`: start of the fixed period, or the Paris day for a rolling window.
+  periodKey String   @map("period_key") @db.VarChar(10)
+  threshold Int      @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([scope, period, periodKey, threshold], map: "uq_ai_budget_alerts")
+  @@map("ai_budget_alerts")
+}
+
+/// Import de recettes (DAT 4.1): one source a batch cooker sent (file, text, link or
+/// title), its processing, and the drafts it gave. The file itself lives in the
+/// private bucket under `storage_paths`, purged after 30 days.
+model RecipeImport {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Null for an import an admin launched from the console (Lab's Food catalogue).
+  chefProfileId   String?      @map("chef_profile_id") @db.Uuid
+  /// The admin who launched a console import; null for a chef's import.
+  createdByUserId String?      @map("created_by_user_id") @db.Uuid
+  /// `file` | `text` | `url` | `title`
+  sourceType      String       @map("source_type") @db.VarChar(8)
+  storagePaths    String[]     @default([]) @map("storage_paths")
+  sourceText      String?      @map("source_text")
+  sourceUrl       String?      @map("source_url") @db.VarChar(2048)
+  sourceTitle     String?      @map("source_title") @db.VarChar(255)
+  /// `pending` | `processing` | `review` (several recipes or a duplicate: the chef
+  /// chooses) | `done` | `failed`
+  status          String       @default("pending") @db.VarChar(12)
+  errorCode       String?      @map("error_code") @db.VarChar(48)
+  errorMessage    String?      @map("error_message") @db.VarChar(500)
+  /// The recipes read by the model (schema `recipe_extraction`), kept until chosen.
+  extraction      Json?
+  /// Per draft: estimated fields, warnings, allergen gaps, duplicate.
+  report          Json         @default("{}")
+  provider        String?      @db.VarChar(16)
+  model           String?      @db.VarChar(64)
+  costMicroEur    Int          @default(0) @map("cost_micro_eur")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt       DateTime?    @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime?    @map("finished_at") @db.Timestamptz(6)
+  filesPurgedAt   DateTime?    @map("files_purged_at") @db.Timestamptz(6)
+  chefProfile     ChefProfile? @relation(fields: [chefProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_recipe_imports_chef_profile_id")
+  createdBy       User?        @relation("RecipeImportAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_recipe_imports_created_by_user_id")
+  meals           Meal[]
+
+  @@index([chefProfileId, createdAt], map: "idx_recipe_imports_chef_created_at")
+  @@index([status, startedAt], map: "idx_recipe_imports_status_started_at")
+  @@index([createdByUserId, createdAt], map: "idx_recipe_imports_created_by_created_at")
+  @@map("recipe_imports")
 }

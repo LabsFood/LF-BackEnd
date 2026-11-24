@@ -129,6 +129,8 @@ export interface AppConfig {
       bookingChargeFailed?: number;
       bookingCesuReminder?: number;
       groceriesNotice?: number;
+      // Budget IA: an admin heads-up when AI spending crosses its alert or its cap.
+      aiBudgetAlert?: number;
     };
     webhookToken?: string;
   };
@@ -170,6 +172,8 @@ export interface AppConfig {
     kycBucket: string;
     /** Private bucket holding the files sent in conversations. Never publicly readable. */
     messagingBucket: string;
+    /** Private bucket holding the recipes chefs send to the AI import, purged after 30 days. */
+    recipeImportsBucket: string;
     /** Private bucket holding the clients' invoices (facture A). Never publicly readable. */
     invoicesBucket: string;
   };
@@ -300,6 +304,7 @@ export const configLoader = (): AppConfig => ({
       bookingChargeFailed: optionalNumber(process.env.BREVO_TPL_BOOKING_CHARGE_FAILED),
       bookingCesuReminder: optionalNumber(process.env.BREVO_TPL_BOOKING_CESU_REMINDER),
       groceriesNotice: optionalNumber(process.env.BREVO_TPL_GROCERIES_NOTICE),
+      aiBudgetAlert: optionalNumber(process.env.BREVO_TPL_AI_BUDGET_ALERT),
     },
     /** Recettes lot 6: the secret the Brevo webhook URL carries (`?token=`). */
     webhookToken: process.env.BREVO_WEBHOOK_TOKEN,
@@ -334,6 +339,8 @@ export const configLoader = (): AppConfig => ({
     secretKey: process.env.SUPABASE_SECRET_KEY,
     kycBucket: process.env.SUPABASE_KYC_BUCKET ?? 'labsfood-kyc',
     messagingBucket: process.env.SUPABASE_MESSAGING_BUCKET ?? 'labsfood-messages',
+    recipeImportsBucket:
+      process.env.SUPABASE_RECIPE_IMPORTS_BUCKET ?? 'labsfood-recipe-imports',
     invoicesBucket: process.env.SUPABASE_INVOICES_BUCKET ?? 'labsfood-invoices',
   },
   r2: {

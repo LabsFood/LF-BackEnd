@@ -234,6 +234,103 @@ suite('groceries on a real database (lot 6)', () => {
     expect(await prisma.commission.count({ where: { paymentId: hold.id } })).toBe(0);
   });
 
+  it('opens the groceries of an accepted prestation with the booking card and the box proof', async () => {
+    const withCard = await booking(100);
+    await prisma.booking.update({
+      where: { id: withCard.id },
+      data: {
+        stripeCustomerId: 'cus_booking',
+        stripePaymentMethodId: 'pm_booking',
+        cardBrand: 'visa',
+        cardLast4: '1111',
+        cardSavedAt: new Date(),
+        deboursMandateIp: '198.51.100.4',
+        deboursMandateUserAgent: 'booking-browser',
+      },
+    });
+    const withoutCard = await booking(100);
+
+    // Before the clock: the client already sees the booking card.
+    const before = await service.view(`cl_${tag}`, withCard.id);
+    expect(before).toMatchObject({ status: 'card_saved', card: { last4: '1111' } });
+
+    notifications.notify.mockClear();
+    expect(await service.openDueRuns(new Date())).toBeGreaterThanOrEqual(2);
+    const opened = await prisma.groceryRun.findUniqueOrThrow({
+      where: { bookingId: withCard.id },
+    });
+    expect(opened).toMatchObject({
+      status: 'card_saved',
+      stripePaymentMethodId: 'pm_booking',
+      cardLast4: '1111',
+      mandateIp: '198.51.100.4',
+      mandateUserAgent: 'booking-browser',
+    });
+    const waiting = await prisma.groceryRun.findUniqueOrThrow({
+      where: { bookingId: withoutCard.id },
+    });
+    expect(waiting.status).toBe('awaiting_card');
+    const asked = notifications.notify.mock.calls.filter(
+      ([, type]) => type === 'groceries.card_needed',
+    );
+    expect(asked.map(([, , subject]) => subject.id)).toEqual([withoutCard.id]);
+
+    // The next clock opens nothing more for them.
+    await service.openDueRuns(new Date());
+    expect(await prisma.groceryRun.count({ where: { bookingId: withCard.id } })).toBe(1);
+    expect(
+      notifications.notify.mock.calls.filter(
+        ([, type]) => type === 'groceries.card_needed',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('waits for the batch cooker’s account without telling the client the card failed', async () => {
+    const b = await booking(60);
+    await savedCard(b.id);
+    await service.confirmCard(`cl_${tag}`, b.id, 'cs_test');
+    await prisma.chefProfile.update({
+      where: { id: ids.chefProfile },
+      data: { stripeChargesEnabled: false },
+    });
+    stripe.placeHold.mockClear();
+    notifications.notify.mockClear();
+    const atLock = new Date(b.startsAt.getTime() - 47 * H);
+    try {
+      await service.placeDueHolds(atLock);
+      await service.placeDueHolds(atLock);
+      expect(stripe.placeHold).not.toHaveBeenCalled();
+      const run = await prisma.groceryRun.findUniqueOrThrow({
+        where: { bookingId: b.id },
+      });
+      expect(run).toMatchObject({
+        status: 'card_saved',
+        holdFailureCode: 'chef_account_not_ready',
+        holdPaymentId: null,
+      });
+      const types = notifications.notify.mock.calls.map(([, type]) => type);
+      expect(types).toEqual(['groceries.chef_account_needed']);
+      expect(await service.view(`cl_${tag}`, b.id)).toMatchObject({
+        status: 'card_saved',
+        waitingChefAccount: true,
+      });
+    } finally {
+      await prisma.chefProfile.update({
+        where: { id: ids.chefProfile },
+        data: { stripeChargesEnabled: true },
+      });
+    }
+    // The account ready, the next clock places the hold.
+    stripe.placeHold.mockResolvedValue({
+      ok: true,
+      intent: { id: `pi_${tag}_wait` },
+      captureBefore: null,
+    });
+    await service.placeDueHolds(atLock);
+    const run = await prisma.groceryRun.findUniqueOrThrow({ where: { bookingId: b.id } });
+    expect(run).toMatchObject({ status: 'hold_placed', holdFailureCode: null });
+  });
+
   it('runs the notice, the receipts, the capture of the exact total and a contest', async () => {
     const b = await booking(30);
     await savedCard(b.id);

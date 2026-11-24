@@ -59,6 +59,8 @@ describe('request context', () => {
       requestId: 'req-1',
       method: 'POST',
       route: '/chef/bookings/:id',
+      ip: '127.0.0.1',
+      userAgent: 'lightMyRequest',
     });
     const [line] = out.lines();
     expect(line).toMatchObject({

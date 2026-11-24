@@ -11,6 +11,7 @@ import { SentryCron } from '@sentry/nestjs';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { stackOf } from '../../common/logging/app-logger';
+import { currentRequest } from '../../common/logging/request-context';
 import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/pagination.dto';
 import { parisHhmm, parisToday } from '../../common/paris-time';
 import {
@@ -60,6 +61,7 @@ import {
   chefShops,
   consentsAuditMetadata,
   contractGaps,
+  mandateProof,
   mergeConsents,
   type ContractState,
 } from './domain/contract.rules';
@@ -391,6 +393,7 @@ export class BookingsService {
             ...amounts,
             currency: offer.currency,
             ...consents,
+            ...mandateProof(consents.deboursMandateAcceptedAt !== null, currentRequest()),
             ...(dto.meals?.length && {
               bookingMeals: {
                 create: dto.meals.map((meal) => ({
@@ -975,7 +978,17 @@ export class BookingsService {
     if (missing.length) throw contractConsentRequired(missing, 'booking');
 
     await this.prisma.booking
-      .update({ where: { id, status: 'pending' }, data: consents })
+      .update({
+        where: { id, status: 'pending' },
+        data: {
+          ...consents,
+          ...mandateProof(
+            !booking.deboursMandateAcceptedAt &&
+              consents.deboursMandateAcceptedAt !== null,
+            currentRequest(),
+          ),
+        },
+      })
       .catch(changedMeanwhile);
     if (consents.contractVersion) await this.recordConsents(caller.userId, id, consents);
     return this.view(caller, id);
