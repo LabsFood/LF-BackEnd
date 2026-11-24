@@ -42,7 +42,8 @@ export class StripeConnectService {
     if (chefProfile.stripeAccountId && chefProfile.stripeDetailsSubmitted) {
       throw new ConflictException({
         code: 'STRIPE_ONBOARDING_COMPLETE',
-        message: 'Your Stripe account is already set up: open the Stripe dashboard instead.',
+        message:
+          'Your Stripe account is already set up: open the Stripe dashboard instead.',
       });
     }
     const stripe = this.stripe.getClient();
