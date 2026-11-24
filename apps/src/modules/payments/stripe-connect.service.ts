@@ -37,6 +37,14 @@ export class StripeConnectService {
   ): Promise<StripeConnectLinkDto> {
     this.assertStripeConfigured();
     const { chefProfile } = await this.requireChefProfile(clerkUserId);
+    // A finished account is managed from the Express dashboard: Stripe answers an
+    // onboarding link for it with a 403 `forbidden`.
+    if (chefProfile.stripeAccountId && chefProfile.stripeDetailsSubmitted) {
+      throw new ConflictException({
+        code: 'STRIPE_ONBOARDING_COMPLETE',
+        message: 'Your Stripe account is already set up: open the Stripe dashboard instead.',
+      });
+    }
     const stripe = this.stripe.getClient();
 
     let accountId = chefProfile.stripeAccountId;

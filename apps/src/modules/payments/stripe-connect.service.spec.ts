@@ -120,6 +120,21 @@ describe('StripeConnectService', () => {
       expect(stripeClient.rawRequest).not.toHaveBeenCalled();
     });
 
+    it('refuses a new onboarding link once the Stripe file is complete, before calling Stripe', async () => {
+      // Stripe answers 403 `forbidden` to an onboarding link for a finished account:
+      // the chef manages it from the Express dashboard instead.
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_done',
+        stripeDetailsSubmitted: true,
+      });
+
+      await expect(service.createOnboardingLink('clerk_1')).rejects.toMatchObject({
+        response: { code: 'STRIPE_ONBOARDING_COMPLETE' },
+      });
+      expect(stripeClient.rawRequest).not.toHaveBeenCalled();
+    });
+
     it('reuses the existing account on a second call', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue({
         id: 'chef-1',
