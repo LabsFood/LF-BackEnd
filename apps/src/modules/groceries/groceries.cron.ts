@@ -7,8 +7,8 @@ import { GroceriesService } from './groceries.service';
 
 /**
  * Recettes lot 6: the clock of the groceries, every 5 minutes. Each step is claimed by
- * an UPDATE in the service, so two replicas or a restart never run one twice: the hold
- * at the lock, the cancel deadline, the stale runs, the captures, the settlement.
+ * an UPDATE in the service, so two replicas or a restart never run one twice: the runs
+ * of accepted prestations, the hold at the lock, the cancel deadline, the stale runs, the captures, the settlement.
  */
 @Injectable()
 export class GroceriesCron {
@@ -26,6 +26,7 @@ export class GroceriesCron {
     const started = Date.now();
     const done: Record<string, number> = {};
     for (const [step, work] of [
+      ['opened', () => this.groceries.openDueRuns(now)],
       ['holds', () => this.groceries.placeDueHolds(now)],
       ['deadlines', () => this.groceries.handleDeadlines(now)],
       ['closed', () => this.groceries.closeStaleRuns(now)],

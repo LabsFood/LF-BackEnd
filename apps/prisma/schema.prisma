@@ -228,6 +228,10 @@ model Booking {
   cgvAcceptedAt             DateTime?               @map("cgv_accepted_at") @db.Timestamptz(6)
   /// The débours mandate box (CGV art. 10.12), ticked apart from the CGV.
   deboursMandateAcceptedAt  DateTime?               @map("debours_mandate_accepted_at") @db.Timestamptz(6)
+  /// Who ticked the débours mandate box, as seen when it was ticked: the proof kept
+  /// with the mandate (copied on the grocery run).
+  deboursMandateIp          String?                 @map("debours_mandate_ip") @db.VarChar(64)
+  deboursMandateUserAgent   String?                 @map("debours_mandate_user_agent") @db.VarChar(512)
   /// The express request to start before the withdrawal period ends (art. 15.3).
   earlyExecutionRequestedAt DateTime?               @map("early_execution_requested_at") @db.Timestamptz(6)
   /// When the contract email (CGV and withdrawal form attached) went out.
