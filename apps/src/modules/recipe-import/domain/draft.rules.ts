@@ -8,7 +8,9 @@
 import { matchKey, normalizeName } from '../../ingredients/domain/ingredient.rules';
 import { matchIndex, type IndexEntry } from '../../dishes/domain/reprise.rules';
 import { RECIPE_LIMITS } from '../../dishes/domain/recipes.rules';
-import type { ExtractedRecipe } from '../extraction/schema';
+import { REHEAT_MODE_CODES, type ExtractedRecipe } from '../extraction/schema';
+
+const REHEAT_MODES = new Set<string>(REHEAT_MODE_CODES);
 
 /** Seuil de renfort : part des lignes lues avec certitude qui se relient. */
 export const CERTAIN_LINK_THRESHOLD = 0.7;
@@ -63,8 +65,14 @@ export interface DishDraft {
   recipe: {
     ingredients: DraftLine[];
     steps: { text: string; type: string | null; durationMinutes: number | null }[];
-    storage?: { method: string; days: number; freezable?: boolean };
-    reheating?: { note: string };
+    storage?: { method: string; days: number; container?: string; freezable?: boolean };
+    reheating?: {
+      modes: string[];
+      minutes?: number;
+      temperature?: number;
+      container?: string;
+      note?: string;
+    };
   };
 }
 
@@ -148,6 +156,30 @@ function dedupe(lines: DraftLine[]): DraftLine[] {
   });
 }
 
+/**
+ * Le réchauffage lu, au format de `ReheatingDto`. L'API n'enregistre un réchauffage
+ * qu'avec au moins un mode : sans mode, la consigne seule reste dans les avertissements.
+ */
+function reheatingOf(
+  recipe: ExtractedRecipe,
+): NonNullable<DishDraft['recipe']['reheating']> | null {
+  const modes = [
+    ...new Set((recipe.reheatingModes ?? []).filter((m) => REHEAT_MODES.has(m))),
+  ];
+  if (modes.length === 0) return null;
+  const minutes = intIn(recipe.reheatingMinutes ?? null, 0, 600);
+  const temperature = intIn(recipe.reheatingTemperature ?? null, 0, 300);
+  const container = clip(recipe.reheatingContainer ?? null, 120);
+  const note = clip(recipe.reheatingNote, 300);
+  return {
+    modes,
+    ...(minutes !== null ? { minutes } : {}),
+    ...(temperature !== null ? { temperature } : {}),
+    ...(container ? { container } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
 export function toDishDraft(
   recipe: ExtractedRecipe,
   index: Map<string, string>,
@@ -217,7 +249,12 @@ export function toDishDraft(
     );
     estimated.add('cookMinutes');
   }
-  const reheating = clip(recipe.reheatingNote, 300);
+  const reheating = reheatingOf(recipe);
+  const reheatingNote = clip(recipe.reheatingNote, 300);
+  if (!reheating && reheatingNote) {
+    warnings.push(`Réchauffage sans mode reconnu, à saisir : ${reheatingNote}`);
+  }
+  const storageContainer = clip(recipe.storageContainer, 120);
   const dish: DishDraft = {
     name: clip(recipe.name, 255) ?? 'Recette importée',
     description: clip(recipe.description, 2000),
@@ -238,11 +275,14 @@ export function toDishDraft(
             storage: {
               method: 'fridge',
               days: storageDays,
-              ...(recipe.freezable !== null ? { freezable: recipe.freezable } : {}),
+              ...(storageContainer ? { container: storageContainer } : {}),
+              ...(typeof recipe.freezable === 'boolean'
+                ? { freezable: recipe.freezable }
+                : {}),
             },
           }
         : {}),
-      ...(reheating ? { reheating: { note: reheating } } : {}),
+      ...(reheating ? { reheating } : {}),
     },
   };
 

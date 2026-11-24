@@ -29,6 +29,11 @@ const recipe = (over: Partial<ExtractedRecipe> = {}): ExtractedRecipe => ({
   steps: [],
   storageDays: null,
   freezable: null,
+  storageContainer: null,
+  reheatingModes: [],
+  reheatingMinutes: null,
+  reheatingTemperature: null,
+  reheatingContainer: null,
   reheatingNote: null,
   equipment: [],
   suspectedAllergens: [],
@@ -172,6 +177,55 @@ describe('toDishDraft', () => {
       days: 3,
       freezable: true,
     });
+  });
+
+  it('reprend le contenant et la réponse « congelable », oui comme non', () => {
+    expect(
+      toDishDraft(
+        recipe({
+          storageDays: 4,
+          freezable: false,
+          storageContainer: ' Boîte hermétique ',
+        }),
+        index,
+      ).dish.recipe.storage,
+    ).toEqual({
+      method: 'fridge',
+      days: 4,
+      container: 'Boîte hermétique',
+      freezable: false,
+    });
+  });
+
+  it('reprend les modes de réchauffage lus, sans doublon ni code inconnu', () => {
+    const { dish, warnings } = toDishDraft(
+      recipe({
+        reheatingModes: ['saucepan', 'microwave', 'saucepan', 'barbecue'],
+        reheatingMinutes: 3,
+        reheatingTemperature: null,
+        reheatingContainer: 'Assiette creuse',
+        reheatingNote: 'Réchauffer à couvert.',
+      }),
+      index,
+    );
+    expect(dish.recipe.reheating).toEqual({
+      modes: ['saucepan', 'microwave'],
+      minutes: 3,
+      container: 'Assiette creuse',
+      note: 'Réchauffer à couvert.',
+    });
+    expect(warnings.some((w) => w.startsWith('Réchauffage'))).toBe(false);
+  });
+
+  it('sans mode lu, garde la consigne de réchauffage en avertissement', () => {
+    const { dish, warnings } = toDishDraft(
+      recipe({ reheatingNote: 'Réchauffer doucement.' }),
+      index,
+    );
+    expect(dish.recipe.reheating).toBeUndefined();
+    expect(warnings).toContain(
+      'Réchauffage sans mode reconnu, à saisir : Réchauffer doucement.',
+    );
   });
 });
 
