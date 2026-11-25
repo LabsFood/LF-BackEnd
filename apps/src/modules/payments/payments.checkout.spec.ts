@@ -54,6 +54,7 @@ function setup(booking: object = DONE_BOOKING) {
   const prisma = {
     booking: { findFirst: jest.fn().mockResolvedValue(booking) },
     payment: {
+      findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn().mockResolvedValue(null),
       aggregate: jest.fn().mockResolvedValue({ _sum: { amountTtc: 0 } }),
       count: jest.fn().mockResolvedValue(0),

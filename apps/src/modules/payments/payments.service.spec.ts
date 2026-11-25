@@ -45,6 +45,7 @@ describe('PaymentsService', () => {
   let prisma: {
     booking: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     payment: {
+      findMany: jest.Mock;
       findFirst: jest.Mock;
       findUnique: jest.Mock;
       aggregate: jest.Mock;
@@ -100,6 +101,7 @@ describe('PaymentsService', () => {
         update: jest.fn(),
       },
       payment: {
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
         aggregate: jest.fn().mockResolvedValue(covered(0)),

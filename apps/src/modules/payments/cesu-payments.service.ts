@@ -32,6 +32,7 @@ import {
 } from './dto/cesu.dto';
 import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
+import { assertMethodCombinable } from './payment-mix';
 
 /** Rows the list/detail mappers read. */
 const CESU_PAYMENT_INCLUDE = {
@@ -145,6 +146,7 @@ export class CesuPaymentsService {
     if (coverage.remainingAmountCents <= 0) {
       throw new ConflictException('This booking is already fully paid.');
     }
+    await assertMethodCombinable(this.prisma, booking.id, 'cesu');
     if (payload.amountTtc > coverage.remainingAmountCents) {
       throw new ConflictException(
         `Only ${coverage.remainingAmountCents} minor units are left to pay on this booking. ` +

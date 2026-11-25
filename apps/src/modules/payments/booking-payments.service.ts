@@ -26,6 +26,7 @@ import {
   settlePayment,
 } from './payment-settlement';
 import { UrssafGateway } from './urssaf.gateway';
+import { assertMethodCombinable } from './payment-mix';
 
 const BPS = 10_000;
 
@@ -308,6 +309,7 @@ export class BookingPaymentsService {
   private async sendToUrssaf(booking: PayBooking, clientId: string) {
     const client = { id: clientId };
     assertPayable(booking);
+    await assertMethodCombinable(this.prisma, booking.id, 'avance_immediate');
 
     const chef = booking.chefProfile;
     if (!advanceAccepted(chef.sapProfile, chef.sepaMandate)) {

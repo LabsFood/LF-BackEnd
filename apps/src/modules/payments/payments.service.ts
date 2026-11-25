@@ -28,6 +28,7 @@ import {
   bookingCoverage,
   settlePayment,
 } from './payment-settlement';
+import { assertMethodCombinable } from './payment-mix';
 
 /** PaymentIntent states that can still be confirmed by the client. */
 const CONFIRMABLE_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -126,6 +127,7 @@ export class PaymentsService {
     }
     assertPayable(booking);
 
+    await assertMethodCombinable(this.prisma, booking.id, 'cb');
     const chef = booking.chefProfile;
     // Re-checked here, not just at booking time: vetting can be revoked between the
     // booking and the payment, and this is the last gate before money moves to the
