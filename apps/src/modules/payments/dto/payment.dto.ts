@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 import { PaymentMethod, SapDeclarationType } from '../../../generated/prisma/client';
 
@@ -14,7 +23,11 @@ export class CreatePaymentIntentDto {
 }
 
 export class PaymentIntentDto {
-  @ApiProperty({ format: 'uuid', description: 'Local `payments.id` for this attempt.' })
+  @ApiProperty({
+    example: '3d1f7a20-5b6c-4e8d-9f0a-1b2c3d4e5f60',
+    format: 'uuid',
+    description: 'Local `payments.id` for this attempt.',
+  })
   paymentId!: string;
 
   @ApiProperty({
@@ -52,7 +65,11 @@ export class PaymentIntentDto {
  * `type_b_cooperative`. A chef with no `SapProfile` cannot issue one at all.
  */
 export class FiscalAttestationProviderDto {
-  @ApiProperty({ format: 'uuid', description: 'Issuing chef (`chef_profiles.id`).' })
+  @ApiProperty({
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    format: 'uuid',
+    description: 'Issuing chef (`chef_profiles.id`).',
+  })
   chefProfileId!: string;
 
   @ApiProperty({ description: 'Chef display name.', example: 'Chef Marie D.' })
@@ -141,10 +158,18 @@ export class FiscalAttestationProviderDto {
  * independent declared provider.
  */
 export class FiscalAttestationDto {
-  @ApiProperty({ format: 'uuid', description: 'Postgres `users.id` of the client.' })
+  @ApiProperty({
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    format: 'uuid',
+    description: 'Postgres `users.id` of the client.',
+  })
   clientId!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Client full name, when known.' })
+  @ApiPropertyOptional({
+    example: 'Sophie Martin',
+    nullable: true,
+    description: 'Client full name, when known.',
+  })
   clientName?: string | null;
 
   @ApiProperty({ description: 'Client email.', example: 'client@example.com' })
@@ -184,4 +209,88 @@ export class FiscalAttestationDto {
     description: 'Per-chef breakdown, largest amount first. One attestation per entry.',
   })
   providers!: FiscalAttestationProviderDto[];
+}
+
+/** `POST /payments/checkout-session`, as the payment screen builds it (FLOW-03 §3). */
+export class CreateCheckoutSessionDto {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The booking to pay (`id` from `GET /me/bookings`).',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  @IsUUID()
+  orderId!: string;
+
+  @ApiProperty({
+    enum: ['card'],
+    description:
+      'Only `card` opens a Stripe page. CESU is declared with `POST /payments/cesu` and ' +
+      'the immediate advance with `POST /bookings/{id}/settle`.',
+  })
+  @IsIn(['card'])
+  method!: 'card';
+
+  @ApiProperty({
+    description:
+      'What the screen believes is due, in cents. Not trusted: compared with the amount ' +
+      'the API computes, and refused with `409 AMOUNT_MISMATCH` when they differ.',
+    example: 18000,
+  })
+  @IsInt()
+  @IsPositive()
+  amountCents!: number;
+
+  @ApiPropertyOptional({ example: 'eur' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  currency?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sent by the screen for its own display. Ignored: declare CESU first.',
+    example: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cesuDeclaredCents?: number;
+
+  @ApiPropertyOptional({
+    description: 'A saved card. Ignored for now: Stripe’s page asks for the card.',
+    example: 'pm_1',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  paymentMethodId?: string;
+
+  @ApiProperty({
+    description: 'Where Stripe sends the client back after paying. One of our own sites.',
+    example:
+      'https://batchcooking.labsfood.fr/espace-client/commandes/c2eebc99?paiement=succes',
+  })
+  @IsString()
+  @MaxLength(2000)
+  successUrl!: string;
+
+  @ApiProperty({
+    description:
+      'Where Stripe sends the client back if they give up. One of our own sites.',
+    example:
+      'https://batchcooking.labsfood.fr/espace-client/commandes/c2eebc99?paiement=annule',
+  })
+  @IsString()
+  @MaxLength(2000)
+  cancelUrl!: string;
+}
+
+export class CheckoutSessionDto {
+  @ApiProperty({ example: 'cs_test_a1B2c3' })
+  sessionId!: string;
+
+  @ApiProperty({
+    description: 'The Stripe page to send the browser to.',
+    example: 'https://checkout.stripe.com/c/pay/cs_test_a1B2c3',
+  })
+  url!: string;
 }

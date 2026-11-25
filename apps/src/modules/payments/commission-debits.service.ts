@@ -18,6 +18,11 @@ import type {
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SEPA_CLAWBACK_WINDOW_DAYS } from './commission.util';
+import {
+  customerAccountOptions,
+  customerRef,
+  paymentMethodTypes,
+} from './stripe-accounts-v2';
 
 export { SEPA_CLAWBACK_WINDOW_DAYS };
 
@@ -111,7 +116,9 @@ export class CommissionDebitsService {
 
   // No fallbacks: Joi (env.validation.ts) defaults these and configLoader always sets them.
   get trigger(): CommissionDebitTrigger {
-    return this.config.getOrThrow<CommissionDebitTrigger>('payments.commissionDebitTrigger');
+    return this.config.getOrThrow<CommissionDebitTrigger>(
+      'payments.commissionDebitTrigger',
+    );
   }
 
   get maxAttempts(): number {
@@ -148,6 +155,33 @@ export class CommissionDebitsService {
         }`,
       );
       return null;
+    }
+  }
+
+  /**
+   * A mandate has just become active: every facture B still `issued` for this chef is
+   * debited now rather than waiting for the next trigger. One failure does not stop the
+   * others — `executeDebit` already refuses an invoice with a debit in flight or with no
+   * attempt left, and that refusal is only logged here.
+   */
+  async collectOutstanding(chefProfileId: string): Promise<void> {
+    const invoices = await this.prisma.commissionInvoice.findMany({
+      // A credit note is never debited: it is deducted (lot 6).
+      where: { chefProfileId, status: 'issued', kind: 'invoice' },
+      select: { id: true, invoiceNumber: true },
+      orderBy: { issuedAt: 'asc' },
+    });
+    for (const invoice of invoices) {
+      try {
+        await this.executeDebit(invoice.id);
+      } catch (error) {
+        this.logger.warn({
+          event: 'commission.collect_skipped',
+          chefProfileId,
+          invoiceNumber: invoice.invoiceNumber,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
     }
   }
 
@@ -205,10 +239,15 @@ export class CommissionDebitsService {
    * A precondition failure (no mandate, revoked mandate, amount out of range) records a
    * failed attempt with an explicit reason. **The invoice stays due**; nothing is written
    * off automatically.
+   *
+   * `overrideAttemptCeiling` is the admin retry: the human decision the commission block
+   * waits for (`commission-standing.ts`), so it may go past the ceiling. It is refused
+   * outright when the debit cannot be sent — a retry with no active mandate would only add
+   * one more failed attempt.
    */
   async executeDebit(
     invoiceId: string,
-    options: { targetDateOffsetDays?: number } = {},
+    options: { targetDateOffsetDays?: number; overrideAttemptCeiling?: boolean } = {},
   ): Promise<CommissionDebit> {
     const invoice = await this.prisma.commissionInvoice.findUnique({
       where: { id: invoiceId },
@@ -217,10 +256,17 @@ export class CommissionDebitsService {
     if (!invoice) {
       throw new NotFoundException(`Commission invoice ${invoiceId} not found.`);
     }
+    if (invoice.kind === 'credit_note') {
+      throw new ConflictException({
+        code: 'INVOICE_IS_CREDIT_NOTE',
+        message: `${invoice.invoiceNumber} is a credit note: it is deducted, never debited.`,
+      });
+    }
     if (invoice.status !== 'issued') {
-      throw new ConflictException(
-        `Commission invoice ${invoice.invoiceNumber} is ${invoice.status}; only an issued invoice is collected.`,
-      );
+      throw new ConflictException({
+        code: 'INVOICE_NOT_ISSUED',
+        message: `Commission invoice ${invoice.invoiceNumber} is ${invoice.status}; only an issued invoice is collected.`,
+      });
     }
 
     const live = await this.prisma.commissionDebit.findFirst({
@@ -234,15 +280,36 @@ export class CommissionDebitsService {
       },
     });
     if (live) {
-      throw new ConflictException(
-        `A debit is already under way for commission invoice ${invoice.invoiceNumber}.`,
-      );
+      throw new ConflictException({
+        code: 'DEBIT_IN_PROGRESS',
+        message: `A debit is already under way for commission invoice ${invoice.invoiceNumber}.`,
+      });
     }
 
-    const debit = await this.claimDebit(invoice.id, invoice.amountTtcCents);
-
     const mandate = invoice.chefProfile.sepaMandate;
-    const precondition = this.checkPreconditions(invoice.amountTtcCents, mandate);
+    if (options.overrideAttemptCeiling) {
+      const blocked = this.checkPreconditions(invoice.amountTtcCents, mandate);
+      if (blocked) {
+        throw new ConflictException({ code: 'DEBIT_NOT_POSSIBLE', message: blocked });
+      }
+    }
+
+    // Recettes lot 6: the credit notes deducted from this invoice lower the debit.
+    const credited = await this.prisma.commissionInvoice.aggregate({
+      where: { kind: 'credit_note', appliedToInvoiceId: invoice.id },
+      _sum: { amountTtcCents: true },
+    });
+    const dueCents = Math.max(
+      0,
+      invoice.amountTtcCents - (credited._sum.amountTtcCents ?? 0),
+    );
+    const debit = await this.claimDebit(
+      invoice.id,
+      dueCents,
+      options.overrideAttemptCeiling ?? false,
+    );
+
+    const precondition = this.checkPreconditions(dueCents, mandate);
     if (precondition) {
       return this.failDebit(debit, precondition);
     }
@@ -257,15 +324,15 @@ export class CommissionDebitsService {
     try {
       intent = await this.stripe.getClient().paymentIntents.create(
         {
-          amount: invoice.amountTtcCents,
+          amount: dueCents,
           // SEPA Direct Debit settles in euro only.
           currency: 'eur',
-          customer: mandate!.stripeCustomerId!,
+          ...customerRef(mandate!.stripeCustomerId!),
           payment_method: mandate!.stripePaymentMethodId!,
           // Naming the mandate makes the debit deterministic instead of letting Stripe
           // pick among the customer's mandates.
           mandate: mandate!.stripeMandateId ?? undefined,
-          payment_method_types: ['sepa_debit'],
+          ...paymentMethodTypes(mandate!.stripeCustomerId!, ['sepa_debit']),
           ...(options.targetDateOffsetDays
             ? {
                 payment_method_options: {
@@ -286,7 +353,13 @@ export class CommissionDebitsService {
           // the seller on facture B, and on_behalf_of would invalidate the collected
           // mandate by requiring a fresh authorisation.
         },
-        { idempotencyKey: `commission-debit-${debit.id}` },
+        {
+          idempotencyKey: `commission-debit-${debit.id}`,
+          // `customer_account` is only understood from this API version on.
+          ...(mandate!.stripeCustomerId!.startsWith('acct_')
+            ? customerAccountOptions
+            : {}),
+        },
       );
     } catch (error) {
       return this.failDebit(
@@ -581,6 +654,7 @@ export class CommissionDebitsService {
   private async claimDebit(
     commissionInvoiceId: string,
     amountTtcCents: number,
+    overrideCeiling: boolean,
   ): Promise<CommissionDebit> {
     const orphan = await this.prisma.commissionDebit.findFirst({
       where: { commissionInvoiceId, status: 'pending', stripePaymentIntentId: null },
@@ -598,12 +672,14 @@ export class CommissionDebitsService {
     const attempts = await this.prisma.commissionDebit.count({
       where: { commissionInvoiceId },
     });
-    if (attempts >= this.maxAttempts) {
-      throw new ConflictException(
-        `Commission invoice ${commissionInvoiceId} has used its ${this.maxAttempts} debit ` +
-          'attempts. Settle it out of band or write it off — the chef is blocked from new ' +
-          'bookings until then.',
-      );
+    if (attempts >= this.maxAttempts && !overrideCeiling) {
+      throw new ConflictException({
+        code: 'DEBIT_ATTEMPTS_EXHAUSTED',
+        message:
+          `Commission invoice ${commissionInvoiceId} has used its ${this.maxAttempts} debit ` +
+          'attempts. An admin retry goes past the ceiling once the mandate is active; ' +
+          'otherwise settle it out of band — the chef is blocked from new bookings until then.',
+      });
     }
     return this.prisma.commissionDebit.create({
       data: {
@@ -727,7 +803,113 @@ export class CommissionDebitsService {
       where: { id: { in: lines.map((line) => line.id) } },
       data: { status: 'invoiced', commissionInvoiceId: invoice.id },
     });
-    return invoice;
+    return this.deductCredits(tx, invoice);
+  }
+
+  /**
+   * Recettes lot 6: the chef's open credit notes are deducted from their next facture B,
+   * oldest first, as far as it goes. Covered whole, the invoice is settled at once and
+   * nothing is debited.
+   */
+  private async deductCredits(
+    tx: Pick<Prisma.TransactionClient, 'commissionInvoice'>,
+    invoice: CommissionInvoice,
+  ): Promise<CommissionInvoice> {
+    const open = await tx.commissionInvoice.findMany({
+      where: {
+        chefProfileId: invoice.chefProfileId,
+        kind: 'credit_note',
+        status: 'issued',
+        appliedToInvoiceId: null,
+        refundedAt: null,
+      },
+      orderBy: { issuedAt: 'asc' },
+    });
+    let left = invoice.amountTtcCents;
+    const applied: string[] = [];
+    for (const note of open) {
+      if (note.amountTtcCents > left) break;
+      left -= note.amountTtcCents;
+      applied.push(note.id);
+    }
+    if (!applied.length) return invoice;
+    await tx.commissionInvoice.updateMany({
+      where: { id: { in: applied } },
+      data: { appliedToInvoiceId: invoice.id, status: 'settled' },
+    });
+    if (left > 0) return invoice;
+    return tx.commissionInvoice.update({
+      where: { id: invoice.id },
+      data: { status: 'settled' },
+    });
+  }
+
+  /**
+   * Recettes lot 6: URSSAF took a prestation back (status 120). Its commission goes back
+   * to the chef: never invoiced yet, it is simply dropped; invoiced or collected, a
+   * credit note in the facture B sequence, deducted from the next one (or paid back by
+   * hand when there is none: `refundedAt`).
+   */
+  async creditCommission(commissionId: string, reason: string) {
+    return this.withInvoiceNumberRetry(() =>
+      this.prisma.$transaction(async (tx) => {
+        const commission = await tx.commission.findUniqueOrThrow({
+          where: { id: commissionId },
+        });
+        if (commission.status === 'pending' && !commission.commissionInvoiceId) {
+          await tx.commission.update({
+            where: { id: commission.id },
+            data: { status: 'failed' },
+          });
+          return { creditNote: null, dropped: true };
+        }
+        const existing = await tx.commissionInvoice.findFirst({
+          where: { kind: 'credit_note', creditForCommissionId: commission.id },
+        });
+        if (existing) return { creditNote: existing, dropped: false };
+        const creditNote = await tx.commissionInvoice.create({
+          data: {
+            chefProfileId: commission.chefProfileId,
+            kind: 'credit_note',
+            invoiceNumber: await this.nextInvoiceNumber(tx),
+            issuedAt: new Date(),
+            amountHtCents: commission.amountHtCents,
+            amountVatCents: commission.amountVatCents,
+            amountTtcCents: commission.amountTtcCents,
+            rateBps: commission.rateBps,
+            vatRateBps: commission.vatRateBps,
+            paymentMethod: 'avance_immediate',
+            collectionMethod: commission.collectionMethod,
+            status: 'issued',
+            creditForCommissionId: commission.id,
+            creditReason: reason,
+          },
+        });
+        return { creditNote, dropped: false };
+      }),
+    );
+  }
+
+  /** An open credit note with no facture B to deduct it from, paid back by hand. */
+  async markCreditRefunded(creditNoteId: string) {
+    const { count } = await this.prisma.commissionInvoice.updateMany({
+      where: {
+        id: creditNoteId,
+        kind: 'credit_note',
+        status: 'issued',
+        appliedToInvoiceId: null,
+      },
+      data: { status: 'settled', refundedAt: new Date() },
+    });
+    if (count !== 1) {
+      throw new ConflictException({
+        code: 'CREDIT_NOTE_NOT_OPEN',
+        message: 'This credit note is already deducted or paid back.',
+      });
+    }
+    return this.prisma.commissionInvoice.findUniqueOrThrow({
+      where: { id: creditNoteId },
+    });
   }
 
   /** `LF-COM-<year>-NNNN`, the one numbering scheme for facture B. */

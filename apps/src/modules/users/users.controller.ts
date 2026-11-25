@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -13,11 +14,14 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiExtraModels,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import {
@@ -27,10 +31,18 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/pagination.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  PaginationQueryDto,
+} from '../../common/dto/pagination.dto';
+import { ApiGeoResponses } from '../../common/swagger/geo-responses';
+import { TAGS } from '../../common/swagger/tags';
 import { UserRole } from '../../generated/prisma/client';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
+import { ChefLegalDto, UpdateChefLegalDto } from './dto/chef-legal.dto';
+import { UpdateChefZonesDto } from './dto/admin-chefs.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import {
   SapProfileDto,
@@ -45,12 +57,13 @@ import {
   ClerkJwtClaimsDto,
   ClientProfileDto,
   CurrentUserDto,
+  MeResponseDto,
   PaginatedAdminClientsDto,
+  PaginatedAdminUsersDto,
   UserWithProfileDto,
 } from './dto/user-response.dto';
 import { UsersService } from './users.service';
 
-@ApiTags('users')
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)
@@ -80,15 +93,17 @@ export class UsersController {
   }
 
   @Get('thisUser')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Read Clerk JWT claims (no database)',
+    summary: 'Show what the token says (debugging)',
     description:
-      'Returns identifiers decoded from the Bearer token only. ' +
-      'Use this to debug authentication. For the persisted application user (role, email, id), call `GET /me`.',
+      'Decodes the Bearer token and echoes the Clerk ids it carries. Reads nothing from ' +
+      'the database, so it is only useful to check that a token is accepted. The app ' +
+      'itself should call `GET /me`.',
   })
   @ApiOkResponse({
     type: ClerkJwtClaimsDto,
-    description: 'Clerk session claims attached by `ClerkAuthGuard`.',
+    description: 'The ids found in the token.',
   })
   @ApiClerkAuthResponses()
   thisUser(@CurrentClerkUser() user: ClerkUser): ClerkJwtClaimsDto {
@@ -100,45 +115,114 @@ export class UsersController {
   }
 
   @Get('me')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Get or create the current application user',
+    summary: 'Who am I, and which space do I open?',
     description:
-      'Ensures a Postgres `users` row exists for the authenticated Clerk subject, ' +
-      'creating one with `role: client` on first access. Returns id, email, fullName, phone, and role. ' +
-      'Frontends should call this after sign-in to obtain the LF user id and RBAC role.',
+      'Call this right after sign-in. `role` says which space to open: `client`, `chef` ' +
+      'or `admin`. For a batch cooker, `chefProfile.isVerified` says whether the space ' +
+      'is fully usable (`true`) or browse-only while the candidature is reviewed ' +
+      '(`false`). `hasPassword: false` means the account has no password yet (a batch ' +
+      'cooker who came in through the emailed link): ask them to choose one.\n\n' +
+      'The first call for a new Clerk account also creates its record here, as a client.',
   })
   @ApiOkResponse({
-    type: CurrentUserDto,
-    description: 'Persisted user mapped from the Clerk JWT `sub` claim.',
+    type: MeResponseDto,
+    description: 'The signed-in person.',
   })
   @ApiClerkAuthResponses()
-  async me(@CurrentClerkUser() user: ClerkUser): Promise<CurrentUserDto> {
-    const persisted = await this.users.ensurePersistedFromClerk(user.userId, {
-      email: user.email,
-    });
-    return {
-      id: persisted.id,
-      clerkUserId: persisted.clerkUserId,
-      email: persisted.email,
-      fullName: persisted.fullName,
-      phone: persisted.phone,
-      role: persisted.role,
-    };
+  async me(@CurrentClerkUser() user: ClerkUser): Promise<MeResponseDto> {
+    return this.users.currentUser(user.userId, user.email);
+  }
+
+  @Get('me/onboarding')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'My getting-started checklist',
+    description:
+      'LF-0221: the steps a client is invited to take after creating the account, in ' +
+      'order — `contact_details`, `address`, `allergies`, `tastes`, `urssaf_dossier`, ' +
+      '`first_booking` — each `done` as soon as the data exists. Nothing here blocks: ' +
+      '`requiredFor: "menu_validation"` on `allergies` says a menu cannot be validated ' +
+      'before it (the fail-closed rule of `PUT /me/profile/allergies`). ' +
+      '`urssaf_dossier` (`PUT /me/urssaf-dossier`) is listed only while the immediate ' +
+      'advance is offered, with `requiredFor: "immediate_advance"`. The fronts word each step.',
+  })
+  @ApiOkResponse({
+    description: '`completed` out of `total`, and each step.',
+    schema: {
+      example: {
+        steps: [
+          { code: 'contact_details', done: true },
+          { code: 'address', done: true },
+          { code: 'allergies', done: false, requiredFor: 'menu_validation' },
+          { code: 'tastes', done: false },
+          { code: 'first_booking', done: false },
+        ],
+        completed: 2,
+        total: 5,
+        allDone: false,
+      },
+    },
+  })
+  @ApiClerkAuthResponses()
+  onboarding(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.clientOnboarding(user.userId);
+  }
+
+  @Get('me/chef-onboarding')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'My batch cooker getting-started checklist',
+    description:
+      'The steps a batch cooker is invited to take once the dossier is approved, so ' +
+      'clients can find and book them, in order — `showcase` (photo and bio), ' +
+      '`payouts` (Stripe charges and payouts enabled), `service_offer` (an active ' +
+      'formule), `availability` (weekly hours or an upcoming extra opening), ' +
+      '`first_menu` (a published menu) — each `done` as soon as the data exists. ' +
+      'Nothing here blocks or publishes: `online` mirrors `isVerified && isActive`, ' +
+      'which stays an admin decision. 404 `NOT_A_CHEF` for an account without a ' +
+      'batch cooker page. The fronts word each step.',
+  })
+  @ApiOkResponse({
+    description: '`completed` out of `total`, each step, and whether the chef is online.',
+    schema: {
+      example: {
+        steps: [
+          { code: 'showcase', done: true },
+          { code: 'payouts', done: true },
+          { code: 'service_offer', done: false },
+          { code: 'availability', done: false },
+          { code: 'first_menu', done: false },
+        ],
+        completed: 2,
+        total: 5,
+        allDone: false,
+        verified: true,
+        online: false,
+      },
+    },
+  })
+  @ApiClerkAuthResponses()
+  chefOnboarding(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.chefOnboarding(user.userId);
   }
 
   @Get('me/profile')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Get current user and their profile',
+    summary: 'Get my profile',
     description:
-      'Returns the persisted user plus whichever profile matches `users.role`: ' +
-      '`client_profiles` for clients, `chef_profiles` for chefs. Read `profileType` to ' +
-      'know which shape `profile` holds; it is `none` with a `null` profile until the ' +
-      'user completes onboarding form 2.',
+      'The person plus their profile. `profileType` tells which kind `profile` is: ' +
+      '`client` (tastes, address, household), `chef` (public batch cooker page), or ' +
+      '`none` with `profile: null` for a client who has not filled in the profile yet.\n\n' +
+      '`notificationPreferences` is `{ "email": true, "sms": false }` for everyone and ' +
+      'cannot be changed: every email is transactional, and SMS does not exist yet.',
   })
   @ApiExtraModels(ClientProfileDto, ChefProfileDto)
   @ApiOkResponse({
     type: UserWithProfileDto,
-    description: 'User record and the profile matching their role, if any.',
+    description: 'The person and their profile, if any.',
   })
   @ApiClerkAuthResponses()
   meProfile(@CurrentClerkUser() user: ClerkUser): Promise<UserWithProfileDto> {
@@ -146,23 +230,27 @@ export class UsersController {
   }
 
   @Patch('me/profile')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Create or update client profile (onboarding form 2)',
+    summary: 'Fill in or update my client profile',
     description:
-      'Upserts `client_profiles` for the authenticated user and writes the shared ' +
-      'identity fields (`firstName`, `lastName`, `phone`) to `users`, mirroring names ' +
-      'into Clerk. Send only the fields you want to change. ' +
-      '**Never changes `users.role`** — new accounts are already `client` from ' +
-      'registration, so an admin or chef editing their profile keeps their role.',
+      'Saves the client profile: tastes, kitchen notes, address, household; allergies go through ' +
+      '`PUT /me/profile/allergies`, with consent. ' +
+      'The first call creates it; later calls change only the fields sent. ' +
+      '`firstName`, `lastName` and `phone` go to the account itself (and to Clerk for ' +
+      'the names). Never changes the role.\n\n' +
+      'Example: `{ "dislikes": ["coriandre"], "householdAdults": 2 }` updates those two ' +
+      'fields and leaves the rest as it was.',
   })
   @ApiOkResponse({
     type: ClientProfileDto,
-    description: 'Saved client profile after upsert.',
+    description: 'The saved client profile.',
   })
   @ApiConflictResponse({
     description:
-      'User already has a chef profile. Switching profile type is not supported yet.',
+      'This account is a batch cooker. One account holds one kind of profile for now.',
   })
+  @ApiGeoResponses()
   @ApiClerkAuthResponses()
   patchMeProfile(
     @CurrentClerkUser() user: ClerkUser,
@@ -171,31 +259,117 @@ export class UsersController {
     return this.users.updateProfileByClerkUserId(user.userId, payload);
   }
 
-  @Patch('me/chef-profile')
+  @Get('me/export')
+  @ApiTags(TAGS.me)
   @ApiOperation({
-    summary: 'Create or update chef profile (onboarding form 2)',
+    summary: 'Download my data',
     description:
-      'Upserts `chef_profiles` for the authenticated user and promotes `users.role` from ' +
-      '`client` to `chef`. An existing `admin` or `chef` keeps their role — onboarding ' +
-      'never demotes. The profile is always created with `isActive: false` and ' +
-      '`isVerified: false` — those fields are not accepted here and can only be changed ' +
-      'by an admin via `PATCH /admin/chefs/:id/verification`. A self-registered chef is ' +
-      'therefore not bookable until vetted.',
+      'Everything the person gave the platform, for the right of access and portability ' +
+      '(RGPD art. 15 and 20): their account, client profile (`null` if never filled in), ' +
+      'bookings, quotes and the messages they wrote. Internal ids and payment references ' +
+      'are left out. Each export is audited.',
+  })
+  @ApiOkResponse({
+    description: 'The data, newest first except messages, which read in order.',
+    example: {
+      exportedAt: '2026-10-26T10:00:00.000Z',
+      account: {
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: '+33612345678',
+        createdAt: '2026-09-01T08:00:00.000Z',
+      },
+      clientProfile: {
+        allergies: ['peanuts'],
+        customAllergies: [],
+        addressCity: 'Paris',
+        status: 'active',
+      },
+      bookings: [
+        {
+          reference: 'LF-2026-0001',
+          startsAt: '2026-10-02T09:00:00.000Z',
+          status: 'completed',
+          amountTtc: 29700,
+          chefProfile: { displayName: 'Awa Diallo' },
+        },
+      ],
+      quotes: [
+        { reference: 'LF-DEV-2026-0003', title: 'Anniversaire', status: 'quoted' },
+      ],
+      messages: [
+        {
+          body: 'Bonjour, à quelle heure arrivez-vous ?',
+          createdAt: '2026-10-01T18:00:00.000Z',
+        },
+      ],
+    },
+  })
+  @ApiClerkAuthResponses()
+  exportMyData(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.exportMyData(user.userId);
+  }
+
+  @Patch('me/chef-profile')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Update my batch cooker page',
+    description:
+      'Changes what clients see on the batch cooker page: `displayName`, `bio`, `city`, ' +
+      '`serviceRadiusKm`, `languages`, plus `firstName`, `lastName` and `phone` on the ' +
+      'account. Send ' +
+      'only the fields to change.\n\n' +
+      'Only for an approved batch cooker: while the candidature is reviewed the account ' +
+      'is browse-only. The visibility flags and the SAP route are set at approval and ' +
+      'cannot be sent here; the zones have their own route, `PATCH /me/chef-profile/zones`.',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
-    description: 'Saved chef profile after upsert, always unverified on first write.',
+    description: 'The updated batch cooker page.',
   })
-  @ApiConflictResponse({
+  @ApiForbiddenResponse({
+    description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+  })
+  @ApiNotFoundResponse({
     description:
-      'User already has a client profile. Switching profile type is not supported yet.',
+      'This account is not a batch cooker. Becoming one goes through `POST /chef-applications`.',
   })
   @ApiClerkAuthResponses()
   patchMeChefProfile(
     @CurrentClerkUser() user: ClerkUser,
     @Body() payload: UpdateMeChefProfileDto,
   ) {
-    return this.users.updateChefProfileByClerkUserId(user.userId, payload);
+    return this.users.updateOwnChefProfile(user.userId, payload);
+  }
+
+  @Patch('me/chef-profile/zones')
+  @ApiTags(TAGS.me)
+  @ApiOperation({
+    summary: 'Change my intervention zones',
+    description:
+      'Replaces every zone, in the shape and with the rules of the candidature’s ' +
+      '`interventionZones`: at least one, metropolitan regions only, a `cities` zone ' +
+      'names its towns. Journaled. Read them back in `GET /me`, `chefProfile.interventionZones`.\n\n' +
+      'Only for an approved batch cooker: until then the zones are the candidature’s.',
+  })
+  @ApiOkResponse({ description: 'The new zones: `{ interventionZones }`.' })
+  @ApiForbiddenResponse({
+    description: '`CHEF_NOT_VERIFIED`: the candidature is not approved yet.',
+  })
+  @ApiNotFoundResponse({ description: 'This account is not a batch cooker.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a region outside metropolitan France, or a `cities` zone ' +
+      'without a city. `ZONE_CITY_UNKNOWN`: a town is not the commune its INSEE code ' +
+      'names in that region (geo.api.gouv.fr).',
+  })
+  @ApiGeoResponses()
+  @ApiClerkAuthResponses()
+  patchMeChefZones(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: UpdateChefZonesDto,
+  ) {
+    return this.users.updateOwnChefZones(user.userId, body.interventionZones);
   }
 
   @Get('me/chef-profile/sap')
@@ -240,24 +414,82 @@ export class UsersController {
     return this.users.updateSapProfileByClerkUserId(user.userId, payload);
   }
 
-  @Post('admin/users')
-  @ApiBearerAuth()
+  @Get('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Get my legal identity',
+    description:
+      'What clients read about me before booking (CGV art. 3.2), as entered, with ' +
+      '`missing`: what they cannot see yet. Nothing blocks a booking meanwhile.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeChefLegal(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getChefLegal(user.userId);
+  }
+
+  @Patch('me/chef-profile/legal')
+  @ApiOperation({
+    summary: 'Fill in my legal identity',
+    description:
+      'Name or company name, legal status, SIREN, professional address, VAT regime, ' +
+      'insurance and consumer mediator, shown to clients on my page, in the booking ' +
+      'recap and in the contract they receive. A field absent is kept, `null` clears it.',
+  })
+  @ApiOkResponse({ type: ChefLegalDto })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: '`VALIDATION_FAILED`: the SIREN fails its Luhn key.',
+  })
+  @ApiClerkAuthResponses()
+  patchMeChefLegal(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: UpdateChefLegalDto,
+  ) {
+    return this.users.updateChefLegal(user.userId, payload);
+  }
+
+  @Get('admin/users')
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: provision a new Clerk user and Postgres row',
+    summary: 'List accounts',
     description:
-      'Creates a user in Clerk via Backend API and persists a matching `users` row with the requested role. ' +
-      'Requires `users.role = admin` and a real `CLERK_SECRET_KEY` (not `sk_test_placeholder`). ' +
-      'Email is auto-verified by Clerk BAPI. Omit `password` for a passwordless account.',
+      'Every role, admins included, newest first, one page at a time: ' +
+      `\`?page=2&limit=50\`, ${DEFAULT_PAGE_SIZE} per page by default, ${MAX_PAGE_SIZE} at ` +
+      'most. Accounts deleted in Clerk are left out. Each row carries the profile id its ' +
+      'admin page expects, `clientProfileId` or `chefProfileId`.',
+  })
+  @ApiOkResponse({ type: PaginatedAdminUsersDto, description: 'One page of accounts.' })
+  @ApiAdminAuthResponses()
+  listUsers(@Query() query: PaginationQueryDto) {
+    return this.users.listUsers(query);
+  }
+
+  @Post('admin/users')
+  @ApiTags(TAGS.adminUsers)
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'Create an account for someone',
+    description:
+      'Creates the account with the chosen role, for example a new admin. Without a ' +
+      '`password` the account has none, and the person signs in with whatever else Clerk ' +
+      'allows, such as an email code. The email is treated as verified.\n\n' +
+      'Do not use this to make a batch cooker: they apply through `POST /chef-applications`, ' +
+      'which checks their documents.',
   })
   @ApiCreatedResponse({
     type: CurrentUserDto,
-    description: 'Newly created Postgres user linked to the Clerk account.',
+    description: 'The new account.',
   })
+  @ApiConflictResponse({ description: 'This email already has an account.' })
   @ApiAdminAuthResponses()
   @ApiServiceUnavailableResponse({
-    description:
-      'Clerk Backend API is not configured (`sk_test_placeholder` or missing secret key).',
+    description: 'The server has no Clerk key, so it cannot create accounts.',
   })
   createAdminUser(@Body() payload: CreateAdminUserDto) {
     return this.users.provisionAdminUser({
@@ -270,49 +502,62 @@ export class UsersController {
   }
 
   @Patch('admin/users/:id/role')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: change a user application role',
+    summary: "Change someone's role",
     description:
-      'Updates `users.role` in Postgres (source of truth for RBAC). ' +
-      '`:id` is the Postgres uuid from `GET /me` or `POST /admin/users`, not the Clerk user id. ' +
-      'Optionally mirrors the role into Clerk `publicMetadata.role` when Clerk is configured.',
+      'Sets the role to `client`, `chef` or `admin`. The change applies on the next ' +
+      'request: roles are read from this API, not from the token. `{id}` is the id ' +
+      'returned by `GET /me` (not the Clerk `user_…` id).\n\n' +
+      'Setting `chef` does not create a batch cooker page or verify anyone; that is ' +
+      'what a candidature does.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Postgres user uuid (`users.id`).',
+    description: 'The account id (`users.id`).',
     example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   })
   @ApiOkResponse({
     type: CurrentUserDto,
-    description: 'User record after role update.',
+    description: 'The account with its new role.',
   })
+  @ApiNotFoundResponse({ description: 'No account with this id.' })
   @ApiAdminAuthResponses()
   updateUserRole(@Param('id') id: string, @Body() payload: UpdateUserRoleDto) {
     return this.users.updateRole(id, this.users.toUserRole(payload.role));
   }
 
   @Patch('admin/chefs/:id/verification')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: vet a chef profile',
+    summary: 'Put a batch cooker online or offline',
     description:
-      'Sets `is_verified` and `is_active` on a chef profile. This is the only path that ' +
-      'may change these flags — self-registered chefs always start with both `false`, ' +
-      'so this endpoint is what makes a chef bookable. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`), not the user uuid.',
+      '`isActive` decides whether clients can book this batch cooker; `isVerified` ' +
+      'whether the platform vouches for them.\n\n' +
+      '- Taking someone offline (`{ "isActive": false }`) always works.\n' +
+      '- Putting someone online needs them verified, else `409 CHEF_NOT_VERIFIED`.\n' +
+      '- Verifying someone who applied is done by approving the candidature, where the ' +
+      'documents are checked. Here it answers `409 APPLICATION_NOT_APPROVED` until then.\n' +
+      '- Withdrawing verification from someone online: send `isActive: false` too.\n\n' +
+      '`{id}` is the batch cooker page id (`chefProfile.id`), not the account id.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Chef profile uuid (`chef_profiles.id`).',
+    description: 'The batch cooker page id (`chefProfile.id` in `GET /me`).',
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @ApiOkResponse({
     type: ChefProfileDto,
-    description: 'Chef profile after the verification update.',
+    description: 'The batch cooker page with its new flags.',
   })
+  @ApiConflictResponse({
+    description:
+      '`APPLICATION_NOT_APPROVED`: approve the candidature instead. ' +
+      '`CHEF_NOT_VERIFIED`: an unverified batch cooker cannot go online.',
+  })
+  @ApiNotFoundResponse({ description: 'No batch cooker page with this id.' })
   @ApiAdminAuthResponses()
   updateChefVerification(
     @Param('id') id: string,
@@ -332,7 +577,9 @@ export class UsersController {
       'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
       "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
       'only source this field can have. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`); the chef must already have declared a SAP route.',
+      '(`chef_profiles.id`); the chef must already have declared a SAP route. ' +
+      'Audited, with both statuses before and after. ' +
+      '`GET /admin/chefs/{id}` reads them back.',
   })
   @ApiParam({
     name: 'id',
@@ -340,29 +587,34 @@ export class UsersController {
     example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
   })
   @ApiOkResponse({ type: SapProfileDto, description: 'SAP profile after the update.' })
+  @ApiNotFoundResponse({
+    description:
+      '`SAP_PROFILE_NOT_FOUND`: no batch cooker with this id, or no SAP route ' +
+      'declared yet.',
+  })
   @ApiAdminAuthResponses()
   updateSapExternalStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: UpdateSapExternalStatusDto,
+    @CurrentClerkUser() user: ClerkUser,
   ) {
-    return this.users.setSapExternalStatus(id, payload);
+    return this.users.setSapExternalStatus(id, payload, user.userId);
   }
 
   @Get('admin/clients')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: list client profiles (paginated)',
+    summary: 'List clients',
     description:
-      'Returns one page of `client_profiles` rows with nested `user`, newest first, ' +
-      'under `data`, plus a `meta` page descriptor (`total`, `totalPages`, ' +
-      '`hasNextPage`, `hasPreviousPage`). Defaults to `page=1` and ' +
-      `\`limit=${DEFAULT_PAGE_SIZE}\`; \`limit\` is capped at ${MAX_PAGE_SIZE}. ` +
-      'Filter by CRM `status` when the query parameter is provided.',
+      'Newest first, one page at a time: `?page=2&limit=50`. ' +
+      `Pages hold ${DEFAULT_PAGE_SIZE} clients unless \`limit\` says otherwise, ` +
+      `${MAX_PAGE_SIZE} at most. \`?status=vip\` keeps only one CRM status. ` +
+      '`meta` says how many there are in total and whether another page follows.',
   })
   @ApiOkResponse({
     type: PaginatedAdminClientsDto,
-    description: 'One page of client profiles with linked user records.',
+    description: 'One page of clients, each with their account.',
   })
   @ApiAdminAuthResponses()
   listClients(@Query() query: ListAdminClientsQueryDto) {
@@ -370,48 +622,57 @@ export class UsersController {
   }
 
   @Get('admin/clients/:id')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: get one client profile by profile id',
+    summary: 'Get one client',
     description:
-      'Returns a single `client_profiles` row with nested `user`. ' +
-      '`:id` is the client profile uuid, not the user uuid.',
+      'The client profile with its account. `{id}` is the client profile id, as listed ' +
+      'by `GET /admin/clients`, not the account id.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Client profile uuid (`client_profiles.id`).',
+    description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
-  @ApiOkResponse({
-    type: AdminClientDto,
-    description: 'Client profile with linked user, or `null` if not found.',
+  @ApiOkResponse({ type: AdminClientDto, description: 'The client.' })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
   })
   @ApiAdminAuthResponses()
-  getClient(@Param('id') id: string) {
+  getClient(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.getClientById(id);
   }
 
   @Patch('admin/clients/:id')
-  @ApiBearerAuth()
+  @ApiTags(TAGS.adminUsers)
   @UseGuards(AdminGuard)
   @ApiOperation({
-    summary: 'Admin: update a client profile',
+    summary: "Update a client's profile",
     description:
-      'Patches taste preferences, kitchen notes, and CRM `status` on an existing client profile. ' +
-      '`:id` is the client profile uuid (`client_profiles.id`).',
+      'Changes tastes, diets, kitchen notes or the CRM `status`, never allergies (for example ' +
+      '`{ "status": "vip" }`). Send only the fields to change: a list sent replaces the ' +
+      'whole list. `{id}` is the client profile id. Every change is audited with its ' +
+      'before and after values.',
   })
   @ApiParam({
     name: 'id',
-    description: 'Client profile uuid (`client_profiles.id`).',
+    description: 'The client profile id.',
     example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
   })
   @ApiOkResponse({
     type: AdminClientDto,
-    description: 'Updated client profile with nested user.',
+    description: 'The updated client.',
+  })
+  @ApiNotFoundResponse({
+    description: '`CLIENT_NOT_FOUND`: no client profile with this id.',
   })
   @ApiAdminAuthResponses()
-  updateClient(@Param('id') id: string, @Body() payload: UpdateAdminClientDto) {
-    return this.users.updateClientById(id, payload);
+  updateClient(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: UpdateAdminClientDto,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
+    return this.users.updateClientById(id, payload, user.userId);
   }
 }

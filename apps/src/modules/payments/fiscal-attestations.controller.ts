@@ -34,7 +34,7 @@ const ATTESTATION_DESCRIPTION =
   'which exclusion applied. JSON only — the rendered PDF is a separate deliverable, ' +
   'pending the legal template.';
 
-@ApiTags('payments')
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)

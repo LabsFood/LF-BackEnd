@@ -66,13 +66,13 @@ reutilisent le cache Docker et sont rapides.
 
 ## 5. Verifier que tout tourne
 
-| Service | URL |
-|---|---|
-| API backend — Swagger | http://localhost:8000/docs |
-| API backend — health check | http://localhost:8000/health |
-| batchcooking-web (site client) | http://localhost:3005 |
-| labsfood-web (site vitrine) | http://localhost:3007 |
-| admin-dashboard (back-office) | http://localhost:8035 |
+| Service                        | URL                          |
+| ------------------------------ | ---------------------------- |
+| API backend — Swagger          | http://localhost:8000/docs   |
+| API backend — health check     | http://localhost:8000/health |
+| batchcooking-web (site client) | http://localhost:3005        |
+| labsfood-web (site vitrine)    | http://localhost:3007        |
+| admin-dashboard (back-office)  | http://localhost:8035        |
 
 Commandes utiles :
 

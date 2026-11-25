@@ -1,20 +1,11 @@
 /**
  * Removes all rows created by seed-demo.ts (tagged demo data only).
- *
- * Deletion order matters and is not alphabetical: `Payment -> Booking`,
- * `Commission -> Payment`, `CommissionDebit -> CommissionInvoice` and
- * `CommissionInvoice -> ChefProfile` are all `onDelete: Restrict`, so the money rows come
- * off first, deepest child first. `Commission.commissionInvoiceId` is a plain nullable FK
- * with no cascade either, which is why commissions go before the invoices they are billed
- * on.
  */
 import { loadRepoEnv } from '../src/config/env-files';
 import { createPrismaClient } from '../src/prisma/create-prisma-client';
 import {
   DEMO_MENU_YEAR,
   DEMO_SEED_TAG,
-  DEMO_STRIPE_EVENT_PREFIX,
-  demoCmsSlug,
   demoFormuleId,
   demoMealName,
 } from '../src/common/demo-seed-constants';
@@ -35,16 +26,8 @@ async function main(): Promise<void> {
     select: { id: true },
   });
 
-  // Webhook log rows hang off no demo user, so they are removed whether or not any
-  // demo user survived.
-  const { count: stripeEvents } = await prisma.stripeEventLog.deleteMany({
-    where: { eventId: { startsWith: DEMO_STRIPE_EVENT_PREFIX } },
-  });
-
   if (demoUsers.length === 0) {
-    console.log(
-      `No demo seed users found — removed ${stripeEvents} demo Stripe event log rows.`,
-    );
+    console.log('No demo seed data found — nothing to delete.');
     return;
   }
 
@@ -57,33 +40,6 @@ async function main(): Promise<void> {
     select: { id: true },
   });
   const bookingIds = demoBookings.map((b) => b.id);
-
-  // --- Money rows, deepest child first ---------------------------------------------
-
-  const { count: commissionDebits } = await prisma.commissionDebit.deleteMany({
-    where: { commissionInvoice: { chefProfile: { userId: { in: userIds } } } },
-  });
-
-  // Before the invoices: a commission carries `commissionInvoiceId`, and before the
-  // payments: `Commission -> Payment` is `Restrict`.
-  const { count: commissions } = await prisma.commission.deleteMany({
-    where: { chefProfile: { userId: { in: userIds } } },
-  });
-
-  const { count: commissionInvoices } = await prisma.commissionInvoice.deleteMany({
-    where: { chefProfile: { userId: { in: userIds } } },
-  });
-
-  // Cascades from the payment anyway; deleted explicitly so the count is reported.
-  const { count: cesuSettlements } = await prisma.cesuSettlement.deleteMany({
-    where: { payment: { bookingId: { in: bookingIds } } },
-  });
-
-  const { count: payments } = await prisma.payment.deleteMany({
-    where: { bookingId: { in: bookingIds } },
-  });
-
-  // --- Booking rows -----------------------------------------------------------------
 
   const demoLists = await prisma.shoppingList.findMany({
     where: { bookingId: { in: bookingIds } },
@@ -135,25 +91,9 @@ async function main(): Promise<void> {
     where: { name: { startsWith: '[demo]' } },
   });
 
-  const cmsSlugs = Array.from({ length: 10 }, (_, i) => demoCmsSlug(i + 1));
-  const { count: cmsPages } = await prisma.cmsPage.deleteMany({
-    where: { slug: { in: cmsSlugs } },
-  });
-
   const formuleIds = Array.from({ length: 10 }, (_, i) => demoFormuleId(i + 1));
   const { count: formules } = await prisma.formule.deleteMany({
     where: { id: { in: formuleIds } },
-  });
-
-  // --- Chef paperwork and identities ------------------------------------------------
-
-  // Both cascade from `ChefProfile`; deleted explicitly so the counts are reported.
-  const { count: sepaMandates } = await prisma.sepaMandate.deleteMany({
-    where: { chefProfile: { userId: { in: userIds } } },
-  });
-
-  const { count: sapProfiles } = await prisma.sapProfile.deleteMany({
-    where: { chefProfile: { userId: { in: userIds } } },
   });
 
   const { count: chefs } = await prisma.chefProfile.deleteMany({
@@ -170,11 +110,6 @@ async function main(): Promise<void> {
 
   console.log('Demo unseed removed:');
   console.log({
-    commissionDebits,
-    commissions,
-    commissionInvoices,
-    cesuSettlements,
-    payments,
     shoppingItems: items,
     shoppingLists: lists,
     bookingMeals,
@@ -185,14 +120,10 @@ async function main(): Promise<void> {
     menuWeekMeals: weekMeals,
     menuWeeks: weeks,
     meals,
-    cmsPages,
     formules,
-    sepaMandates,
-    sapProfiles,
     chefProfiles: chefs,
     clientProfiles: clients,
     users,
-    stripeEventLogs: stripeEvents,
   });
   console.log(`(Meal filter: names like "${demoMealName(1).slice(0, 6)}…")`);
 }

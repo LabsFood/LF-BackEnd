@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import type Stripe from 'stripe';
 
 import { StripeService } from '../../integrations/stripe.service';
@@ -40,6 +40,12 @@ describe('StripeWebhooksService', () => {
     handleMandateUpdated: jest.Mock;
   };
   let prisma: { stripeEventLog: { upsert: jest.Mock; update: jest.Mock } };
+  let groceries: {
+    isCoursesIntent: jest.Mock;
+    handleCoursesIntent: jest.Mock;
+    handleDispute: jest.Mock;
+    handleSetupIntentSucceeded: jest.Mock;
+  };
   let constructEvent: jest.Mock;
   let stripe: { configured: boolean; webhookSecrets: string[]; getClient: jest.Mock };
   let service: StripeWebhooksService;
@@ -68,6 +74,13 @@ describe('StripeWebhooksService', () => {
         update: jest.fn(),
       },
     };
+    // Default: no courses payment, no grocery card, no grocery chargeback.
+    groceries = {
+      isCoursesIntent: jest.fn().mockResolvedValue(false),
+      handleCoursesIntent: jest.fn(),
+      handleDispute: jest.fn().mockResolvedValue(false),
+      handleSetupIntentSucceeded: jest.fn().mockResolvedValue(false),
+    };
     constructEvent = jest.fn();
     stripe = {
       configured: true,
@@ -82,7 +95,40 @@ describe('StripeWebhooksService', () => {
       sepaMandates as unknown as SepaMandatesService,
       commissionDebits as unknown as CommissionDebitsService,
       prisma as unknown as PrismaService,
+      groceries as never,
+      { handleSetupIntentSucceeded: jest.fn().mockResolvedValue(false) } as never,
     );
+  });
+
+  describe('groceries (Recettes lot 6)', () => {
+    it('routes a courses PaymentIntent to the grocery flow, never to the service one', async () => {
+      groceries.isCoursesIntent.mockResolvedValue(true);
+      const intent = { id: 'pi_courses' };
+      await service.handleVerifiedEvent({
+        type: 'payment_intent.succeeded',
+        data: { object: intent },
+      } as never);
+      expect(groceries.handleCoursesIntent).toHaveBeenCalledWith(
+        'payment_intent.succeeded',
+        intent,
+      );
+      expect(payments.handlePaymentIntentSucceeded).not.toHaveBeenCalled();
+    });
+
+    it('lets the grocery flow claim a chargeback and a card setup first', async () => {
+      groceries.handleDispute.mockResolvedValue(true);
+      await service.handleVerifiedEvent({
+        type: 'charge.dispute.created',
+        data: { object: { id: 'dp_1', payment_intent: 'pi_courses' } },
+      } as never);
+      expect(commissionDebits.handleDebitDisputed).not.toHaveBeenCalled();
+      groceries.handleSetupIntentSucceeded.mockResolvedValue(true);
+      await service.handleVerifiedEvent({
+        type: 'setup_intent.succeeded',
+        data: { object: { id: 'seti_1' } },
+      } as never);
+      expect(sepaMandates.handleSetupIntentSucceeded).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleVerifiedEvent', () => {
@@ -219,13 +265,97 @@ describe('StripeWebhooksService', () => {
       });
     });
 
-    it('ignores unsubscribed event types', async () => {
-      await service.handleVerifiedEvent(event('invoice.paid', { id: 'in_1' }));
+    // Every type the develop endpoint is subscribed to without a handler of its own.
+    it.each([
+      'invoice.created',
+      'invoice.finalized',
+      'invoice.finalization_failed',
+      'invoice.paid',
+      'invoice.payment_action_required',
+      'invoice.payment_failed',
+      'invoice.upcoming',
+      'invoice.updated',
+      'subscription_schedule.aborted',
+      'subscription_schedule.canceled',
+      'subscription_schedule.completed',
+      'subscription_schedule.created',
+      'subscription_schedule.expiring',
+      'subscription_schedule.released',
+      'subscription_schedule.updated',
+      'payment_intent.created',
+      'payment_intent.requires_action',
+      'setup_intent.created',
+      'setup_intent.requires_action',
+      'setup_intent.canceled',
+    ])('acknowledges %s with nothing to record', async (type) => {
+      const warn = jest.spyOn(service['logger'], 'warn');
 
+      await expect(
+        service.handleVerifiedEvent(event(type, { id: 'obj_1' })),
+      ).resolves.toBeUndefined();
+
+      expect(warn).not.toHaveBeenCalled();
       expect(payments.handlePaymentIntentSucceeded).not.toHaveBeenCalled();
-      expect(stripeConnect.handleAccountUpdated).not.toHaveBeenCalled();
       expect(sepaMandates.handleSetupIntentSucceeded).not.toHaveBeenCalled();
     });
+
+    it('answers an unexpected type too, but flags the missing handler', async () => {
+      const warn = jest.spyOn(service['logger'], 'warn');
+
+      await service.handleVerifiedEvent(event('payout.paid', { id: 'po_1' }));
+
+      expect(warn).toHaveBeenCalledWith({
+        event: 'stripe.webhook_unhandled',
+        type: 'payout.paid',
+      });
+    });
+
+    it('logs a failed mandate signature without touching the mandate', async () => {
+      const warn = jest.spyOn(service['logger'], 'warn');
+
+      await service.handleVerifiedEvent(
+        event('setup_intent.setup_failed', {
+          id: 'seti_1',
+          metadata: { chefProfileId: 'chef-1' },
+          last_setup_error: { code: 'invalid_bank_account_iban' },
+        }),
+      );
+
+      expect(warn).toHaveBeenCalledWith({
+        event: 'sepa.setup_failed',
+        setupIntentId: 'seti_1',
+        chefProfileId: 'chef-1',
+        code: 'invalid_bank_account_iban',
+      });
+      expect(sepaMandates.handleSetupIntentSucceeded).not.toHaveBeenCalled();
+    });
+
+    it.each(['refund.failed', 'refund.updated', 'charge.refund.updated'])(
+      'raises a failed refund on %s, and stays quiet on a refund that went through',
+      async (type) => {
+        const error = jest.spyOn(service['logger'], 'error');
+
+        await service.handleVerifiedEvent(
+          event(type, { id: 're_1', status: 'succeeded', payment_intent: 'pi_1' }),
+        );
+        expect(error).not.toHaveBeenCalled();
+
+        await service.handleVerifiedEvent(
+          event(type, {
+            id: 're_1',
+            status: 'failed',
+            payment_intent: 'pi_1',
+            failure_reason: 'expired_or_canceled_card',
+          }),
+        );
+        expect(error).toHaveBeenCalledWith({
+          event: 'stripe.refund_failed',
+          refundId: 're_1',
+          paymentIntentId: 'pi_1',
+          reason: 'expired_or_canceled_card',
+        });
+      },
+    );
   });
 
   describe('verifyAndHandle', () => {
@@ -287,9 +417,12 @@ describe('StripeWebhooksService', () => {
         throw new Error('No signatures found matching the expected signature.');
       });
 
-      await expect(service.verifyAndHandle('{}', 'bad-sig')).rejects.toThrow(
-        'No signatures found',
-      );
+      const refusal = service.verifyAndHandle('{}', 'bad-sig');
+
+      await expect(refusal).rejects.toBeInstanceOf(BadRequestException);
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'WEBHOOK_SIGNATURE_INVALID' },
+      });
       expect(constructEvent).toHaveBeenCalledTimes(2);
       expect(payments.handleChargeRefunded).not.toHaveBeenCalled();
     });

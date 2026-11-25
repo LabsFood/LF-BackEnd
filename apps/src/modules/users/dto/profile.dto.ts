@@ -1,5 +1,17 @@
 import { ApiPropertyOptional, IntersectionType, PartialType } from '@nestjs/swagger';
-import { IsArray, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
+
+import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
 
 /**
  * Fields that live on `client_profiles`. Every property here must map to a real
@@ -17,16 +29,6 @@ export class UpsertClientProfileDto {
   @IsArray()
   @IsString({ each: true })
   dietaryPreferences?: string[];
-
-  @ApiPropertyOptional({
-    type: [String],
-    description: 'Food allergies the chef must avoid.',
-    example: ['peanuts', 'shellfish'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  allergies?: string[];
 
   @ApiPropertyOptional({
     type: [String],
@@ -80,7 +82,12 @@ export class UpsertClientProfileDto {
 
   @ApiPropertyOptional({
     maxLength: 120,
-    description: 'City for the service address.',
+    description:
+      'City for the service address. ' +
+      'Must be a commune that `addressPostalCode` (sent, or on file) serves in the ' +
+      'official base (geo.api.gouv.fr): otherwise 422 `ADDRESS_CITY_MISMATCH`, ' +
+      '`communes` listing those it serves; 502/504 `GEO_UNAVAILABLE` when that base ' +
+      'fails.',
     example: 'Paris',
   })
   @IsOptional()
@@ -169,7 +176,21 @@ export class UpdateOwnUserFieldsDto {
 export class UpdateMeProfileDto extends IntersectionType(
   PartialType(UpsertClientProfileDto),
   UpdateOwnUserFieldsDto,
-) {}
+) {
+  @ApiPropertyOptional({
+    description:
+      'Ticks the health consent box (`healthConsent.text` of `GET /me/profile`). ' +
+      'Needed to save `dietaryPreferences` when no consent to the current version is on file.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  consent?: boolean;
+
+  @ApiPropertyOptional({ description: 'The `healthConsent.version` the client read.' })
+  @IsOptional()
+  @IsString()
+  consentVersion?: string;
+}
 
 /** Partial update body for `PATCH /me/profile`. @deprecated use {@link UpdateMeProfileDto} */
 export class UpdateClientProfileDto extends PartialType(UpsertClientProfileDto) {}
@@ -177,11 +198,11 @@ export class UpdateClientProfileDto extends PartialType(UpsertClientProfileDto) 
 /** Partial update body for `PATCH /admin/clients/:id` (includes CRM status). */
 export class UpdateAdminClientDto extends PartialType(UpsertClientProfileDto) {
   @ApiPropertyOptional({
-    enum: ['vip', 'active', 'prospect', 'inactive'],
-    description: 'CRM lifecycle status for admin client management.',
-    example: 'active',
+    enum: CLIENT_STATUSES,
+    description: CLIENT_STATUS_HELP,
+    example: 'vip',
   })
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(CLIENT_STATUSES)
+  status?: (typeof CLIENT_STATUSES)[number];
 }

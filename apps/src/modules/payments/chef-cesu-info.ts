@@ -25,6 +25,7 @@ export const CHEF_CESU_INFO_SELECT = {
       crcesuAffiliationStatus: true,
     },
   },
+  sepaMandate: { select: { status: true } },
 } as const;
 
 export type ChefCesuInfoRow = {
@@ -35,6 +36,7 @@ export type ChefCesuInfoRow = {
     crcesuNan: string | null;
     crcesuAffiliationStatus: SapExternalStatus;
   } | null;
+  sepaMandate: { status: string } | null;
 };
 
 export interface ChefCesuInfo {
@@ -58,8 +60,40 @@ export interface ChefCesuInfo {
  * The number is only published for a chef who has opted in: without the opt-in it is not
  * actionable, and publishing it would invite a payment the chef will refuse.
  */
+/**
+ * Whether the commission can be debited from this chef (`sepa-mandates.service.ts`).
+ * CESU and the immediate advance never cross Stripe, so their commission can only be
+ * collected by direct debit: without an active mandate, neither is offered.
+ */
+export const mandateActive = (mandate: { status: string } | null | undefined) =>
+  mandate?.status === 'active';
+
+/** CESU is only offered with the NAN a client needs to add the chef on their portal. */
+export const cesuAccepted = (
+  sap: { acceptsCesu: boolean; crcesuNan: string | null } | null | undefined,
+  mandate: { status: string } | null | undefined,
+) => Boolean(sap?.acceptsCesu && sap.crcesuNan && mandateActive(mandate));
+
+/** The chef's own SAP/NOVA number: every request to URSSAF is made in its name. */
+export const novaCodeSet = (sap: { novaCode: string | null } | null | undefined) =>
+  Boolean(sap?.novaCode?.trim());
+
+/**
+ * The immediate advance: URSSAF habilitation (flipped by an admin), the chef's NOVA
+ * code (entered with each request on the intermediary's space), and a mandate for
+ * the commission.
+ */
+export const advanceAccepted = (
+  sap:
+    { urssafTiersPrestationStatus: string; novaCode: string | null } | null | undefined,
+  mandate: { status: string } | null | undefined,
+) =>
+  sap?.urssafTiersPrestationStatus === 'active' &&
+  novaCodeSet(sap) &&
+  mandateActive(mandate);
+
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
-  const acceptsCesu = Boolean(chef.sapProfile?.acceptsCesu && chef.sapProfile.crcesuNan);
+  const acceptsCesu = cesuAccepted(chef.sapProfile, chef.sepaMandate);
   return {
     chefProfileId: chef.id,
     chefDisplayName: chef.displayName,
@@ -69,3 +103,36 @@ export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
     supportedIssuers: [...CESU_SUPPORTED_ISSUERS],
   };
 }
+
+/** Prisma `select` for `offeredMethods`. */
+export const OFFERED_METHODS_SELECT = {
+  stripeAccountId: true,
+  stripeChargesEnabled: true,
+  stripePayoutsEnabled: true,
+  sapProfile: true,
+  sepaMandate: { select: { status: true } },
+} as const;
+
+/**
+ * Which methods a client can choose with this chef at booking (CGV V1 5.1). The card
+ * needs a finished Stripe account; the advance an open URSSAF gateway (`urssaf.gateway`
+ * not `disabled`).
+ */
+export const offeredMethods = (
+  chef: {
+    stripeAccountId: string | null;
+    stripeChargesEnabled: boolean;
+    stripePayoutsEnabled: boolean;
+    sapProfile: Parameters<typeof advanceAccepted>[0] &
+      Parameters<typeof cesuAccepted>[0];
+    sepaMandate: { status: string } | null;
+  },
+  urssafMode: string,
+) => ({
+  cb: Boolean(
+    chef.stripeAccountId && chef.stripeChargesEnabled && chef.stripePayoutsEnabled,
+  ),
+  avance_immediate:
+    urssafMode !== 'disabled' && advanceAccepted(chef.sapProfile, chef.sepaMandate),
+  cesu: cesuAccepted(chef.sapProfile, chef.sepaMandate),
+});

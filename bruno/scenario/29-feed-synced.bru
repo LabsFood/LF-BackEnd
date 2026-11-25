@@ -1,0 +1,23 @@
+meta {
+  name: The feed shows as synced
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{baseUrl}}/chef/calendar-feed
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  test("enabled and synced", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().enabled).to.equal(true);
+    expect(res.getBody().synced).to.equal(true);
+  });
+}

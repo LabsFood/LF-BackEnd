@@ -1,0 +1,27 @@
+meta {
+  name: Agenda over 42 days is refused
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/chef/agenda?from={{weekFrom}}&to={{tooLongTo}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  from: {{weekFrom}}
+  to: {{tooLongTo}}
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  test("422 VALIDATION_FAILED", function () {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().code).to.equal("VALIDATION_FAILED");
+  });
+}

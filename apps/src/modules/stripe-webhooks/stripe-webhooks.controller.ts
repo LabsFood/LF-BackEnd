@@ -3,11 +3,13 @@ import {
   Controller,
   Headers,
   HttpCode,
+  InternalServerErrorException,
   Post,
   Req,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import {
   getWebhookRawBody,
@@ -17,6 +19,8 @@ import { StripeWebhooksService } from './stripe-webhooks.service';
 
 @ApiTags('webhooks')
 @ApiExcludeController()
+// Stripe retries in bursts from a few IPs; the signature is the gate here.
+@SkipThrottle({ global: true })
 @Controller('webhooks')
 export class StripeWebhooksController {
   constructor(private readonly stripeWebhooks: StripeWebhooksService) {}
@@ -47,9 +51,12 @@ export class StripeWebhooksController {
       ) {
         throw error;
       }
-      const message =
-        error instanceof Error ? error.message : 'Webhook verification failed';
-      throw new BadRequestException(message);
+      // The event was genuine but its handler failed (logged with the event id): a 500
+      // so Stripe retries, without echoing the internal error back to Stripe.
+      throw new InternalServerErrorException({
+        code: 'WEBHOOK_HANDLER_FAILED',
+        message: 'The event could not be processed; Stripe will retry it.',
+      });
     }
 
     return { received: true };

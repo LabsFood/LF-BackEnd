@@ -7,12 +7,14 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -20,6 +22,7 @@ import {
   ApiParam,
   ApiQuery,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
@@ -36,11 +39,18 @@ import { CesuPaymentsService } from './cesu-payments.service';
 import {
   BookingPaymentStatusDto,
   CesuPaymentDto,
+  CesuProofDto,
+  CesuProofUploadDto,
   ChefCesuInfoDto,
   DeclareCesuPaymentDto,
   ForceSettleCesuPaymentDto,
   RejectCesuPaymentDto,
 } from './dto/cesu.dto';
+
+const PROOF_LINK_EXAMPLE = {
+  url: 'https://<project>.supabase.co/storage/v1/object/sign/labsfood-kyc/cesu-proofs/…?token=…',
+  expiresAt: '2026-10-14T10:05:00.000Z',
+};
 
 const CIRCUIT_NOTE =
   'Prefinanced CESU: **the funds never transit through the platform**. The client pays ' +
@@ -55,7 +65,7 @@ const CIRCUIT_NOTE =
  * would force the guard onto every other method individually, where one missed decorator
  * silently exposes a protected route — the same split as `PublicUsersController`.
  */
-@ApiTags('payments')
+@ApiTags('Payments')
 @Controller('chefs')
 export class PublicCesuController {
   constructor(private readonly cesu: CesuPaymentsService) {}
@@ -82,9 +92,25 @@ export class PublicCesuController {
   ): Promise<ChefCesuInfoDto> {
     return this.cesu.getChefCesuInfo(chefProfileId);
   }
+
+  @Get(':chefProfileId/payment-methods')
+  @ApiOperation({
+    summary: 'Public: the payment methods this chef takes at booking',
+    description:
+      'CGV V1 5.1: the booking screen offers these, chosen at booking and paid after ' +
+      'the session. `card` false means no booking is possible yet (every booking saves ' +
+      'a card). `urssaf` true still needs the client enrolled with this chef ' +
+      '(`GET /me/urssaf-links`); a link under review is enough to book.',
+  })
+  @ApiParam({ name: 'chefProfileId', description: 'Chef profile uuid.' })
+  @ApiOkResponse({ example: { card: true, urssaf: true, cesu: false } })
+  @ApiNotFoundResponse({ description: 'No such chef, or not open for bookings.' })
+  getChefPaymentMethods(@Param('chefProfileId', ParseUUIDPipe) chefProfileId: string) {
+    return this.cesu.getChefPaymentMethods(chefProfileId);
+  }
 }
 
-@ApiTags('payments')
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)
@@ -102,10 +128,18 @@ export class CesuPaymentsController {
       'until the chef confirms. The amount may not exceed what is left to cover on the ' +
       'booking (see `GET /me/bookings/:id/payment-status`) — CRCESU rules forbid charging ' +
       'the client anything on top, so no fee can be added on this path. A booking may be ' +
-      'paid part CESU and part card.',
+      'paid part CESU and part card.\n\n' +
+      '**e-CESU needs its proof**: upload the issuer’s confirmation first (`POST ' +
+      '/me/bookings/{id}/cesu-proof/upload-url`, then a `PUT` of the file) and send its ' +
+      '`proofUploadId` here. It is Lab’s Food’s evidence in a dispute; the chef still ' +
+      'confirms receipt.',
   })
   @ApiOkResponse({ type: CesuPaymentDto, description: 'The recorded declaration.' })
   @ApiNotFoundResponse({ description: 'Booking not found or not owned by the caller.' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`PROOF_MISSING`: no file arrived for `proofUploadId`; or not a PDF or image.',
+  })
   @ApiConflictResponse({
     description:
       'Booking is not `pending` or already fully paid; the amount exceeds what is due; ' +
@@ -118,6 +152,77 @@ export class CesuPaymentsController {
     @Body() payload: DeclareCesuPaymentDto,
   ): Promise<CesuPaymentDto> {
     return this.cesu.declare(user.userId, payload);
+  }
+
+  @Post('me/bookings/:id/cesu-proof/upload-url')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Upload my e-CESU proof, step 1: get an upload link',
+    description:
+      'Before declaring an e-CESU payment: the issuer’s confirmation (PDF, JPEG, PNG or ' +
+      'WebP, 10 MB at most). `PUT` the file to `url` with the `headers` given, then send ' +
+      'the `uploadId` as `proofUploadId` to `POST /payments/cesu`. The file goes to a ' +
+      'private store: nobody gets a public link to it.',
+  })
+  @ApiParam({ name: 'id', description: 'Booking uuid.' })
+  @ApiCreatedResponse({
+    description: 'Where to send the file.',
+    example: {
+      uploadId: 'up_9f2a1c4e7b30d85a61c2e4f7',
+      method: 'PUT',
+      url: 'https://<project>.supabase.co/storage/v1/object/upload/sign/labsfood-kyc/…',
+      headers: { 'Content-Type': 'application/pdf' },
+      expiresAt: '2026-10-14T12:00:00.000Z',
+    },
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found or not owned by the caller.' })
+  @ApiConflictResponse({ description: 'The booking cannot be paid now.' })
+  @ApiClerkAuthResponses()
+  proofUploadUrl(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) bookingId: string,
+    @Body() payload: CesuProofUploadDto,
+  ) {
+    return this.cesu.proofUploadUrl(user.userId, bookingId, payload);
+  }
+
+  @Put('me/cesu-payments/:id/proof')
+  @ApiOperation({
+    summary: 'Replace my e-CESU proof',
+    description:
+      'A wrong file, replaced by another uploaded the same way (step 1 above), while the ' +
+      'chef has not answered. Once they confirmed or rejected, the proof is kept as it is.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment uuid.' })
+  @ApiOkResponse({ type: CesuPaymentDto, description: 'The declaration.' })
+  @ApiNotFoundResponse({ description: 'No such CESU payment of mine.' })
+  @ApiConflictResponse({ description: '`PROOF_LOCKED`: the chef has answered.' })
+  @ApiUnprocessableEntityResponse({
+    description: '`PROOF_MISSING`, or not a PDF or image.',
+  })
+  @ApiClerkAuthResponses()
+  replaceProof(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) paymentId: string,
+    @Body() payload: CesuProofDto,
+  ): Promise<CesuPaymentDto> {
+    return this.cesu.replaceProof(user.userId, paymentId, payload.uploadId);
+  }
+
+  @Get('me/cesu-payments/:id/proof-url')
+  @ApiOperation({
+    summary: 'See my e-CESU proof',
+    description: 'A link valid 5 minutes.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment uuid.' })
+  @ApiOkResponse({ description: 'The link.', example: PROOF_LINK_EXAMPLE })
+  @ApiNotFoundResponse({ description: 'No such CESU payment of mine, or `NO_PROOF`.' })
+  @ApiClerkAuthResponses()
+  proofUrl(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) paymentId: string,
+  ) {
+    return this.cesu.proofUrl(user.userId, paymentId);
   }
 
   @Get('me/bookings/:id/payment-status')
@@ -222,6 +327,20 @@ export class CesuPaymentsController {
   @ApiAdminAuthResponses()
   listAll(@Query('status') status?: CesuSettlementStatus): Promise<CesuPaymentDto[]> {
     return this.cesu.listForAdmin(status);
+  }
+
+  @Get('admin/cesu-payments/:id/proof-url')
+  @UseGuards(AdminGuard)
+  @ApiOperation({
+    summary: 'Admin: see the client’s e-CESU proof',
+    description: 'For a dispute between a chef and a client. A link valid 5 minutes.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment uuid.' })
+  @ApiOkResponse({ description: 'The link.', example: PROOF_LINK_EXAMPLE })
+  @ApiNotFoundResponse({ description: 'No such CESU payment, or `NO_PROOF`.' })
+  @ApiAdminAuthResponses()
+  adminProofUrl(@Param('id', ParseUUIDPipe) paymentId: string) {
+    return this.cesu.adminProofUrl(paymentId);
   }
 
   @Post('admin/cesu-payments/:id/force-settle')

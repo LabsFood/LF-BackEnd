@@ -4,8 +4,12 @@ Production runs the **NestJS API** from [`apps/Dockerfile`](../../apps/Dockerfil
 
 ## 1. Create the service
 
+> **Production is not deployed this way any more**: its service runs an image that
+> GitHub Actions built and pushed to GHCR, promoted by a workflow (§5). The steps
+> below are for a service Railway builds itself from the repository.
+
 1. [Railway](https://railway.com/) → **New Project** → **Deploy from GitHub repo** → select `LF-BackEnd`.
-2. Railway reads [`railway.toml`](../../railway.toml): Docker build from `apps/Dockerfile`, health check `GET /health`.
+2. Service → **Settings**: Dockerfile path `/apps/Dockerfile`, watch paths `/apps/**`, health check `/health` (timeout 300 s), restart on failure (10 retries). These live in the service settings (Railway config-as-code is deprecated; no `railway.toml`).
 3. Do **not** deploy the Compose `postgres` service on Railway; use Supabase for the database.
 
 ## 2. Environment variables
@@ -14,15 +18,15 @@ Set these on the **API service** (Production). Mark secrets as **secret** in Rai
 
 ### Required
 
-| Variable | Notes |
-|----------|--------|
-| `NODE_ENV` | `production` |
-| `ENVIRONMENT` | `production` |
-| `DEBUG` | `false` |
-| `API_HOST` | `0.0.0.0` |
-| `SUPABASE_DB_URL` | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`. |
+| Variable                    | Notes                                                                                                                                                                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                  | `production`                                                                                                                                                                                                                              |
+| `ENVIRONMENT`               | `production`                                                                                                                                                                                                                              |
+| `DEBUG`                     | `false`                                                                                                                                                                                                                                   |
+| `API_HOST`                  | `0.0.0.0`                                                                                                                                                                                                                                 |
+| `SUPABASE_DB_URL`           | **Transaction pooler** (port **6543**, `?pgbouncer=true`). Runtime Prisma + `/ready`.                                                                                                                                                     |
 | `SUPABASE_DB_MIGRATION_URL` | **Session pooler** or **direct** (port **5432**). Used only at container start for `prisma migrate deploy`. If direct `db.<ref>.supabase.co` is unreachable from Railway (P1001), use the **session pooler** string on port 5432 instead. |
-| `CLERK_SECRET_KEY` | Production Clerk secret (`sk_live_…`). |
+| `CLERK_SECRET_KEY`          | Production Clerk secret (`sk_live_…`).                                                                                                                                                                                                    |
 
 ### Port (Railway networking)
 
@@ -32,26 +36,70 @@ Optional override: set `API_PORT` explicitly if you use a fixed internal port.
 
 ### CORS
 
-| Variable | Example |
-|----------|---------|
-| `CORS_ORIGINS` | **Optional.** The product frontends (`https://labsfood.fr`, `https://www.labsfood.fr`, `https://batchcooking.labsfood.fr`) are already allowlisted in [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts). Set this only for extra origins — preview deploys, tunnels, staging: `https://preview-abc.vercel.app,https://staging.labsfood.fr`. Exact scheme + host + port, comma-separated, no wildcards. |
+| Variable       | Example                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CORS_ORIGINS` | **Optional.** The product frontends (`https://labsfood.fr`, `https://www.labsfood.fr`, `https://batchcooking.labsfood.fr`) are already allowlisted in [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts). Set this only for extra origins — preview deploys, tunnels: `https://preview-abc.vercel.app`. Exact scheme + host + port, comma-separated, no wildcards. |
 
 ### Integrations (set when the feature is live)
 
 | Variable | When needed |
 |----------|-------------|
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Clerk webhooks → `POST /webhooks/clerk` (`user.created` / `user.updated` / `user.deleted`) |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Payments — **live**. Without them `/payments/*` answers `503` |
-| `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). **`1500` is a placeholder — set the negotiated rate** |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` | Payments — **live**. Without the key `/payments/*` answers `503`; without the Connect secret `account.updated` is rejected and chefs stay `chargesEnabled=false` |
+| `PAYMENTS_COMMISSION_RATE_BPS`, `PAYMENTS_COMMISSION_VAT_RATE_BPS` | Platform commission in basis points (defaults `1500` / `2000`). Fallback until an admin saves the rate from the console (`PATCH /admin/settings/commission`) |
+| `PAYMENTS_COMMISSION_DEBIT_TRIGGER`, `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`, `PAYMENTS_COMMISSION_INVOICE_PREFIX` | Commission debits on CESU payments (defaults `on_payment`, `3`, `LF-COM`) |
+| `PAYMENTS_INVOICE_PREFIX` | Numbering template of the client's invoice, facture A (default `LF-CUSYY-XXXXX`: `YY` the year's last two digits, the Xs the year's sequence, giving `LF-CUS26-00001`). Refused at startup without `YY` and a trailing run of `X` |
+| `URSSAF_GATEWAY` | Immediate advance: `disabled` (default), `simulated` or `manual`. `simulated` is refused beside a live Stripe key; `manual` (an admin enters requests on the intermediary's space) is allowed |
+| `KYC_ENCRYPTION_KEY` | AES-256 key, 32 bytes base64 (`openssl rand -base64 32`), sealing the clients' URSSAF dossiers. Required when `URSSAF_GATEWAY=manual`; never rotate without re-encrypting |
 | `STRIPE_CONNECT_RETURN_URL`, `STRIPE_CONNECT_REFRESH_URL` | Where Stripe returns a chef after Connect onboarding — production batchcooking-web routes, not `localhost:3005` |
-| `CRONOFY_CLIENT_ID`, `CRONOFY_CLIENT_SECRET`, `CRONOFY_DATA_CENTER` | Calendar |
-| `STREAM_API_KEY`, `STREAM_API_SECRET`, `STREAM_APP_ID` | Chat |
 | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email |
-| `GOOGLE_MAPS_API_KEY` | Maps |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | S3 |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET` | CMS assets in Supabase Storage |
+| `GOOGLE_MAPS_API_KEY` | Maps — not used yet |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Supabase Storage client (KYC documents and message attachments). A secret key (`sb_secret_…`) per environment; the legacy `service_role` JWT is refused at startup |
+| `SUPABASE_KYC_BUCKET` | Chef onboarding KYC documents — **private bucket, no public read policy** |
+| `SUPABASE_MESSAGING_BUCKET` | Message attachments — **private bucket**. Without it the attachment routes answer 503 |
+| `SUPABASE_INVOICES_BUCKET` | Clients' invoices (facture A, PDF) — **private bucket**, create it before the first card payment settles. Without it the invoice is numbered but its PDF waits (see below) |
+| `REDIS_URL` | Messaging rate limit and realtime fan-out. Required once the API runs on more than one instance |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Dish, menu and profile photos on Cloudflare R2 (public bucket). All five, or the photo routes answer 503 `PHOTOS_UNAVAILABLE` |
+| `BREVO_TPL_*` (optional overrides) | One per email: chef onboarding, dishes, messaging, contact forms, custom requests, bookings (see [`brevo/README.md`](../../brevo/README.md)). Since 2026-11-19 the container creates the missing templates at start and the API finds each id by its template name, so these are only needed to override; an id neither set nor found skips that email with a warning. **`BREVO_API_KEY` and `BREVO_TPL_APPLICATION_RECEIVED` are required wherever candidatures are accepted** — that email carries the only sign-in link to the new account — and `BREVO_TPL_SIGN_IN_LINK` for the admin resend |
+| `CONTACT_NOTIFICATION_EMAIL`, `ADMIN_SITE_URL` | Team address told about contact messages and custom requests with no batch cooker (Reply-To of the answers), and the admin console link in those emails. Without `BREVO_TPL_CONTACT_REPLY` an admin cannot answer a contact message |
+| `PUBLIC_SITE_URL`, `CHEF_APPLICATION_ADMIN_EMAIL` | The batch cooking site (default `https://batchcooking.labsfood.fr`) for the sign-in, dossier and dashboard links in the chef-onboarding emails — it must use the **same Clerk instance** as `CLERK_SECRET_KEY`, or the sign-in link is refused — and the internal new-candidature notification |
+| `LOG_JSON`, `LOG_LEVEL` | Structured logging — see §4b |
+| `SENTRY_DSN` | Error reporting to Sentry (EU region), the `lf-api` project — see §4b. Unset = off |
+| `SENTRY_ENVIRONMENT` | `develop` on the develop service, unset in production — see §4b |
 
 Copy URI formats from [`docs/database-connection.md`](../database-connection.md).
+
+### Invoices bucket (facture A)
+
+Create the bucket named by `SUPABASE_INVOICES_BUCKET` (default `labsfood-invoices`) in
+Supabase Storage, **private**, with no policy for `anon` or `authenticated`: only the API's
+secret key reads and writes it, and a client gets a 5-minute signed link per download.
+A PDF whose upload fails stays `storagePath = null`; the next download request redraws it
+from the invoice's frozen snapshot and stores it, so no job has to run.
+
+Card payments settled before invoices existed have none. Once the bucket exists, an admin
+issues them with `POST /admin/payment-invoices/backfill`: the body `{}` is a dry run that
+counts them, and `{ "dryRun": false }` issues them, oldest payment first. Each one is dated
+the day of the catch-up and numbered in that year's sequence, with the real payment date
+printed on it. Running it again issues only what is still missing.
+
+### KYC bucket (chef onboarding)
+
+Create the bucket named by `SUPABASE_KYC_BUCKET` in Supabase Storage and leave
+it **private**. It holds identity documents; a public read policy on it is a
+personal-data breach, not a misconfiguration. The API never produces a public
+URL for it — uploads use a signed PUT, reads a 5-minute signed GET, and every
+read is written to `audit_log`.
+
+### Dish photos bucket (FLOW-02)
+
+Create an R2 bucket for dish, menu and profile photos and give it a public address (a custom domain,
+or the bucket's r2.dev URL) in `R2_PUBLIC_BASE_URL`: the public site loads photos
+from there. Browsers upload straight to it with a presigned `PUT`, so its CORS
+policy must allow `PUT` with the `Content-Type` header from the site origins. The
+API token needs object read and write on that bucket only. Serve the public domain
+with `X-Content-Type-Options: nosniff` (a Cloudflare response header rule): the API
+checks each photo's bytes, and this stops a browser from second-guessing the type.
 
 ## 3. Database URLs (Supabase)
 
@@ -60,21 +108,14 @@ Copy URI formats from [`docs/database-connection.md`](../database-connection.md)
 
 Never run migrations through the **transaction** pooler (6543). The container entrypoint runs `prisma migrate deploy` once per deploy using `SUPABASE_DB_MIGRATION_URL` (see `apps/scripts/docker-entrypoint.sh`).
 
-Optional one-off seed (not run on deploy):
-
-```bash
-# From your machine with repo-root .env or Railway CLI env
-cd apps && npm run db:seed
-```
-
 ## 4. Public domain & API URLs
 
 ### Public vs private networking
 
-| URL type | Example | Who can call it |
-|----------|---------|-----------------|
-| **Public domain** | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
-| **Private internal** | `http://lf-backend.railway.internal:<PORT>` | Other Railway services in the same project only |
+| URL type             | Example                                             | Who can call it                                         |
+| -------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| **Public domain**    | `https://lf-backend-production-xxxx.up.railway.app` | Browsers, frontends, `curl` from your machine, webhooks |
+| **Private internal** | `http://lf-backend.railway.internal:<PORT>`         | Other Railway services in the same project only         |
 
 `*.railway.internal` is **not** reachable from the public internet. If Swagger or `/ready` return nothing in a browser, you are likely using the internal hostname — use the **public domain** from Networking instead.
 
@@ -82,18 +123,18 @@ cd apps && npm run db:seed
 
 1. Service → **Settings** → **Networking** → **Generate domain** (or attach a custom domain).
 2. Copy the HTTPS URL (e.g. `https://lf-backend-production-xxxx.up.railway.app`). This is `<public-domain>` below.
-3. **Health check** (from `railway.toml`): path **`/health`** (liveness, no DB).
+3. **Health check** (service settings): path **`/health`** (liveness, no DB).
 
 ### Endpoints (production)
 
 Replace `<public-domain>` with your Railway public hostname (no trailing slash).
 
-| Endpoint | URL | Notes |
-|----------|-----|--------|
-| Swagger UI | `https://<public-domain>/docs` | Interactive API explorer |
-| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec |
-| Health | `https://<public-domain>/health` | Liveness; Railway probes this |
-| Readiness | `https://<public-domain>/ready` | DB ping via `SUPABASE_DB_URL` (pooler) |
+| Endpoint     | URL                                    | Notes                                  |
+| ------------ | -------------------------------------- | -------------------------------------- |
+| Swagger UI   | `https://<public-domain>/docs`         | Interactive API explorer               |
+| OpenAPI JSON | `https://<public-domain>/openapi.json` | Machine-readable spec                  |
+| Health       | `https://<public-domain>/health`       | Liveness; Railway probes this          |
+| Readiness    | `https://<public-domain>/ready`        | DB ping via `SUPABASE_DB_URL` (pooler) |
 
 ### Smoke test after deploy
 
@@ -103,30 +144,170 @@ export API_BASE="https://<public-domain>"
 curl -s "$API_BASE/health"
 curl -s "$API_BASE/ready"
 curl -s "$API_BASE/openapi.json" | head -c 200
-curl -s "$API_BASE/content/concept"
 ```
 
-| Path | Use |
-|------|-----|
-| `/health` | Railway health check, load balancer liveness |
-| `/ready` | Readiness (DB ping); use after deploy smoke tests |
-| `/docs` | Swagger UI |
+| Path      | Use                                               |
+| --------- | ------------------------------------------------- |
+| `/health` | Railway health check, load balancer liveness      |
+| `/ready`  | Readiness (DB ping); use after deploy smoke tests |
+| `/docs`   | Swagger UI                                        |
+
+## 4b. Logs and debugging
+
+Set `LOG_JSON=true` in production (it is the default when `ENVIRONMENT=production`).
+Both the application logs and the Fastify access logs then emit JSON lines, so
+Railway's log explorer can filter on fields instead of matching substrings.
+`LOG_LEVEL` accepts `fatal | error | warn | info | debug | trace`, default `info`.
+
+Both streams share the same keys, so Datadog or any other aggregator reads them as
+one:
+- `level`, `message`, `timestamp`
+- `requestId`, plus `userId` (the Clerk id) and `route` on application lines
+- `service`, `env`, `version`, `hostname`
+
+`service`, `env` and `version` default to `lf-api`, `ENVIRONMENT` and
+`RAILWAY_GIT_COMMIT_SHA`; set `DD_SERVICE`, `DD_ENV` and `DD_VERSION` to override them.
+
+**Business events and errors:**
+- A business event is one line with an `event` field (`booking.created`,
+  `cesu.confirmed`…) and ids, codes, counts and durations. Names, emails, phone numbers,
+  addresses, notes and tokens are never logged, and access logs drop the query string.
+- Every HTTP error is logged once, as `event: http.error` with its `status` and `code`:
+  - 5xx at `error`, with the stack
+  - 409, 422 and 429 at `warn`
+  - other 4xx at `debug`
+
+Every response carries an `x-request-id` header. An inbound `x-request-id` from
+a proxy is honoured, so a trace survives across services. Error bodies carry the
+same id as `requestId`, so a user can quote it to support.
+
+**Joining a log line to the database.** The same id is stored on
+`audit_log.request_id`. Railway's log retention is short and cannot be queried
+by candidature, so the durable trail is in Postgres:
+
+```sql
+-- everything that happened to one candidature
+SELECT created_at, actor_type, action, outcome, request_id, metadata
+FROM audit_log WHERE subject_id = '<application uuid>' ORDER BY created_at;
+
+-- recent failures across the platform
+SELECT created_at, action, subject_id, metadata->>'error' AS error
+FROM audit_log WHERE outcome = 'failed' ORDER BY created_at DESC LIMIT 50;
+
+-- who opened which identity document
+SELECT a.created_at, u.email, a.metadata
+FROM audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
+WHERE a.action = 'document.read' ORDER BY a.created_at DESC;
+```
+
+**Sentry.** With `SENTRY_DSN` set, every line logged at `error` becomes a Sentry
+event ([`apps/src/instrument.ts`](../../apps/src/instrument.ts), reported from
+`AppLogger.error`). That covers:
+- the 5xx answers;
+- the failures that services catch and only log: commission debits, SEPA,
+  invoices, Stripe webhooks, Brevo and the cron jobs;
+- Nest's WebSocket errors.
+
+`warn` and below are never sent, so 409, 422 and 429 refusals stay out.
+
+Each event carries:
+- the `requestId` and `route` tags, and the Clerk id as the user. Search Sentry by
+  `requestId:<id>` to land on the issue a user quoted;
+- the event's own fields;
+- the stack, so issues group by where the code broke.
+
+Email addresses are redacted from messages and stacks before sending. Traces are
+sampled at 10 % in production and named after the route.
+
+The Sentry environment is `SENTRY_ENVIRONMENT`, else `ENVIRONMENT`. The develop
+service runs with `ENVIRONMENT=production`, so it sets `SENTRY_ENVIRONMENT=develop`:
+without it, its errors, traces and cron check-ins land in production and page the
+`[prod]` alerts. Sentry routes each environment separately:
+
+| Alert | Covers | Sends |
+|---|---|---|
+| `[prod] New, regressed or reappearing error` | errors, all three projects | at once, then at most every 30 min per issue |
+| `[prod] Error spike` | one issue over 20 events in 1 h | at most hourly |
+| `[prod] Monitors` | uptime (website, admin), cron check-ins, the API error-count and p95 metric monitors, the website error-count monitor | down, missed, crossed and recovered |
+| `[dev] New or regressed error` | errors, `develop` | once a day per issue |
+| `[dev] Monitors` | missed cron check-ins on `develop` | once a day |
+
+The API itself has no uptime monitor: Sentry refuses new ones on `*.railway.app`
+(1,000 per domain, all customers). One needs a custom domain for the API.
+
+The variable is read from the real environment before `.env` is loaded, so to try
+it locally export it in the shell: `SENTRY_DSN=… npm run start:dev`.
+
+## 4c. Scheduled jobs
+
+Five jobs run in-process via `@nestjs/schedule`. There is no queue.
+
+| Job | When | What |
+|-----|------|------|
+| `ChefDossierCron` | daily, 06:00 UTC (the container's clock) | Document expiry warnings, automatic suspension, retention purge |
+| `MessagingNotifierCron` | every 5 minutes | Emails a participant whose messages stayed unread 10 minutes |
+| `quote-offers-expiry` | every 10 minutes | Expires offers past `validUntil` |
+| `bookings-unpaid-hold` | hourly | Reminds both sides of an unpaid `pending` booking at 48 h, cancels it at 72 h (older model, no `paymentMethod`) |
+| `bookings-requests` | every 10 min | CGV V1 requests: drops one whose card is not saved after 1 h, reminds the batch cooker at 24 h, expires it at `acceptBy` |
+| `bookings-charge-after` | every 30 min | CGV V1: charges the saved card, sends the advance to URSSAF or reminds a CESU client once the price falls due |
+| `booking-reschedules-expiry` | hourly | Lapses reschedule proposals nobody answered in time |
+
+Each job checks in to a Sentry cron monitor of the same slug (`chef-dossier-daily`
+for `ChefDossierCron`, `messaging-unread-emails` for `MessagingNotifierCron`). A
+missed or failed run opens an issue: after 1 run for the daily job, 2 for the
+hourly ones, 3 for the 5- and 10-minute ones, so a container restart stays quiet.
+
+**If you scale the API past one replica, every replica will run them.** The
+messaging, offer and booking jobs claim their rows, or only move rows still in
+the state they expect, so a double run is harmless. The
+chef-dossier steps are idempotent, but move that job to a queue or a Postgres
+advisory lock before relying on that at scale. See `ChefDossierCron`.
 
 ## 5. Deploy flow
 
-On each deploy Railway:
+### Production: an image promoted from GHCR
 
-1. Builds `apps/Dockerfile` (context: repository root `.`).
-2. Starts container → entrypoint runs **`prisma migrate deploy`** → **`node dist/main.js`**.
-3. Probes **`/health`** until success.
+Railway does not build production. GitHub Actions builds and tests the image,
+and a reviewed workflow points the production service at it:
+
+1. **Gate**: `docker.yml` ("LF API Server image") runs on pushes to `main` and
+   `develop`, on version tags and on pull requests to either branch. Its first
+   job is `ci.yml`: lint and unit tests, Semgrep SAST, `npm audit`.
+2. **Image**: `docker.yml` builds `apps/Dockerfile`, runs it against a throwaway
+   Postgres (migrations, `/health`, `/ready`) and, except for pull requests,
+   pushes it to GHCR, tagged `sha-<short commit>` among others.
+3. **Release**: once that passes for a push to `main`, `release.yml`
+   ("SemRelease") runs semantic-release. The version comes from the Conventional
+   Commit messages since the last `v*.*.*` tag, hence the PR-title check in
+   `pr-title.yml`. A new version starts `deploy-production.yml` with its tag.
+4. **Promote**: `deploy-production.yml` ("Deploy production") resolves the tag to
+   a commit on `main` whose `sha-…` image exists (a `chore(release)` commit uses
+   its parent's), then **waits for a reviewer** on the GitHub `production`
+   environment. Once approved, it sets that image as the service's source,
+   deploys it, waits up to 15 minutes for Railway to report it live, and
+   smoke-tests `/health` and `/ready`.
+
+It can also be run by hand: **Actions → Deploy production → Run workflow**, with a
+tag or a commit on `main`. **Rollback**: run it again with an older tag. The
+reviewers, the main-only rule and the Railway token are on the `production`
+environment (GitHub **Settings → Environments**); the service and environment
+ids are in the workflow file.
+
+### What every deploy runs
+
+1. The container entrypoint runs **`prisma migrate deploy`** (with
+   `SUPABASE_DB_MIGRATION_URL`), then **`node dist/main.js`**.
+2. A service Railway builds from the repository (§1) builds `apps/Dockerfile`
+   first (context: repository root `.`) and probes **`/health`**, per its
+   service settings. An image-sourced service builds nothing.
 
 ## 6. Local Docker vs Railway
 
-| | Local Compose | Railway |
-|---|---------------|---------|
-| Database | `postgres` service | Supabase |
-| Build | `docker compose build api` | Git push / Railway build |
-| Env | Repo-root `.env` | Railway dashboard |
+|          | Local Compose              | Railway                  |
+| -------- | -------------------------- | ------------------------ |
+| Database | `postgres` service         | Supabase                 |
+| Build    | `docker compose build api` | GitHub Actions → GHCR image, promoted by `deploy-production.yml` (§5) |
+| Env      | Repo-root `.env`           | Railway dashboard        |
 
 See **Getting started → Docker Compose** in the main [README](../../README.md).
 
@@ -136,9 +317,9 @@ See **Getting started → Docker Compose** in the main [README](../../README.md)
 - [ ] `CLERK_SECRET_KEY` (production)
 - [ ] Frontend origins — check [`apps/src/config/allowed-origins.ts`](../../apps/src/config/allowed-origins.ts), add anything extra via `CORS_ORIGINS`
 - [ ] **Stripe live keys + Connect enabled** (Express accounts, FR) — payments are shipped
-- [ ] Cronofy / Brevo / Stream / AWS keys when those flows ship
+- [ ] Brevo key and template ids, R2 keys, Supabase buckets (KYC, messaging)
 - [ ] Clerk webhook `https://<api-domain>/webhooks/clerk` + `CLERK_WEBHOOK_SIGNING_SECRET`
-- [ ] Stripe webhook `https://<api-domain>/webhooks/stripe` + `STRIPE_WEBHOOK_SECRET`, subscribed to `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `account.updated`, `setup_intent.succeeded` — see [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md)
-- [ ] Negotiated commission rate in `PAYMENTS_COMMISSION_RATE_BPS` (the 15 % default is a placeholder)
+- [ ] Two Stripe webhook endpoints on `https://<api-domain>/webhooks/stripe`: "Your account" + `STRIPE_WEBHOOK_SECRET`, "Connected accounts" (`account.updated`) + `STRIPE_CONNECT_WEBHOOK_SECRET` — events in [`../payments/stripe-payments-contract.md`](../payments/stripe-payments-contract.md) §6
+- [ ] Commission rate saved from the admin console (until then `PAYMENTS_COMMISSION_RATE_BPS`, 15 % HT)
 
-Redis is **not** required yet (module disabled in repo).
+Redis is optional with one API instance. Set `REDIS_URL` (Railway Redis plugin) before running a second instance: without it, a message posted on one instance never reaches a WebSocket held by the other. Messaging also needs the private Supabase bucket `SUPABASE_MESSAGING_BUCKET` for attachments, and `BREVO_TPL_NEW_MESSAGE` for the unread-message email.

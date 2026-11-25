@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsStrongPassword } from 'class-validator';
+import { Equals, IsEmail, IsStrongPassword } from 'class-validator';
 
 /**
  * Public sign-up body (form 1). Deliberately limited to credentials:
@@ -36,4 +36,13 @@ export class RegisterUserDto {
     minSymbols: 1,
   })
   password!: string;
+
+  @ApiProperty({
+    description:
+      'Ticked the box accepting the CGU and the privacy policy. Must be `true`: ' +
+      'Clerk records the consent on the account.',
+    example: true,
+  })
+  @Equals(true)
+  acceptTerms!: boolean;
 }

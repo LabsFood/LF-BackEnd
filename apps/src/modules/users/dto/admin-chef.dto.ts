@@ -2,10 +2,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsOptional } from 'class-validator';
 
 /**
- * Admin vetting body for `PATCH /admin/chefs/:id/verification`.
+ * Admin body for `PATCH /admin/chefs/:id/verification`.
  *
- * These two flags are the gate between a self-registered chef and a bookable one.
- * They are deliberately absent from every self-service DTO.
+ * These two flags are the gate between a candidate and a bookable chef, and are
+ * deliberately absent from every self-service DTO. For a chef who came through a
+ * candidature, `isVerified: true` is granted by approving it, not here.
  */
 export class UpdateChefVerificationDto {
   @ApiPropertyOptional({

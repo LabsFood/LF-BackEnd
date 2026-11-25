@@ -1,0 +1,33 @@
+meta {
+  name: Batch cooker proposes a new time
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/chef/bookings/{{bookingId}}/reschedule
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+body:json {
+  {
+    "startsAt": "{{slotB}}"
+  }
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("201, pending, with its deadline", function () {
+    expect(res.getStatus()).to.equal(201);
+    const body = res.getBody();
+    expect(body.status).to.equal("pending");
+    expect(body.proposedBy).to.equal("chef");
+    expect(new Date(body.to).getTime()).to.equal(new Date(v("slotB")).getTime());
+    expect(new Date(body.expiresAt).getTime()).to.be.above(Date.now());
+  });
+}

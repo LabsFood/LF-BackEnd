@@ -1,7 +1,17 @@
-import { Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiNotFoundResponse,
+  ApiUnprocessableEntityResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -13,24 +23,84 @@ import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
 import { ApiClerkAuthResponses } from '../../common/swagger/auth-responses';
 import {
+  ConfirmSepaMandateDto,
+  CreateSepaMandateCheckoutDto,
+  SepaMandateCheckoutDto,
   SepaMandateSetupIntentDto,
   SepaMandateStatusDto,
 } from './dto/stripe-connect.dto';
 import { SepaMandatesService } from './sepa-mandates.service';
 
-@ApiTags('payments')
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller('me/chef-profile/sepa-mandate')
 @UseGuards(ClerkAuthGuard)
 export class SepaMandatesController {
   constructor(private readonly sepaMandates: SepaMandatesService) {}
 
+  @Post('checkout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ register: true })
+  @ApiOperation({
+    summary: 'Sign the commission direct-debit mandate',
+    description:
+      'Returns a Stripe-hosted page where the chef enters their IBAN and signs the SEPA ' +
+      'mandate; the IBAN never reaches the API. Back on `returnUrl`, call `POST …/confirm` ' +
+      'with the `session_id` Stripe added. Once active, the mandate is filed in the ' +
+      'chef’s documents (`sepa-mandate`) and every commission still due is debited.\n\n' +
+      'Card payments never need it — Stripe withholds their commission. CESU and the ' +
+      'immediate advance are only offered to clients once it is active. Signing again ' +
+      'replaces the mandate (a new bank account); the old one stays in force until then.',
+  })
+  @ApiOkResponse({ type: SepaMandateCheckoutDto, description: 'Hosted signing page.' })
+  @ApiUnprocessableEntityResponse({
+    description: '`RETURN_URL_NOT_ALLOWED`: `returnUrl` is not on a Lab’s Food site.',
+  })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  createCheckout(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: CreateSepaMandateCheckoutDto,
+  ): Promise<SepaMandateCheckoutDto> {
+    return this.sepaMandates.createCheckoutSession(user.userId, body.returnUrl);
+  }
+
+  @Post('confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm a signed mandate on return from Stripe',
+    description:
+      'Activates the mandate straight away instead of waiting for the webhook; calling ' +
+      'it again, or after the webhook, changes nothing.',
+  })
+  @ApiOkResponse({
+    type: SepaMandateStatusDto,
+    description: 'The mandate, now `active`.',
+  })
+  @ApiNotFoundResponse({
+    description: '`MANDATE_SESSION_NOT_FOUND`: no such session for this chef.',
+  })
+  @ApiConflictResponse({
+    description: '`MANDATE_NOT_SIGNED`: the chef left the Stripe page without signing.',
+  })
+  @ApiClerkAuthResponses()
+  confirm(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: ConfirmSepaMandateDto,
+  ): Promise<SepaMandateStatusDto> {
+    return this.sepaMandates.confirmCheckout(user.userId, body.sessionId);
+  }
+
   @Post('setup-intent')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({ register: true })
   @ApiOperation({
-    summary: 'Start signing the commission direct-debit mandate',
+    deprecated: true,
+    summary: 'Deprecated — use `POST …/checkout`',
     description:
       'Returns a Stripe SetupIntent client secret; the frontend collects the IBAN with ' +
       'Stripe Elements and confirms it there. **No money is ever debited in this phase** — ' +

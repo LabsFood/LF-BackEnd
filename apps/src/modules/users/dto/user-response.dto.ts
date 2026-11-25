@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger';
 
 import { PaginationMetaDto } from '../../../common/dto/pagination.dto';
+import { CLIENT_STATUS_HELP, CLIENT_STATUSES } from './admin-client.dto';
 import { USER_ROLES } from './admin-user.dto';
 
 /** Claims extracted from the Clerk session JWT (no database lookup). */
@@ -62,20 +63,69 @@ export class CurrentUserDto {
   phone!: string | null;
 
   @ApiProperty({
+    nullable: true,
+    description:
+      'Profile photo, served from Cloudflare R2, for every role. Set through ' +
+      '`POST /me/avatar/upload-url` and `/me/avatar/confirm`, never sent directly.',
+    example: 'https://photos.labsfood.fr/users/a0eebc99…/avatar/ph_9f2a….jpg',
+  })
+  avatarUrl!: string | null;
+
+  @ApiProperty({
     enum: USER_ROLES,
     description:
-      'Application role in Postgres. Source of truth for RBAC (`client`, `chef`, or `admin`).',
+      'Which space this person uses. `client`: orders meals and quotes. `chef`: a batch ' +
+      'cooker (see `chefProfile`). `admin`: the back office.',
     example: 'client',
   })
   role!: string;
 }
 
+/**
+ * `GET /me` — `CurrentUserDto` plus what the shared sign-in page needs to route
+ * the person to the right space (FLOW-01 §6).
+ *
+ * Kept separate from `CurrentUserDto`, which is the generic user shape reused by
+ * admin endpoints and by `UserWithProfileDto`.
+ */
+export class MeResponseDto extends CurrentUserDto {
+  @ApiProperty({
+    description:
+      '`false` while the account has no password, which is the case for a batch cooker ' +
+      'who came in through the emailed sign-in link. Show the "choose a password" screen.',
+    example: true,
+  })
+  hasPassword!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    description:
+      '`null` unless this person is a batch cooker. `isVerified: false`: the candidature ' +
+      'is still reviewed, the space is browse-only. `isActive: false`: clients cannot ' +
+      'book them yet, even if verified.',
+    example: {
+      id: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+      isVerified: false,
+      isActive: false,
+    },
+  })
+  chefProfile!: { id: string; isVerified: boolean; isActive: boolean } | null;
+}
+
 /** Client taste/preferences profile (`client_profiles` table). */
 export class ClientProfileDto {
-  @ApiProperty({ format: 'uuid', description: 'Client profile primary key.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The client profile id, used by the `/admin/clients/{id}` routes.',
+    example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
+  })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Linked Postgres user id (`users.id`).' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The account this profile belongs to.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  })
   userId!: string;
 
   @ApiPropertyOptional({
@@ -87,20 +137,68 @@ export class ClientProfileDto {
 
   @ApiPropertyOptional({
     type: [String],
-    description: 'Known food allergies.',
+    description:
+      'The 14 regulated allergens the client declared (codes of `GET /reference/allergens`). ' +
+      'Set through `PUT /me/profile/allergies` only. Never in `GET /admin/clients`.',
     example: ['peanuts'],
   })
   allergies?: string[];
 
   @ApiPropertyOptional({
     type: [String],
+    description: 'Allergies the 14 codes do not cover, in the client’s words.',
+    example: ['kiwi'],
+  })
+  customAllergies?: string[];
+
+  @ApiPropertyOptional({ description: '"No allergy", said explicitly.', example: false })
+  allergiesNone?: boolean;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description:
+      '`null`: never answered, so no menu can be validated (`ALLERGIES_NOT_DECLARED`).',
+  })
+  allergiesDeclaredAt?: Date | null;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  healthConsentAt?: Date | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'The version of the consent text accepted.',
+  })
+  healthConsentVersion?: string | null;
+
+  @ApiPropertyOptional({
+    enum: ['verified', 'unverified'],
+    description:
+      '`verified` once declared with nothing left to check by hand. On `GET /me/profile` only.',
+  })
+  allergyCheck?: 'verified' | 'unverified';
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Why it is `unverified`: `ALLERGIES_NOT_DECLARED`, or `CUSTOM_ALLERGIES` (free text the ' +
+      'platform cannot check; the batch cooker reads it).',
+  })
+  allergyCheckReasons?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
     description: 'Ingredients or dishes the client dislikes.',
+    example: ['coriandre'],
   })
   dislikes?: string[];
 
   @ApiPropertyOptional({
     type: [String],
     description: 'Preferred dishes or cuisines.',
+    example: ['couscous', 'cuisine libanaise'],
   })
   favorites?: string[];
 
@@ -114,12 +212,51 @@ export class ClientProfileDto {
 
   @ApiPropertyOptional({
     description: 'Free-text notes for the chef about the client kitchen or habits.',
+    example: 'Plaques à induction, pas de micro-ondes.',
   })
   kitchenNotes?: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    description: 'Street of the service address. `null` until the client sets it.',
+    example: '12 rue de la Paix',
+  })
+  addressStreet!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'City of the service address. `null` until the client sets it.',
+    example: 'Paris',
+  })
+  addressCity!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Postal code of the service address. `null` until the client sets it.',
+    example: '75002',
+  })
+  addressPostalCode!: string | null;
+
+  @ApiProperty({
+    minimum: 1,
+    maximum: 20,
+    description:
+      'Adults in the household, to size portions. `1` until the client sets it.',
+    example: 3,
+  })
+  householdAdults!: number;
+
+  @ApiProperty({
+    minimum: 0,
+    maximum: 20,
+    description: 'Children in the household. `0` until the client sets it.',
+    example: 2,
+  })
+  householdKids!: number;
+
   @ApiPropertyOptional({
-    enum: ['vip', 'active', 'prospect', 'inactive'],
-    description: 'CRM status used by admin client management.',
+    enum: CLIENT_STATUSES,
+    description: CLIENT_STATUS_HELP,
     example: 'active',
   })
   status?: string;
@@ -127,10 +264,18 @@ export class ClientProfileDto {
 
 /** Chef provider profile (`chef_profiles` table). */
 export class ChefProfileDto {
-  @ApiProperty({ format: 'uuid', description: 'Chef profile primary key.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The batch cooker page id, used by `/admin/chefs/{id}/verification`.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Linked Postgres user id (`users.id`).' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The account this page belongs to.',
+    example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  })
   userId!: string;
 
   @ApiProperty({
@@ -139,10 +284,18 @@ export class ChefProfileDto {
   })
   displayName!: string;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Short public biography.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Short public biography.',
+    example: 'Cuisine familiale franco-marocaine, 10 ans en restauration.',
+  })
   bio?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'City the chef operates from.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'City the chef works from.',
+    example: 'Lyon',
+  })
   city?: string | null;
 
   @ApiProperty({
@@ -152,19 +305,61 @@ export class ChefProfileDto {
   serviceRadiusKm!: number;
 
   @ApiProperty({
+    type: [String],
     description:
-      'Whether the chef is live and bookable. Always `false` on self-registration; ' +
-      'only an admin can enable it via `PATCH /admin/chefs/:id/verification`.',
+      'Languages spoken with clients, codes from `GET /referentials/languages`.',
+    example: ['fr', 'en'],
+  })
+  languages!: string[];
+
+  @ApiProperty({
+    description:
+      'Whether the chef is live and bookable. `false` from candidature submission; ' +
+      'set by an admin at approval or later, and only once the chef is verified.',
     example: false,
   })
   isActive!: boolean;
 
   @ApiProperty({
     description:
-      'Whether an admin has vetted this chef. Always `false` on self-registration.',
+      "Whether the chef's candidature was approved. `false` from submission until " +
+      'then: the account is browse-only.',
     example: false,
   })
   isVerified!: boolean;
+
+  @ApiProperty({
+    enum: ['tier_1', 'tier_2', 'tier_3', 'tier_4'],
+    description: 'The tier an admin set (`tier_1` until then). No billing depends on it.',
+    example: 'tier_1',
+  })
+  tier!: string;
+
+  @ApiPropertyOptional({
+    description: 'The name of the tier, as an admin set it. On `GET /me/profile`.',
+    example: 'Palier 1',
+  })
+  tierLabel?: string;
+}
+
+/**
+ * What the platform notifies by. Read-only: every message is transactional, so
+ * none can be switched off. `PATCH /me/profile` refuses this field.
+ */
+export class NotificationPreferencesDto {
+  @ApiProperty({
+    description:
+      'Always `true`. Every email is transactional (bookings, quotes, candidature, ' +
+      'documents, messages) and is sent to the account address.',
+    example: true,
+  })
+  email!: boolean;
+
+  @ApiProperty({
+    description: 'Always `false`: SMS is not implemented yet.',
+    example: false,
+  })
+  sms!: boolean;
 }
 
 /** `GET /me/profile` — persisted user plus whichever profile matches `users.role`. */
@@ -175,8 +370,7 @@ export class UserWithProfileDto {
   @ApiProperty({
     enum: ['client', 'chef', 'none'],
     description:
-      'Which profile `profile` holds. `none` when the user has not completed onboarding. ' +
-      'Admins report the profile they hold as a user, if any.',
+      'Which kind of profile `profile` is. `none`: no profile yet, `profile` is `null`.',
     example: 'client',
   })
   profileType!: 'client' | 'chef' | 'none';
@@ -188,29 +382,124 @@ export class UserWithProfileDto {
     ],
     nullable: true,
     description:
-      'Client taste profile or chef provider profile, selected by `users.role`. ' +
-      '`null` until the user completes onboarding.',
+      'A client profile or a batch cooker page, as `profileType` says. `null` when ' +
+      '`profileType` is `none`.',
   })
   profile!: ClientProfileDto | ChefProfileDto | null;
+
+  @ApiPropertyOptional({
+    description:
+      'The consent text to show before listing allergies, and its `version`, to send back ' +
+      'with `PUT /me/profile/allergies`. A draft until legal validates it.',
+    example: { version: '2026-11-10', text: 'J’accepte que Lab’s Food…' },
+  })
+  healthConsent?: { version: string; text: string };
+
+  @ApiPropertyOptional({
+    description:
+      'The booking boxes (CGV art. 5.1): their texts, the CGV `version` to send back in ' +
+      '`consents`, and `inForceFrom`, from when they are required. The early-execution ' +
+      'text is a draft until legal validates it.',
+    example: {
+      version: '1.0',
+      inForceFrom: '2026-11-20T23:00:00.000Z',
+      cgvText: "J'ai lu et j'accepte les Conditions Générales de Vente.",
+      deboursMandateText: "J'accepte le mandat de débours : …",
+      earlyExecutionText: 'Je demande que la prestation commence avant la fin…',
+    },
+  })
+  contractTerms?: {
+    version: string;
+    inForceFrom: Date;
+    cgvText: string;
+    deboursMandateText: string;
+    earlyExecutionText: string;
+  };
+
+  @ApiProperty({
+    type: NotificationPreferencesDto,
+    description: 'The same for every account, whatever `profileType` is.',
+  })
+  notificationPreferences!: NotificationPreferencesDto;
 }
 
-/** Admin client list/detail item — profile with nested user. */
+/** Admin client detail item — profile with nested user. */
 export class AdminClientDto extends ClientProfileDto {
-  @ApiProperty({ type: CurrentUserDto, description: 'Linked application user record.' })
+  @ApiProperty({
+    type: CurrentUserDto,
+    description: 'The client account, with its photo in `avatarUrl`.',
+  })
   user!: CurrentUserDto;
 }
 
-/** `GET /admin/clients` — one page of client profiles plus its page descriptor. */
+/** `GET /admin/clients` row — a client account and its profile, if any. */
+export class AdminClientListItemDto {
+  @ApiProperty({ type: CurrentUserDto, description: 'The client account.' })
+  user!: CurrentUserDto;
+
+  @ApiProperty({
+    type: ClientProfileDto,
+    nullable: true,
+    description:
+      '`null` until the client saves their preferences (`PATCH /me/profile`). ' +
+      'Its `id` is the one `GET/PATCH /admin/clients/:id` expects. Without `allergies` ' +
+      'nor `customAllergies`: health data stays on the client’s page.',
+  })
+  clientProfile!: ClientProfileDto | null;
+}
+
+/** `GET /admin/clients` — one page of client accounts plus its page descriptor. */
 export class PaginatedAdminClientsDto {
   @ApiProperty({
-    type: [AdminClientDto],
-    description: 'Client profiles for the requested page, newest first.',
+    type: [AdminClientListItemDto],
+    description: 'Client accounts for the requested page, newest sign-up first.',
   })
-  data!: AdminClientDto[];
+  data!: AdminClientListItemDto[];
 
   @ApiProperty({
     type: PaginationMetaDto,
     description: 'Page descriptor for the current filters.',
   })
+  meta!: PaginationMetaDto;
+}
+
+/** `GET /admin/users` row — an account of any role. */
+export class AdminUserListItemDto extends CurrentUserDto {
+  @ApiProperty({
+    format: 'date-time',
+    description: 'When the account was created.',
+    example: '2026-10-31T17:00:00.000Z',
+  })
+  createdAt!: string;
+
+  @ApiProperty({
+    nullable: true,
+    format: 'uuid',
+    description:
+      'The id `GET /admin/clients/:id` expects. `null` until the client saves their ' +
+      'preferences, and for every other role.',
+    example: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
+  })
+  clientProfileId!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    format: 'uuid',
+    description:
+      'The id `GET /admin/chefs/:id` expects. `null` for anyone but a batch cooker.',
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+  })
+  chefProfileId!: string | null;
+}
+
+/** `GET /admin/users` — one page of accounts plus its page descriptor. */
+export class PaginatedAdminUsersDto {
+  @ApiProperty({
+    type: [AdminUserListItemDto],
+    description: 'Accounts for the requested page, newest first.',
+  })
+  data!: AdminUserListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: 'Page descriptor.' })
   meta!: PaginationMetaDto;
 }

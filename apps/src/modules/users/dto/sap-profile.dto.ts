@@ -144,16 +144,28 @@ export class UpdateSapExternalStatusDto {
 
 /** `GET` / `PATCH /me/chef-profile/sap` response. */
 export class SapProfileDto {
-  @ApiProperty({ format: 'uuid', description: 'SAP profile primary key.' })
+  @ApiProperty({
+    example: '7b3c5d1e-2f4a-4b6c-8d9e-0a1b2c3d4e5f',
+    format: 'uuid',
+    description: 'SAP profile primary key.',
+  })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Owning `chef_profiles.id`.' })
+  @ApiProperty({
+    example: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
+    format: 'uuid',
+    description: 'Owning `chef_profiles.id`.',
+  })
   chefProfileId!: string;
 
   @ApiProperty({ enum: SAP_DECLARATION_TYPES, description: 'Declaration route.' })
   declarationType!: SapDeclarationType;
 
-  @ApiPropertyOptional({ nullable: true, description: 'NOVA declaration number.' })
+  @ApiPropertyOptional({
+    example: 'SAP912345678',
+    nullable: true,
+    description: 'NOVA declaration number.',
+  })
   novaCode?: string | null;
 
   @ApiProperty({
@@ -165,16 +177,25 @@ export class SapProfileDto {
   })
   urssafTiersPrestationStatus!: SapExternalStatus;
 
-  @ApiPropertyOptional({ nullable: true, description: 'Cooperative name (type B).' })
+  @ApiPropertyOptional({
+    example: null,
+    nullable: true,
+    description: 'Cooperative name (type B).',
+  })
   cooperativeName?: string | null;
 
   @ApiPropertyOptional({
+    example: null,
     nullable: true,
     description: 'Membership proof URL or storage key (type B).',
   })
   cooperativeMembershipProof?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'CRCESU affiliation number.' })
+  @ApiPropertyOptional({
+    example: 'NAN123456789',
+    nullable: true,
+    description: 'CRCESU affiliation number.',
+  })
   crcesuNan?: string | null;
 
   @ApiProperty({
