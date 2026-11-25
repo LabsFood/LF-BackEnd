@@ -1,3 +1,38 @@
+## [2.6.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.5.0...v2.6.0) (2026-11-25)
+
+### Features
+
+* **recipe-import:** l'IA remplit les fiches d'ingrédients et les champs du plat à l'import ([aef04d0](https://github.com/LabsFood/LF-BackEnd/commit/aef04d0386b7f9133ed7a5bd11d043fac130f17d))
+
+## [2.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.4.0...v2.5.0) (2026-11-24)
+
+### Features
+
+* **ai:** import de recettes IA (banc, passerelle et budgets, API d'import) ([#113](https://github.com/LabsFood/LF-BackEnd/issues/113)) ([82c2b59](https://github.com/LabsFood/LF-BackEnd/commit/82c2b5902364bd80db9b8d7c28eac216c353b84d))
+* **recipe-import:** import par IA depuis la console ([#115](https://github.com/LabsFood/LF-BackEnd/issues/115)) ([5706c12](https://github.com/LabsFood/LF-BackEnd/commit/5706c1276470af3dcd8424501fbed65d3a2ad7b8))
+* **recipe-import:** reformuler les étapes de toute source publiée ([#114](https://github.com/LabsFood/LF-BackEnd/issues/114)) ([3c0b056](https://github.com/LabsFood/LF-BackEnd/commit/3c0b0562b3a1b68d6b502586e19143c6a0d38f73))
+* **recipe-imports:** créer plusieurs brouillons d'un même import ([#118](https://github.com/LabsFood/LF-BackEnd/issues/118)) ([1aaee01](https://github.com/LabsFood/LF-BackEnd/commit/1aaee01590df04988a4769ed5177e3ea0f6e52a3))
+* **recipe-imports:** expose la trace de lecture (console et espace chef) ([#117](https://github.com/LabsFood/LF-BackEnd/issues/117)) ([d0b7619](https://github.com/LabsFood/LF-BackEnd/commit/d0b7619a5c2acad12fd5f16afc33c2fda8744275))
+* release develop → main (import de recettes IA, mandat de débours, mise en route du batch cooker) ([#121](https://github.com/LabsFood/LF-BackEnd/issues/121)) ([136847e](https://github.com/LabsFood/LF-BackEnd/commit/136847e9b2b49a2f6929c595ec0cc8e332a0a8c5)), closes [#113](https://github.com/LabsFood/LF-BackEnd/issues/113) [#114](https://github.com/LabsFood/LF-BackEnd/issues/114) [#115](https://github.com/LabsFood/LF-BackEnd/issues/115) [#116](https://github.com/LabsFood/LF-BackEnd/issues/116) [#117](https://github.com/LabsFood/LF-BackEnd/issues/117) [#118](https://github.com/LabsFood/LF-BackEnd/issues/118) [#119](https://github.com/LabsFood/LF-BackEnd/issues/119) [#120](https://github.com/LabsFood/LF-BackEnd/issues/120)
+* **users:** GET /me/chef-onboarding, la mise en route du batch cooker ([#120](https://github.com/LabsFood/LF-BackEnd/issues/120)) ([7cd365b](https://github.com/LabsFood/LF-BackEnd/commit/7cd365b5e2b1e13337a848063efc63fd81414fd2))
+
+### Bug Fixes
+
+* **groceries:** ouvrir les courses dès la prestation acceptée, preuve du mandat à la case ([dd1639e](https://github.com/LabsFood/LF-BackEnd/commit/dd1639ee4c14166ad73ec7690f04e033e092f22a))
+* **payments:** no onboarding link once the Stripe file is complete ([#119](https://github.com/LabsFood/LF-BackEnd/issues/119)) ([4789ba3](https://github.com/LabsFood/LF-BackEnd/commit/4789ba3d6d9273ed27e17606fc91f1f0532c7063))
+* **recipe-import:** lire les modes de réchauffage, les contenants et la congélation ([042133e](https://github.com/LabsFood/LF-BackEnd/commit/042133e787ed08bc692798707342398c0b6ea442))
+* **recipe-import:** type de chaque étape, conservation et cuisson pré-remplis ([#116](https://github.com/LabsFood/LF-BackEnd/issues/116)) ([24aeb82](https://github.com/LabsFood/LF-BackEnd/commit/24aeb823dca72f421984fb350144a8e643763721))
+
+## [2.4.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.3.0...v2.4.0) (2026-11-21)
+
+### Features
+
+* **payments:** create the Stripe account from a browser account token ([5c64dcd](https://github.com/LabsFood/LF-BackEnd/commit/5c64dcd1f94fca3ad3f2b0b1c7bf18a4f3a9f66c))
+
+### Bug Fixes
+
+* **payments:** add the recipient configuration after Stripe onboarding ([4de358c](https://github.com/LabsFood/LF-BackEnd/commit/4de358c910002357502b9c9a26bf0f3fd4c32aea))
+
 ## [2.3.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.2.1...v2.3.0) (2026-11-21)
 
 ### Features
