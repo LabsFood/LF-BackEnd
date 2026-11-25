@@ -18,7 +18,6 @@ import type {
   CesuMedium,
   CesuSettlementStatus,
   PaymentStatus,
-  SapExternalStatus,
 } from '../../../generated/prisma/client';
 import {
   ALLOWED_MIME_TYPES,
@@ -343,24 +342,31 @@ export class BookingPaymentStatusDto {
   @ApiProperty({
     example: true,
     description:
-      'Whether the chef can be paid in prefinanced CESU: opted in **and** holding a NAN.',
+      'Whether prefinanced CESU is offered for this booking: platform NAN configured, ' +
+      'batch cooker opted in, commission mandate active.',
   })
   cesuAvailable!: boolean;
 
   @ApiPropertyOptional({
     nullable: true,
     description:
-      'The chef CRCESU affiliation number. The client needs it **before** paying, to add ' +
-      'the chef as an intervenant on their issuer portal.',
+      'The platform CRCESU affiliation number (NAN) the client pays on their issuer ' +
+      'portal. Batch cookers no longer hold one.',
     example: '1234567',
   })
-  crcesuNan?: string | null;
+  payeeNan?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Who the client pays in CESU.',
+    example: 'Labs Food Batchcooking SAS',
+  })
+  payeeName?: string | null;
 }
 
 /**
- * Public, on purpose. The NAN has to be readable before any payment exists: without it a
- * client cannot add the chef on their issuer's portal, and invoice A only arrives after
- * the service.
+ * Public, on purpose: whether a batch cooker can be paid in CESU, and the platform NAN
+ * the client will pay (the client adds Labs Food, not the batch cooker, on their portal).
  */
 export class ChefCesuInfoDto {
   @ApiProperty({
@@ -382,16 +388,18 @@ export class ChefCesuInfoDto {
   @ApiPropertyOptional({
     nullable: true,
     description:
-      'CRCESU national affiliation number (NAN) to enter on the issuer portal.',
+      'The platform CRCESU affiliation number (NAN) to enter on the issuer portal. ' +
+      'Null when CESU is not offered.',
     example: '1234567',
   })
-  crcesuNan?: string | null;
+  payeeNan?: string | null;
 
-  @ApiProperty({
-    enum: ['not_started', 'pending', 'active'],
-    description: 'CRCESU affiliation status, admin-maintained.',
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Who the client pays in CESU.',
+    example: 'Labs Food Batchcooking SAS',
   })
-  crcesuAffiliationStatus!: SapExternalStatus;
+  payeeName?: string | null;
 
   @ApiProperty({
     example: ['pluxee', 'edenred', 'up'],

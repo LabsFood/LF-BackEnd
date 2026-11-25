@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
+import { cesuCollector } from './cesu-collector';
 import { advanceAccepted, cesuAccepted, novaCodeSet } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
 import { commissionDueAutomatically } from './domain/urssaf-mode.rules';
@@ -76,9 +77,15 @@ export interface PaymentMethodOption {
   dueNowCents: number;
   /** Immediate advance only: what URSSAF takes from their account afterwards. */
   debitedLaterCents?: number;
-  /** CESU only: the most that can be declared, and the number to pay the cook with. */
+  /**
+   * CESU only: the most that can be declared, and what to enter on the issuer's portal.
+   * The NAN is the platform's (`cesu-collector.ts`), never the batch cooker's, and the
+   * booking reference is what lets the platform match the CRCESU remittance.
+   */
   maxCesuCents?: number;
-  crcesuNan?: string | null;
+  payeeNan?: string | null;
+  payeeName?: string | null;
+  paymentReference?: string | null;
 }
 
 /** What the immediate-advance request keeps in `payment.metadata`. */
@@ -192,7 +199,9 @@ export class BookingPaymentsService {
         available: true,
         dueNowCents: remaining,
         maxCesuCents: remaining,
-        crcesuNan: chef.sapProfile?.crcesuNan ?? null,
+        payeeNan: cesuCollector()?.nan ?? null,
+        payeeName: cesuCollector()?.name ?? null,
+        paymentReference: booking.reference,
       });
     }
 

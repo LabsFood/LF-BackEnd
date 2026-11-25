@@ -27,7 +27,6 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   sapPath: 'type_b',
   sapDeclarationNumber: null,
   sapProfile: {
-    crcesuAffiliationStatus: 'active',
     urssafTiersPrestationStatus: 'pending',
   },
   stripeAccountId: 'acct_secret',
@@ -222,14 +221,12 @@ describe('AdminChefsService', () => {
       expect(chef.zones[0].cities).toEqual([{ name: 'Nice', dept: null, insee: null }]);
     });
 
-    it('reads back the SAP statuses an admin wrote, null before any declaration', async () => {
+    it('reads back the URSSAF status an admin wrote, null before any declaration', async () => {
       const chef = await service.get('chef-1');
-      expect(chef.crcesuAffiliationStatus).toBe('active');
       expect(chef.urssafTiersPrestationStatus).toBe('pending');
 
       prisma.chefProfile.findFirst.mockResolvedValue(row({ sapProfile: null }));
       const undeclared = await service.get('chef-1');
-      expect(undeclared.crcesuAffiliationStatus).toBeNull();
       expect(undeclared.urssafTiersPrestationStatus).toBeNull();
     });
 

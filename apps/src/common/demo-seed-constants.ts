@@ -118,11 +118,6 @@ export function demoStripeEventId(index: number): string {
   return `${DEMO_STRIPE_EVENT_PREFIX}${pad(index)}`;
 }
 
-/** CRCESU affiliation number (NAN) — the number a client adds the chef with. */
-export function demoCrcesuNan(index: number): string {
-  return `99000000${pad(index)}`;
-}
-
 /** NOVA declaration number, for a type A "service à la personne" chef. */
 export function demoNovaCode(index: number): string {
   return `SAP99000000${pad(index)}`;

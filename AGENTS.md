@@ -490,8 +490,9 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   methods this client can use with this batch cooker. A method the batch cooker
   does not take is left out; `dueNowCents` is computed here, never in the browser.
 - **What a batch cooker takes is derived, not declared twice**: card when their
-  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`
-  and a `crcesu_nan`, immediate advance when
+  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`,
+  an active SEPA mandate and the platform's `CESU_PLATFORM_NAN` (the client pays
+  Labs Food Batchcooking SAS, never the batch cooker), immediate advance when
   `sap_profiles.urssaf_tiers_prestation_status = active`.
 - **Card**: `POST /payments/checkout-session` returns a Stripe Checkout `url`. A
   destination charge: the batch cooker receives the amount less the commission,

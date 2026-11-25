@@ -572,13 +572,12 @@ export class UsersController {
   @ApiOperation({
     summary: 'Admin: set a chef external SAP statuses',
     description:
-      'Writes `crcesu_affiliation_status` and `urssaf_tiers_prestation_status` on the ' +
+      'Writes `urssaf_tiers_prestation_status` on the ' +
       "chef's `sap_profiles` row. Same split as `is_verified` / `is_active`: the chef " +
-      'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
-      "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
-      'only source this field can have. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`); the chef must already have declared a SAP route. ' +
-      'Audited, with both statuses before and after. ' +
+      'declares, an admin habilitates — no self-habilitation. Batch cookers hold no ' +
+      'CRCESU affiliation any more: CESU is paid to the platform. `:id` is the chef ' +
+      'profile uuid (`chef_profiles.id`); the chef must already have declared a SAP ' +
+      'route. Audited, with the status before and after. ' +
       '`GET /admin/chefs/{id}` reads them back.',
   })
   @ApiParam({

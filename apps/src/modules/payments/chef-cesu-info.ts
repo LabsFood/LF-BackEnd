@@ -1,4 +1,5 @@
-import type { CesuIssuer, SapExternalStatus } from '../../generated/prisma/client';
+import type { CesuIssuer } from '../../generated/prisma/client';
+import { cesuCollector } from './cesu-collector';
 
 /**
  * Every issuer a French beneficiary can hold a prefinanced CESU account with. Purely
@@ -18,24 +19,14 @@ export const CESU_SUPPORTED_ISSUERS: readonly CesuIssuer[] = [
 export const CHEF_CESU_INFO_SELECT = {
   id: true,
   displayName: true,
-  sapProfile: {
-    select: {
-      acceptsCesu: true,
-      crcesuNan: true,
-      crcesuAffiliationStatus: true,
-    },
-  },
+  sapProfile: { select: { acceptsCesu: true } },
   sepaMandate: { select: { status: true } },
 } as const;
 
 export type ChefCesuInfoRow = {
   id: string;
   displayName: string;
-  sapProfile: {
-    acceptsCesu: boolean;
-    crcesuNan: string | null;
-    crcesuAffiliationStatus: SapExternalStatus;
-  } | null;
+  sapProfile: { acceptsCesu: boolean } | null;
   sepaMandate: { status: string } | null;
 };
 
@@ -43,23 +34,13 @@ export interface ChefCesuInfo {
   chefProfileId: string;
   chefDisplayName: string;
   acceptsCesu: boolean;
-  crcesuNan: string | null;
-  crcesuAffiliationStatus: SapExternalStatus;
+  /** The platform's NAN (`cesu-collector.ts`): the client never pays the batch cooker. */
+  payeeNan: string | null;
+  /** Who the client pays in CESU (the SAP structure). */
+  payeeName: string | null;
   supportedIssuers: CesuIssuer[];
 }
 
-/**
- * The chef's CESU coordinates as a client sees them.
- *
- * A client pays from their issuer's beneficiary area, and to do that they must first add
- * the chef as an intervenant using this NAN — **before** any payment exists. Invoice A
- * cannot be the carrier: it is only issued once the service has been delivered. That is
- * why the number is published on the public chef profile, on the booking, and on the
- * quote, all through this one mapper.
- *
- * The number is only published for a chef who has opted in: without the opt-in it is not
- * actionable, and publishing it would invite a payment the chef will refuse.
- */
 /**
  * Whether the commission can be debited from this chef (`sepa-mandates.service.ts`).
  * CESU and the immediate advance never cross Stripe, so their commission can only be
@@ -68,11 +49,14 @@ export interface ChefCesuInfo {
 export const mandateActive = (mandate: { status: string } | null | undefined) =>
   mandate?.status === 'active';
 
-/** CESU is only offered with the NAN a client needs to add the chef on their portal. */
+/**
+ * CESU is paid to the platform's NAN, so it is offered only when that NAN is configured,
+ * the batch cooker accepts the method, and the commission can still be collected.
+ */
 export const cesuAccepted = (
-  sap: { acceptsCesu: boolean; crcesuNan: string | null } | null | undefined,
+  sap: { acceptsCesu: boolean } | null | undefined,
   mandate: { status: string } | null | undefined,
-) => Boolean(sap?.acceptsCesu && sap.crcesuNan && mandateActive(mandate));
+) => Boolean(sap?.acceptsCesu && cesuCollector() && mandateActive(mandate));
 
 /** The chef's own SAP/NOVA number: every request to URSSAF is made in its name. */
 export const novaCodeSet = (sap: { novaCode: string | null } | null | undefined) =>
@@ -94,12 +78,13 @@ export const advanceAccepted = (
 
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
   const acceptsCesu = cesuAccepted(chef.sapProfile, chef.sepaMandate);
+  const collector = acceptsCesu ? cesuCollector() : null;
   return {
     chefProfileId: chef.id,
     chefDisplayName: chef.displayName,
     acceptsCesu,
-    crcesuNan: acceptsCesu ? (chef.sapProfile?.crcesuNan ?? null) : null,
-    crcesuAffiliationStatus: chef.sapProfile?.crcesuAffiliationStatus ?? 'not_started',
+    payeeNan: collector?.nan ?? null,
+    payeeName: collector?.name ?? null,
     supportedIssuers: [...CESU_SUPPORTED_ISSUERS],
   };
 }

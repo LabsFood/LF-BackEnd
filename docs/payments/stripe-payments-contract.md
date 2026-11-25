@@ -189,13 +189,14 @@ Two declaration routes:
 | `type_a_nova` | `novaCode` | The chef holds their own NOVA declaration |
 | `type_b_cooperative` | `cooperativeName`, `cooperativeMembershipProof` | The chef declares through a cooperative (Unipros-style) |
 
-`crcesuNan` is optional on both; with `acceptsCesu` it is what lets a client pay this chef
-in CESU. Switching type **clears the other type's fields**, so a cooperative chef cannot
+Batch cookers hold no CRCESU number (removed 25/11/2026): prefinanced CESU is paid to the
+platform's own affiliation (`CESU_PLATFORM_NAN`, Labs Food Batchcooking SAS), with the
+booking reference. `acceptsCesu` remains the chef's opt-in. Switching type **clears the other type's fields**, so a cooperative chef cannot
 keep a stale NOVA code.
 
-`urssafTiersPrestationStatus` and `crcesuAffiliationStatus` are **not writable by the chef**
+`urssafTiersPrestationStatus` is **not writable by the chef**
 — same rule as `isActive` / `isVerified` on `chef_profiles`: a chef must not declare
-themselves habilitated. An admin sets them (`PATCH /admin/chefs/:id/sap-external-status`);
+themselves habilitated. An admin sets it (`PATCH /admin/chefs/:id/sap-external-status`);
 `urssafTiersPrestationStatus = active` is what offers the immediate advance.
 
 ### Fiscal attestations (50 % tax credit)

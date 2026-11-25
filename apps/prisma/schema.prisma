@@ -1432,7 +1432,7 @@ model Commission {
 
 /// "Service à la personne" declaration for a chef. Type A = the chef holds their own
 /// NOVA declaration; Type B = the chef declares through a cooperative (Unipros-style).
-/// Both external statuses stay inert until the URSSAF / CRCESU integrations exist.
+/// The URSSAF status stays admin-maintained until the URSSAF API integration exists.
 model SapProfile {
   id                          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chefProfileId               String             @unique(map: "uq_sap_profiles_chef_profile_id") @map("chef_profile_id") @db.Uuid
@@ -1441,11 +1441,8 @@ model SapProfile {
   urssafTiersPrestationStatus SapExternalStatus  @default(not_started) @map("urssaf_tiers_prestation_status")
   cooperativeName             String?            @map("cooperative_name") @db.VarChar(255)
   cooperativeMembershipProof  String?            @map("cooperative_membership_proof") @db.VarChar(512)
-  crcesuNan                   String?            @map("crcesu_nan") @db.VarChar(64)
-  crcesuAffiliationStatus     SapExternalStatus  @default(not_started) @map("crcesu_affiliation_status")
-  /// Chef opt-in to being paid in prefinanced CESU. Eligibility is this flag **and** a
-  /// `crcesuNan`: without the NAN a client cannot add the chef on their issuer's portal,
-  /// so accepting the payment method would be a dead end.
+  /// Chef opt-in to being paid in prefinanced CESU. The client pays the platform's own
+  /// CRCESU affiliation (`CESU_PLATFORM_NAN`): batch cookers hold no NAN.
   acceptsCesu                 Boolean            @default(false) @map("accepts_cesu")
   createdAt                   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1685,7 +1682,7 @@ enum SapDeclarationType {
   @@map("sap_declaration_type")
 }
 
-/// Shared by the URSSAF "tiers de prestation" habilitation and the CRCESU affiliation.
+/// The URSSAF "tiers de prestation" habilitation.
 /// Inert this phase: no integration writes it, it is admin-maintained metadata.
 enum SapExternalStatus {
   not_started

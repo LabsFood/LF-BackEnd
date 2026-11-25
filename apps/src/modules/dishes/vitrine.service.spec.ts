@@ -109,7 +109,7 @@ describe('VitrineService', () => {
       expect(select.user).toEqual({ select: { avatarUrl: true } });
       // Of the SAP file, what `acceptsCesu` needs: never the NOVA or the cooperative.
       expect(select.sapProfile).toEqual({
-        select: { acceptsCesu: true, crcesuNan: true },
+        select: { acceptsCesu: true },
       });
       // Of the mandate, its status: `acceptsCesu` needs it, the IBAN is never read.
       expect(select.sepaMandate).toEqual({ select: { status: true } });

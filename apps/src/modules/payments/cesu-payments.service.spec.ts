@@ -13,11 +13,23 @@ import { CesuPaymentsService } from './cesu-payments.service';
 import { CommissionDebitsService } from './commission-debits.service';
 import type { DeclareCesuPaymentDto } from './dto/cesu.dto';
 
+const PLATFORM_NAN = '7654321';
+
+beforeEach(() => {
+  process.env.CESU_PLATFORM_NAN = PLATFORM_NAN;
+  process.env.CESU_PLATFORM_NAME = 'Labs Food Batchcooking SAS';
+});
+
+afterAll(() => {
+  delete process.env.CESU_PLATFORM_NAN;
+  delete process.env.CESU_PLATFORM_NAME;
+});
+
 const CESU_READY_CHEF = {
   id: 'chef-1',
   isActive: true,
   isVerified: true,
-  sapProfile: { acceptsCesu: true, crcesuNan: '1234567' },
+  sapProfile: { acceptsCesu: true },
   sepaMandate: { status: 'active' },
 };
 
@@ -319,7 +331,7 @@ describe('CesuPaymentsService', () => {
         ...PENDING_BOOKING,
         chefProfile: {
           ...CESU_READY_CHEF,
-          sapProfile: { acceptsCesu: false, crcesuNan: '1234567' },
+          sapProfile: { acceptsCesu: false },
         },
       });
 
@@ -340,14 +352,12 @@ describe('CesuPaymentsService', () => {
       expect(prisma.payment.create).not.toHaveBeenCalled();
     });
 
-    it('refuses a chef who opted in but has no NAN', async () => {
-      // Without the number the client cannot add them on the issuer portal at all.
+    it('refuses CESU while the platform NAN is not configured', async () => {
+      // Without the platform's number the client has no one to pay on their portal.
+      delete process.env.CESU_PLATFORM_NAN;
       prisma.booking.findFirst.mockResolvedValue({
         ...PENDING_BOOKING,
-        chefProfile: {
-          ...CESU_READY_CHEF,
-          sapProfile: { acceptsCesu: true, crcesuNan: null },
-        },
+        chefProfile: CESU_READY_CHEF,
       });
 
       await expect(service.declare('clerk_1', DECLARATION)).rejects.toBeInstanceOf(
@@ -647,42 +657,39 @@ describe('CesuPaymentsService', () => {
   });
 
   describe('getChefCesuInfo', () => {
-    it('publishes the NAN so a client can pay before any booking exists', async () => {
+    it('publishes the platform NAN, never a batch cooker one', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue({
         id: 'chef-1',
         displayName: 'Chef Marie D.',
         isActive: true,
         isVerified: true,
-        sapProfile: {
-          acceptsCesu: true,
-          crcesuNan: '1234567',
-          crcesuAffiliationStatus: 'active',
-        },
+        sapProfile: { acceptsCesu: true },
         sepaMandate: { status: 'active' },
       });
 
       const info = await service.getChefCesuInfo('chef-1');
 
-      expect(info).toMatchObject({ acceptsCesu: true, crcesuNan: '1234567' });
+      expect(info).toMatchObject({
+        acceptsCesu: true,
+        payeeNan: PLATFORM_NAN,
+        payeeName: 'Labs Food Batchcooking SAS',
+      });
+      expect(info).not.toHaveProperty('crcesuNan');
       expect(info.supportedIssuers).toContain('domiserve');
     });
 
-    it('withholds the NAN from a chef who has not opted in', async () => {
+    it('withholds the NAN for a chef who has not opted in', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue({
         id: 'chef-1',
         displayName: 'Chef Marie D.',
         isActive: true,
         isVerified: true,
-        sapProfile: {
-          acceptsCesu: false,
-          crcesuNan: '1234567',
-          crcesuAffiliationStatus: 'pending',
-        },
+        sapProfile: { acceptsCesu: false },
       });
 
       const info = await service.getChefCesuInfo('chef-1');
 
-      expect(info).toMatchObject({ acceptsCesu: false, crcesuNan: null });
+      expect(info).toMatchObject({ acceptsCesu: false, payeeNan: null });
     });
 
     it('404s on a chef who is not open for bookings', async () => {
@@ -701,7 +708,7 @@ describe('CesuPaymentsService', () => {
   });
 
   describe('getBookingPaymentStatus', () => {
-    it('reports what is left and the NAN needed to pay it in CESU', async () => {
+    it('reports what is left and the platform NAN to pay it in CESU', async () => {
       prisma.payment.aggregate.mockResolvedValue(covered(6_000));
 
       const status = await service.getBookingPaymentStatus('clerk_1', 'booking-1');
@@ -712,7 +719,7 @@ describe('CesuPaymentsService', () => {
         remainingAmountCents: 6_500,
         fullyCovered: false,
         cesuAvailable: true,
-        crcesuNan: '1234567',
+        payeeNan: PLATFORM_NAN,
       });
     });
 

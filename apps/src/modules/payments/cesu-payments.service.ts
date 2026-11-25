@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { CesuSettlementStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { cesuCollector } from './cesu-collector';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
 import {
@@ -336,7 +337,8 @@ export class CesuPaymentsService {
     return {
       ...coverage,
       cesuAvailable: cesuAccepted(sap, booking.chefProfile.sepaMandate),
-      crcesuNan: sap?.crcesuNan ?? null,
+      payeeNan: cesuCollector()?.nan ?? null,
+      payeeName: cesuCollector()?.name ?? null,
     };
   }
 
