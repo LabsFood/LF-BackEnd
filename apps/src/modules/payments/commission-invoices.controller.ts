@@ -25,6 +25,7 @@ import {
 import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard, ClerkUser } from '../../auth/clerk-auth.guard';
 import { CurrentClerkUser } from '../../auth/current-clerk-user.decorator';
+import { AuditService } from '../../common/audit/audit.service';
 import {
   ApiAdminAuthResponses,
   ApiClerkAuthResponses,
@@ -49,7 +50,7 @@ const INVOICE_NOTE =
   'numbered receivable and its JSON; the rendered PDF and the 10-year S3 archive belong ' +
   'to the invoicing workstream.';
 
-@ApiTags('payments')
+@ApiTags('Payments')
 @ApiBearerAuth()
 @Controller()
 @UseGuards(ClerkAuthGuard)
@@ -57,6 +58,7 @@ export class CommissionInvoicesController {
   constructor(
     private readonly commissionDebits: CommissionDebitsService,
     private readonly users: UsersService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('me/chef/commission-invoices')
@@ -137,23 +139,57 @@ export class CommissionInvoicesController {
     summary: 'Admin: retry the direct debit on a commission invoice',
     description:
       'Runs another attempt against the same invoice — the number is kept, so no hole ' +
-      'appears in the sequence. Refused once `PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS` is ' +
-      'exhausted, at which point the chef stops receiving new bookings and payments until ' +
-      'the invoice is settled out of band. An attempt interrupted before Stripe answered ' +
-      'is replayed with its original idempotency key rather than counted again.',
+      'appears in the sequence. Unlike the automatic attempts, an admin retry may go past ' +
+      '`PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS`: it is the human decision that lifts the ' +
+      'commission block. It is refused (`DEBIT_NOT_POSSIBLE`) while the chef has no active ' +
+      'mandate, so a retry never adds a failed attempt for nothing. An attempt interrupted ' +
+      'before Stripe answered is replayed with its original idempotency key. Audited.',
   })
   @ApiParam({ name: 'id', description: 'Commission invoice uuid.' })
-  @ApiOkResponse({ description: 'The debit attempt that was started.' })
+  @ApiOkResponse({
+    description: 'The debit attempt that was started.',
+    example: {
+      id: '6a2f9e14-0b7c-4d3a-8e51-9c0d2b4f6a11',
+      commissionInvoiceId: '1f0e2d3c-4b5a-4987-8a6b-5c4d3e2f1a00',
+      stripePaymentIntentId: 'pi_3Q8xYzAbCdEf',
+      amountTtcCents: 4200,
+      status: 'processing',
+      attemptNumber: 2,
+      failureReason: null,
+      initiatedAt: '2026-10-17T09:12:03.412Z',
+      settledAt: null,
+      clawbackWindowEndsAt: null,
+      createdAt: '2026-10-17T09:12:02.980Z',
+      updatedAt: '2026-10-17T09:12:03.412Z',
+    },
+  })
   @ApiNotFoundResponse({ description: 'No such commission invoice.' })
   @ApiConflictResponse({
     description:
-      'The invoice is not `issued`, a debit is already under way, or the attempts are used up.',
+      '`INVOICE_NOT_ISSUED`, `DEBIT_IN_PROGRESS`, or `DEBIT_NOT_POSSIBLE` (no active ' +
+      'mandate, or an amount SEPA refuses).',
   })
   @ApiAdminAuthResponses()
-  retryDebit(@Param('id', ParseUUIDPipe) invoiceId: string) {
+  async retryDebit(
+    @Param('id', ParseUUIDPipe) invoiceId: string,
+    @CurrentClerkUser() user: ClerkUser,
+  ) {
     // Same engine as the first attempt: the invoice keeps its number, so a retry never
-    // burns one nor leaves a hole in the sequence, and the attempt ceiling still applies.
-    return this.commissionDebits.executeDebit(invoiceId);
+    // burns one nor leaves a hole in the sequence.
+    const debit = await this.commissionDebits.executeDebit(invoiceId, {
+      overrideAttemptCeiling: true,
+    });
+    // Going past the ceiling lifts a block on a chef: who decided it must be answerable.
+    const admin = await this.users.ensurePersistedFromClerk(user.userId);
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: admin.id,
+      action: 'commission.debit_retried',
+      subjectType: 'commission_invoice',
+      subjectId: invoiceId,
+      metadata: { attemptNumber: debit.attemptNumber, status: debit.status },
+    });
+    return debit;
   }
 }
 

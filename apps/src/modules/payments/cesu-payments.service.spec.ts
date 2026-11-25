@@ -1,7 +1,13 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
 import { CesuPaymentsService } from './cesu-payments.service';
 import { CommissionDebitsService } from './commission-debits.service';
@@ -12,6 +18,19 @@ const CESU_READY_CHEF = {
   isActive: true,
   isVerified: true,
   sapProfile: { acceptsCesu: true, crcesuNan: '1234567' },
+  sepaMandate: { status: 'active' },
+};
+
+/** What `assertPayable` reads of the contract, for a booking made before the CGV V1. */
+const PRE_V1_CONTRACT = {
+  startsAt: new Date('2026-10-20T09:00:00Z'),
+  createdAt: new Date('2026-10-01T09:00:00Z'),
+  shoppingByClient: false,
+  contractVersion: null,
+  cgvAcceptedAt: null,
+  deboursMandateAcceptedAt: null,
+  earlyExecutionRequestedAt: null,
+  serviceOffer: { shoppingIncluded: false },
 };
 
 const PENDING_BOOKING = {
@@ -23,13 +42,18 @@ const PENDING_BOOKING = {
   currency: 'EUR',
   chefProfileId: 'chef-1',
   chefProfile: CESU_READY_CHEF,
+  // Made before the CGV V1: the booking boxes are not asked of it.
+  ...PRE_V1_CONTRACT,
 };
+
+const PROOF_ID = 'up_0123456789abcdef01234567';
 
 const DECLARATION: DeclareCesuPaymentDto = {
   bookingId: 'booking-1',
   amountTtc: 6_000,
   medium: 'ecesu',
   issuer: 'pluxee',
+  proofUploadId: PROOF_ID,
 };
 
 /** Row shape the DTO mapper reads back after a write. */
@@ -46,6 +70,8 @@ const declaredRow = (overrides: Record<string, unknown> = {}) => ({
     issuer: 'pluxee',
     status: 'declared',
     clientProofRef: null,
+    clientProofPath: 'cesu-proofs/booking-1/proof/up_old',
+    clientProofUploadedAt: new Date('2026-09-05T09:58:00.000Z'),
     confirmedAt: null,
     rejectionReason: null,
     adminOverride: false,
@@ -71,9 +97,14 @@ describe('CesuPaymentsService', () => {
       findUnique: jest.Mock;
       findMany: jest.Mock;
       aggregate: jest.Mock;
+      findFirst: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
     };
     commission: { findFirst: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     commissionInvoice: { findFirst: jest.Mock };
+    // No accepted offer and no saved rate: the environment default applies.
+    quote: { findUnique: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
     cesuSettlement: { update: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -90,6 +121,14 @@ describe('CesuPaymentsService', () => {
   };
   let commissionDebits: { maxAttempts: number; onCommissionDue: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock; requireOwnChefProfile: jest.Mock };
+  let proofs: {
+    buildPath: jest.Mock;
+    statObject: jest.Mock;
+    assertAcceptable: jest.Mock;
+    createUploadUrl: jest.Mock;
+    createDownloadUrl: jest.Mock;
+    removeObjects: jest.Mock;
+  };
   let service: CesuPaymentsService;
 
   const covered = (amount: number) => ({ _sum: { amountTtc: amount } });
@@ -130,6 +169,8 @@ describe('CesuPaymentsService', () => {
         findUnique: jest.fn().mockResolvedValue(declaredRow()),
         findMany: jest.fn().mockResolvedValue([declaredRow()]),
         aggregate: jest.fn().mockResolvedValue(covered(0)),
+        findFirst: jest.fn().mockResolvedValue(declaredRow()),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(declaredRow()),
       },
       commission: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -137,6 +178,8 @@ describe('CesuPaymentsService', () => {
         updateMany: jest.fn(),
       },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
+      quote: { findUnique: jest.fn().mockResolvedValue(null) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       cesuSettlement: { update: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
@@ -160,11 +203,34 @@ describe('CesuPaymentsService', () => {
     );
     const config = { get, getOrThrow: get };
 
+    proofs = {
+      buildPath: jest.fn(
+        (prefix: string, type: string, id: string) => `${prefix}/${type}/${id}`,
+      ),
+      statObject: jest
+        .fn()
+        .mockResolvedValue({ sizeBytes: 120_000, mimeType: 'application/pdf' }),
+      assertAcceptable: jest.fn(),
+      createUploadUrl: jest.fn().mockResolvedValue({
+        uploadId: PROOF_ID,
+        storagePath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+        method: 'PUT',
+        url: 'https://storage.example/upload',
+        headers: { 'Content-Type': 'application/pdf' },
+        expiresAt: new Date('2026-09-05T12:00:00.000Z'),
+      }),
+      createDownloadUrl: jest
+        .fn()
+        .mockResolvedValue({ url: 'https://storage.example/read' }),
+      removeObjects: jest.fn(),
+    };
+
     service = new CesuPaymentsService(
       prisma as unknown as PrismaService,
       config as unknown as ConfigService,
       users as unknown as UsersService,
       commissionDebits as unknown as CommissionDebitsService,
+      proofs as unknown as KycStorageService,
     );
   });
 
@@ -262,6 +328,18 @@ describe('CesuPaymentsService', () => {
       );
     });
 
+    it('refuses a chef with no active mandate: their commission could not be debited', async () => {
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        chefProfile: { ...CESU_READY_CHEF, sepaMandate: { status: 'pending' } },
+      });
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toMatchObject({
+        response: { code: 'CESU_NOT_ACCEPTED' },
+      });
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+    });
+
     it('refuses a chef who opted in but has no NAN', async () => {
       // Without the number the client cannot add them on the issuer portal at all.
       prisma.booking.findFirst.mockResolvedValue({
@@ -296,9 +374,13 @@ describe('CesuPaymentsService', () => {
         invoiceNumber: 'LF-COM-2026-0007',
       });
 
-      await expect(service.declare('clerk_1', DECLARATION)).rejects.toThrow(
-        /LF-COM-2026-0007/,
-      );
+      const refusal = service.declare('clerk_1', DECLARATION);
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
+      });
+      // The chef's unpaid invoice is not the paying client's business.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-2026-0007/);
       expect(prisma.payment.create).not.toHaveBeenCalled();
     });
 
@@ -314,12 +396,133 @@ describe('CesuPaymentsService', () => {
       );
     });
 
+    it('refuses a booking in dispute', async () => {
+      prisma.booking.findFirst.mockResolvedValue({
+        ...PENDING_BOOKING,
+        status: 'disputed',
+      });
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toMatchObject({
+        response: { code: 'BOOKING_DISPUTED' },
+      });
+    });
+
     it('404s on a booking owned by someone else', async () => {
       prisma.booking.findFirst.mockResolvedValue(null);
 
       await expect(service.declare('clerk_1', DECLARATION)).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+
+    it('keeps the e-CESU proof, under the booking, on the settlement', async () => {
+      await service.declare('clerk_1', DECLARATION);
+
+      expect(proofs.statObject).toHaveBeenCalledWith(
+        `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+      );
+      expect(prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cesuSettlement: {
+              create: expect.objectContaining({
+                clientProofPath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+                clientProofUploadedAt: expect.any(Date),
+              }),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('refuses a proof that never arrived', async () => {
+      proofs.statObject.mockRejectedValue(new ConflictException('no file'));
+
+      await expect(service.declare('clerk_1', DECLARATION)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+    });
+
+    it('declares paper CESU without any proof', async () => {
+      await service.declare('clerk_1', {
+        ...DECLARATION,
+        medium: 'cesu_paper',
+        proofUploadId: undefined,
+      });
+
+      expect(proofs.statObject).not.toHaveBeenCalled();
+      expect(prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cesuSettlement: {
+              create: expect.objectContaining({ clientProofPath: null }),
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('e-CESU proof', () => {
+    it('hands out an upload link under the client’s own booking', async () => {
+      const upload = await service.proofUploadUrl('clerk_1', 'booking-1', {
+        contentType: 'application/pdf',
+        sizeBytes: 120_000,
+      });
+
+      expect(proofs.createUploadUrl).toHaveBeenCalledWith(
+        'cesu-proofs/booking-1',
+        'proof',
+        'application/pdf',
+        120_000,
+      );
+      expect(upload).not.toHaveProperty('storagePath');
+    });
+
+    it('404s the upload link on someone else’s booking', async () => {
+      prisma.booking.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.proofUploadUrl('clerk_1', 'booking-1', {
+          contentType: 'application/pdf',
+          sizeBytes: 1,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('replaces a wrong file while the chef has not answered', async () => {
+      prisma.cesuSettlement.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.replaceProof('clerk_1', 'payment-1', PROOF_ID);
+
+      expect(prisma.cesuSettlement.updateMany).toHaveBeenCalledWith({
+        where: { paymentId: 'payment-1', status: 'declared' },
+        data: expect.objectContaining({
+          clientProofPath: `cesu-proofs/booking-1/proof/${PROOF_ID}`,
+        }),
+      });
+      expect(proofs.removeObjects).toHaveBeenCalledWith([
+        'cesu-proofs/booking-1/proof/up_old',
+      ]);
+    });
+
+    it('keeps the proof as it is once the chef answered', async () => {
+      prisma.cesuSettlement.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.replaceProof('clerk_1', 'payment-1', PROOF_ID),
+      ).rejects.toThrow(ConflictException);
+      expect(proofs.removeObjects).not.toHaveBeenCalled();
+    });
+
+    it('gives an admin a short-lived link for a dispute', async () => {
+      const link = await service.adminProofUrl('payment-1');
+
+      expect(proofs.createDownloadUrl).toHaveBeenCalledWith(
+        'cesu-proofs/booking-1/proof/up_old',
+      );
+      expect(link).toEqual({ url: 'https://storage.example/read' });
     });
   });
 
@@ -357,7 +560,7 @@ describe('CesuPaymentsService', () => {
 
       expect(tx.booking.update).toHaveBeenCalledWith({
         where: { id: 'booking-1' },
-        data: { status: 'confirmed' },
+        data: { status: 'confirmed', concludedAt: expect.any(Date) },
       });
     });
 
@@ -455,6 +658,7 @@ describe('CesuPaymentsService', () => {
           crcesuNan: '1234567',
           crcesuAffiliationStatus: 'active',
         },
+        sepaMandate: { status: 'active' },
       });
 
       const info = await service.getChefCesuInfo('chef-1');
@@ -516,7 +720,7 @@ describe('CesuPaymentsService', () => {
       await service.getBookingPaymentStatus('clerk_1', 'booking-1');
 
       expect(prisma.payment.aggregate).toHaveBeenCalledWith({
-        where: { bookingId: 'booking-1', status: 'succeeded' },
+        where: { bookingId: 'booking-1', status: 'succeeded', purpose: 'service' },
         _sum: { amountTtc: true },
       });
     });

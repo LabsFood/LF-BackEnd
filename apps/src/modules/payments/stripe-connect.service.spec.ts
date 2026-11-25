@@ -1,4 +1,8 @@
-import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Stripe from 'stripe';
 
@@ -12,8 +16,8 @@ describe('StripeConnectService', () => {
     chefProfile: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
   };
   let stripeClient: {
-    accounts: { create: jest.Mock };
-    accountLinks: { create: jest.Mock };
+    rawRequest: jest.Mock;
+    accounts: { createLoginLink: jest.Mock };
   };
   let stripe: { configured: boolean; getClient: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock };
@@ -34,11 +38,18 @@ describe('StripeConnectService', () => {
       },
     };
     stripeClient = {
-      accounts: { create: jest.fn().mockResolvedValue({ id: 'acct_new' }) },
-      accountLinks: {
-        create: jest
+      // Accounts v2 is reached through `rawRequest`: the account, then its onboarding link.
+      rawRequest: jest.fn((_method: string, path: string) =>
+        Promise.resolve(
+          path === '/v2/core/account_links'
+            ? { url: 'https://connect.stripe.com/setup/e/1' }
+            : { id: 'acct_new' },
+        ),
+      ),
+      accounts: {
+        createLoginLink: jest
           .fn()
-          .mockResolvedValue({ url: 'https://connect.stripe.com/setup/e/1' }),
+          .mockResolvedValue({ url: 'https://connect.stripe.com/express/abc' }),
       },
     };
     stripe = { configured: true, getClient: jest.fn(() => stripeClient) };
@@ -64,25 +75,64 @@ describe('StripeConnectService', () => {
   });
 
   describe('createOnboardingLink', () => {
-    it('creates a French Express account on first use and stores its id', async () => {
-      const result = await service.createOnboardingLink('clerk_1');
+    it('creates a French Express account from the browser account token', async () => {
+      const result = await service.createOnboardingLink('clerk_1', 'acct_tok_1');
 
-      expect(stripeClient.accounts.create).toHaveBeenCalledWith(
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts',
         expect.objectContaining({
-          type: 'express',
-          country: 'FR',
-          email: 'chef@example.com',
-          capabilities: {
-            card_payments: { requested: true },
-            transfers: { requested: true },
+          // The contact e-mail travels inside the token: a platform in France may not
+          // send it in clear (`account_token_required`).
+          account_token: 'acct_tok_1',
+          metadata: { chefProfileId: 'chef-1' },
+          dashboard: 'express',
+          identity: { country: 'fr' },
+          configuration: {
+            merchant: { capabilities: { card_payments: { requested: true } } },
+            recipient: {
+              capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
+            },
+            customer: {},
           },
         }),
+        { apiVersion: '2026-09-30.endive' },
       );
+      // Sending them beside the token is refused (`param_alongside_account_token`).
+      const [, , body] = stripeClient.rawRequest.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+      ];
+      expect(body).not.toHaveProperty('contact_email');
+      expect(body).not.toHaveProperty('display_name');
       expect(prisma.chefProfile.update).toHaveBeenCalledWith({
         where: { id: 'chef-1' },
         data: { stripeAccountId: 'acct_new' },
       });
       expect(result).toEqual({ url: 'https://connect.stripe.com/setup/e/1' });
+    });
+
+    it('refuses to create an account without a token, before calling Stripe', async () => {
+      await expect(service.createOnboardingLink('clerk_1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(stripeClient.rawRequest).not.toHaveBeenCalled();
+    });
+
+    it('refuses a new onboarding link once the Stripe file is complete, before calling Stripe', async () => {
+      // Stripe answers 403 `forbidden` to an onboarding link for a finished account:
+      // the chef manages it from the Express dashboard instead.
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_done',
+        stripeDetailsSubmitted: true,
+      });
+
+      await expect(service.createOnboardingLink('clerk_1')).rejects.toMatchObject({
+        response: { code: 'STRIPE_ONBOARDING_COMPLETE' },
+      });
+      expect(stripeClient.rawRequest).not.toHaveBeenCalled();
     });
 
     it('reuses the existing account on a second call', async () => {
@@ -93,10 +143,62 @@ describe('StripeConnectService', () => {
 
       await service.createOnboardingLink('clerk_1');
 
-      expect(stripeClient.accounts.create).not.toHaveBeenCalled();
-      expect(stripeClient.accountLinks.create).toHaveBeenCalledWith(
-        expect.objectContaining({ account: 'acct_existing', type: 'account_onboarding' }),
+      expect(stripeClient.rawRequest).not.toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/accounts',
+        expect.anything(),
+        expect.anything(),
       );
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/account_links',
+        expect.objectContaining({
+          account: 'acct_existing',
+          use_case: expect.objectContaining({ type: 'account_onboarding' }),
+        }),
+        { apiVersion: '2026-09-30.endive' },
+      );
+    });
+
+    it('asks for everything Stripe will ever need in one go (upfront onboarding)', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_existing',
+      });
+
+      await service.createOnboardingLink('clerk_1');
+
+      expect(stripeClient.rawRequest).toHaveBeenCalledWith(
+        'POST',
+        '/v2/core/account_links',
+        expect.objectContaining({
+          use_case: expect.objectContaining({
+            account_onboarding: expect.objectContaining({
+              collection_options: {
+                fields: 'eventually_due',
+                future_requirements: 'include',
+              },
+            }),
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('answers with a typed error, not Stripe’s message, when Stripe refuses', async () => {
+      stripeClient.rawRequest.mockRejectedValue(
+        Object.assign(new Error('Invalid email chef@example.com'), {
+          type: 'StripeInvalidRequestError',
+          code: 'parameter_invalid',
+          statusCode: 400,
+        }),
+      );
+
+      await expect(
+        service.createOnboardingLink('clerk_1', 'acct_tok_1'),
+      ).rejects.toMatchObject({
+        response: { code: 'STRIPE_ACCOUNTS_V2_ERROR' },
+      });
     });
 
     it('requires a chef profile', async () => {
@@ -113,6 +215,34 @@ describe('StripeConnectService', () => {
       await expect(service.createOnboardingLink('clerk_1')).rejects.toBeInstanceOf(
         ServiceUnavailableException,
       );
+    });
+  });
+
+  describe('createDashboardLink', () => {
+    it('opens the Express dashboard once the onboarding form is submitted', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_1',
+        stripeDetailsSubmitted: true,
+      });
+
+      await expect(service.createDashboardLink('clerk_1')).resolves.toEqual({
+        url: 'https://connect.stripe.com/express/abc',
+      });
+      expect(stripeClient.accounts.createLoginLink).toHaveBeenCalledWith('acct_1');
+    });
+
+    it('refuses before onboarding is submitted', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        stripeAccountId: 'acct_1',
+        stripeDetailsSubmitted: false,
+      });
+
+      await expect(service.createDashboardLink('clerk_1')).rejects.toMatchObject({
+        response: { code: 'STRIPE_ONBOARDING_INCOMPLETE' },
+      });
+      expect(stripeClient.accounts.createLoginLink).not.toHaveBeenCalled();
     });
   });
 

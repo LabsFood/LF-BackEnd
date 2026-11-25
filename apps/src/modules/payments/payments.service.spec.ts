@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsService } from './payments.service';
 
 const CONNECT_READY_CHEF = {
@@ -16,6 +17,18 @@ const CONNECT_READY_CHEF = {
   stripePayoutsEnabled: true,
 };
 
+/** What `assertPayable` reads of the contract, for a booking made before the CGV V1. */
+const PRE_V1_CONTRACT = {
+  startsAt: new Date('2026-10-20T09:00:00Z'),
+  createdAt: new Date('2026-10-01T09:00:00Z'),
+  shoppingByClient: false,
+  contractVersion: null,
+  cgvAcceptedAt: null,
+  deboursMandateAcceptedAt: null,
+  earlyExecutionRequestedAt: null,
+  serviceOffer: { shoppingIncluded: false },
+};
+
 const PENDING_BOOKING = {
   id: 'booking-1',
   reference: 'LF-2026-0001',
@@ -24,6 +37,8 @@ const PENDING_BOOKING = {
   priceCents: 12_500,
   currency: 'EUR',
   chefProfile: CONNECT_READY_CHEF,
+  // Made before the CGV V1: the booking boxes are not asked of it.
+  ...PRE_V1_CONTRACT,
 };
 
 describe('PaymentsService', () => {
@@ -33,11 +48,15 @@ describe('PaymentsService', () => {
       findFirst: jest.Mock;
       findUnique: jest.Mock;
       aggregate: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
     commission: { findFirst: jest.Mock; updateMany: jest.Mock };
     commissionInvoice: { findFirst: jest.Mock };
+    // No accepted offer and no saved rate: the environment default applies.
+    quote: { findUnique: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let tx: {
@@ -50,6 +69,7 @@ describe('PaymentsService', () => {
   };
   let stripe: { configured: boolean; getClient: jest.Mock };
   let users: { ensurePersistedFromClerk: jest.Mock };
+  let invoices: { issue: jest.Mock; archive: jest.Mock };
   let service: PaymentsService;
 
   /** Amount already settled on the booking, as the coverage sum sees it. */
@@ -83,11 +103,14 @@ describe('PaymentsService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
         aggregate: jest.fn().mockResolvedValue(covered(0)),
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         update: jest.fn(),
       },
       commission: { findFirst: jest.fn().mockResolvedValue(null), updateMany: jest.fn() },
       commissionInvoice: { findFirst: jest.fn().mockResolvedValue(null) },
+      quote: { findUnique: jest.fn().mockResolvedValue(null) },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
     stripeClient = {
@@ -98,6 +121,12 @@ describe('PaymentsService', () => {
     };
     stripe = { configured: true, getClient: jest.fn(() => stripeClient) };
     users = { ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'user-1' }) };
+    invoices = {
+      issue: jest
+        .fn()
+        .mockResolvedValue({ id: 'invoice-1', invoiceNumber: 'LF-CUS26-00001' }),
+      archive: jest.fn().mockResolvedValue(undefined),
+    };
 
     const get = jest.fn((key: string, fallback?: unknown) =>
       key === 'payments.commissionRateBps'
@@ -115,6 +144,7 @@ describe('PaymentsService', () => {
       stripe as unknown as StripeService,
       config as unknown as ConfigService,
       users as unknown as UsersService,
+      invoices as unknown as PaymentInvoicesService,
     );
   });
 
@@ -126,6 +156,8 @@ describe('PaymentsService', () => {
         expect.objectContaining({
           amount: 12_500,
           currency: 'eur',
+          // The chef is merchant of record: invoice A is issued in their name.
+          on_behalf_of: 'acct_123',
           transfer_data: { destination: 'acct_123' },
           application_fee_amount: 2250,
         }),
@@ -141,6 +173,16 @@ describe('PaymentsService', () => {
         where: { id: 'booking-1' },
         data: { stripePaymentIntentId: 'pi_1' },
       });
+    });
+
+    it('refuses to charge the card while a CESU declaration waits on the chef', async () => {
+      // Not settled, so still inside `remaining`: charging it would cover it twice.
+      prisma.payment.count.mockResolvedValue(1);
+
+      await expect(
+        service.createIntentForBooking('clerk_1', 'booking-1'),
+      ).rejects.toMatchObject({ response: { code: 'CESU_PENDING' } });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
     it('freezes the rate and VAT on the commission row', async () => {
@@ -177,6 +219,7 @@ describe('PaymentsService', () => {
           return { get: g, getOrThrow: g };
         })() as unknown as ConfigService,
         users as unknown as UsersService,
+        invoices as unknown as PaymentInvoicesService,
       );
 
       await service.createIntentForBooking('clerk_1', 'booking-1');
@@ -319,9 +362,13 @@ describe('PaymentsService', () => {
         invoiceNumber: 'LF-COM-2026-0007',
       });
 
-      await expect(
-        service.createIntentForBooking('clerk_1', 'booking-1'),
-      ).rejects.toThrow(/LF-COM-2026-0007/);
+      const refusal = service.createIntentForBooking('clerk_1', 'booking-1');
+
+      await expect(refusal).rejects.toMatchObject({
+        response: { code: 'CHEF_UNAVAILABLE' },
+      });
+      // The chef's unpaid invoice is not the paying client's business.
+      await expect(refusal).rejects.not.toThrow(/LF-COM-2026-0007/);
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
@@ -399,6 +446,7 @@ describe('PaymentsService', () => {
     it('settles payment, commission, and booking together', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
         amountTtc: 12_500,
@@ -420,14 +468,34 @@ describe('PaymentsService', () => {
       });
       expect(tx.booking.update).toHaveBeenCalledWith({
         where: { id: 'booking-1' },
-        data: { status: 'confirmed' },
+        data: { status: 'confirmed', concludedAt: expect.any(Date) },
       });
+    });
+
+    it('numbers invoice A inside the settlement, then stores its PDF', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        id: 'payment-1',
+        purpose: 'service',
+        bookingId: 'booking-1',
+        status: 'pending',
+        amountTtc: 12_500,
+      });
+
+      await service.handlePaymentIntentSucceeded(intent);
+
+      // Same transaction client as the settlement: no settled payment without invoice.
+      expect(invoices.issue).toHaveBeenCalledWith(tx, 'payment-1', expect.any(Date));
+      expect(invoices.archive).toHaveBeenCalledWith('invoice-1');
+      expect(invoices.issue.mock.invocationCallOrder[0]).toBeLessThan(
+        invoices.archive.mock.invocationCallOrder[0],
+      );
     });
 
     it('leaves the booking pending while the payments do not cover it', async () => {
       // A card payment that only settles part of a mixed CESU + card booking.
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
         amountTtc: 6_500,
@@ -446,6 +514,7 @@ describe('PaymentsService', () => {
     it('is a no-op on redelivery of an already-settled payment', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'succeeded',
         amountTtc: 12_500,
@@ -474,6 +543,7 @@ describe('PaymentsService', () => {
     it('fails the payment and its commission, leaving the booking pending', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'pending',
       });
@@ -494,6 +564,7 @@ describe('PaymentsService', () => {
     it('never downgrades a payment Stripe already settled', async () => {
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
+        purpose: 'service',
         bookingId: 'booking-1',
         status: 'succeeded',
       });

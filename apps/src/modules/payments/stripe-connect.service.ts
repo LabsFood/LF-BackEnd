@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -12,6 +13,7 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { StripeConnectLinkDto, StripeConnectStatusDto } from './dto/stripe-connect.dto';
+import { createConnectedAccount, createOnboardingLink } from './stripe-accounts-v2';
 
 @Injectable()
 export class StripeConnectService {
@@ -25,48 +27,78 @@ export class StripeConnectService {
   ) {}
 
   /**
-   * Hosted onboarding link for the authenticated chef, creating the Express account on
-   * first call. Account links are single-use and short-lived, so a fresh one is minted
+   * Hosted onboarding link for the authenticated chef, creating the Accounts v2
+   * account (Express dashboard) on first call. Account links are single-use and short-lived, so a fresh one is minted
    * on every call rather than stored.
    */
-  async createOnboardingLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
+  async createOnboardingLink(
+    clerkUserId: string,
+    accountToken?: string,
+  ): Promise<StripeConnectLinkDto> {
     this.assertStripeConfigured();
-    const { chefProfile, email } = await this.requireChefProfile(clerkUserId);
+    const { chefProfile } = await this.requireChefProfile(clerkUserId);
+    // A finished account is managed from the Express dashboard: Stripe answers an
+    // onboarding link for it with a 403 `forbidden`.
+    if (chefProfile.stripeAccountId && chefProfile.stripeDetailsSubmitted) {
+      throw new ConflictException({
+        code: 'STRIPE_ONBOARDING_COMPLETE',
+        message:
+          'Your Stripe account is already set up: open the Stripe dashboard instead.',
+      });
+    }
     const stripe = this.stripe.getClient();
 
     let accountId = chefProfile.stripeAccountId;
     if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        country: 'FR',
-        email,
-        // Destination charges need both: `card_payments` to accept the client's card
-        // on the platform, `transfers` to move the net amount to the chef.
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-        // `business_type` is left for Stripe's hosted onboarding to ask: a chef may be
-        // a micro-entreprise (individual) or a company, and guessing wrong here blocks
-        // the form.
+      // Checked before Stripe: without the token the call can only fail.
+      if (!accountToken) {
+        throw new BadRequestException({
+          code: 'STRIPE_ACCOUNT_TOKEN_REQUIRED',
+          message: 'Creating the Stripe account needs an account token from the browser.',
+        });
+      }
+      accountId = await createConnectedAccount(stripe, {
+        chefProfileId: chefProfile.id,
+        accountToken,
       });
-      accountId = account.id;
       await this.prisma.chefProfile.update({
         where: { id: chefProfile.id },
         data: { stripeAccountId: accountId },
       });
-      this.logger.log(
-        `Created Stripe Express account ${accountId} for chef profile ${chefProfile.id}.`,
-      );
+      this.logger.log({
+        event: 'stripe.account_created',
+        accountsApi: 'v2',
+        accountId,
+        chefProfileId: chefProfile.id,
+      });
     }
 
-    const link = await stripe.accountLinks.create({
-      account: accountId,
-      type: 'account_onboarding',
-      refresh_url: this.config.getOrThrow<string>('payments.stripeConnectRefreshUrl'),
-      return_url: this.config.getOrThrow<string>('payments.stripeConnectReturnUrl'),
+    const url = await createOnboardingLink(stripe, accountId, {
+      refreshUrl: this.config.getOrThrow<string>('payments.stripeConnectRefreshUrl'),
+      returnUrl: this.config.getOrThrow<string>('payments.stripeConnectReturnUrl'),
     });
 
+    return { url };
+  }
+
+  /**
+   * One-time link into the chef's own Stripe Express dashboard (balance, payouts,
+   * bank account). The frontend sends the chef there when they come back from
+   * onboarding. Stripe refuses it before the onboarding form is submitted, so that
+   * case is a clear 409 rather than a Stripe error.
+   */
+  async createDashboardLink(clerkUserId: string): Promise<StripeConnectLinkDto> {
+    this.assertStripeConfigured();
+    const { chefProfile } = await this.requireChefProfile(clerkUserId);
+    if (!chefProfile.stripeAccountId || !chefProfile.stripeDetailsSubmitted) {
+      throw new ConflictException({
+        code: 'STRIPE_ONBOARDING_INCOMPLETE',
+        message: 'Finish Stripe onboarding first: there is no dashboard to open yet.',
+      });
+    }
+    const link = await this.stripe
+      .getClient()
+      .accounts.createLoginLink(chefProfile.stripeAccountId);
     return { url: link.url };
   }
 
@@ -119,7 +151,7 @@ export class StripeConnectService {
 
   private async requireChefProfile(
     clerkUserId: string,
-  ): Promise<{ chefProfile: ChefProfile; email: string }> {
+  ): Promise<{ chefProfile: ChefProfile }> {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const chefProfile = await this.prisma.chefProfile.findUnique({
       where: { userId: user.id },
@@ -129,6 +161,6 @@ export class StripeConnectService {
         'No chef profile yet. Complete `PATCH /me/chef-profile` first.',
       );
     }
-    return { chefProfile, email: user.email };
+    return { chefProfile };
   }
 }

@@ -53,7 +53,11 @@ describe('CommissionDebitsService', () => {
       findMany: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
       count: jest.Mock;
+      aggregate: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+      findFirst: jest.Mock;
     };
     commissionDebit: {
       findFirst: jest.Mock;
@@ -81,7 +85,12 @@ describe('CommissionDebitsService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue(ISSUED_INVOICE),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         count: jest.fn().mockResolvedValue(6),
+        // No credit note deducted by default (Recettes lot 6).
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amountTtcCents: null } }),
+        findUniqueOrThrow: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       commissionDebit: {
         // No live debit and no orphan by default.
@@ -171,6 +180,29 @@ describe('CommissionDebitsService', () => {
     });
   });
 
+  describe('collectOutstanding', () => {
+    it('debits every invoice still due, and one refusal does not stop the next', async () => {
+      prisma.commissionInvoice.findMany.mockResolvedValue([
+        { id: 'invoice-1', invoiceNumber: 'LF-COM-2026-0007' },
+        { id: 'invoice-2', invoiceNumber: 'LF-COM-2026-0008' },
+      ]);
+      const debit = jest
+        .spyOn(service, 'executeDebit')
+        .mockRejectedValueOnce(new ConflictException('no attempt left'))
+        .mockResolvedValueOnce({} as never);
+
+      await service.collectOutstanding('chef-1');
+
+      expect(prisma.commissionInvoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { chefProfileId: 'chef-1', status: 'issued', kind: 'invoice' },
+        }),
+      );
+      expect(debit).toHaveBeenNthCalledWith(1, 'invoice-1');
+      expect(debit).toHaveBeenNthCalledWith(2, 'invoice-2');
+    });
+  });
+
   describe('executeDebit', () => {
     it('is a direct charge: no on_behalf_of, transfer_data or application fee', async () => {
       // The platform is the seller on facture B, and `on_behalf_of` would invalidate the
@@ -249,6 +281,32 @@ describe('CommissionDebitsService', () => {
       expect(prisma.commission.updateMany).toHaveBeenCalledWith({
         where: { commissionInvoiceId: 'invoice-1' },
         data: { status: 'processing' },
+      });
+    });
+
+    it('debits the chef’s connected account as the customer on an Accounts v2 mandate', async () => {
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, stripeCustomerId: 'acct_1' } },
+      });
+
+      await service.executeDebit('invoice-1');
+
+      const [params, options] = stripeClient.paymentIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({
+        customer_account: 'acct_1',
+        mandate: 'mandate_1',
+        // Endive refuses `payment_method_types` with a 400.
+        allowed_payment_method_types: ['sepa_debit'],
+      });
+      expect(params).not.toHaveProperty('customer');
+      expect(params).not.toHaveProperty('payment_method_types');
+      expect(options).toEqual({
+        idempotencyKey: 'commission-debit-debit-1',
+        apiVersion: '2026-09-30.endive',
       });
     });
 
@@ -359,9 +417,34 @@ describe('CommissionDebitsService', () => {
     it('refuses once the attempts are exhausted', async () => {
       prisma.commissionDebit.count.mockResolvedValue(3);
 
-      await expect(service.executeDebit('invoice-1')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
+      await expect(service.executeDebit('invoice-1')).rejects.toMatchObject({
+        response: { code: 'DEBIT_ATTEMPTS_EXHAUSTED' },
+      });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin retry go past the ceiling: it is the decision the block waits for', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+
+      await service.executeDebit('invoice-1', { overrideAttemptCeiling: true });
+
+      expect(prisma.commissionDebit.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ attemptNumber: 4, status: 'pending' }),
+      });
+      expect(stripeClient.paymentIntents.create).toHaveBeenCalled();
+    });
+
+    it('refuses an admin retry with no active mandate, without recording an attempt', async () => {
+      prisma.commissionDebit.count.mockResolvedValue(3);
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        chefProfile: { sepaMandate: { ...ACTIVE_MANDATE, status: 'pending' } },
+      });
+
+      await expect(
+        service.executeDebit('invoice-1', { overrideAttemptCeiling: true }),
+      ).rejects.toMatchObject({ response: { code: 'DEBIT_NOT_POSSIBLE' } });
+      expect(prisma.commissionDebit.create).not.toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
   });
@@ -531,6 +614,89 @@ describe('CommissionDebitsService', () => {
       await service.handleMandateUpdated({ id: 'mandate_1', status: 'active' } as never);
 
       expect(prisma.sepaMandate.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('credit notes (Recettes lot 6, URSSAF status 120)', () => {
+    it('never debits a credit note', async () => {
+      prisma.commissionInvoice.findUnique.mockResolvedValue({
+        ...ISSUED_INVOICE,
+        kind: 'credit_note',
+        chefProfile: { sepaMandate: null },
+      });
+      await expect(service.executeDebit('invoice-1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVOICE_IS_CREDIT_NOTE' }),
+      });
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('debits the invoice less the credit notes deducted from it', async () => {
+      prisma.commissionInvoice.aggregate.mockResolvedValue({
+        _sum: { amountTtcCents: 500 },
+      });
+      await service.executeDebit('invoice-1').catch(() => null);
+      const sent = stripeClient.paymentIntents.create.mock.calls[0]?.[0] as
+        { amount: number } | undefined;
+      if (sent) expect(sent.amount).toBe(ISSUED_INVOICE.amountTtcCents - 500);
+      expect(prisma.commissionDebit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amountTtcCents: ISSUED_INVOICE.amountTtcCents - 500,
+          }),
+        }),
+      );
+    });
+
+    it('drops a commission not invoiced yet, and credits one already invoiced', async () => {
+      const tx2 = {
+        commission: {
+          findUniqueOrThrow: jest.fn().mockResolvedValue({
+            id: 'c1',
+            status: 'pending',
+            commissionInvoiceId: null,
+          }),
+          update: jest.fn(),
+        },
+        commissionInvoice: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn(),
+          count: jest.fn().mockResolvedValue(3),
+        },
+      };
+      prisma.$transaction.mockImplementation((callback: (client: unknown) => unknown) =>
+        callback(tx2),
+      );
+      expect(await service.creditCommission('c1', 'Statut 120')).toEqual({
+        creditNote: null,
+        dropped: true,
+      });
+      expect(tx2.commission.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { status: 'failed' },
+      });
+
+      tx2.commission.findUniqueOrThrow.mockResolvedValue({
+        id: 'c2',
+        status: 'collected',
+        commissionInvoiceId: 'invoice-1',
+        chefProfileId: 'chef-1',
+        amountHtCents: 250,
+        amountVatCents: 50,
+        amountTtcCents: 300,
+        rateBps: 1500,
+        vatRateBps: 2000,
+        collectionMethod: 'sepa_direct_debit',
+      });
+      tx2.commissionInvoice.create.mockImplementation(
+        ({ data }: { data: unknown }) => data,
+      );
+      const { creditNote } = await service.creditCommission('c2', 'Statut 120');
+      expect(creditNote).toMatchObject({
+        kind: 'credit_note',
+        amountTtcCents: 300,
+        creditForCommissionId: 'c2',
+        invoiceNumber: expect.stringMatching(/^LF-COM-\d{4}-0004$/),
+      });
     });
   });
 });

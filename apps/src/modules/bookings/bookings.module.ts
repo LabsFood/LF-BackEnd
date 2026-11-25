@@ -1,13 +1,43 @@
 import { Module } from '@nestjs/common';
 
+import { CalendarModule } from '../calendar/calendar.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { PaymentsModule } from '../payments/payments.module';
 import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 import { UsersModule } from '../users/users.module';
-import { BookingsController } from './bookings.controller';
+import { AdminBookingsController } from './admin-bookings.controller';
+import { BookingDocumentsService } from './booking-documents.service';
+import { BookingPhotosService } from './booking-photos.service';
+import { BookingRequestsService } from './booking-requests.service';
+import { BookingReschedulesService } from './booking-reschedules.service';
+import { BookingWithdrawalsService } from './booking-withdrawals.service';
+import { BookingsMailer } from './bookings.mailer';
 import { BookingsService } from './bookings.service';
+import { ChefBookingsController } from './chef-bookings.controller';
+import { MeBookingsController } from './me-bookings.controller';
 
+/** Bookings by audience: `/me/bookings`, `/chef/bookings`, `/admin/bookings`. */
 @Module({
-  imports: [UsersModule, ShoppingListsModule],
-  controllers: [BookingsController],
-  providers: [BookingsService],
+  // PaymentsModule never imports this one: the charge after the session (CGV 7.3) uses
+  // its card and URSSAF payments.
+  imports: [
+    UsersModule,
+    ShoppingListsModule,
+    CalendarModule,
+    NotificationsModule,
+    PaymentsModule,
+  ],
+  controllers: [MeBookingsController, ChefBookingsController, AdminBookingsController],
+  providers: [
+    BookingsService,
+    BookingDocumentsService,
+    BookingPhotosService,
+    BookingReschedulesService,
+    BookingWithdrawalsService,
+    BookingRequestsService,
+    BookingsMailer,
+  ],
+  // Recettes lot 6: the grocery flow keeps the SHA-256 of the mandate PDF as proof.
+  exports: [BookingDocumentsService, BookingRequestsService],
 })
 export class BookingsModule {}

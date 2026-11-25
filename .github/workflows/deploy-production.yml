@@ -1,0 +1,129 @@
+name: Deploy production
+
+# Promote an image that "LF API Server image" already built, smoke-tested and
+# pushed to GHCR onto the production Railway service (API-Mainstream, image
+# source). SemRelease starts it for every published version; anyone can also
+# run it by hand. Nothing waits for a reviewer: the Free plan gives a private
+# repo no environment protection rules. Rollback: run it again with an older tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit on main to deploy (e.g. v1.4.0)
+        required: true
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  IMAGE: ghcr.io/labsfood/lf-backend
+  RAILWAY_API: https://backboard.railway.com/graphql/v2
+  RAILWAY_ENVIRONMENT_ID: 4175ab36-c142-41f2-a07f-7e0a39cd8ee3 # LF-API-Backend / production
+  RAILWAY_SERVICE_ID: ecce1ccc-2d7c-4fcd-ad0c-ace08abb4007 # API-Mainstream
+  PRODUCTION_URL: https://api-mainstream-production.up.railway.app
+
+jobs:
+  # Runs before the approval so the reviewer sees exactly what ships.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.image.outputs.tag }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image
+        id: image
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          # A tag or a commit resolves as is. A branch name (the default `main`) is a
+          # local branch only when the run started from it; otherwise origin/<name>.
+          sha="$(git rev-parse --verify --quiet --end-of-options "${REF}^{commit}" \
+            || git rev-parse --verify --quiet --end-of-options "origin/${REF}^{commit}")" \
+            || { echo "::error::$REF is not a tag, a commit or a branch of this repository"; exit 1; }
+          # "chore(release): x.y.z [skip ci]" never gets an image; its parent holds the same code.
+          if git log -1 --format=%s "$sha" | grep -q '^chore(release):'; then
+            sha="$(git rev-parse "${sha}^")"
+          fi
+          git merge-base --is-ancestor "$sha" origin/main \
+            || { echo "::error::$REF ($sha) is not on main"; exit 1; }
+          tag="sha-${sha::7}" # docker/metadata-action type=sha
+          docker manifest inspect "$IMAGE:$tag" >/dev/null \
+            || { echo "::error::$IMAGE:$tag not found: did LF API Server image pass for $sha? A push whose message carries [skip ci] starts no run: start LF API Server image by hand on main."; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Production candidate"
+            echo "- ref: \`$REF\`"
+            echo "- commit: $sha"
+            echo "- image: \`$IMAGE:$tag\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    # The RAILWAY_TOKEN secret lives on this environment (Settings → Environments →
+    # production). It has no required reviewers nor branch rule (Free plan, private
+    # repo): the "is on main" check in resolve is the only gate.
+    environment:
+      name: production
+      url: ${{ env.PRODUCTION_URL }}
+    steps:
+      - name: Deploy image on Railway
+        env:
+          # Project token scoped to the production environment.
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gql() {
+            curl -fsS "$RAILWAY_API" \
+              -H "Project-Access-Token: $RAILWAY_TOKEN" \
+              -H 'Content-Type: application/json' \
+              -d "$1" | jq -e 'if .errors then error(.errors[0].message) else .data end'
+          }
+          vars="$(jq -nc --arg s "$RAILWAY_SERVICE_ID" --arg e "$RAILWAY_ENVIRONMENT_ID" --arg i "$IMAGE:$TAG" \
+            '{s: $s, e: $e, i: $i}')"
+
+          gql "$(jq -nc --argjson v "$vars" '{variables: $v, query:
+            "mutation($s: String!, $e: String!, $i: String!) { serviceInstanceUpdate(serviceId: $s, environmentId: $e, input: {source: {image: $i}}) }"}')" >/dev/null
+          id="$(gql "$(jq -nc --argjson v "$vars" '{variables: ($v | del(.i)), query:
+            "mutation($s: String!, $e: String!) { serviceInstanceDeployV2(serviceId: $s, environmentId: $e) }"}')" \
+            | jq -r .serviceInstanceDeployV2)"
+          echo "Railway deployment $id ($IMAGE:$TAG)"
+
+          for _ in $(seq 1 90); do
+            status="$(gql "$(jq -nc --arg id "$id" '{variables: {id: $id}, query:
+              "query($id: String!) { deployment(id: $id) { status } }"}')" | jq -r .deployment.status)"
+            echo "status: $status"
+            case "$status" in
+              SUCCESS) exit 0 ;;
+              FAILED | CRASHED | REMOVED | SKIPPED) echo "::error::Railway deployment $id ended $status"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Railway deployment $id still not live after 15 min"
+          exit 1
+
+      - name: Smoke test production
+        run: |
+          set -euo pipefail
+          for path in health ready; do
+            curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$PRODUCTION_URL/$path"
+            echo
+          done

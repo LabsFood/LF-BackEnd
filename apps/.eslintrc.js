@@ -6,17 +6,12 @@ module.exports = {
     sourceType: 'module',
   },
   plugins: ['@typescript-eslint/eslint-plugin', 'prettier'],
-  extends: [
-    'plugin:@typescript-eslint/recommended',
-    'plugin:prettier/recommended',
-  ],
+  extends: ['plugin:@typescript-eslint/recommended', 'plugin:prettier/recommended'],
   root: true,
   env: {
     node: true,
     jest: true,
   },
-  // `src/generated/**` is the Prisma client, rewritten on every `prisma generate`:
-  // its formatting is the generator's business, not this repo's.
   ignorePatterns: [
     '.eslintrc.js',
     'dist/**',

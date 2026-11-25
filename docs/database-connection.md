@@ -4,21 +4,21 @@ The NestJS API uses **Prisma** against PostgreSQL. Hosted Supabase typically nee
 
 ## Environment variables
 
-| Variable | Required | Use |
-|----------|----------|-----|
-| `SUPABASE_DB_URL` | Yes | **Runtime** Prisma (`PrismaService`, `/ready`). Use the **connection pooler** in cloud. |
+| Variable                    | Required                     | Use                                                                                                                                    |
+| --------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_DB_URL`           | Yes                          | **Runtime** Prisma (`PrismaService`, `/ready`). Use the **connection pooler** in cloud.                                                |
 | `SUPABASE_DB_MIGRATION_URL` | No (recommended on Supabase) | **Migrations only** (`npm run db:migrate`). Use the **direct** connection (port 5432). CLI falls back to `SUPABASE_DB_URL` when unset. |
-| `DATABASE_URL` | No (deprecated) | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above. |
+| `DATABASE_URL`              | No (deprecated)              | Fallback for `migrationDbUrl` in config loader only. Prefer the vars above.                                                            |
 
-Optional Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_CMS_ASSETS_BUCKET`.
+Supabase API (Storage, not Postgres): `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (an `sb_secret_…` key; the legacy `service_role` and `anon` JWTs are not used), `SUPABASE_KYC_BUCKET` for chef KYC documents and `SUPABASE_MESSAGING_BUCKET` for message attachments.
 
 ## URI formats (placeholders)
 
 **Local (docker compose):**
 
 ```env
-SUPABASE_DB_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
-SUPABASE_DB_MIGRATION_URL=<postgresql://lf:lf@localhost:5432/lf_backend>
+SUPABASE_DB_URL=postgresql://lf:lf@localhost:5432/lf_backend
+SUPABASE_DB_MIGRATION_URL=postgresql://lf:lf@localhost:5432/lf_backend
 ```
 
 **Supabase cloud — runtime (Transaction pooler, port 6543):**
@@ -45,23 +45,22 @@ Copy both strings from the Supabase dashboard: **Project → Connect → ORMs / 
 
 ### Env file location
 
-| File | Loaded? |
-|------|---------|
-| Repo-root `.env` | Yes (Nest `ConfigModule` and Prisma CLI via `scripts/prisma-cli.ts`) |
-| Repo-root `.env.local` | Yes, after `.env` (overrides) |
-| `apps/.env` | No — keep secrets at repo root |
+| File                   | Loaded?                                                              |
+| ---------------------- | -------------------------------------------------------------------- |
+| Repo-root `.env`       | Yes (Nest `ConfigModule` and Prisma CLI via `scripts/prisma-cli.ts`) |
+| Repo-root `.env.local` | Yes, after `.env` (overrides)                                        |
+| `apps/.env`            | No — keep secrets at repo root                                       |
 
 Commands run from `cd apps` still read repo-root env files automatically.
 
 ## Prisma commands (ORM 7)
 
-Configuration lives in **`apps/prisma.config.ts`** (database URL for CLI, migrations path, seed command). The schema is at `apps/prisma/schema.prisma`; URLs are no longer defined in the schema file.
+Configuration lives in **`apps/prisma.config.ts`** (database URL for CLI, migrations path). The schema is at `apps/prisma/schema.prisma`; URLs are no longer defined in the schema file.
 
 ```bash
 cd apps
 npm install
 npm run db:migrate      # apply migrations (deploy)
-npm run db:seed         # seed F19 concept page (explicit in v7 — not auto after migrate)
 npm run db:migrate:dev  # create/apply migrations in development
 npm run db:studio       # Prisma Studio GUI
 ```
@@ -70,30 +69,56 @@ npm run db:studio       # Prisma Studio GUI
 
 ## Prisma baseline (existing TypeORM databases)
 
-If the database was created with the former TypeORM migrations (`typeorm_migrations` table) and already has `users`, `bookings`, `cms_pages`, etc.:
+If the database was created with the former TypeORM migrations (`typeorm_migrations` table) and already has `users`, `bookings`, etc.:
 
 1. Ensure `SUPABASE_DB_MIGRATION_URL` points at the **direct** session.
 2. Mark existing Prisma migrations as applied **without** re-running DDL (`db:migrate` only runs `deploy` — use `db:resolve` for this):
 
 ```bash
 cd apps
-# TypeORM baseline already has Phase 1 + cms_pages tables:
+# TypeORM baseline already has the Phase 1 tables:
 npm run db:resolve -- --applied 20250522120000_init
 
 # If spec_domain tables also already exist, mark that migration too:
 npm run db:resolve -- --applied 20250522130000_spec_domain
 ```
 
-3. Apply any remaining migrations, then seed:
+3. Apply any remaining migrations:
 
 ```bash
 npm run db:migrate
-npm run db:seed
 ```
 
 4. Optionally drop the legacy table: `DROP TABLE IF EXISTS typeorm_migrations;`
 
-For a **fresh** Postgres volume, run `npm run db:migrate` then `npm run db:seed`.
+For a **fresh** Postgres volume, run `npm run db:migrate`.
+
+## Partially applied migrations
+
+**Prisma does not wrap a migration file in a transaction.** If a statement fails half-way
+through, everything before it is already committed, the migration is recorded as *failed*, and
+the next `migrate deploy` replays the file **from the top** — straight into
+`type "x" already exists` on the objects the first attempt created.
+
+Migrations in this repo that alter pre-existing objects are therefore written to be
+**idempotent**: `CREATE TYPE` inside a `DO $$ … EXCEPTION WHEN duplicate_object $$`, `IF EXISTS` /
+`IF NOT EXISTS` on every `ALTER`, and `ADD VALUE IF NOT EXISTS` on enum values. See
+`20260524173000_provider_role_to_chef` and `20260831120000_payments_sap_sepa_foundations` — the
+latter failed this way twice during development before it was made idempotent.
+
+If a deploy still leaves a migration in the failed state:
+
+```bash
+cd apps
+npx prisma migrate status                                  # which migration is failed
+npm run db:resolve -- --rolled-back <migration_name>       # after undoing its effects by hand
+# or, when the file is idempotent and its effects are already in place:
+npm run db:resolve -- --applied <migration_name>
+npm run db:migrate
+```
+
+Write new migrations that touch existing tables or enums the same way, or a single production
+failure will need manual SQL to unblock.
 
 ## Partially applied migrations
 
@@ -125,8 +150,12 @@ failure will need manual SQL to unblock.
 ## Behavior in this repo
 
 - `PrismaService` connects with `SUPABASE_DB_URL` at API startup.
-- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/Dockerfile`).
-- Cloud hosts (`*.supabase.co`) use TLS via the connection string / Prisma defaults.
+- Docker `api` service runs `prisma migrate deploy` before `node dist/main.js` (see `apps/scripts/docker-entrypoint.sh`).
+- Cloud hosts (`*.supabase.co`) use TLS, and the server certificate is **verified**, hostname included,
+  against the Supabase Root 2021 CA in `apps/certs/` (`apps/src/supabase/db-connection.ts`): the API and
+  scripts through `postgresPoolConfig`, the Prisma CLI through `prismaCliUrl` (`sslaccept=strict`).
+  Leave `sslmode` and other TLS parameters out of both URLs: the code sets them. The CA expires on
+  2031-04-26; replace the file from **Dashboard → Database → SSL Configuration** before then.
 
 ## Verify
 
@@ -134,9 +163,9 @@ failure will need manual SQL to unblock.
 docker compose up -d postgres
 
 cd apps
-npm run db:migrate
 export SUPABASE_DB_URL="postgresql://lf:lf@localhost:5432/lf_backend"
-export CLERK_SECRET_KEY="<sk_test_placeholder>"
+export CLERK_SECRET_KEY="sk_test_placeholder"
+npm run db:migrate
 npm run start:dev
 curl -s http://localhost:8000/ready | jq .
 ```

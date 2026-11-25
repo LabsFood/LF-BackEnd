@@ -1,0 +1,29 @@
+meta {
+  name: Client: my bookings, never the commission
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/me/bookings?limit=5
+  body: none
+  auth: bearer
+}
+
+params:query {
+  limit: 5
+}
+
+auth:bearer {
+  token: {{clientToken}}
+}
+
+tests {
+  test("a page without net or commission", function () {
+    expect(res.getStatus()).to.equal(200);
+    for (const b of res.getBody().data) {
+      expect(b).to.not.have.property("netCents");
+      expect(b).to.not.have.property("commissionCents");
+    }
+  });
+}

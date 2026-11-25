@@ -1,4 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+
+export class CreateStripeConnectLinkDto {
+  @ApiPropertyOptional({
+    description:
+      'Stripe account token (`POST /v2/core/account_tokens`, made in the browser with the ' +
+      'publishable key) holding the chef contact e-mail. Required on the first call, ' +
+      'which creates the account; ignored once the account exists.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  accountToken?: string;
+}
 
 export class StripeConnectLinkDto {
   @ApiProperty({
@@ -50,10 +64,46 @@ export class SepaMandateSetupIntentDto {
   clientSecret!: string;
 }
 
+export class CreateSepaMandateCheckoutDto {
+  @ApiProperty({
+    description:
+      'The chef page Stripe sends the chef back to, on one of our own sites. Stripe adds ' +
+      '`mandat=signe&session_id=…` once signed, `mandat=annule` if the chef gave up.',
+    example: 'https://b.lf.fr/espace-chef/remuneration',
+  })
+  @IsString()
+  @MaxLength(2000)
+  returnUrl!: string;
+}
+
+export class SepaMandateCheckoutDto {
+  @ApiProperty({
+    description:
+      'Stripe-hosted page where the chef enters their IBAN and signs. Single use, ' +
+      'short-lived: redirect to it straight away.',
+    example: 'https://checkout.stripe.com/c/pay/cs_test_a1B2c3',
+  })
+  url!: string;
+}
+
+export class ConfirmSepaMandateDto {
+  @ApiProperty({
+    description: 'The `session_id` Stripe appended to the return URL.',
+    example: 'cs_test_a1B2c3D4e5',
+  })
+  @IsString()
+  @Matches(/^cs_(test|live)_[A-Za-z0-9]+$/, {
+    message: 'sessionId is not a Checkout session id.',
+  })
+  sessionId!: string;
+}
+
 export class SepaMandateStatusDto {
   @ApiProperty({
     enum: ['pending', 'active', 'revoked', 'failed'],
-    description: 'Mandate lifecycle. `active` once Stripe confirms the SetupIntent.',
+    description:
+      'Mandate lifecycle. `active` once signed: only then are CESU and the immediate ' +
+      'advance offered for this chef. `revoked` when the bank or the chef cancelled it.',
     example: 'pending',
   })
   status!: string;
@@ -66,6 +116,7 @@ export class SepaMandateStatusDto {
   ibanLast4?: string | null;
 
   @ApiPropertyOptional({
+    example: '2026-09-15T10:22:41.000Z',
     nullable: true,
     type: String,
     format: 'date-time',

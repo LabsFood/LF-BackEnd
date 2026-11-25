@@ -4,22 +4,32 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { CesuSettlementStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
-import { CHEF_CESU_INFO_SELECT, toChefCesuInfo } from './chef-cesu-info';
+import {
+  CHEF_CESU_INFO_SELECT,
+  OFFERED_METHODS_SELECT,
+  cesuAccepted,
+  offeredMethods,
+  toChefCesuInfo,
+} from './chef-cesu-info';
 import { CommissionDebitsService } from './commission-debits.service';
 import { assertNoCommissionBlock } from './commission-standing';
-import { computeCommission } from './commission.util';
+import { commissionForPayment } from './commission-policy';
 import {
   BookingPaymentStatusDto,
   CesuPaymentDto,
+  CesuProofUploadDto,
   ChefCesuInfoDto,
   DeclareCesuPaymentDto,
 } from './dto/cesu.dto';
+import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
 
 /** Rows the list/detail mappers read. */
@@ -37,6 +47,13 @@ const CESU_PAYMENT_INCLUDE = {
   },
   commission: { select: { id: true } },
 } as const;
+
+/**
+ * Where a client's e-CESU proof lives, in the private bucket. Keyed on the booking:
+ * the file is uploaded before the payment it proves exists.
+ */
+const proofPrefix = (bookingId: string) => `cesu-proofs/${bookingId}`;
+const PROOF = 'proof';
 
 /**
  * Prefinanced CESU, electronic first.
@@ -65,6 +82,7 @@ export class CesuPaymentsService {
     private readonly config: ConfigService,
     private readonly users: UsersService,
     private readonly commissionDebits: CommissionDebitsService,
+    private readonly proofs: KycStorageService,
   ) {}
 
   /**
@@ -82,32 +100,45 @@ export class CesuPaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: payload.bookingId, clientId: user.id },
-      include: { chefProfile: { include: { sapProfile: true } } },
+      include: {
+        chefProfile: {
+          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+        },
+        serviceOffer: CONTRACT_SELECT.serviceOffer,
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');
     }
-    if (booking.status !== 'pending') {
-      throw new ConflictException(
-        `Booking ${booking.id} is ${booking.status}; only a pending booking can be paid.`,
-      );
-    }
+    assertPayable(booking);
 
     const chef = booking.chefProfile;
     // Re-checked here, not only at booking time: vetting can be revoked in between, and
     // this is what puts a chef's NAN in front of a paying client.
-    if (!chef.isActive || !chef.isVerified) {
+    // Being offline does not excuse a client from paying a prestation already done.
+    if (!chef.isVerified || (commissionBlockApplies(booking) && !chef.isActive)) {
       throw new ConflictException(
         'The chef is not verified by an admin, so this booking cannot be paid.',
       );
     }
-    if (!chef.sapProfile?.acceptsCesu || !chef.sapProfile.crcesuNan) {
-      throw new ConflictException(
-        'This chef does not accept prefinanced CESU (no opt-in, or no CRCESU affiliation number).',
-      );
+    // The commission on a CESU payment is debited from the chef afterwards, so no
+    // mandate means no CESU: the opt-in and the NAN alone are not enough.
+    if (!cesuAccepted(chef.sapProfile, chef.sepaMandate)) {
+      throw new ConflictException({
+        code: 'CESU_NOT_ACCEPTED',
+        message:
+          'This chef does not accept prefinanced CESU (no opt-in, no CRCESU affiliation ' +
+          'number, or no active commission mandate).',
+      });
     }
     // §6 guard: an uncollectable commission stops the chef taking on new work.
-    await assertNoCommissionBlock(this.prisma, chef.id, this.commissionDebits.maxAttempts);
+    if (commissionBlockApplies(booking)) {
+      await assertNoCommissionBlock(
+        this.prisma,
+        chef.id,
+        this.commissionDebits.maxAttempts,
+      );
+    }
 
     const coverage = await bookingCoverage(this.prisma, booking);
     if (coverage.remainingAmountCents <= 0) {
@@ -120,10 +151,21 @@ export class CesuPaymentsService {
       );
     }
 
-    const commission = computeCommission(payload.amountTtc, {
-      rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
-      vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
-    });
+    // Required for e-CESU by the DTO: the issuer's confirmation, Lab's Food's evidence
+    // in a dispute. It settles nothing: the chef still confirms receipt.
+    const proofPath = payload.proofUploadId
+      ? await this.checkedProof(booking.id, payload.proofUploadId)
+      : null;
+
+    const commission = await commissionForPayment(
+      this.prisma,
+      booking,
+      payload.amountTtc,
+      {
+        rateBps: this.config.get<number>('payments.commissionRateBps', 1500),
+        vatRateBps: this.config.get<number>('payments.commissionVatRateBps', 2000),
+      },
+    );
 
     try {
       const payment = await this.prisma.payment.create({
@@ -154,15 +196,21 @@ export class CesuPaymentsService {
               issuer: payload.medium === 'ecesu' ? (payload.issuer ?? null) : null,
               status: 'declared',
               clientProofRef: payload.clientProofRef ?? null,
+              clientProofPath: proofPath,
+              clientProofUploadedAt: proofPath ? new Date() : null,
             },
           },
         },
         include: CESU_PAYMENT_INCLUDE,
       });
 
-      this.logger.log(
-        `CESU payment ${payment.id} declared on booking ${booking.id} (${payload.medium}).`,
-      );
+      this.logger.log({
+        event: 'cesu.declared',
+        paymentId: payment.id,
+        bookingId: booking.id,
+        medium: payload.medium,
+        withProof: proofPath !== null,
+      });
       return toCesuPaymentDto(payment);
     } catch (error) {
       // `uq_payments_live_cesu_booking_id` — two simultaneous declarations on one
@@ -176,6 +224,95 @@ export class CesuPaymentsService {
     }
   }
 
+  /**
+   * `POST /me/bookings/:id/cesu-proof/upload-url` — step 1 of an e-CESU declaration:
+   * the issuer's confirmation goes straight to the private bucket.
+   */
+  async proofUploadUrl(
+    clerkUserId: string,
+    bookingId: string,
+    payload: CesuProofUploadDto,
+  ) {
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, clientId: user.id },
+      select: { id: true, status: true, endsAt: true, ...CONTRACT_SELECT },
+    });
+    if (!booking) {
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found.',
+      });
+    }
+    assertPayable(booking);
+    const upload = await this.proofs.createUploadUrl(
+      proofPrefix(booking.id),
+      PROOF,
+      payload.contentType,
+      payload.sizeBytes,
+    );
+    return {
+      uploadId: upload.uploadId,
+      method: upload.method,
+      url: upload.url,
+      headers: upload.headers,
+      expiresAt: upload.expiresAt,
+    };
+  }
+
+  /**
+   * `PUT /me/cesu-payments/:id/proof` — a wrong file replaced, while the chef has not
+   * answered. After that the proof is evidence, and stays as it is.
+   */
+  async replaceProof(
+    clerkUserId: string,
+    paymentId: string,
+    uploadId: string,
+  ): Promise<CesuPaymentDto> {
+    const payment = await this.clientsCesuPayment(clerkUserId, paymentId);
+    const path = await this.checkedProof(payment.bookingId, uploadId);
+    const { count } = await this.prisma.cesuSettlement.updateMany({
+      where: { paymentId, status: 'declared' },
+      data: { clientProofPath: path, clientProofUploadedAt: new Date() },
+    });
+    if (count === 0) {
+      throw new ConflictException({
+        code: 'PROOF_LOCKED',
+        message: 'The chef has answered this payment: its proof is kept as it is.',
+      });
+    }
+    this.logger.log({
+      event: 'cesu.proof_replaced',
+      paymentId,
+      bookingId: payment.bookingId,
+    });
+    const previous = payment.cesuSettlement.clientProofPath;
+    if (previous && previous !== path) await this.proofs.removeObjects([previous]);
+    return toCesuPaymentDto(
+      await this.prisma.payment.findUniqueOrThrow({
+        where: { id: paymentId },
+        include: CESU_PAYMENT_INCLUDE,
+      }),
+    );
+  }
+
+  /** `GET /me/cesu-payments/:id/proof-url` — the client's own proof, 5 minutes. */
+  async proofUrl(clerkUserId: string, paymentId: string) {
+    return this.proofLink(await this.clientsCesuPayment(clerkUserId, paymentId));
+  }
+
+  /** `GET /admin/cesu-payments/:id/proof-url` — for a dispute. */
+  async adminProofUrl(paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'cesu' },
+      include: { cesuSettlement: true },
+    });
+    if (!payment?.cesuSettlement) {
+      throw new NotFoundException(`CESU payment ${paymentId} not found.`);
+    }
+    return this.proofLink(payment);
+  }
+
   /** `GET /me/bookings/:id/payment-status` — what is left to pay, and the chef's NAN. */
   async getBookingPaymentStatus(
     clerkUserId: string,
@@ -184,7 +321,11 @@ export class CesuPaymentsService {
     const user = await this.users.ensurePersistedFromClerk(clerkUserId);
     const booking = await this.prisma.booking.findFirst({
       where: { id: bookingId, clientId: user.id },
-      include: { chefProfile: { include: { sapProfile: true } } },
+      include: {
+        chefProfile: {
+          include: { sapProfile: true, sepaMandate: { select: { status: true } } },
+        },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found.');
@@ -194,7 +335,7 @@ export class CesuPaymentsService {
     const sap = booking.chefProfile.sapProfile;
     return {
       ...coverage,
-      cesuAvailable: Boolean(sap?.acceptsCesu && sap.crcesuNan),
+      cesuAvailable: cesuAccepted(sap, booking.chefProfile.sepaMandate),
       crcesuNan: sap?.crcesuNan ?? null,
     };
   }
@@ -217,6 +358,25 @@ export class CesuPaymentsService {
     return toChefCesuInfo(chef);
   }
 
+  /**
+   * `GET /chefs/{id}/payment-methods` (CGV V1 5.1): what the booking screen offers. The
+   * card is the one every booking saves, so without it nothing can be booked.
+   */
+  async getChefPaymentMethods(chefProfileId: string) {
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { id: chefProfileId },
+      select: { ...OFFERED_METHODS_SELECT, isActive: true, isVerified: true },
+    });
+    if (!chef || !chef.isActive || !chef.isVerified) {
+      throw new NotFoundException(`Chef profile ${chefProfileId} not found.`);
+    }
+    const offered = offeredMethods(
+      chef,
+      this.config.get<string>('urssaf.gateway', 'disabled'),
+    );
+    return { card: offered.cb, urssaf: offered.avance_immediate, cesu: offered.cesu };
+  }
+
   /** `GET /me/chef/cesu-payments`. */
   async listForChef(
     clerkUserId: string,
@@ -226,6 +386,7 @@ export class CesuPaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         method: 'cesu',
+        purpose: 'service',
         booking: { chefProfileId: chef.id },
         ...(status ? { cesuSettlement: { status } } : {}),
       },
@@ -238,7 +399,11 @@ export class CesuPaymentsService {
   /** `GET /admin/cesu-payments`. */
   async listForAdmin(status?: CesuSettlementStatus): Promise<CesuPaymentDto[]> {
     const payments = await this.prisma.payment.findMany({
-      where: { method: 'cesu', ...(status ? { cesuSettlement: { status } } : {}) },
+      where: {
+        method: 'cesu',
+        purpose: 'service',
+        ...(status ? { cesuSettlement: { status } } : {}),
+      },
       include: CESU_PAYMENT_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
@@ -274,9 +439,8 @@ export class CesuPaymentsService {
   ): Promise<CesuPaymentDto> {
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
     await this.requireDeclaredCesuPayment(paymentId);
-    this.logger.warn(
-      `Admin ${admin.id} force-settled CESU payment ${paymentId} (proof: ${proofRef}).`,
-    );
+    // The proof reference is the admin's free text: it stays in the database.
+    this.logger.warn({ event: 'cesu.force_settled', paymentId, adminUserId: admin.id });
     return this.settleDeclaration(paymentId, {
       confirmedByUserId: admin.id,
       adminOverride: true,
@@ -325,7 +489,7 @@ export class CesuPaymentsService {
       });
     });
 
-    this.logger.log(`CESU payment ${paymentId} rejected by the chef.`);
+    this.logger.log({ event: 'cesu.rejected', paymentId });
     return toCesuPaymentDto(rejected);
   }
 
@@ -388,8 +552,50 @@ export class CesuPaymentsService {
       await this.commissionDebits.onCommissionDue(commissionId);
     }
 
-    this.logger.log(`CESU payment ${paymentId} confirmed.`);
+    this.logger.log({ event: 'cesu.confirmed', paymentId, commissionId });
     return toCesuPaymentDto(updated);
+  }
+
+  private async clientsCesuPayment(clerkUserId: string, paymentId: string) {
+    const user = await this.users.ensurePersistedFromClerk(clerkUserId);
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, method: 'cesu', booking: { clientId: user.id } },
+      include: { cesuSettlement: true },
+    });
+    if (!payment?.cesuSettlement) {
+      throw new NotFoundException(`CESU payment ${paymentId} not found.`);
+    }
+    return { ...payment, cesuSettlement: payment.cesuSettlement };
+  }
+
+  private proofLink(payment: {
+    cesuSettlement: { clientProofPath: string | null } | null;
+  }) {
+    const path = payment.cesuSettlement?.clientProofPath;
+    if (!path) {
+      throw new NotFoundException({
+        code: 'NO_PROOF',
+        message: 'No proof was uploaded for this payment.',
+      });
+    }
+    return this.proofs.createDownloadUrl(path);
+  }
+
+  /** The uploaded proof: really there, and of a type and size a proof may be. */
+  private async checkedProof(bookingId: string, uploadId: string): Promise<string> {
+    const path = this.proofs.buildPath(proofPrefix(bookingId), PROOF, uploadId);
+    let stat: { sizeBytes: number; mimeType: string };
+    try {
+      stat = await this.proofs.statObject(path);
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      throw new UnprocessableEntityException({
+        code: 'PROOF_MISSING',
+        message: 'No file was uploaded for this proof. Upload it, then declare.',
+      });
+    }
+    this.proofs.assertAcceptable(stat.mimeType, stat.sizeBytes);
+    return path;
   }
 
   private async requireDeclaredCesuPayment(paymentId: string) {
@@ -407,7 +613,6 @@ export class CesuPaymentsService {
     }
     return payment;
   }
-
 }
 
 type CesuPaymentRow = {
@@ -422,6 +627,7 @@ type CesuPaymentRow = {
     issuer: CesuPaymentDto['issuer'];
     status: CesuSettlementStatus;
     clientProofRef: string | null;
+    clientProofUploadedAt?: Date | null;
     confirmedAt: Date | null;
     rejectionReason: string | null;
     adminOverride: boolean;
@@ -445,6 +651,7 @@ function toCesuPaymentDto(payment: CesuPaymentRow): CesuPaymentDto {
     issuer: payment.cesuSettlement!.issuer,
     settlementStatus: payment.cesuSettlement!.status,
     clientProofRef: payment.cesuSettlement!.clientProofRef,
+    proofUploadedAt: payment.cesuSettlement!.clientProofUploadedAt ?? null,
     confirmedAt: payment.cesuSettlement!.confirmedAt,
     rejectionReason: payment.cesuSettlement!.rejectionReason,
     adminOverride: payment.cesuSettlement!.adminOverride,

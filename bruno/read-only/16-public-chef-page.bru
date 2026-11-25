@@ -1,0 +1,18 @@
+meta {
+  name: Public: a batch cooker's page
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/chefs/{{chefProfileId}}
+  body: none
+  auth: none
+}
+
+tests {
+  test("200 with slotsLeft", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody()).to.have.property("slotsLeft");
+  });
+}

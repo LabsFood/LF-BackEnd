@@ -1,0 +1,21 @@
+meta {
+  name: A client cannot list every booking
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/admin/bookings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{clientToken}}
+}
+
+tests {
+  test("403", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

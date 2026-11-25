@@ -11,6 +11,8 @@
  */
 
 /** Local dev frontends. Excluded when `ENVIRONMENT=production`. */
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+
 export const DEVELOPMENT_ORIGINS: readonly string[] = [
   // labsfood-web (Next.js) — `next dev -p 3007` / `next start -p 3007`
   'http://localhost:3007',
@@ -39,7 +41,7 @@ const normalize = (origin: string): string =>
 
 /**
  * Built-in allowlist plus anything in `CORS_ORIGINS` (comma-separated).
- * Use `CORS_ORIGINS` for one-off hosts — preview deploys, tunnels, staging —
+ * Use `CORS_ORIGINS` for one-off hosts — preview deploys, tunnels —
  * and this file for the origins that are part of the product.
  */
 export function resolveAllowedOrigins(
@@ -69,4 +71,31 @@ export function isOriginAllowed(
 ): boolean {
   if (!origin) return true;
   return allowedOrigins.includes(normalize(origin));
+}
+
+/**
+ * Every method the routes use. `@fastify/cors` announces only GET, HEAD and POST
+ * unless told otherwise, and the browser then cancels a PATCH, PUT or DELETE
+ * before sending it: no request reaches the server, so no error shows up there.
+ */
+const CORS_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+/**
+ * What `main.ts` hands to `enableCors()`. Built here so the CORS spec runs the
+ * real configuration rather than a copy of it — a copy is how the missing
+ * `methods` went unnoticed.
+ */
+export function corsOptions(
+  allowedOrigins: readonly string[],
+  onRejected?: (origin: string | undefined) => void,
+): NonNullable<Parameters<NestFastifyApplication['enableCors']>[0]> {
+  return {
+    origin: (origin: string | undefined, callback) => {
+      const allowed = isOriginAllowed(origin, allowedOrigins);
+      if (!allowed) onRejected?.(origin);
+      callback(null, allowed);
+    },
+    methods: CORS_METHODS,
+    credentials: true,
+  };
 }

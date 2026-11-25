@@ -1,0 +1,33 @@
+meta {
+  name: Agenda shows the booking and the block
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/chef/agenda?from={{in4Days}}&to={{in25Days}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  from: {{in4Days}}
+  to: {{in25Days}}
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  const v = (name) => bru.getVar(name) ?? bru.getEnvVar(name);
+  test("the booking, with its city, and the block", function () {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    const booking = body.prestations.find((p) => p.id === v("bookingId"));
+    expect(booking).to.be.an("object");
+    expect(booking.city).to.equal("Paris");
+    expect(booking.client.name).to.be.a("string");
+    expect(body.blocks.map((b) => b.id)).to.include(v("blockId"));
+  });
+}

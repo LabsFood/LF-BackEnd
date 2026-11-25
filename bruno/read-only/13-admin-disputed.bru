@@ -1,0 +1,26 @@
+meta {
+  name: Admin: bookings in dispute
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/admin/bookings?status=disputed
+  body: none
+  auth: bearer
+}
+
+params:query {
+  status: disputed
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+tests {
+  test("200, only disputed ones", function () {
+    expect(res.getStatus()).to.equal(200);
+    for (const b of res.getBody().data) expect(b.status).to.equal("disputed");
+  });
+}

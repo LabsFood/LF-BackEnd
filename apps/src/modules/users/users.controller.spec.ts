@@ -6,6 +6,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
 import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import { CreateAdminUserDto, UpdateUserRoleDto } from './dto/admin-user.dto';
+import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
@@ -17,9 +18,10 @@ describe('UsersController', () => {
       | 'provisionAdminUser'
       | 'updateRole'
       | 'toUserRole'
-      | 'updateChefProfileByClerkUserId'
       | 'setChefVerification'
       | 'listClients'
+      | 'listUsers'
+      | 'updateOwnChefProfile'
     >
   >;
 
@@ -36,16 +38,18 @@ describe('UsersController', () => {
         role: UserRole.admin,
       }),
       toUserRole: jest.fn((role) => role as UserRole),
-      updateChefProfileByClerkUserId: jest.fn().mockResolvedValue({
+      updateOwnChefProfile: jest.fn().mockResolvedValue({
         id: 'chef-1',
+        displayName: 'Chef Marie D.',
         isActive: false,
-        isVerified: false,
+        isVerified: true,
       }),
       setChefVerification: jest.fn().mockResolvedValue({
         id: 'chef-1',
         isActive: true,
         isVerified: true,
       }),
+      listUsers: jest.fn().mockResolvedValue({ data: [], meta: {} }),
       listClients: jest.fn().mockResolvedValue({
         data: [],
         meta: {
@@ -100,18 +104,54 @@ describe('UsersController', () => {
     expect(users.updateRole).toHaveBeenCalledWith('uuid-1', UserRole.admin);
   });
 
-  it('routes chef onboarding to the chef profile service, keyed by the session subject', async () => {
-    const result = await controller.patchMeChefProfile(
-      { userId: 'user_1' },
-      { displayName: 'Chef Marie D.', city: 'Paris' },
-    );
+  it('routes chef self-edit to the update-only service, keyed by the session subject', async () => {
+    await controller.patchMeChefProfile({ userId: 'user_1' }, { bio: 'Nouvelle bio' });
 
-    // The Clerk subject decides whose profile is written — never a body field.
-    expect(users.updateChefProfileByClerkUserId).toHaveBeenCalledWith('user_1', {
-      displayName: 'Chef Marie D.',
-      city: 'Paris',
+    // The Clerk subject decides whose profile is edited — never a body field.
+    expect(users.updateOwnChefProfile).toHaveBeenCalledWith('user_1', {
+      bio: 'Nouvelle bio',
     });
-    expect(result).toMatchObject({ isActive: false, isVerified: false });
+  });
+
+  describe('UpdateMeChefProfileDto under the global validation pipe', () => {
+    // Mirrors `main.ts`. A chef editing their own profile must not be able to
+    // reach the fields that approval and the dossier own.
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    });
+    const transform = (body: Record<string, unknown>) =>
+      pipe.transform(body, { type: 'body', metatype: UpdateMeChefProfileDto });
+
+    it('accepts a partial body — nothing is required for an update', async () => {
+      await expect(transform({ bio: 'Nouvelle bio' })).resolves.toEqual({
+        bio: 'Nouvelle bio',
+      });
+    });
+
+    it('refuses to blank the display name', async () => {
+      await expect(transform({ displayName: '' })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it.each([
+      ['isActive', true],
+      ['isVerified', true],
+      ['role', 'admin'],
+      ['stripeAccountId', 'acct_123'],
+      ['cronofyProfileId', 'cr_123'],
+      ['sapPath', 'type_a'],
+      ['interventionZones', []],
+      ['autoSuspendedAt', null],
+      ['avatarUrl', 'https://elsewhere.example/me.jpg'],
+    ])('refuses %s, which a chef must never set on themselves', async (field, value) => {
+      await expect(transform({ [field]: value })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
   });
 
   it('delegates chef vetting to the service', async () => {
@@ -137,6 +177,12 @@ describe('UsersController', () => {
       meta: expect.objectContaining({ page: 2, limit: 10, hasPreviousPage: true }),
     });
     expect(users.listClients).toHaveBeenCalledWith(query);
+  });
+
+  it('forwards the account list query', async () => {
+    await controller.listUsers({ page: 1, limit: 100 });
+
+    expect(users.listUsers).toHaveBeenCalledWith({ page: 1, limit: 100 });
   });
 
   describe('ListAdminClientsQueryDto under the global validation pipe', () => {

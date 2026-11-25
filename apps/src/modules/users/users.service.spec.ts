@@ -4,8 +4,15 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientProfileStatus, UserRole } from '../../generated/prisma/client';
+import {
+  ChefApplicationStatus,
+  ClientProfileStatus,
+  Prisma,
+  UserRole,
+} from '../../generated/prisma/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { ClerkService } from '../../integrations/clerk.service';
+import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from './users.service';
 
@@ -16,22 +23,34 @@ describe('UsersService', () => {
       create: jest.Mock;
       update: jest.Mock;
       deleteMany: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
     };
     clientProfile: {
       findUnique: jest.Mock;
       upsert: jest.Mock;
+      update: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
+      deleteMany: jest.Mock;
     };
-    chefProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+    chefProfile: {
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
     sapProfile: { findUnique: jest.Mock; upsert: jest.Mock; update: jest.Mock };
+    platformSetting: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
+  let audit: { record: jest.Mock };
   let clerk: {
     configured: boolean;
     getClient: jest.Mock;
   };
   let config: { get: jest.Mock };
+  let geo: GeoService & { communesByPostcode: jest.Mock; communesByRegion: jest.Mock };
   let service: UsersService;
 
   beforeEach(() => {
@@ -41,15 +60,25 @@ describe('UsersService', () => {
         create: jest.fn(),
         update: jest.fn(),
         deleteMany: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
       },
       clientProfile: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        update: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
+        deleteMany: jest.fn(),
       },
-      chefProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+      chefProfile: {
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
       sapProfile: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
+      platformSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((operations: unknown[]) => Promise.all(operations)),
     };
     clerk = {
@@ -57,10 +86,26 @@ describe('UsersService', () => {
       getClient: jest.fn(),
     };
     config = { get: jest.fn((_key: string, fallback?: unknown) => fallback) };
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
+    // The real address check, over a stubbed geo.api.gouv.fr.
+    geo = Object.assign(new GeoService(), {
+      communesByPostcode: jest.fn(
+        async (code: string) =>
+          ({
+            '75002': [{ nom: 'Paris', code: '75056', codeDepartement: '75' }],
+            '93100': [{ nom: 'Montreuil', code: '93048', codeDepartement: '93' }],
+          })[code] ?? [],
+      ),
+      communesByRegion: jest.fn(async (code: string) =>
+        code === '84' ? [{ nom: 'Lyon', code: '69123', codeDepartement: '69' }] : [],
+      ),
+    });
     service = new UsersService(
       prisma as unknown as PrismaService,
       clerk as unknown as ClerkService,
       config as unknown as ConfigService,
+      audit as unknown as AuditService,
+      geo,
     );
   });
 
@@ -232,6 +277,31 @@ describe('UsersService', () => {
       });
     });
 
+    // The number is typed in the app (PATCH /me/profile) and never pushed to Clerk:
+    // Clerk only seeds an empty one, or every request would undo the save.
+    it.each([
+      ['has no phone', null],
+      ['has another phone', '+33699999999'],
+    ])('keeps the phone typed in the app when Clerk %s', async (_label, clerkPhone) => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: '+33612345678',
+        role: UserRole.client,
+      });
+
+      await service.upsertFromClerk({
+        clerkUserId: 'user_1',
+        email: 'a@example.com',
+        fullName: 'Ada Lovelace',
+        phone: clerkPhone,
+      });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('does not change role on update when role is omitted', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'uuid-1',
@@ -248,6 +318,29 @@ describe('UsersService', () => {
 
       expect(prisma.user.update).not.toHaveBeenCalled();
       expect(result.role).toBe(UserRole.admin);
+    });
+
+    it('leaves a deleted account as it is, even when Clerk sends its details late', async () => {
+      const deleted = {
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'deleted-uuid-1@deleted.invalid',
+        fullName: null,
+        phone: null,
+        role: UserRole.client,
+        deletedAt: new Date('2026-09-24T10:00:00Z'),
+      };
+      prisma.user.findUnique.mockResolvedValue(deleted);
+
+      const result = await service.upsertFromClerk({
+        clerkUserId: 'user_1',
+        email: 'ada@example.com',
+        fullName: 'Ada Lovelace',
+        phone: '+33601020304',
+      });
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(result).toBe(deleted);
     });
   });
 
@@ -380,6 +473,8 @@ describe('UsersService', () => {
         firstName: 'New',
         lastName: 'User',
         skipPasswordRequirement: false,
+        // Made by an admin: the person ticked nothing, Clerk's legal check is skipped.
+        skipLegalChecks: true,
       });
       expect(createWithRoleSpy).toHaveBeenCalledWith({
         clerkUserId: 'user_clerk_new',
@@ -406,6 +501,7 @@ describe('UsersService', () => {
         service.registerClient({
           email: 'new@example.com',
           password: 'Str0ng!UniquePass',
+          legalAcceptedAt: new Date(),
         }),
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
@@ -419,6 +515,7 @@ describe('UsersService', () => {
         service.registerClient({
           email: 'taken@example.com',
           password: 'Str0ng!UniquePass',
+          legalAcceptedAt: new Date(),
         }),
       ).rejects.toBeInstanceOf(ConflictException);
 
@@ -438,10 +535,17 @@ describe('UsersService', () => {
         role: UserRole.client,
       } as never);
 
+      const acceptedAt = new Date('2026-11-11T10:00:00.000Z');
       const result = await service.registerClient({
         email: 'new@example.com',
         password: 'Str0ng!UniquePass',
+        legalAcceptedAt: acceptedAt,
       });
+
+      expect(createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ legalAcceptedAt: acceptedAt }),
+      );
+      expect(createUser.mock.calls[0][0]).not.toHaveProperty('skipLegalChecks');
 
       expect(createWithRoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({ role: UserRole.client }),
@@ -470,6 +574,7 @@ describe('UsersService', () => {
       await service.registerClient({
         email: 'new@example.com',
         password: 'Str0ng!UniquePass',
+        legalAcceptedAt: new Date(),
         role: UserRole.admin,
       } as never);
 
@@ -535,7 +640,7 @@ describe('UsersService', () => {
 
       await service.updateProfileByClerkUserId('user_1', {
         firstName: 'Marie',
-        allergies: ['peanuts'],
+        dislikes: ['coriandre'],
       });
 
       expect(prisma.user.update).toHaveBeenCalledWith({
@@ -567,9 +672,49 @@ describe('UsersService', () => {
       prisma.chefProfile.findUnique.mockResolvedValue(null);
       prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
 
-      await service.updateProfileByClerkUserId('user_1', { allergies: ['peanuts'] });
+      await service.updateProfileByClerkUserId('user_1', { dislikes: ['coriandre'] });
 
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    describe('the service address against the official commune base', () => {
+      beforeEach(() => {
+        jest
+          .spyOn(service, 'ensurePersistedFromClerk')
+          .mockResolvedValue(currentUser as never);
+        prisma.chefProfile.findUnique.mockResolvedValue(null);
+        prisma.clientProfile.upsert.mockResolvedValue({ id: 'profile-1' });
+      });
+
+      it('refuses a town the postcode does not serve, writing nothing', async () => {
+        await expect(
+          service.updateProfileByClerkUserId('user_1', {
+            firstName: 'Marie',
+            addressPostalCode: '93100',
+            addressCity: 'Marseille',
+          }),
+        ).rejects.toMatchObject({
+          status: 422,
+          response: { code: 'ADDRESS_CITY_MISMATCH', communes: ['Montreuil'] },
+        });
+        expect(prisma.user.update).not.toHaveBeenCalled();
+        expect(prisma.clientProfile.upsert).not.toHaveBeenCalled();
+      });
+
+      it('checks a changed town against the postcode on file', async () => {
+        prisma.clientProfile.findUnique.mockResolvedValue({
+          addressPostalCode: '93100',
+          addressCity: 'Montreuil',
+        });
+        await expect(
+          service.updateProfileByClerkUserId('user_1', { addressCity: 'Marseille' }),
+        ).rejects.toMatchObject({ response: { code: 'ADDRESS_CITY_MISMATCH' } });
+      });
+
+      it('looks nothing up when the address is not sent', async () => {
+        await service.updateProfileByClerkUserId('user_1', { dislikes: ['cilantro'] });
+        expect(geo.communesByPostcode).not.toHaveBeenCalled();
+      });
     });
 
     it('rejects a client profile when a chef profile already exists', async () => {
@@ -585,97 +730,105 @@ describe('UsersService', () => {
     });
   });
 
-  describe('updateChefProfileByClerkUserId', () => {
-    const currentUser = {
-      id: 'uuid-1',
+  describe('updateOwnChefProfile', () => {
+    const chefUser = {
+      id: 'user-1',
       clerkUserId: 'user_1',
-      email: 'chef@example.com',
-      fullName: null,
+      email: 'marie@exemple.fr',
+      fullName: 'Marie Dupont',
       phone: null,
-      role: UserRole.client,
+      role: UserRole.chef,
     };
 
-    it('promotes role to chef and forces the profile inactive and unverified', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
+    it('updates the public fields of the caller’s own profile', async () => {
+      prisma.user.findUnique.mockResolvedValue(chefUser);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1', isVerified: true });
+      prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', bio: 'Nouvelle bio' });
 
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Chef Marie D.',
-        city: 'Paris',
+      await service.updateOwnChefProfile('user_1', {
+        bio: 'Nouvelle bio',
         serviceRadiusKm: 25,
+      });
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { bio: 'Nouvelle bio', serviceRadiusKm: 25 },
+      });
+    });
+
+    it('never changes the role', async () => {
+      prisma.user.findUnique.mockResolvedValue(chefUser);
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1', isVerified: true });
+
+      await service.updateOwnChefProfile('user_1', {
         firstName: 'Marie',
-        lastName: 'Dupont',
+        lastName: 'Martin',
       });
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-1' },
-        data: { fullName: 'Marie Dupont', role: UserRole.chef },
-      });
-      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
-        displayName: 'Chef Marie D.',
-        serviceRadiusKm: 25,
-        isActive: false,
-        isVerified: false,
+      // The name changed, so `users` WAS written — which is what makes the absence
+      // of `role` below meaningful rather than vacuous.
+      expect(prisma.user.update).toHaveBeenCalledTimes(1);
+      expect(prisma.user.update.mock.calls[0][0].data).toEqual({
+        fullName: 'Marie Martin',
       });
     });
 
-    it('does not demote an admin who saves a chef profile', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue({ ...currentUser, role: UserRole.admin } as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
-
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Chef Admin',
-        firstName: 'Marie',
-      });
-
-      // Promotion is client -> chef only; admin must survive chef onboarding.
-      expect(prisma.user.update.mock.calls[0][0].data).not.toHaveProperty('role');
-    });
-
-    it('cannot be tricked into self-verifying via the payload', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue(null);
-      prisma.user.update.mockResolvedValue(currentUser);
-      prisma.chefProfile.upsert.mockResolvedValue({ id: 'chef-1' });
-
-      await service.updateChefProfileByClerkUserId('user_1', {
-        displayName: 'Sneaky Chef',
-        isActive: true,
-        isVerified: true,
-      } as never);
-
-      expect(prisma.chefProfile.upsert.mock.calls[0][0].create).toMatchObject({
-        isActive: false,
-        isVerified: false,
-      });
-    });
-
-    it('rejects a chef profile when a client profile already exists', async () => {
-      jest
-        .spyOn(service, 'ensurePersistedFromClerk')
-        .mockResolvedValue(currentUser as never);
-      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'client-1' });
+    it('refuses a client with no chef profile — this route no longer promotes anyone', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...chefUser, role: UserRole.client });
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.updateChefProfileByClerkUserId('user_1', { displayName: 'Chef' }),
-      ).rejects.toBeInstanceOf(ConflictException);
+        service.updateOwnChefProfile('user_1', { displayName: 'Chef Marie' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('never creates a chef profile', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...chefUser, role: UserRole.client });
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnChefProfile('user_1', { displayName: 'Chef Marie' }),
+      ).rejects.toThrow();
       expect(prisma.chefProfile.upsert).not.toHaveBeenCalled();
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('does not create a users row for an unknown caller', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnChefProfile('user_unknown', { bio: 'x' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a candidate awaiting approval — browse-only, nothing written', async () => {
+      prisma.user.findUnique.mockResolvedValue(chefUser);
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        isVerified: false,
+      });
+
+      await expect(
+        service.updateOwnChefProfile('user_1', { firstName: 'Marie', bio: 'x' }),
+      ).rejects.toMatchObject({ status: 403, response: { code: 'CHEF_NOT_VERIFIED' } });
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
     });
   });
 
   describe('setChefVerification', () => {
-    it('updates the vetting flags', async () => {
-      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+    const profile = (over: Record<string, unknown> = {}) => ({
+      id: 'chef-1',
+      isVerified: false,
+      isActive: false,
+      application: null,
+      ...over,
+    });
+
+    it('updates the vetting flags of a profile that predates candidatures', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(profile());
       prisma.chefProfile.update.mockResolvedValue({ id: 'chef-1', isActive: true });
 
       await service.setChefVerification('chef-1', { isVerified: true, isActive: true });
@@ -687,11 +840,226 @@ describe('UsersService', () => {
       });
     });
 
+    it.each([ChefApplicationStatus.submitted, ChefApplicationStatus.rejected])(
+      'refuses to verify a candidate whose candidature is %s — approval is the only way',
+      async (status) => {
+        prisma.chefProfile.findUnique.mockResolvedValue(
+          profile({ application: { status } }),
+        );
+        await expect(
+          service.setChefVerification('chef-1', { isVerified: true }),
+        ).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'APPLICATION_NOT_APPROVED' },
+        });
+        expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('re-verifies an approved chef whose verification an admin had revoked', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ application: { status: ChefApplicationStatus.approved } }),
+      );
+      await service.setChefVerification('chef-1', { isVerified: true });
+      expect(prisma.chefProfile.update).toHaveBeenCalled();
+    });
+
+    it('refuses to put an unverified chef online', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ application: { status: ChefApplicationStatus.submitted } }),
+      );
+      await expect(
+        service.setChefVerification('chef-1', { isActive: true }),
+      ).rejects.toMatchObject({ status: 409, response: { code: 'CHEF_NOT_VERIFIED' } });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to revoke verification while leaving the chef online', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({ isVerified: true, isActive: true }),
+      );
+      await expect(
+        service.setChefVerification('chef-1', { isVerified: false }),
+      ).rejects.toMatchObject({ response: { code: 'CHEF_NOT_VERIFIED' } });
+    });
+
+    it('always allows taking a chef offline', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(
+        profile({
+          isVerified: true,
+          isActive: true,
+          application: { status: ChefApplicationStatus.approved },
+        }),
+      );
+      await service.setChefVerification('chef-1', { isActive: false, isVerified: false });
+      expect(prisma.chefProfile.update).toHaveBeenCalled();
+    });
+
     it('throws when the chef profile is missing', async () => {
       prisma.chefProfile.findUnique.mockResolvedValue(null);
       await expect(
         service.setChefVerification('missing', { isActive: true }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('updateOwnChefZones', () => {
+    const LYON = [
+      {
+        regionCode: '84',
+        regionLabel: 'Auvergne-Rhône-Alpes',
+        scope: 'cities' as const,
+        cities: [{ name: 'Lyon', dept: '69', insee: '69123' }],
+      },
+    ];
+    const IDF = [
+      {
+        regionCode: '11',
+        regionLabel: 'Île-de-France',
+        scope: 'region' as const,
+        cities: [],
+      },
+    ];
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', clerkUserId: 'user_1' });
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        isVerified: true,
+        interventionZones: IDF,
+      });
+      prisma.chefProfile.update.mockResolvedValue({
+        id: 'chef-1',
+        interventionZones: LYON,
+      });
+    });
+
+    it('replaces the zones, and journals before and after under the batch cooker', async () => {
+      await service.updateOwnChefZones('user_1', LYON);
+
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { interventionZones: LYON },
+        select: { interventionZones: true },
+      });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorType: 'chef',
+          actorUserId: 'user-1',
+          action: 'chef.zones_changed',
+          subjectId: 'chef-1',
+          metadata: { before: IDF, after: LYON },
+        }),
+      );
+    });
+
+    it('keeps the zones alphabetical: regions by label, towns by name', async () => {
+      const city = (name: string) => ({ name, dept: '69', insee: '69123' });
+      const unsorted = [
+        {
+          ...LYON[0],
+          regionLabel: 'Île-de-France',
+          regionCode: '11',
+          scope: 'region' as const,
+          cities: [],
+        },
+        { ...LYON[0], cities: [{ ...city('Lyon') }] },
+      ];
+      await service.updateOwnChefZones('user_1', unsorted);
+
+      const [{ data }] = prisma.chefProfile.update.mock.calls[0] as [
+        { data: { interventionZones: { regionLabel: string }[] } },
+      ];
+      expect(data.interventionZones.map((z) => z.regionLabel)).toEqual([
+        'Auvergne-Rhône-Alpes',
+        'Île-de-France',
+      ]);
+    });
+
+    it.each([
+      ['a region outside metropolitan France', [{ ...LYON[0], regionCode: '01' }]],
+      ['a cities zone with no city', [{ ...LYON[0], cities: [] }]],
+      ['no zone at all', []],
+    ])('refuses %s, writing nothing', async (_label, zones) => {
+      await expect(service.updateOwnChefZones('user_1', zones)).rejects.toMatchObject({
+        status: 422,
+        response: { code: 'VALIDATION_FAILED' },
+      });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a town that is not the commune of its INSEE code', async () => {
+      const marseille = [
+        { ...LYON[0], cities: [{ name: 'Marseille', dept: '13', insee: '13055' }] },
+      ];
+      await expect(service.updateOwnChefZones('user_1', marseille)).rejects.toMatchObject(
+        { status: 422, response: { code: 'ZONE_CITY_UNKNOWN' } },
+      );
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a candidate awaiting approval: their zones are the candidature’s', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-1',
+        isVerified: false,
+        interventionZones: IDF,
+      });
+      await expect(service.updateOwnChefZones('user_1', LYON)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'CHEF_NOT_VERIFIED' },
+      });
+      expect(prisma.chefProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an account that is not a batch cooker', async () => {
+      prisma.chefProfile.findUnique.mockResolvedValue(null);
+      await expect(service.updateOwnChefZones('user_1', LYON)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('exportMyData', () => {
+    it("gives the person's own data only, without internal ids, and audits it", async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_1',
+        email: 'marie@example.com',
+        fullName: 'Marie Dupont',
+        phone: null,
+        role: UserRole.client,
+        createdAt: new Date('2026-09-01T08:00:00.000Z'),
+      } as never);
+      const bookings = jest.fn().mockResolvedValue([{ reference: 'LF-2026-0001' }]);
+      const quotes = jest.fn().mockResolvedValue([]);
+      const messages = jest.fn().mockResolvedValue([{ body: 'Bonjour' }]);
+      Object.assign(prisma, {
+        booking: { findMany: bookings },
+        quote: { findMany: quotes },
+        message: { findMany: messages },
+      });
+      prisma.clientProfile.findUnique.mockResolvedValue({ allergies: ['Arachides'] });
+
+      const data = await service.exportMyData('user_1');
+
+      expect(data).toMatchObject({
+        account: { email: 'marie@example.com', fullName: 'Marie Dupont', phone: null },
+        clientProfile: { allergies: ['Arachides'] },
+        bookings: [{ reference: 'LF-2026-0001' }],
+        quotes: [],
+        messages: [{ body: 'Bonjour' }],
+      });
+      expect(data.account).not.toHaveProperty('clerkUserId');
+      expect(prisma.clientProfile.findUnique.mock.calls[0][0]).toEqual({
+        where: { userId: 'uuid-1' },
+        omit: { id: true, userId: true },
+      });
+      expect(bookings.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(quotes.mock.calls[0][0].where).toEqual({ clientId: 'uuid-1' });
+      expect(messages.mock.calls[0][0].where).toEqual({ senderUserId: 'uuid-1' });
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.data_exported', subjectId: 'uuid-1' }),
+      );
     });
   });
 
@@ -701,12 +1069,17 @@ describe('UsersService', () => {
         id: 'uuid-1',
         role: UserRole.chef,
       } as never);
-      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1' });
+      prisma.chefProfile.findUnique.mockResolvedValue({ id: 'chef-1', tier: 'tier_2' });
 
       const result = await service.getProfileByClerkUserId('user_1');
 
       expect(result.profileType).toBe('chef');
-      expect(result.profile).toEqual({ id: 'chef-1' });
+      // The tier with the label an admin set (Recettes R34), the default until then.
+      expect(result.profile).toEqual({
+        id: 'chef-1',
+        tier: 'tier_2',
+        tierLabel: 'Palier 2',
+      });
       expect(prisma.clientProfile.findUnique).not.toHaveBeenCalled();
     });
 
@@ -721,6 +1094,91 @@ describe('UsersService', () => {
 
       expect(result.profileType).toBe('none');
       expect(result.profile).toBeNull();
+    });
+
+    it('gives every account the same notifications: email, never SMS', async () => {
+      jest.spyOn(service, 'ensurePersistedFromClerk').mockResolvedValue({
+        id: 'uuid-1',
+        role: UserRole.client,
+      } as never);
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      const result = await service.getProfileByClerkUserId('user_1');
+
+      expect(result.notificationPreferences).toEqual({ email: true, sms: false });
+    });
+  });
+
+  describe('admin client by id', () => {
+    it('answers 404 CLIENT_NOT_FOUND for an unknown id, not an empty 200', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.getClientById('nope')).rejects.toMatchObject({
+        response: { code: 'CLIENT_NOT_FOUND' },
+      });
+    });
+
+    it('answers 404 CLIENT_NOT_FOUND when updating an unknown id, not a 500', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateClientById('nope', { status: 'vip' }, 'admin_clerk'),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+      expect(prisma.clientProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the profile goes between the read and the write', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({ id: 'cp-1', allergies: [] });
+      prisma.clientProfile.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('No record', {
+          code: 'P2025',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.updateClientById('cp-1', { dislikes: ['Coriandre'] }, 'admin_clerk'),
+      ).rejects.toMatchObject({ response: { code: 'CLIENT_NOT_FOUND' } });
+    });
+
+    it('audits who corrected which fields, before and after, and only those', async () => {
+      prisma.clientProfile.findUnique.mockResolvedValue({
+        id: 'cp-1',
+        dislikes: ['Coriandre'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+      });
+      prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+      prisma.clientProfile.update.mockResolvedValue({
+        id: 'cp-1',
+        dislikes: ['Coriandre', 'Céleri'],
+        dietaryPreferences: ['Halal'],
+        kitchenNotes: 'Induction',
+        user: { id: 'user-1' },
+      });
+
+      await service.updateClientById(
+        'cp-1',
+        { dislikes: ['Coriandre', 'Céleri'] },
+        'admin_clerk',
+      );
+
+      expect(prisma.clientProfile.update).toHaveBeenCalledWith({
+        where: { id: 'cp-1' },
+        data: { dislikes: ['Coriandre', 'Céleri'] },
+        include: { user: true },
+      });
+      expect(audit.record).toHaveBeenCalledWith({
+        actorType: 'admin',
+        actorUserId: 'admin-1',
+        action: 'client.profile_updated',
+        subjectType: 'client_profile',
+        subjectId: 'cp-1',
+        metadata: {
+          before: { dislikes: ['Coriandre'] },
+          after: { dislikes: ['Coriandre', 'Céleri'] },
+        },
+      });
     });
   });
 
@@ -753,26 +1211,27 @@ describe('UsersService', () => {
   });
 
   describe('listClients', () => {
-    const clientRow = { id: 'client-1', user: { id: 'uuid-1' } };
+    const clientProfile = { id: 'profile-1', userId: 'uuid-1' };
+    const clientUser = { id: 'uuid-1', role: UserRole.client };
 
     beforeEach(() => {
-      prisma.clientProfile.findMany.mockResolvedValue([clientRow]);
-      prisma.clientProfile.count.mockResolvedValue(41);
+      prisma.user.findMany.mockResolvedValue([{ ...clientUser, clientProfile }]);
+      prisma.user.count.mockResolvedValue(41);
     });
 
     it('applies default page and limit when the query is empty', async () => {
       const result = await service.listClients();
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith({
-        where: undefined,
-        include: { user: true },
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { role: UserRole.client },
+        include: { clientProfile: { omit: { allergies: true, customAllergies: true } } },
         // `id` is the tiebreaker that keeps paging stable across equal timestamps.
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: 0,
         take: 20,
       });
       expect(result).toEqual({
-        data: [clientRow],
+        data: [{ user: clientUser, clientProfile }],
         meta: {
           page: 1,
           limit: 20,
@@ -784,10 +1243,20 @@ describe('UsersService', () => {
       });
     });
 
+    it('lists clients who have not saved a profile yet', async () => {
+      // Listing `client_profiles` hid every client who signed up but never saved
+      // their preferences: they have a `users` row and no profile row.
+      prisma.user.findMany.mockResolvedValue([{ ...clientUser, clientProfile: null }]);
+
+      const result = await service.listClients();
+
+      expect(result.data).toEqual([{ user: clientUser, clientProfile: null }]);
+    });
+
     it('translates page/limit into skip/take and reports the last page', async () => {
       const result = await service.listClients({ page: 3, limit: 20 });
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 40, take: 20 }),
       );
       expect(result.meta).toMatchObject({
@@ -798,18 +1267,21 @@ describe('UsersService', () => {
     });
 
     it('counts with the same status filter it queries with', async () => {
-      prisma.clientProfile.count.mockResolvedValue(1);
+      prisma.user.count.mockResolvedValue(1);
 
       const result = await service.listClients({
         status: ClientProfileStatus.vip,
         limit: 5,
       });
 
-      const where = { status: ClientProfileStatus.vip };
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      const where = {
+        role: UserRole.client,
+        clientProfile: { status: ClientProfileStatus.vip },
+      };
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where }),
       );
-      expect(prisma.clientProfile.count).toHaveBeenCalledWith({ where });
+      expect(prisma.user.count).toHaveBeenCalledWith({ where });
       expect(result.meta).toMatchObject({ total: 1, totalPages: 1, limit: 5 });
     });
 
@@ -823,14 +1295,14 @@ describe('UsersService', () => {
     it('clamps an oversized limit from a direct (non-HTTP) caller', async () => {
       await service.listClients({ page: 0, limit: 5_000 });
 
-      expect(prisma.clientProfile.findMany).toHaveBeenCalledWith(
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 0, take: 100 }),
       );
     });
 
     it('reports zero pages when no client matches', async () => {
-      prisma.clientProfile.findMany.mockResolvedValue([]);
-      prisma.clientProfile.count.mockResolvedValue(0);
+      prisma.user.findMany.mockResolvedValue([]);
+      prisma.user.count.mockResolvedValue(0);
 
       const result = await service.listClients();
 
@@ -840,6 +1312,76 @@ describe('UsersService', () => {
         hasNextPage: false,
         hasPreviousPage: false,
       });
+    });
+  });
+
+  describe('listUsers', () => {
+    const account = {
+      id: 'uuid-1',
+      clerkUserId: 'user_1',
+      email: 'team@labsfood.fr',
+      fullName: 'Labs Food Team',
+      phone: null,
+      avatarUrl: null,
+      role: UserRole.admin,
+      createdAt: new Date('2026-10-31T17:00:00Z'),
+    };
+
+    beforeEach(() => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: null, chefProfile: null },
+      ]);
+      prisma.user.count.mockResolvedValue(1);
+    });
+
+    it('lists every role, newest first, without deleted accounts', async () => {
+      await service.listUsers();
+
+      // Admins have no client or chef profile, so only `users` lists them all.
+      const where = { deletedAt: null };
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: 0,
+          take: 20,
+        }),
+      );
+      expect(prisma.user.count).toHaveBeenCalledWith({ where });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('flattens each profile to the id its admin page expects', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { ...account, clientProfile: { id: 'client-1' }, chefProfile: null },
+        { ...account, id: 'uuid-2', clientProfile: null, chefProfile: { id: 'chef-1' } },
+      ]);
+
+      const result = await service.listUsers({ page: 1, limit: 2 });
+
+      expect(result.data).toEqual([
+        { ...account, clientProfileId: 'client-1', chefProfileId: null },
+        { ...account, id: 'uuid-2', clientProfileId: null, chefProfileId: 'chef-1' },
+      ]);
+      expect(result.meta).toMatchObject({ page: 1, limit: 2, total: 1 });
+    });
+
+    it('selects only the public account fields', async () => {
+      await service.listUsers();
+
+      const { select } = prisma.user.findMany.mock.calls[0][0];
+      expect(Object.keys(select).sort()).toEqual([
+        'avatarUrl',
+        'chefProfile',
+        'clerkUserId',
+        'clientProfile',
+        'createdAt',
+        'email',
+        'fullName',
+        'id',
+        'phone',
+        'role',
+      ]);
     });
   });
 
@@ -945,13 +1487,20 @@ describe('UsersService', () => {
     });
 
     describe('setSapExternalStatus', () => {
+      const BEFORE = {
+        crcesuAffiliationStatus: 'not_started',
+        urssafTiersPrestationStatus: 'pending',
+      };
+
       it('is the writer the CRCESU affiliation never had', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          crcesuAffiliationStatus: 'active',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
 
         expect(prisma.sapProfile.update).toHaveBeenCalledWith({
           where: { chefProfileId: 'chef-1' },
@@ -959,13 +1508,46 @@ describe('UsersService', () => {
         });
       });
 
+      it('journals who changed what, before and after', async () => {
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
+        prisma.user.findUnique.mockResolvedValue({ id: 'admin-1' });
+        prisma.sapProfile.update.mockResolvedValue({
+          id: 'sap-1',
+          ...BEFORE,
+          crcesuAffiliationStatus: 'active',
+        });
+
+        await service.setSapExternalStatus(
+          'chef-1',
+          { crcesuAffiliationStatus: 'active' },
+          'clerk_admin',
+        );
+
+        expect(audit.record).toHaveBeenCalledWith({
+          actorType: 'admin',
+          actorUserId: 'admin-1',
+          action: 'chef.sap_status_changed',
+          subjectType: 'chef_profile',
+          subjectId: 'chef-1',
+          metadata: {
+            before: BEFORE,
+            after: {
+              crcesuAffiliationStatus: 'active',
+              urssafTiersPrestationStatus: 'pending',
+            },
+          },
+        });
+      });
+
       it('leaves an omitted status untouched', async () => {
-        prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
+        prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus('chef-1', {
-          urssafTiersPrestationStatus: 'pending',
-        });
+        await service.setSapExternalStatus(
+          'chef-1',
+          { urssafTiersPrestationStatus: 'pending' },
+          'clerk_admin',
+        );
 
         const [{ data }] = prisma.sapProfile.update.mock.calls[0] as [
           { data: Record<string, unknown> },
@@ -977,9 +1559,16 @@ describe('UsersService', () => {
         prisma.sapProfile.findUnique.mockResolvedValue(null);
 
         await expect(
-          service.setSapExternalStatus('chef-1', { crcesuAffiliationStatus: 'active' }),
-        ).rejects.toBeInstanceOf(NotFoundException);
+          service.setSapExternalStatus(
+            'chef-1',
+            { crcesuAffiliationStatus: 'active' },
+            'clerk_admin',
+          ),
+        ).rejects.toMatchObject({
+          response: { code: 'SAP_PROFILE_NOT_FOUND' },
+        });
         expect(prisma.sapProfile.update).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
       });
     });
 
@@ -1006,10 +1595,64 @@ describe('UsersService', () => {
   describe('deleteByClerkId', () => {
     it('deletes by clerk_user_id', async () => {
       prisma.user.deleteMany.mockResolvedValue({ count: 1 });
-      await service.deleteByClerkId('user_gone');
+      await expect(service.deleteByClerkId('user_gone')).resolves.toBe('deleted');
       expect(prisma.user.deleteMany).toHaveBeenCalledWith({
         where: { clerkUserId: 'user_gone' },
       });
+    });
+
+    it('anonymises, in one transaction, a user their bookings still reference', async () => {
+      prisma.user.deleteMany.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('fk', {
+          code: 'P2003',
+          clientVersion: 't',
+        }),
+      );
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'uuid-1',
+        clerkUserId: 'user_gone',
+      });
+      prisma.user.update.mockReturnValue('user-write');
+      prisma.clientProfile.deleteMany.mockReturnValue('client-write');
+      prisma.chefProfile.updateMany.mockReturnValue('chef-write');
+
+      await expect(service.deleteByClerkId('user_gone')).resolves.toBe('anonymised');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        data: {
+          email: 'deleted-uuid-1@deleted.invalid',
+          fullName: null,
+          phone: null,
+          deletedAt: expect.any(Date),
+        },
+      });
+      expect(prisma.clientProfile.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'uuid-1' },
+      });
+      expect(prisma.chefProfile.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'uuid-1' },
+        data: {
+          displayName: 'Compte supprimé',
+          bio: null,
+          city: null,
+          isActive: false,
+          isVerified: false,
+        },
+      });
+      expect(prisma.$transaction).toHaveBeenCalledWith([
+        'user-write',
+        'client-write',
+        'chef-write',
+      ]);
+    });
+
+    it('lets any other failure through, writing nothing', async () => {
+      const outage = new Error('connection lost');
+      prisma.user.deleteMany.mockRejectedValue(outage);
+
+      await expect(service.deleteByClerkId('user_gone')).rejects.toBe(outage);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
 });

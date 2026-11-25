@@ -1,15 +1,27 @@
-name: Docker image
+name: LF API Server image
 
 # Build the production image (repo-root context + apps/Dockerfile, same as
 # Railway/Compose), run it on a standard GitHub runner against a throwaway
 # Postgres to prove it migrates and answers health checks, then publish it to
-# GitHub Container Registry (GHCR) on main and version tags.
+# GitHub Container Registry (GHCR) on main and version tags. Lint, tests, SAST
+# and the dependency audit (ci.yml) gate the build.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    tags: ['v*.*.*']
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'graphify-out/**'
+      - 'LICENSE'
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'graphify-out/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 concurrency:
@@ -26,15 +38,22 @@ env:
   TEST_IMAGE: lf-api:ci
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  # The image is built on pushes to main and develop only: a PR runs the checks
+  # alone, which keeps GitHub Actions within the free plan's monthly minutes.
   build-run-push:
+    needs: checks
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Compute image name (lowercase for GHCR)
         id: img
@@ -44,7 +63,7 @@ jobs:
 
       - name: Docker metadata (tags & labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ steps.img.outputs.image }}
           tags: |
@@ -53,12 +72,12 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       # Build once, load into the runner's Docker so we can run it before
       # pushing. GitHub Actions cache (type=gha) keeps rebuilds fast.
       - name: Build image (load for testing)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: apps/Dockerfile
@@ -129,6 +148,12 @@ jobs:
 
           echo "GET /health:"; curl -fsS http://localhost:8000/health; echo
           echo "GET /ready:";  curl -fsS http://localhost:8000/ready;  echo
+          echo "Supabase TLS settings load inside the image (CA file shipped):"
+          docker run --rm --entrypoint node "${TEST_IMAGE}" -e \
+            "const { postgresPoolConfig, prismaCliUrl } = require('./dist/supabase/db-connection'); const url = 'postgresql://u:p@db.example.supabase.co:5432/postgres'; if (!postgresPoolConfig(url).ssl?.rejectUnauthorized) process.exit(1); require('fs').accessSync(new URL(prismaCliUrl(url)).searchParams.get('sslcert')); console.log('ok')"
+          echo "No eMudhra (emSign) root left, in the API's CAs or in the system bundle:"
+          docker run --rm --entrypoint node "${TEST_IMAGE}" -e \
+            "const fs = require('fs'); const { X509Certificate } = require('crypto'); const { TRUSTED_ROOT_CERTIFICATES } = require('./dist/config/trusted-roots'); const f = '/etc/ssl/certs/ca-certificates.crt'; const bundle = fs.existsSync(f) ? fs.readFileSync(f, 'utf8').match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [] : []; const left = [...TRUSTED_ROOT_CERTIFICATES, ...bundle].filter((p) => /eMudhra|emSign/i.test(new X509Certificate(p).subject)).length; if (left) { console.error(left + ' emSign roots left'); process.exit(1); } console.log('ok')"
           echo "Smoke test passed."
 
       - name: Teardown smoke test
@@ -141,7 +166,7 @@ jobs:
       # forks, and PRs shouldn't publish images).
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -149,7 +174,7 @@ jobs:
 
       - name: Push image (reuses build cache)
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: apps/Dockerfile
@@ -158,3 +183,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Pushes to main, or a manual run on main (Actions → LF API Server image →
+  # Run workflow → main), never develop, PRs or tags. The manual run is the way
+  # out when a push to main did not start this workflow, e.g. a squash-merge
+  # whose message carries "[skip ci]". SemRelease tags the commit, publishes the
+  # GitHub Release and queues "Deploy production".
+  release:
+    needs: build-run-push
+    if: contains(fromJSON('["push", "workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    uses: ./.github/workflows/release.yml
