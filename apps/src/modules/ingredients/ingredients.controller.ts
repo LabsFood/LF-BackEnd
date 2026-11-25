@@ -43,6 +43,7 @@ import {
 } from './dto/ingredient.dto';
 import { ImportIngredientsDto } from './dto/import-ingredients.dto';
 import { MergeIngredientDto } from './dto/merge-ingredient.dto';
+import { IngredientEnrichmentService } from './ingredient-enrichment.service';
 import { IngredientImportService } from './ingredient-import.service';
 import { IngredientsService } from './ingredients.service';
 
@@ -116,6 +117,7 @@ export class IngredientsController {
     private readonly users: UsersService,
     private readonly chefs: ChefContentService,
     private readonly importer: IngredientImportService,
+    private readonly enrichment: IngredientEnrichmentService,
   ) {}
 
   @Get('ingredients')
@@ -481,6 +483,31 @@ export class IngredientsController {
     @Body() body: MergeIngredientDto,
   ) {
     return this.ingredients.merge(id, body.intoId, await this.adminId(user));
+  }
+
+  @Post('admin/ingredients/complete-with-ai')
+  @HttpCode(200)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Fill the empty fields of incomplete entries with AI',
+    description:
+      'Recettes §5.1: up to 20 common entries without an aisle, or with allergens ' +
+      'neither listed nor "none", get their EMPTY fields (aisle, allergens or "none", ' +
+      'diets when empty) from the AI (`recettes` / `fiche_ingredient` budget). A field ' +
+      'already filled is never changed. Each write goes through the admin update, so it ' +
+      'is carried into the recipes (§7.3), chefs e-mailed once for the call. Entries ' +
+      'stay unreviewed. `remaining` counts the incomplete entries left: call again ' +
+      'until it is 0. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'What this call completed.',
+    example: { completed: 18, failed: [], remaining: 182, costMicroEur: 900 },
+  })
+  @ApiAdminAuthResponses()
+  async completeWithAi(@CurrentClerkUser() user: ClerkUser) {
+    return this.enrichment.completeIncomplete(await this.adminId(user));
   }
 
   @Post('admin/ingredients/season-review')

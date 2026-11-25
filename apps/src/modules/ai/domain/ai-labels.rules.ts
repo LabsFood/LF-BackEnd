@@ -11,6 +11,7 @@ export const AI_POSTES = {
     features: {
       import_recette: 'Import de recette',
       verification_allergenes: 'Vérification des allergènes',
+      fiche_ingredient: 'Fiches d’ingrédients',
     },
   },
   vitrine: {

@@ -176,7 +176,26 @@ describe('toDishDraft', () => {
       method: 'fridge',
       days: 3,
       freezable: true,
+      freezerMonths: 3,
     });
+  });
+
+  it('reprend la durée au congélateur, sinon 3 mois estimés', () => {
+    const read = toDishDraft(recipe({ freezable: true, freezerMonths: 6 }), index);
+    expect(read.dish.recipe.storage?.freezerMonths).toBe(6);
+    expect(read.estimatedFields).not.toContain('freezerMonths');
+    const guessed = toDishDraft(recipe({ freezable: true }), index);
+    expect(guessed.estimatedFields).toContain('freezerMonths');
+    expect(
+      toDishDraft(recipe({ freezable: false, freezerMonths: 6 }), index).dish.recipe
+        .storage?.freezerMonths,
+    ).toBeUndefined();
+  });
+
+  it('garde les profils connus seulement', () => {
+    expect(
+      toDishDraft(recipe({ profiles: ['kids', 'bogus', 'kids'] }), index).dish.profiles,
+    ).toEqual(['kids']);
   });
 
   it('reprend le contenant et la réponse « congelable », oui comme non', () => {

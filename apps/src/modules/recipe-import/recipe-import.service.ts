@@ -20,6 +20,12 @@ import { recipeImportInForce, recipeImportOpenTo } from '../ai/ai-settings';
 import type { AiContent } from '../ai/providers/ai-provider';
 import { ChefContentService } from '../dishes/chef-content.service';
 import { DishesService } from '../dishes/dishes.service';
+import { matchKey } from '../ingredients/domain/ingredient.rules';
+import {
+  IngredientEnrichmentService,
+  type SheetOwner,
+} from '../ingredients/ingredient-enrichment.service';
+import { recipeProfilesInForce } from '../platform-settings/recipe-lists';
 import { CreateDishDto } from '../dishes/dto/dish.dto';
 import {
   allergenGaps,
@@ -49,6 +55,7 @@ import {
   EXTRACTION_SCHEMA_NAME,
   extractionPrompt,
   PUBLISHED_SOURCE_NOTE,
+  type ExtractedRecipe,
   type Extraction,
 } from './extraction/schema';
 import { parseExtraction } from './extraction/scoring';
@@ -104,6 +111,8 @@ interface Report {
   duplicateOf?: { id: string; name: string } | null;
   candidates?: { index: number; name: string; ingredients: number }[];
   belowThreshold?: boolean;
+  /** Fiches d'ingrédients créées par l'IA pendant l'import (rayon, allergènes…). */
+  createdIngredients?: { id: string; name: string }[];
   /** Plusieurs brouillons créés d'un même import : ce qu'il faut relire, plat par plat. */
   perMeal?: Record<string, MealReport>;
   /** Import de la console : un brouillon par recette lue, que l'admin enregistre. */
@@ -152,6 +161,7 @@ export class RecipeImportService {
     private readonly storage: RecipeImportStorageService,
     private readonly access: ChefContentService,
     private readonly dishes: DishesService,
+    private readonly enrichment: IngredientEnrichmentService,
   ) {}
 
   /** Ouvert à ce cuisinier ? (pour afficher ou non le bouton) */
@@ -289,9 +299,17 @@ export class RecipeImportService {
   }
 
   private async toAdminDrafts(row: ImportRow, extraction: Extraction, report: Report) {
-    const index = await this.indexFor(null);
+    const links = await this.completeIngredients(
+      row,
+      extraction.recipes,
+      { kind: 'admin', userId: row.createdByUserId ?? '' },
+      report,
+    );
+    const index = new Map([...(await this.indexFor(null)), ...links]);
+    const profiles = await this.profilesInForce();
     const drafts: AdminDraft[] = extraction.recipes.map((recipe) => {
       const draft = toDishDraft(recipe, index);
+      draft.dish.profiles = draft.dish.profiles.filter((p) => profiles.has(p));
       return {
         dish: draft.dish,
         estimatedFields: draft.estimatedFields,
@@ -497,11 +515,20 @@ export class RecipeImportService {
     clerkUserId: string,
     report: Report,
   ) {
-    const linkIdx = await this.indexFor(row.chefProfileId);
+    const chef = await this.access.chef(clerkUserId);
+    const links = await this.completeIngredients(
+      row,
+      indexes.map((i) => extraction.recipes[i]),
+      { kind: 'chef', chefProfileId: chef.id, userId: chef.userId },
+      report,
+    );
+    const linkIdx = new Map([...(await this.indexFor(row.chefProfileId)), ...links]);
+    const profiles = await this.profilesInForce();
     const perMeal: Record<string, MealReport> = {};
     for (const index of indexes) {
       const recipe = extraction.recipes[index];
       const draft = toDishDraft(recipe, linkIdx);
+      draft.dish.profiles = draft.dish.profiles.filter((p) => profiles.has(p));
       const warnings = [...extraction.warnings, ...draft.warnings];
       if (row.sourceType === 'title') {
         warnings.unshift(
@@ -563,6 +590,7 @@ export class RecipeImportService {
       'description',
       'difficulty',
       'cookMinutes',
+      'profiles',
     ];
     let plain = JSON.parse(JSON.stringify(dish)) as Record<string, unknown>;
     for (let pass = 0; pass < 2; pass++) {
@@ -644,6 +672,57 @@ export class RecipeImportService {
       );
     }
     return content;
+  }
+
+  /**
+   * Les ingrédients lus que la liste ne connaît pas deviennent des fiches complètes
+   * (rayon, allergènes, régimes, saisons) remplies par l'IA, pour que la recette
+   * sorte reliée et complète. Sans réponse de l'IA (budget, panne), les noms restent
+   * à relier comme avant : l'import n'échoue jamais pour ça.
+   */
+  private async completeIngredients(
+    row: ImportRow,
+    recipes: ExtractedRecipe[],
+    owner: SheetOwner,
+    report: Report,
+  ): Promise<Map<string, string>> {
+    const links = new Map<string, string>();
+    const index = await this.indexFor(row.chefProfileId);
+    const unknown = [
+      ...new Set(
+        recipes
+          .flatMap((r) => r.ingredients.map((l) => l.name.trim()))
+          .filter((name) => name && !index.has(matchKey(name))),
+      ),
+    ];
+    if (unknown.length === 0 || !owner.userId) return links;
+    try {
+      const result = await this.enrichment.createForImport(unknown, owner);
+      // Un nom ramené à une fiche existante sous un autre nom (« oignons émincés » →
+      // « Oignon ») : la liaison de cet import le relie quand même.
+      for (const [name, id] of result.links) links.set(matchKey(name), id);
+      report.createdIngredients = [
+        ...(report.createdIngredients ?? []),
+        ...result.created,
+      ];
+      if (result.costMicroEur) {
+        await this.prisma.recipeImport.update({
+          where: { id: row.id },
+          data: { costMicroEur: { increment: result.costMicroEur } },
+        });
+      }
+    } catch (error) {
+      this.logger.warn({
+        event: 'recipe_import.ingredients_not_completed',
+        id: row.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return links;
+  }
+
+  private async profilesInForce() {
+    return new Set((await recipeProfilesInForce(this.prisma)).map((p) => p.code));
   }
 
   /** La liste commune active et les ingrédients privés du cuisinier (Recettes §4.10). */
@@ -776,6 +855,28 @@ export class RecipeImportService {
     ).slice(0, 200);
   }
 
+  /**
+   * Console : les noms en attente deviennent des fiches communes complètes remplies
+   * par l'IA (ou l'« autre nom » d'une fiche existante). Ce que l'IA juge ne pas être
+   * un ingrédient (« échalote et ail ») est écarté comme par « Ignorer ».
+   */
+  async createUnlinkedWithAi(names: string[], adminUserId: string) {
+    const result = await this.enrichment.createForImport(names, {
+      kind: 'admin',
+      userId: adminUserId,
+    });
+    for (const name of result.notIngredients) {
+      await this.ignoreUnlinkedName(name, adminUserId);
+    }
+    return {
+      created: result.created,
+      linked: result.links.size - result.created.length,
+      ignored: result.notIngredients,
+      left: result.skipped.filter((n) => !result.notIngredients.includes(n)),
+      costMicroEur: result.costMicroEur,
+    };
+  }
+
   /** L'admin écarte un nom (« huile », « échalote et ail ») : il ne remonte plus. */
   async ignoreUnlinkedName(name: string, adminUserId: string) {
     const current = await this.prisma.platformSetting.findUnique({
@@ -841,5 +942,6 @@ function trace(row: ImportRow, report: Report) {
     startedAt: row.startedAt,
     belowThreshold: report.belowThreshold ?? false,
     unlinkedNames: report.unlinkedNames ?? [],
+    createdIngredients: report.createdIngredients ?? [],
   };
 }
