@@ -1,3 +1,9 @@
+## [2.6.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.5.0...v2.6.0) (2026-11-25)
+
+### Features
+
+* **recipe-import:** l'IA remplit les fiches d'ingrédients et les champs du plat à l'import ([aef04d0](https://github.com/LabsFood/LF-BackEnd/commit/aef04d0386b7f9133ed7a5bd11d043fac130f17d))
+
 ## [2.5.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.4.0...v2.5.0) (2026-11-24)
 
 ### Features
