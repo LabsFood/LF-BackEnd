@@ -135,6 +135,13 @@ export const envValidationSchema = Joi.object({
   CESU_PLATFORM_NAN: Joi.string().trim().max(64).allow('').optional(),
   /** Who the client pays in CESU, as shown next to the NAN. */
   CESU_PLATFORM_NAME: Joi.string().trim().max(255).allow('').optional(),
+  /** Bank feed (25/11): GoCardless Bank Account Data read access to the SAS account. */
+  GOCARDLESS_BAD_SECRET_ID: Joi.string().allow('').optional(),
+  GOCARDLESS_BAD_SECRET_KEY: Joi.string().allow('').optional(),
+  /** The account id the bank consent (requisition) returned. */
+  CESU_BANK_ACCOUNT_ID: Joi.string().allow('').optional(),
+  /** The SAS's SAP declaration number, for its invoices and fiscal attestations. */
+  SAP_DECLARATION_NUMBER: Joi.string().trim().max(32).allow('').optional(),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
