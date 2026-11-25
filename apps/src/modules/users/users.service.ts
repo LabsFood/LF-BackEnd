@@ -52,6 +52,7 @@ import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { cesuFeeBpsFor, cesuFeeRulesInForce } from '../platform-settings/cesu-fee';
 import { UpdateMeSapProfileDto, UpdateSapExternalStatusDto } from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
@@ -809,6 +810,19 @@ export class UsersService {
    * Returns `null` when the chef has not declared yet; a user without a chef profile
    * is a `ConflictException`, same as on write.
    */
+  /**
+   * `GET /me/chef-profile/cesu-fee` — the « frais de traitement et d'encaissement des
+   * CESU » this batch cooker bears, at their tier, shown before they accept CESU.
+   */
+  async getOwnCesuFee(clerkUserId: string) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    const [chef, rules] = await Promise.all([
+      this.prisma.chefProfile.findUnique({ where: { id }, select: { tier: true } }),
+      cesuFeeRulesInForce(this.prisma),
+    ]);
+    return { feeBps: cesuFeeBpsFor(rules, chef?.tier ?? 'tier_1') };
+  }
+
   async getSapProfileByClerkUserId(clerkUserId: string) {
     const chefProfile = await this.requireOwnChefProfile(clerkUserId);
     return this.prisma.sapProfile.findUnique({

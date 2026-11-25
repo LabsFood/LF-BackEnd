@@ -372,6 +372,24 @@ export class UsersController {
     return this.users.updateOwnChefZones(user.userId, body.interventionZones);
   }
 
+  @Get('me/chef-profile/cesu-fee')
+  @ApiOperation({
+    summary: 'Get the CESU processing fee I would bear',
+    description:
+      '« Frais de traitement et d’encaissement des CESU », in basis points (`1000` = ' +
+      '10 %), at the batch cooker’s tier. Borne by the batch cooker, never by the ' +
+      'client, on what is paid in CESU, computed on what is left after the commission. ' +
+      'Shown before they accept CESU.',
+  })
+  @ApiOkResponse({ description: 'The rate.', schema: { example: { feeBps: 1000 } } })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeCesuFee(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getOwnCesuFee(user.userId);
+  }
+
   @Get('me/chef-profile/sap')
   @ApiOperation({
     summary: 'Get my "service à la personne" declaration',

@@ -36,6 +36,7 @@ import { Raw } from '../../common/dto/strict';
 import { TAGS } from '../../common/swagger/tags';
 import { UsersService } from '../users/users.service';
 import { PlatformSettingsService } from './platform-settings.service';
+import { MAX_CESU_FEE_BPS } from './cesu-fee';
 import { FRIDGE_ALERT_MAX, FRIDGE_ALERT_MIN } from './fridge-alert';
 import { GROCERIES_BOUNDS } from './groceries';
 
@@ -128,6 +129,61 @@ class GroceriesDto {
   @Min(GROCERIES_BOUNDS.instantPayoutFeeMinCents.min)
   @Max(GROCERIES_BOUNDS.instantPayoutFeeMinCents.max)
   instantPayoutFeeMinCents?: number;
+}
+
+/** A per-tier CESU fee: only the tiers that differ from the default. */
+class CesuFeeByTierDto {
+  @ApiPropertyOptional({ minimum: 0, maximum: MAX_CESU_FEE_BPS, example: 1000 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CESU_FEE_BPS)
+  tier_1?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: MAX_CESU_FEE_BPS, example: 800 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CESU_FEE_BPS)
+  tier_2?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: MAX_CESU_FEE_BPS })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CESU_FEE_BPS)
+  tier_3?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: MAX_CESU_FEE_BPS })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CESU_FEE_BPS)
+  tier_4?: number;
+}
+
+/** « Frais de traitement et d'encaissement des CESU », borne by the batch cooker. */
+class CesuFeeDto {
+  @ApiProperty({
+    minimum: 0,
+    maximum: MAX_CESU_FEE_BPS,
+    description:
+      'Default rate in basis points (`1000` = 10 %), for every tier without its own.',
+    example: 1000,
+  })
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CESU_FEE_BPS)
+  defaultBps!: number;
+
+  @ApiProperty({
+    type: CesuFeeByTierDto,
+    description: 'Rates per chef tier; a tier left out takes the default.',
+  })
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => CesuFeeByTierDto)
+  byTier!: CesuFeeByTierDto;
 }
 
 /** Recettes lot 3 (LF-0271): days in the fridge past which a dish's date alerts. */
@@ -483,6 +539,65 @@ export class PlatformSettingsController {
       (await this.users.findByClerkId(user.userId)) ??
       (await this.users.ensurePersistedFromClerk(user.userId));
     return this.settings.setGroceries(body, admin.id, reqId(req));
+  }
+
+  @Get('admin/settings/cesu-fee')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Read the CESU processing fee',
+    description:
+      '« Frais de traitement et d’encaissement des CESU », borne by the batch cooker on ' +
+      'what a client pays in prefinanced CESU, **never by the client** (no surcharge is ' +
+      'allowed on CESU). Cascaded after the commission: computed on what is left once ' +
+      'the commission is taken. `defaultBps` applies to every tier without its own rate ' +
+      'in `byTier`. 10 % by default. `updatedAt: null`: never changed.',
+  })
+  @ApiOkResponse({
+    description: 'The rates.',
+    example: { defaultBps: 1000, byTier: { tier_2: 800 }, updatedAt: null },
+  })
+  @ApiAdminAuthResponses()
+  cesuFee() {
+    return this.settings.cesuFee();
+  }
+
+  @Put('admin/settings/cesu-fee')
+  @ApiTags(TAGS.adminChefs)
+  @ApiBearerAuth()
+  @UseGuards(ClerkAuthGuard, AdminGuard)
+  @ApiOperation({
+    summary: 'Change the CESU processing fee',
+    description:
+      'From 0 to 30 %, by default and per tier. Applies to CESU amounts settled from ' +
+      'now on. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    description: 'The new rates.',
+    example: {
+      defaultBps: 1000,
+      byTier: { tier_2: 800 },
+      updatedAt: '2026-11-25T13:00:00.000Z',
+    },
+  })
+  @ApiAdminAuthResponses()
+  async setCesuFee(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() body: CesuFeeDto,
+    @Req() req: { id?: unknown },
+  ) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    const byTier = Object.fromEntries(
+      Object.entries(body.byTier ?? {}).filter(([, bps]) => typeof bps === 'number'),
+    );
+    return this.settings.setCesuFee(
+      { defaultBps: body.defaultBps, byTier },
+      admin.id,
+      reqId(req),
+    );
   }
 
   @Get('admin/settings/fridge-alert')

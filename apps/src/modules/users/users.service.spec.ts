@@ -1559,6 +1559,17 @@ describe('UsersService', () => {
       });
     });
 
+    it('gives the CESU fee of the chef tier, the default for the others', async () => {
+      prisma.chefProfile.findUnique
+        .mockResolvedValueOnce({ id: 'chef-1', userId: 'uuid-1' })
+        .mockResolvedValueOnce({ tier: 'tier_2' });
+      prisma.platformSetting.findUnique.mockResolvedValueOnce({
+        value: { defaultBps: 1000, byTier: { tier_2: 800 } },
+      });
+
+      await expect(service.getOwnCesuFee('clerk_1')).resolves.toEqual({ feeBps: 800 });
+    });
+
     it('reads the declaration of the authenticated chef', async () => {
       prisma.sapProfile.findUnique.mockResolvedValue({ id: 'sap-1' });
 
