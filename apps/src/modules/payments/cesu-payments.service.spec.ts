@@ -247,7 +247,7 @@ describe('CesuPaymentsService', () => {
   });
 
   describe('declare', () => {
-    it('opens a pending payment with a direct-debit commission and a declared settlement', async () => {
+    it('opens a pending payment whose Labs Food part is withheld at payout, and a declared settlement', async () => {
       const result = await service.declare('clerk_1', DECLARATION);
 
       expect(prisma.payment.create).toHaveBeenCalledWith(
@@ -259,13 +259,14 @@ describe('CesuPaymentsService', () => {
             amountTtc: 6_000,
             commission: {
               create: expect.objectContaining({
-                // Stripe cannot split a payment it never sees.
-                collectionMethod: 'sepa_direct_debit',
+                // « Prix net »: the SAS keeps its part when it pays the batch cooker.
+                collectionMethod: 'payout_withholding',
                 status: 'pending',
-                basisAmountCents: 6_000,
-                amountHtCents: 900,
-                amountVatCents: 180,
-                amountTtcCents: 1080,
+                // 60 € TTC at 10 % VAT: 54,55 € HT; 15 % of it, no VAT on the SAS margin.
+                basisAmountCents: 5_455,
+                amountHtCents: 818,
+                amountVatCents: 0,
+                amountTtcCents: 818,
               }),
             },
             cesuSettlement: {

@@ -33,6 +33,7 @@ import {
 import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
 import { assertMethodCombinable } from './payment-mix';
+import { withheldCommission } from './payouts/net-price';
 
 /** Rows the list/detail mappers read. */
 const CESU_PAYMENT_INCLUDE = {
@@ -181,15 +182,9 @@ export class CesuPaymentsService {
           commission: {
             create: {
               chefProfileId: chef.id,
-              rateBps: commission.rateBps,
-              vatRateBps: commission.vatRateBps,
-              basisAmountCents: payload.amountTtc,
-              amountHtCents: commission.amountHtCents,
-              amountVatCents: commission.amountVatCents,
-              amountTtcCents: commission.amountTtcCents,
-              // Stripe cannot split a payment it never sees, so the commission is
-              // invoiced and debited separately.
-              collectionMethod: 'sepa_direct_debit',
+              // « Prix net »: the SAS receives this money and keeps its part when it
+              // pays the batch cooker, so nothing is invoiced to them or debited.
+              ...withheldCommission(payload.amountTtc, commission.rateBps),
               status: 'pending',
             },
           },
@@ -449,6 +444,22 @@ export class CesuPaymentsService {
       confirmedByUserId: admin.id,
       adminOverride: true,
       adminProofRef: proofRef,
+    });
+  }
+
+  /**
+   * The SAS bank account received this declaration's transfer, matched on the booking
+   * reference and the amount (`cesu-reconciliation/match-transfer.ts`). The admin who
+   * ran the reconciliation is the confirmer; the bank transaction id is the proof.
+   */
+  async settleFromBank(
+    paymentId: string,
+    adminUserId: string,
+    transactionId: string,
+  ): Promise<CesuPaymentDto> {
+    return this.settleDeclaration(paymentId, {
+      confirmedByUserId: adminUserId,
+      adminProofRef: `bank:${transactionId}`.slice(0, 255),
     });
   }
 

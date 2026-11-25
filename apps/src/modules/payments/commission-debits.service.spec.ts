@@ -66,7 +66,7 @@ describe('CommissionDebitsService', () => {
       update: jest.Mock;
       count: jest.Mock;
     };
-    commission: { findMany: jest.Mock; updateMany: jest.Mock };
+    commission: { findMany: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     sepaMandate: { updateMany: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
@@ -102,6 +102,9 @@ describe('CommissionDebitsService', () => {
       },
       commission: {
         findMany: jest.fn().mockResolvedValue([CESU_COMMISSION]),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ collectionMethod: 'sepa_direct_debit' }),
         updateMany: jest.fn(),
       },
       sepaMandate: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -455,6 +458,18 @@ describe('CommissionDebitsService', () => {
 
       expect(prisma.commissionInvoice.create).toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).toHaveBeenCalled();
+    });
+
+    it('never invoices nor debits a part withheld at payout (« prix net »)', async () => {
+      prisma.commission.findUnique.mockResolvedValue({
+        collectionMethod: 'payout_withholding',
+      });
+
+      const result = await service.onCommissionDue('commission-1');
+
+      expect(result).toBeNull();
+      expect(prisma.commissionInvoice.create).not.toHaveBeenCalled();
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
     it('leaves the commission pending under monthly_batch', async () => {

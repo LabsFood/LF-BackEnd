@@ -27,6 +27,7 @@ import {
 } from './payment-settlement';
 import { UrssafGateway } from './urssaf.gateway';
 import { assertMethodCombinable } from './payment-mix';
+import { withheldCommission } from './payouts/net-price';
 
 const BPS = 10_000;
 
@@ -356,13 +357,9 @@ export class BookingPaymentsService {
           commission: {
             create: {
               chefProfileId: chef.id,
-              rateBps: commission.rateBps,
-              vatRateBps: commission.vatRateBps,
-              basisAmountCents: amountTtc,
-              amountHtCents: commission.amountHtCents,
-              amountVatCents: commission.amountVatCents,
-              amountTtcCents: commission.amountTtcCents,
-              collectionMethod: 'sepa_direct_debit',
+              // « Prix net »: the SAS receives this money and keeps its part when it
+              // pays the batch cooker, so nothing is invoiced to them or debited.
+              ...withheldCommission(amountTtc, commission.rateBps),
               status: 'pending',
             },
           },

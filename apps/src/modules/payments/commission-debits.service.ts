@@ -144,6 +144,14 @@ export class CommissionDebitsService {
     if (this.trigger !== 'on_payment') {
       return null;
     }
+    const due = await this.prisma.commission.findUnique({
+      where: { id: commissionId },
+      select: { collectionMethod: true },
+    });
+    // « Prix net »: kept back from the payout, never invoiced nor debited.
+    if (due?.collectionMethod === 'payout_withholding') {
+      return null;
+    }
     try {
       const invoice = await this.issueInvoiceForCommissions([commissionId]);
       await this.executeDebit(invoice.id);
