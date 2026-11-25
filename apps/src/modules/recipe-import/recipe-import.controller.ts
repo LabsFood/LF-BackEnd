@@ -59,6 +59,16 @@ class IgnoreNameDto {
   name!: string;
 }
 
+class CreateNamesDto {
+  @ApiProperty({ type: [String], example: ['pâte de tamarin', 'galanga'], maxItems: 20 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  names!: string[];
+}
+
 class ImportUploadUrlDto {
   @ApiProperty({ enum: IMPORT_MIME_TYPES, example: 'application/pdf' })
   @IsIn(IMPORT_MIME_TYPES)
@@ -315,6 +325,39 @@ export class RecipeImportController {
       requestId: typeof req.id === 'string' ? req.id : undefined,
     });
     return result;
+  }
+
+  @Post('admin/recipe-imports/unlinked-names/create-with-ai')
+  @HttpCode(200)
+  @UseGuards(AdminGuard)
+  @ApiTags(TAGS.adminCatalog)
+  @ApiOperation({
+    summary: 'Turn unlinked names into complete entries with AI',
+    description:
+      'Up to 20 `names` from the unlinked names. The AI (`recettes` / `fiche_ingredient` ' +
+      'budget) fills each entry: aisle of the list in force, allergens or "none", diets, ' +
+      'season, pantry staple. A name the AI brings back to an existing entry becomes ' +
+      'one of its other names; what it judges is no ingredient is ignored, as with ' +
+      '`/ignore`. New entries are common, active and unreviewed. Recorded in the audit log.',
+  })
+  @ApiOkResponse({
+    example: {
+      created: [{ id: '0b6f…', name: 'Pâte de tamarin' }],
+      linked: 2,
+      ignored: ['échalote et ail'],
+      left: [],
+      costMicroEur: 400,
+    },
+  })
+  @ApiAdminAuthResponses()
+  async createWithAi(@CurrentClerkUser() user: ClerkUser, @Body() body: CreateNamesDto) {
+    const admin =
+      (await this.users.findByClerkId(user.userId)) ??
+      (await this.users.ensurePersistedFromClerk(user.userId));
+    return this.imports.createUnlinkedWithAi(
+      body.names.map((n) => n.trim()).filter(Boolean),
+      admin.id,
+    );
   }
 
   @Post('admin/recipe-imports/upload-url')

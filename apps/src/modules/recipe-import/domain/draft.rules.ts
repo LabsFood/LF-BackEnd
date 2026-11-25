@@ -8,14 +8,21 @@
 import { matchKey, normalizeName } from '../../ingredients/domain/ingredient.rules';
 import { matchIndex, type IndexEntry } from '../../dishes/domain/reprise.rules';
 import { RECIPE_LIMITS } from '../../dishes/domain/recipes.rules';
-import { REHEAT_MODE_CODES, type ExtractedRecipe } from '../extraction/schema';
+import {
+  PROFILE_CODES,
+  REHEAT_MODE_CODES,
+  type ExtractedRecipe,
+} from '../extraction/schema';
 
 const REHEAT_MODES = new Set<string>(REHEAT_MODE_CODES);
+const PROFILES = new Set<string>(PROFILE_CODES);
 
 /** Seuil de renfort : part des lignes lues avec certitude qui se relient. */
 export const CERTAIN_LINK_THRESHOLD = 0.7;
 /** Conservation au réfrigérateur proposée quand la source n'en dit rien. */
 export const DEFAULT_STORAGE_DAYS = 3;
+/** Conservation au congélateur proposée pour un plat qui se congèle, sans durée lue. */
+export const DEFAULT_FREEZER_MONTHS = 3;
 
 /** Le type d'une étape que l'IA n'a pas typée, d'après ses mots. */
 export function guessStepType(text: string): string {
@@ -62,10 +69,17 @@ export interface DishDraft {
   cookMinutes: number | null;
   difficulty: 'easy' | 'medium' | 'hard' | null;
   equipment: string[];
+  profiles: string[];
   recipe: {
     ingredients: DraftLine[];
     steps: { text: string; type: string | null; durationMinutes: number | null }[];
-    storage?: { method: string; days: number; container?: string; freezable?: boolean };
+    storage?: {
+      method: string;
+      days: number;
+      container?: string;
+      freezable?: boolean;
+      freezerMonths?: number;
+    };
     reheating?: {
       modes: string[];
       minutes?: number;
@@ -255,6 +269,14 @@ export function toDishDraft(
     warnings.push(`Réchauffage sans mode reconnu, à saisir : ${reheatingNote}`);
   }
   const storageContainer = clip(recipe.storageContainer, 120);
+  let freezerMonths: number | null = null;
+  if (recipe.freezable === true) {
+    freezerMonths = intIn(recipe.freezerMonths ?? null, 1, 24);
+    if (freezerMonths === null) {
+      freezerMonths = DEFAULT_FREEZER_MONTHS;
+      estimated.add('freezerMonths');
+    }
+  }
   const dish: DishDraft = {
     name: clip(recipe.name, 255) ?? 'Recette importée',
     description: clip(recipe.description, 2000),
@@ -267,6 +289,7 @@ export function toDishDraft(
     equipment: [
       ...new Set(recipe.equipment.map((e) => e.trim().slice(0, 60)).filter(Boolean)),
     ].slice(0, 20),
+    profiles: [...new Set((recipe.profiles ?? []).filter((p) => PROFILES.has(p)))],
     recipe: {
       ingredients: lines,
       steps,
@@ -279,6 +302,7 @@ export function toDishDraft(
               ...(typeof recipe.freezable === 'boolean'
                 ? { freezable: recipe.freezable }
                 : {}),
+              ...(freezerMonths !== null ? { freezerMonths } : {}),
             },
           }
         : {}),

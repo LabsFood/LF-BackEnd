@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 
+import { AiModule } from '../ai/ai.module';
 import { DishesModule } from '../dishes/dishes.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
 import { ChefIngredientsService } from './chef-ingredients.service';
+import { IngredientEnrichmentService } from './ingredient-enrichment.service';
 import { IngredientImportService } from './ingredient-import.service';
 import { IngredientPropagationService } from './ingredient-propagation.service';
 import { IngredientsController } from './ingredients.controller';
@@ -15,14 +17,15 @@ import { MeIngredientsController } from './me-ingredients.controller';
  * carried into the recipes, their chefs told in the app and by e-mail.
  */
 @Module({
-  imports: [UsersModule, DishesModule, NotificationsModule],
+  imports: [UsersModule, DishesModule, NotificationsModule, AiModule],
   controllers: [IngredientsController, MeIngredientsController],
   providers: [
     IngredientsService,
     ChefIngredientsService,
     IngredientPropagationService,
     IngredientImportService,
+    IngredientEnrichmentService,
   ],
-  exports: [IngredientsService],
+  exports: [IngredientsService, IngredientEnrichmentService],
 })
 export class IngredientsModule {}

@@ -6,6 +6,7 @@ import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
 import { ChefContentService } from '../dishes/chef-content.service';
 import { UsersService } from '../users/users.service';
 import { IngredientImportService } from './ingredient-import.service';
+import type { IngredientEnrichmentService } from './ingredient-enrichment.service';
 import { IngredientsController } from './ingredients.controller';
 import { IngredientsService } from './ingredients.service';
 
@@ -34,6 +35,7 @@ function harness(chefProfileId: string | null) {
     users as unknown as UsersService,
     chefs as unknown as ChefContentService,
     importer as unknown as IngredientImportService,
+    {} as unknown as IngredientEnrichmentService,
   );
   return { ingredients, chefs, importer, controller };
 }

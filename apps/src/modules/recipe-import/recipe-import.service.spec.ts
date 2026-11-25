@@ -9,6 +9,7 @@ import type { AiGateway } from '../ai/ai-gateway.service';
 import { aiBudgetReached } from '../ai/ai.errors';
 import type { ChefContentService } from '../dishes/chef-content.service';
 import type { DishesService } from '../dishes/dishes.service';
+import type { IngredientEnrichmentService } from '../ingredients/ingredient-enrichment.service';
 import type { Extraction, ExtractedRecipe } from './extraction/schema';
 import type { RecipeImportStorageService } from './recipe-import-storage.service';
 import { RecipeImportService } from './recipe-import.service';
@@ -61,6 +62,13 @@ function setup(
     settings?: unknown;
     counts?: [number, number];
     existing?: { id: string; name: string }[];
+    sheets?: {
+      links: Map<string, string>;
+      created: { id: string; name: string }[];
+      skipped: string[];
+      notIngredients: string[];
+      costMicroEur: number;
+    };
   } = {},
 ) {
   const rows = new Map<string, Record<string, unknown>>();
@@ -156,12 +164,29 @@ function setup(
   };
   const access = {
     chef: jest.fn((clerk: string) =>
-      Promise.resolve({ id: clerk === 'other' ? OTHER : CHEF, isVerified: true }),
+      Promise.resolve({
+        id: clerk === 'other' ? OTHER : CHEF,
+        userId: 'user-chef',
+        isVerified: true,
+      }),
     ),
     assertVerified: jest.fn(),
   };
   const dishes = {
     create: jest.fn(() => Promise.resolve({ id: 'meal-1', allergens: [] })),
+  };
+  const enrichment = {
+    createForImport: jest.fn((names: string[]) =>
+      Promise.resolve(
+        opts.sheets ?? {
+          links: new Map<string, string>(),
+          created: [],
+          skipped: names,
+          notIngredients: [],
+          costMicroEur: 0,
+        },
+      ),
+    ),
   };
   const service = new RecipeImportService(
     prisma as unknown as PrismaService,
@@ -169,11 +194,12 @@ function setup(
     storage as unknown as RecipeImportStorageService,
     access as unknown as ChefContentService,
     dishes as unknown as DishesService,
+    enrichment as unknown as IngredientEnrichmentService,
   );
   jest
     .spyOn(global, 'setImmediate')
     .mockImplementation((() => 0) as unknown as typeof setImmediate);
-  return { service, rows, prisma, gateway, dishes };
+  return { service, rows, prisma, gateway, dishes, enrichment };
 }
 
 describe('RecipeImportService', () => {
@@ -423,6 +449,54 @@ describe('RecipeImportService', () => {
           },
         },
       });
+    });
+
+    it("crée les ingrédients inconnus avec l'IA et relie leurs lignes", async () => {
+      const TAMARIN = '44444444-4444-4444-8444-444444444444';
+      const base = recipe('Pad thaï');
+      const { service, enrichment } = setup({
+        settings: { mode: 'off', betaChefProfileIds: [] },
+        extraction: {
+          recipes: [
+            {
+              ...base,
+              ingredients: [
+                ...base.ingredients,
+                {
+                  ...base.ingredients[0],
+                  rawText: '1 c. à s. pâte de tamarin',
+                  name: 'pâte de tamarin',
+                },
+              ],
+            },
+          ],
+          warnings: [],
+        },
+        sheets: {
+          links: new Map([['pâte de tamarin', TAMARIN]]),
+          created: [{ id: TAMARIN, name: 'Pâte de tamarin' }],
+          skipped: [],
+          notIngredients: [],
+          costMicroEur: 300,
+        },
+      });
+      await service.adminCreate(ADMIN, {
+        sourceType: 'text',
+        text: 'Pad thaï pour 4 personnes...',
+      });
+      await service.process('imp-1', '');
+      expect(enrichment.createForImport).toHaveBeenCalledWith(['pâte de tamarin'], {
+        kind: 'admin',
+        userId: ADMIN,
+      });
+      const view = await service.adminGet(ADMIN, 'imp-1');
+      expect(view.drafts[0].dish.recipe.ingredients[1]).toMatchObject({
+        catalogIngredientId: TAMARIN,
+      });
+      expect(view.trace.createdIngredients).toEqual([
+        { id: TAMARIN, name: 'Pâte de tamarin' },
+      ]);
+      expect(view.trace.unlinkedNames).toEqual([]);
     });
 
     it("compte le quota par admin et cache l'import aux autres", async () => {
