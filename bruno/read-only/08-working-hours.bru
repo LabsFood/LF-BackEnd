@@ -1,0 +1,26 @@
+meta {
+  name: Working hours, with ids and version
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/chef/availability
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{chefToken}}
+}
+
+tests {
+  test("200 with ids, version and scheduled", function () {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.version).to.be.a("string");
+    expect(body.scheduled).to.be.a("boolean");
+    for (const slot of body.weekly) expect(slot).to.include.all.keys("id", "weekday", "startMinute", "endMinute");
+    for (const e of body.exceptions) expect(e).to.include.all.keys("id", "date", "kind");
+  });
+}
