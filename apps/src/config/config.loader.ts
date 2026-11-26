@@ -268,7 +268,7 @@ export const configLoader = (): AppConfig => ({
   brevo: {
     apiKey: process.env.BREVO_API_KEY,
     senderEmail: process.env.BREVO_SENDER_EMAIL ?? 'noreply@labsfood.com',
-    senderName: process.env.BREVO_SENDER_NAME ?? 'Labs Food',
+    senderName: process.env.BREVO_SENDER_NAME ?? 'Lab’s Food',
     templates: {
       applicationReceived: optionalNumber(process.env.BREVO_TPL_APPLICATION_RECEIVED),
       applicationReceivedAdmin: optionalNumber(

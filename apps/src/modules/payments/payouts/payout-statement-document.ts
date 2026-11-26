@@ -16,7 +16,7 @@ import { formatMoney } from '../payment-invoice-document';
 
 /**
  * Autofacture et relevé de versement (« prix net », 25/11/2026): the batch cooker's
- * invoice to Labs Food Batchcooking SAS for the net price, issued by the SAS in their
+ * invoice to Lab’s Food for the net price, issued by the SAS in their
  * name (autofacturation, art. 289 I-2 du CGI), followed by the statement of how each
  * net price was reached from what the household paid.
  *
@@ -54,7 +54,10 @@ export interface PayoutStatementSnapshot {
     vatMention: string;
   };
   buyer: {
+    /** « Lab’s Food », the trade name. */
     name: string;
+    /** The registered company, for the legal mention (absent on older snapshots). */
+    legalName?: string;
     siren: string | null;
     address: string | null;
     sapDeclarationNumber: string | null;
@@ -156,7 +159,10 @@ export function renderPayoutStatementPdf(s: PayoutStatementSnapshot): Promise<Bu
     'Mentions',
     `Autofacturation : facture établie par ${s.buyer.name} au nom et pour le compte de ` +
       `${s.seller.name}, en vertu de leur contrat de sous-traitance (art. 289 I-2 du CGI). ` +
-      `Payée par virement${s.transferReference ? ` (libellé « ${s.transferReference} »)` : ''}.`,
+      `Payée par virement${s.transferReference ? ` (libellé « ${s.transferReference} »)` : ''}.` +
+      (s.buyer.legalName
+        ? ` ${s.buyer.name} est le nom commercial de ${s.buyer.legalName}.`
+        : ''),
   );
 
   // The statement: how each net price comes from what the household paid.
@@ -170,8 +176,8 @@ export function renderPayoutStatementPdf(s: PayoutStatementSnapshot): Promise<Bu
     .fontSize(9.5)
     .fillColor(COLOR.inkMid)
     .text(
-      'Net = prix HT − part Labs Food − frais CESU. La TVA payée par le client est reversée à ' +
-        'l’État : elle ne revient ni à Labs Food ni au prestataire.',
+      'Net = prix HT − part Lab’s Food − frais CESU. La TVA payée par le client est reversée à ' +
+        'l’État : elle ne revient ni à Lab’s Food ni au prestataire.',
       PAGE.left,
       doc.y,
       { ...TEXT, width: PAGE.width, lineGap: 2 },

@@ -150,6 +150,8 @@ export const envValidationSchema = Joi.object({
   /** The SAS's SAP declaration number, for its invoices and fiscal attestations. */
   SAP_DECLARATION_NUMBER: Joi.string().trim().max(32).allow('').optional(),
   /** The SAS's SIREN and registered address, printed on the autofactures it issues. */
+  /** The registered company behind « Lab’s Food »: invoice legal mentions only. */
+  SAS_LEGAL_NAME: Joi.string().trim().max(255).allow('').optional(),
   SAS_SIREN: Joi.string().trim().max(14).allow('').optional(),
   SAS_ADDRESS: Joi.string().trim().max(255).allow('').optional(),
   /**
@@ -163,7 +165,7 @@ export const envValidationSchema = Joi.object({
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
-  BREVO_SENDER_NAME: Joi.string().default('Labs Food'),
+  BREVO_SENDER_NAME: Joi.string().default('Lab’s Food'),
 
   /**
    * Brevo template ids for the FLOW-01 emails. Each is optional: an unset id makes

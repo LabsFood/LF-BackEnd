@@ -27,12 +27,12 @@ import type { InvoiceLine } from './domain/payment-invoices.rules';
  * Factur-X will need.
  */
 
-const PLATFORM_NAME = "LAB'S FOOD";
+const PLATFORM_NAME = 'Lab’s Food';
 
 export interface PaymentInvoiceSnapshot {
   /**
    * Who sells. Absent or `chef`: facture A, in the batch cooker's name (former
-   * invoicing). `sas`: Labs Food Batchcooking SAS invoices in its own name, with VAT
+   * invoicing). `sas`: Lab’s Food invoices in its own name, with VAT
    * (« prix net », 26/11/2026), whatever the payment method.
    */
   issuer?: 'chef' | 'sas';
@@ -52,6 +52,8 @@ export interface PaymentInvoiceSnapshot {
     city: string | null;
     /** SAP declaration number, when the chef declared one. */
     sapDeclarationNumber: string | null;
+    /** `sas` only: the registered company behind « Lab’s Food », legal mention only. */
+    legalName?: string;
     /** `sas` only. */
     siren?: string | null;
     address?: string | null;
@@ -187,7 +189,10 @@ export function renderPaymentInvoicePdf(
         `${seller.displayName}, prestataire, qui encaisse ce règlement en son nom. ` +
         'Les sommes versées ouvrent droit au crédit d’impôt prévu à l’article ' +
         '199 sexdecies du code général des impôts, dans ses conditions et limites. ' +
-        'Une attestation fiscale annuelle vous est délivrée.',
+        'Une attestation fiscale annuelle vous est délivrée.' +
+        (seller.legalName
+          ? ` ${seller.displayName} est le nom commercial de ${seller.legalName}.`
+          : ''),
     );
   } else {
     section(

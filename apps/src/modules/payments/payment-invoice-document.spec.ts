@@ -82,7 +82,7 @@ describe('renderPaymentInvoicePdf', () => {
         methodLabel: 'CESU',
         vat: { rateBps: 1000, htCents: 18_182, vatCents: 1_818 },
         seller: {
-          displayName: 'Labs Food Batchcooking SAS',
+          displayName: 'Lab’s Food',
           city: null,
           sapDeclarationNumber: 'SAP100715036',
           siren: '987654321',
@@ -93,7 +93,7 @@ describe('renderPaymentInvoicePdf', () => {
 
     for (const fact of [
       'LF-CUS26-00001',
-      'Labs Food Batchcooking SAS',
+      'Lab’s Food',
       'SIREN 987654321',
       'SAP100715036',
       'Réglée par CESU',

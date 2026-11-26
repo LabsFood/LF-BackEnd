@@ -163,7 +163,7 @@ describe('PaymentInvoicesService', () => {
         methodLabel: 'CESU',
         // 200 € TTC at 10 %: 181,82 € HT + 18,18 € VAT.
         vat: { rateBps: 1000, htCents: 18_182, vatCents: 1_818 },
-        seller: { displayName: 'Labs Food Batchcooking SAS', siren: '987654321' },
+        seller: { displayName: 'Lab’s Food', siren: '987654321' },
       });
     });
 

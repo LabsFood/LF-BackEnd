@@ -86,7 +86,7 @@ export const CLIENT_DETAIL_EXAMPLE = {
     chefDisplayName: BOOKING_ITEM_EXAMPLE.chef.displayName,
     acceptsCesu: true,
     payeeNan: '1234567',
-    payeeName: 'Labs Food Batchcooking SAS',
+    payeeName: 'Lab’s Food',
     supportedIssuers: ['pluxee', 'edenred', 'up', 'bimpli', 'domiserve', 'other'],
   },
 };

@@ -1,12 +1,14 @@
+import { TRADE_NAME } from './sas-identity';
+
 /**
  * Who collects prefinanced CESU: the SAP structure that invoices the household
- * (Labs Food Batchcooking SAS), on its own CRCESU affiliation. Batch cookers no longer
+ * (Lab’s Food), on its own CRCESU affiliation. Batch cookers no longer
  * hold or publish a NAN: every client pays the same number, with their booking reference.
  *
  * Read from the environment at call time (validated by `env.validation.ts`), so the pure
  * helpers in `chef-cesu-info.ts` can use it without a ConfigService.
  */
-export const DEFAULT_CESU_PLATFORM_NAME = 'Labs Food Batchcooking SAS';
+export const DEFAULT_CESU_PLATFORM_NAME = TRADE_NAME;
 
 export interface CesuCollector {
   /** The NAN the client enters on their issuer's portal. */

@@ -1320,7 +1320,7 @@ describe('UsersService', () => {
       id: 'uuid-1',
       clerkUserId: 'user_1',
       email: 'team@labsfood.fr',
-      fullName: 'Labs Food Team',
+      fullName: 'Lab’s Food Team',
       phone: null,
       avatarUrl: null,
       role: UserRole.admin,

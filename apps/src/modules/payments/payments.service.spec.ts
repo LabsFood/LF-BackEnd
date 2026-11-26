@@ -199,7 +199,7 @@ describe('PaymentsService', () => {
       expect(args).not.toHaveProperty('on_behalf_of');
       expect(args).not.toHaveProperty('transfer_data');
       expect(args).not.toHaveProperty('application_fee_amount');
-      // 125 € TTC -> 113,64 € HT at 10 %, Labs Food part 18 % of HT, no VAT on it.
+      // 125 € TTC -> 113,64 € HT at 10 %, Lab’s Food part 18 % of HT, no VAT on it.
       expect(tx.payment.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           commission: {

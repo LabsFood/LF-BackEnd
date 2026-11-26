@@ -12,7 +12,7 @@ const INVOICE: EInvoice = {
   issueDate: '2026-11-26T10:00:00.000Z',
   currency: 'eur',
   seller: { name: 'Awa Diallo', siren: '123456789', address: '1 rue A, Lyon' },
-  buyer: { name: 'Labs Food Batchcooking SAS', siren: '987654321', address: 'Paris' },
+  buyer: { name: 'Lab’s Food', siren: '987654321', address: 'Paris' },
   lines: [
     { description: 'Prestation', quantity: 1, unitPriceHtCents: 6954, vatRateBps: 0 },
   ],
@@ -104,7 +104,7 @@ describe('eInvoiceFromPayoutStatement', () => {
         vatMention: 'TVA non applicable, article 293 B du CGI',
       },
       buyer: {
-        name: 'Labs Food Batchcooking SAS',
+        name: 'Lab’s Food',
         siren: '987654321',
         address: 'Paris',
         sapDeclarationNumber: 'SAP100715036',

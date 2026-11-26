@@ -87,7 +87,7 @@ const AWAITED_SELECT = {
 } satisfies Prisma.PaymentSelect;
 
 /**
- * « Prix nets à verser » (MajorD, 25/11/2026): what Labs Food Batchcooking SAS owes each
+ * « Prix nets à verser » (MajorD, 25/11/2026): what Lab’s Food owes each
  * batch cooker for the CESU and immediate-advance money it received, the admin's
  * payout list, and the marking of a transfer as made.
  */
@@ -389,7 +389,7 @@ export class ChefPayoutsService {
   }
 
   /**
-   * The admin made the transfer: these payouts are paid, and the Labs Food part kept
+   * The admin made the transfer: these payouts are paid, and the Lab’s Food part kept
    * back on them is collected. Only payable payouts of this batch cooker move.
    */
   async markPaid(

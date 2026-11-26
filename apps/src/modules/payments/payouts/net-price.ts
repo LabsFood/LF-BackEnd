@@ -1,15 +1,15 @@
 import { cesuFeeCents } from '../../platform-settings/cesu-fee';
 
 /**
- * The « prix net » formula (MajorD, 25/11/2026): Labs Food Batchcooking SAS sells the
+ * The « prix net » formula (MajorD, 25/11/2026): Lab’s Food sells the
  * prestation to the household **with VAT**, collects everything, and buys the batch
  * cooker's work at a net price, paid to them by transfer.
  *
  * Per payment the SAS received:
  * - HT = TTC ÷ (1 + VAT rate); the VAT goes to the State, to nobody else;
- * - Labs Food part = commission rate × HT (SAS margin, no VAT on it);
+ * - Lab’s Food part = commission rate × HT (SAS margin, no VAT on it);
  * - CESU fee = fee rate × (CESU HT − commission on it), only on a CESU payment;
- * - net = HT − Labs Food part − CESU fee.
+ * - net = HT − Lab’s Food part − CESU fee.
  *
  * Every rate is an input, frozen on the payout row: none is hard-coded here.
  */
@@ -47,7 +47,7 @@ export interface NetPrice {
 export const htOf = (amountTtcCents: number, vatRateBps: number): number =>
   Math.round((Math.max(0, amountTtcCents) * BPS) / (BPS + Math.max(0, vatRateBps)));
 
-/** The Labs Food part on a pre-VAT amount, rounded to the cent. */
+/** The Lab’s Food part on a pre-VAT amount, rounded to the cent. */
 export const commissionOnHt = (amountHtCents: number, rateBps: number): number =>
   Math.round((amountHtCents * Math.max(0, rateBps)) / BPS);
 

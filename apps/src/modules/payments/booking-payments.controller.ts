@@ -128,7 +128,7 @@ export class BookingPaymentsController {
           dueNowCents: 18000,
           maxCesuCents: 18000,
           payeeNan: '1234567',
-          payeeName: 'Labs Food Batchcooking SAS',
+          payeeName: 'Lab’s Food',
           paymentReference: 'LF-SM-2026-0001',
         },
       ],

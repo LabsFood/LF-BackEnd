@@ -41,7 +41,7 @@ const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 /**
  * The client's invoice of a payment.
  *
- * - « Prix net » (default): Labs Food Batchcooking SAS invoices in its own name, 10 %
+ * - « Prix net » (default): Lab’s Food invoices in its own name, 10 %
  *   VAT, whatever the method (card, CESU, avance immédiate).
  * - Former invoicing (`LEGACY_INVOICING_ENABLED`): facture A, for a card payment, in
  *   the chef's name.
@@ -188,6 +188,7 @@ export class PaymentInvoicesService {
       seller: sas
         ? {
             displayName: identity.name,
+            legalName: identity.legalName,
             city: null,
             sapDeclarationNumber: identity.sapDeclarationNumber,
             siren: identity.siren,

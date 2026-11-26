@@ -359,14 +359,14 @@ export class BookingPaymentStatusDto {
   @ApiPropertyOptional({
     nullable: true,
     description: 'Who the client pays in CESU.',
-    example: 'Labs Food Batchcooking SAS',
+    example: 'Lab’s Food',
   })
   payeeName?: string | null;
 }
 
 /**
  * Public, on purpose: whether a batch cooker can be paid in CESU, and the platform NAN
- * the client will pay (the client adds Labs Food, not the batch cooker, on their portal).
+ * the client will pay (the client adds Lab’s Food, not the batch cooker, on their portal).
  */
 export class ChefCesuInfoDto {
   @ApiProperty({
@@ -397,7 +397,7 @@ export class ChefCesuInfoDto {
   @ApiPropertyOptional({
     nullable: true,
     description: 'Who the client pays in CESU.',
-    example: 'Labs Food Batchcooking SAS',
+    example: 'Lab’s Food',
   })
   payeeName?: string | null;
 

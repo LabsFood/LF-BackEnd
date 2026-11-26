@@ -17,7 +17,7 @@ describe('renderPayoutStatementPdf', () => {
         vatMention: 'TVA non applicable, article 293 B du CGI',
       },
       buyer: {
-        name: 'Labs Food Batchcooking SAS',
+        name: 'Lab’s Food',
         siren: null,
         address: null,
         sapDeclarationNumber: 'SAP100715036',

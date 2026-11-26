@@ -38,9 +38,9 @@ import { PayoutStatementsService } from './payout-statements.service';
 const CHEF_ID = '0e6f7a52-3d0b-4c1e-9a55-2b7c9d1e4f60';
 
 const FLOW =
-  '« Prix net »: Labs Food Batchcooking SAS sells the prestation with VAT (10 %), ' +
+  '« Prix net »: Lab’s Food sells the prestation with VAT (10 %), ' +
   'collects CESU on its NAN and the URSSAF immediate advance, and pays the batch cooker ' +
-  'HT − Labs Food part − CESU fee by bank transfer. Card payments are not listed: ' +
+  'HT − Lab’s Food part − CESU fee by bank transfer. Card payments are not listed: ' +
   'Stripe pays the chef.';
 
 /** The console's « Versements aux batch cookers ». */
@@ -159,7 +159,7 @@ export class AdminChefPayoutsController {
   }
 }
 
-/** The batch cooker's own payouts: what Labs Food owes and has paid them. */
+/** The batch cooker's own payouts: what Lab’s Food owes and has paid them. */
 @ApiTags(TAGS.payments)
 @ApiBearerAuth()
 @UseGuards(ClerkAuthGuard)
@@ -169,9 +169,9 @@ export class ChefOwnPayoutsController {
 
   @Get()
   @ApiOperation({
-    summary: 'My payouts: TTC, VAT, HT, Labs Food part, CESU fee and net, per payment',
+    summary: 'My payouts: TTC, VAT, HT, Lab’s Food part, CESU fee and net, per payment',
     description:
-      '`payable`: received by Labs Food, transfer to come. `awaiting`: not received yet ' +
+      '`payable`: received by Lab’s Food, transfer to come. `awaiting`: not received yet ' +
       '(estimate). `paid`: transferred, with the autofacture it is on.',
   })
   mine(@CurrentClerkUser() user: ClerkUser, @Query() query: ChefPayoutsQueryDto) {

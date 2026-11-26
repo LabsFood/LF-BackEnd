@@ -17,7 +17,7 @@ const PLATFORM_NAN = '7654321';
 
 beforeEach(() => {
   process.env.CESU_PLATFORM_NAN = PLATFORM_NAN;
-  process.env.CESU_PLATFORM_NAME = 'Labs Food Batchcooking SAS';
+  process.env.CESU_PLATFORM_NAME = 'Lab’s Food';
 });
 
 afterAll(() => {
@@ -247,7 +247,7 @@ describe('CesuPaymentsService', () => {
   });
 
   describe('declare', () => {
-    it('opens a pending payment whose Labs Food part is withheld at payout, and a declared settlement', async () => {
+    it('opens a pending payment whose Lab’s Food part is withheld at payout, and a declared settlement', async () => {
       const result = await service.declare('clerk_1', DECLARATION);
 
       expect(prisma.payment.create).toHaveBeenCalledWith(
@@ -673,7 +673,7 @@ describe('CesuPaymentsService', () => {
       expect(info).toMatchObject({
         acceptsCesu: true,
         payeeNan: PLATFORM_NAN,
-        payeeName: 'Labs Food Batchcooking SAS',
+        payeeName: 'Lab’s Food',
       });
       expect(info).not.toHaveProperty('crcesuNan');
       expect(info.supportedIssuers).toContain('domiserve');
