@@ -18,6 +18,12 @@ export interface Line {
    * client (`hiddenFromClient`) is an ordinary line here: the client pays for it.
    */
   optional?: true;
+  /**
+   * The batch cooker brings it (salt, oil, basic spices): set from their pantry
+   * staples when the list is computed, or by hand. The client neither buys nor
+   * ticks it. Absent means false.
+   */
+  providedByChef?: boolean;
 }
 
 /** A line the chef changed, added (`edited`) or struck out (`removed`). */
@@ -26,7 +32,7 @@ export interface Correction extends Line {
 }
 
 /** An ingredient's name, or a unit, whatever the case or accents. */
-const fold = (name: string) =>
+export const fold = (name: string) =>
   name
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
@@ -129,11 +135,12 @@ export function applyCorrections(
   return result;
 }
 
-const stripRemoved = ({ name, qty, unit, aisle }: Correction): Line => ({
+const stripRemoved = ({ name, qty, unit, aisle, providedByChef }: Correction): Line => ({
   name,
   qty,
   unit,
   aisle,
+  ...(providedByChef ? { providedByChef: true } : {}),
 });
 
 /**
@@ -149,7 +156,12 @@ export function diffCorrections(computed: Line[], wanted: Line[]): Correction[] 
     const key = lineKey(line);
     seen.add(key);
     const original = computedByKey.get(key);
-    if (!original || original.qty !== line.qty || original.aisle !== line.aisle) {
+    if (
+      !original ||
+      original.qty !== line.qty ||
+      original.aisle !== line.aisle ||
+      !!original.providedByChef !== !!line.providedByChef
+    ) {
       corrections.push({ ...line, removed: false });
     }
   }

@@ -53,6 +53,17 @@ export class ShoppingLineDto {
   @IsString()
   @Length(1, 60)
   aisle!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'You bring it (salt, oil…): the client does not buy it and cannot tick it. ' +
+      'Absent: the line keeps what it has (your pantry staples set it on a new ' +
+      'list). Survives every recalculation, like your other corrections.',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  providedByChef?: boolean;
 }
 
 export class PutShoppingListDto {
@@ -89,6 +100,20 @@ export class ShoppingMarkDto {
   @IsString()
   @MaxLength(280)
   comment?: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 200,
+    description:
+      '« J’en ai une partie »: how much you have, in the unit of the line. Below the ' +
+      'quantity: the batch cooker buys the rest (`toBuyQty`); the whole quantity or ' +
+      'more: same as `alreadyHave: true`. Zero, negative or on a line without ' +
+      'quantity: `422 VALIDATION_FAILED`. Ignored when `alreadyHave` is true.',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Max(100000)
+  haveQty?: number | null;
 }
 
 export class SubmitShoppingListDto {
@@ -114,6 +139,54 @@ export class SubmitShoppingListDto {
   @ValidateNested({ each: true })
   @Type(() => ShoppingMarkDto)
   marks!: ShoppingMarkDto[];
+}
+
+export class ShoppingReplyDto {
+  @ApiProperty({ maxLength: 120, example: 'Sel fin' })
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  @ApiProperty({ maxLength: 32, example: 'g' })
+  @IsString()
+  @Length(0, 32)
+  unit!: string;
+
+  @ApiProperty({
+    nullable: true,
+    maxLength: 280,
+    example: 'Pas trouvé en bio, je prends le classique.',
+    description: 'Your answer to the comment on this line; `null` or blank clears it.',
+  })
+  @ValidateIf((reply: ShoppingReplyDto) => reply.reply !== null)
+  @IsString()
+  @MaxLength(280)
+  reply!: string | null;
+}
+
+export class PatchShoppingRepliesDto {
+  @ApiProperty({ type: [ShoppingReplyDto] })
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => ShoppingReplyDto)
+  replies!: ShoppingReplyDto[];
+}
+
+export class PutPantryStaplesDto {
+  @ApiProperty({
+    type: [String],
+    maxItems: 100,
+    example: ['Sel fin', 'Poivre', 'Huile d’olive'],
+    description:
+      'Everything you always bring, as you name it. Replaces the list. Matched to ' +
+      'the shopping lines by name, case and accents aside.',
+  })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @Length(1, 120, { each: true })
+  staples!: string[];
 }
 
 export class PutDishNotesDto {

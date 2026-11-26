@@ -106,9 +106,10 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
         where.id === 'chef-1'
           ? { id: 'chef-1', userId: 'chef-user' }
           : as === 'chef'
-            ? { id: 'chef-1' }
+            ? { id: 'chef-1', pantryStaples: ['Sel'] }
             : null,
       ),
+      update: jest.fn(async (_args: unknown) => ({})),
     },
   };
   const LIST = {
@@ -126,6 +127,9 @@ function missions(as: 'chef' | 'admin' | 'client' | 'stranger', row = booking())
     reset: jest.fn(async () => LIST),
     send: jest.fn(async () => ({ version: 1 })),
     submit: jest.fn(async () => ({ version: 1, marks: 1 })),
+    saveMarks: jest.fn(async () => ({ version: 1, marks: 1, notify: true })),
+    reply: jest.fn(async () => ({ replies: 1, notify: true })),
+    announce: jest.fn(async () => undefined),
   };
   const audit = { record: jest.fn(async () => undefined) };
   const notifications = { notify: jest.fn(async () => ({})) };
@@ -713,12 +717,145 @@ describe('MissionsService (FLOW-02 §7, §8)', () => {
       }
     });
 
-    it('shows the client only what counts once the list is frozen', async () => {
+    it('shows the client the version sent, even once the list is frozen', async () => {
       const { service, lists } = missions('client', tooLate());
 
       await service.shoppingList('clerk', 'b1');
 
-      expect(lists.view).toHaveBeenCalledWith('b1', { forClient: false });
+      expect(lists.view).toHaveBeenCalledWith('b1', { forClient: true });
+    });
+
+    it('pushes the list to the client once sent, and to the chef once answered', async () => {
+      const chef = missions('chef');
+      await chef.service.sendShoppingList('clerk', 'b1');
+      expect(chef.lists.announce).toHaveBeenCalledWith('b1', ['client-1']);
+
+      const client = missions('client');
+      await client.service.submitShoppingList('clerk', 'b1', ANSWER);
+      expect(client.lists.announce).toHaveBeenCalledWith('b1', ['chef-user']);
+    });
+  });
+
+  describe('the client ticks as they go (PATCH marks)', () => {
+    const SUBJECT = { type: 'booking', id: 'b1' };
+    const ANSWER = {
+      version: 1,
+      marks: [{ name: 'Ail', unit: 'gousse', alreadyHave: true }],
+    };
+
+    it('saves the marks, rings the chef once per quiet spell and pushes the list', async () => {
+      const { service, lists, notifications } = missions('client');
+
+      await service.saveShoppingMarks('clerk', 'b1', ANSWER);
+
+      expect(lists.saveMarks).toHaveBeenCalledWith('b1', ANSWER, expect.any(Date));
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'chef-user',
+        'shopping_list.marks_updated',
+        SUBJECT,
+      );
+      expect(lists.announce).toHaveBeenCalledWith('b1', ['chef-user']);
+      expect(lists.view).toHaveBeenLastCalledWith('b1', { forClient: true });
+    });
+
+    it('keeps the bell quiet inside the window, but still pushes', async () => {
+      const { service, lists, notifications } = missions('client');
+      lists.saveMarks.mockResolvedValueOnce({ version: 1, marks: 1, notify: false });
+
+      await service.saveShoppingMarks('clerk', 'b1', ANSWER);
+
+      expect(notifications.notify).not.toHaveBeenCalled();
+      expect(lists.announce).toHaveBeenCalledWith('b1', ['chef-user']);
+    });
+
+    it('lets only the client tick, and never when they do the shopping', async () => {
+      const chef = await missions('chef')
+        .service.saveShoppingMarks('clerk', 'b1', ANSWER)
+        .catch((e: unknown) => e);
+      const byClient = await missions('client', booking({ shoppingByClient: true }))
+        .service.saveShoppingMarks('clerk', 'b1', ANSWER)
+        .catch((e: unknown) => e);
+
+      expect(codeOf(chef).code).toBe('CONTENT_NOT_OWNED');
+      expect(codeOf(byClient).code).toBe('SHOPPING_BY_CLIENT');
+    });
+  });
+
+  describe('the chef answers the comments (PATCH replies)', () => {
+    const REPLIES = [{ name: 'Ail', unit: 'gousse', reply: 'Je prends le mien' }];
+
+    it('saves the replies, rings the client and pushes the list', async () => {
+      const { service, lists, notifications } = missions('chef');
+
+      await service.replyToShoppingComments('clerk', 'b1', REPLIES);
+
+      expect(lists.reply).toHaveBeenCalledWith('b1', REPLIES);
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'client-1',
+        'shopping_list.reply',
+        {
+          type: 'booking',
+          id: 'b1',
+        },
+      );
+      expect(lists.announce).toHaveBeenCalledWith('b1', ['client-1']);
+    });
+
+    it('refuses after the deadline', async () => {
+      const { service, lists } = missions(
+        'chef',
+        booking({ startsAt: new Date(Date.now() + 3600_000) }),
+      );
+
+      const error = await service
+        .replyToShoppingComments('clerk', 'b1', REPLIES)
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error).code).toBe('SHOPPING_LIST_FROZEN');
+      expect(lists.reply).not.toHaveBeenCalled();
+    });
+
+    it('lets only the chef reply', async () => {
+      const error = await missions('client')
+        .service.replyToShoppingComments('clerk', 'b1', REPLIES)
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error).code).toBe('CONTENT_NOT_OWNED');
+    });
+  });
+
+  describe('pantry staples', () => {
+    it("reads the chef's own list", async () => {
+      await expect(missions('chef').service.pantryStaples('clerk')).resolves.toEqual({
+        staples: ['Sel'],
+      });
+    });
+
+    it('trims and keeps each name once, case and accents aside', async () => {
+      const { service, prisma } = missions('chef');
+
+      const saved = await service.setPantryStaples('clerk', [
+        ' Sel ',
+        'sel',
+        'Poivre',
+        'Épices',
+        'epices',
+        ' ',
+      ]);
+
+      expect(saved).toEqual({ staples: ['Sel', 'Poivre', 'Épices'] });
+      expect(prisma.chefProfile.update).toHaveBeenCalledWith({
+        where: { id: 'chef-1' },
+        data: { pantryStaples: ['Sel', 'Poivre', 'Épices'] },
+      });
+    });
+
+    it('answers CHEF_NOT_FOUND for an account with no chef profile', async () => {
+      const error = await missions('client')
+        .service.pantryStaples('clerk')
+        .catch((e: unknown) => e);
+
+      expect(codeOf(error).code).toBe('CHEF_NOT_FOUND');
     });
   });
 

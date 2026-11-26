@@ -59,6 +59,9 @@ model ChefProfile {
   serviceRadiusKm        Int                         @default(10) @map("service_radius_km")
   /// Languages spoken with clients: codes from `GET /referentials/languages`.
   languages              String[]                    @default([])
+  /// What this batch cooker always brings (salt, oil…): names as typed. A computed
+  /// shopping line with the same name (case and accents aside) is `providedByChef`.
+  pantryStaples          String[]                    @default([]) @map("pantry_staples")
   isActive               Boolean                     @default(false) @map("is_active")
   isVerified             Boolean                     @default(false) @map("is_verified")
   cronofyProfileId       String?                     @map("cronofy_profile_id") @db.VarChar(128)
@@ -531,6 +534,14 @@ model ShoppingList {
   finalReceivedAt DateTime?      @map("final_received_at") @db.Timestamptz(6)
   /// The client's answer, keyed like the lines: `ClientMark[]` in shopping-list.rules.ts.
   clientMarks     Json           @default("[]") @map("client_marks")
+  /// The lines as last sent (`ListLine[]`): what the client reads. Null until the first send.
+  sentLines       Json?          @map("sent_lines")
+  /// The version `clientMarks` answer; the chef sees them only when it is `version`.
+  marksVersion    Int?           @map("marks_version")
+  /// The client's last tick, comment or final list.
+  marksUpdatedAt  DateTime?      @map("marks_updated_at") @db.Timestamptz(6)
+  /// The batch cooker's answers to comments: `ChefReply[]` in shopping-list.rules.ts.
+  chefReplies     Json           @default("[]") @map("chef_replies")
   booking         Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
   items           ShoppingItem[]
 
@@ -551,6 +562,8 @@ model ShoppingItem {
   removed        Boolean      @default(false)
   /// Every recipe that asks for it marks it optional: listed with a badge (16/11).
   optional       Boolean      @default(false)
+  /// The batch cooker brings it: off the client's aisles, never ticked.
+  providedByChef Boolean      @default(false) @map("provided_by_chef")
   shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_items_shopping_list_id_fkey")
 
   @@index([shoppingListId], map: "ix_shopping_items_list_id")

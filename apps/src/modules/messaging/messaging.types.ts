@@ -119,7 +119,12 @@ export type RealtimeEvent =
       event: 'message.created';
       data: { conversationId: string; message: AdminMessageView };
     }
-  | { event: 'conversation.updated'; data: { conversationId: string } };
+  | { event: 'conversation.updated'; data: { conversationId: string } }
+  /** A prestation's shopping list changed: fetch it again (no content here). */
+  | {
+      event: 'shopping_list.changed';
+      data: { bookingId: string; version: number; marksUpdatedAt: Date | null };
+    };
 
 /**
  * One thing that happened, with who must hear about it. Participants and admins
