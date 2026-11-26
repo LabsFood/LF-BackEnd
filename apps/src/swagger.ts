@@ -60,7 +60,7 @@ The role is stored by this API (\`users.role\`), not in the token. \`GET /me\` r
  */
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const builder = new DocumentBuilder()
-    .setTitle('Labs Food API')
+    .setTitle('Lab’s Food API')
     .setDescription(GUIDE)
     .setVersion('1.3.0')
     .addBearerAuth({

@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
+import { cesuCollector } from './cesu-collector';
 import { advanceAccepted, cesuAccepted, novaCodeSet } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
 import { commissionDueAutomatically } from './domain/urssaf-mode.rules';
@@ -25,6 +26,8 @@ import {
   settlePayment,
 } from './payment-settlement';
 import { UrssafGateway } from './urssaf.gateway';
+import { assertMethodCombinable } from './payment-mix';
+import { withheldCommission } from './payouts/net-price';
 
 const BPS = 10_000;
 
@@ -76,9 +79,15 @@ export interface PaymentMethodOption {
   dueNowCents: number;
   /** Immediate advance only: what URSSAF takes from their account afterwards. */
   debitedLaterCents?: number;
-  /** CESU only: the most that can be declared, and the number to pay the cook with. */
+  /**
+   * CESU only: the most that can be declared, and what to enter on the issuer's portal.
+   * The NAN is the platform's (`cesu-collector.ts`), never the batch cooker's, and the
+   * booking reference is what lets the platform match the CRCESU remittance.
+   */
   maxCesuCents?: number;
-  crcesuNan?: string | null;
+  payeeNan?: string | null;
+  payeeName?: string | null;
+  paymentReference?: string | null;
 }
 
 /** What the immediate-advance request keeps in `payment.metadata`. */
@@ -192,7 +201,9 @@ export class BookingPaymentsService {
         available: true,
         dueNowCents: remaining,
         maxCesuCents: remaining,
-        crcesuNan: chef.sapProfile?.crcesuNan ?? null,
+        payeeNan: cesuCollector()?.nan ?? null,
+        payeeName: cesuCollector()?.name ?? null,
+        paymentReference: booking.reference,
       });
     }
 
@@ -299,6 +310,7 @@ export class BookingPaymentsService {
   private async sendToUrssaf(booking: PayBooking, clientId: string) {
     const client = { id: clientId };
     assertPayable(booking);
+    await assertMethodCombinable(this.prisma, booking.id, 'avance_immediate');
 
     const chef = booking.chefProfile;
     if (!advanceAccepted(chef.sapProfile, chef.sepaMandate)) {
@@ -345,13 +357,9 @@ export class BookingPaymentsService {
           commission: {
             create: {
               chefProfileId: chef.id,
-              rateBps: commission.rateBps,
-              vatRateBps: commission.vatRateBps,
-              basisAmountCents: amountTtc,
-              amountHtCents: commission.amountHtCents,
-              amountVatCents: commission.amountVatCents,
-              amountTtcCents: commission.amountTtcCents,
-              collectionMethod: 'sepa_direct_debit',
+              // « Prix net »: the SAS receives this money and keeps its part when it
+              // pays the batch cooker, so nothing is invoiced to them or debited.
+              ...withheldCommission(amountTtc, commission.rateBps),
               status: 'pending',
             },
           },

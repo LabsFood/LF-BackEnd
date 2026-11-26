@@ -71,6 +71,13 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_DEBIT_TRIGGER: Joi.string()
     .valid('on_payment', 'monthly_batch')
     .default('on_payment'),
+  /**
+   * The invoicing in place before the « prix net » flow (26/11/2026): facture A in the
+   * batch cooker's name for each card payment, and facture B (commission) with its SEPA
+   * debit. Off by default: the SAS invoices instead, through an approved e-invoicing
+   * platform (see `modules/einvoicing`). `true` turns the old documents back on.
+   */
+  LEGACY_INVOICING_ENABLED: Joi.boolean().default(false),
   /** Debit attempts per facture B before an admin has to step in. */
   PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
   /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
@@ -127,9 +134,38 @@ export const envValidationSchema = Joi.object({
       otherwise: Joi.optional(),
     }),
 
+  /**
+   * The platform's CRCESU affiliation number (NAN): every prefinanced CESU is paid to
+   * the SAP structure that invoices the household, never to the batch cooker. Unset =
+   * CESU is not offered.
+   */
+  CESU_PLATFORM_NAN: Joi.string().trim().max(64).allow('').optional(),
+  /** Who the client pays in CESU, as shown next to the NAN. */
+  CESU_PLATFORM_NAME: Joi.string().trim().max(255).allow('').optional(),
+  /** Bank feed (25/11): GoCardless Bank Account Data read access to the SAS account. */
+  GOCARDLESS_BAD_SECRET_ID: Joi.string().allow('').optional(),
+  GOCARDLESS_BAD_SECRET_KEY: Joi.string().allow('').optional(),
+  /** The account id the bank consent (requisition) returned. */
+  CESU_BANK_ACCOUNT_ID: Joi.string().allow('').optional(),
+  /** The SAS's SAP declaration number, for its invoices and fiscal attestations. */
+  SAP_DECLARATION_NUMBER: Joi.string().trim().max(32).allow('').optional(),
+  /** The SAS's SIREN and registered address, printed on the autofactures it issues. */
+  /** The registered company behind « Lab’s Food »: invoice legal mentions only. */
+  SAS_LEGAL_NAME: Joi.string().trim().max(255).allow('').optional(),
+  SAS_SIREN: Joi.string().trim().max(14).allow('').optional(),
+  SAS_ADDRESS: Joi.string().trim().max(255).allow('').optional(),
+  /**
+   * E-invoicing through a platform approved by the DGFiP (plateforme agréée). `none`
+   * (default): nothing is sent. `b2brouter`: needs the key and account below.
+   */
+  EINVOICING_PROVIDER: Joi.string().valid('none', 'b2brouter').default('none'),
+  B2BROUTER_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
+  B2BROUTER_API_KEY: Joi.string().allow('').optional(),
+  B2BROUTER_ACCOUNT_ID: Joi.string().allow('').optional(),
+
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
-  BREVO_SENDER_NAME: Joi.string().default('Labs Food'),
+  BREVO_SENDER_NAME: Joi.string().default('Lab’s Food'),
 
   /**
    * Brevo template ids for the FLOW-01 emails. Each is optional: an unset id makes

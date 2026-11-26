@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { CesuSettlementStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { cesuCollector } from './cesu-collector';
 import { KycStorageService } from '../chef-onboarding/services/kyc-storage.service';
 import { UsersService } from '../users/users.service';
 import {
@@ -31,6 +32,8 @@ import {
 } from './dto/cesu.dto';
 import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { bookingCoverage, settlePayment } from './payment-settlement';
+import { assertMethodCombinable } from './payment-mix';
+import { withheldCommission } from './payouts/net-price';
 
 /** Rows the list/detail mappers read. */
 const CESU_PAYMENT_INCLUDE = {
@@ -144,6 +147,7 @@ export class CesuPaymentsService {
     if (coverage.remainingAmountCents <= 0) {
       throw new ConflictException('This booking is already fully paid.');
     }
+    await assertMethodCombinable(this.prisma, booking.id, 'cesu');
     if (payload.amountTtc > coverage.remainingAmountCents) {
       throw new ConflictException(
         `Only ${coverage.remainingAmountCents} minor units are left to pay on this booking. ` +
@@ -178,15 +182,9 @@ export class CesuPaymentsService {
           commission: {
             create: {
               chefProfileId: chef.id,
-              rateBps: commission.rateBps,
-              vatRateBps: commission.vatRateBps,
-              basisAmountCents: payload.amountTtc,
-              amountHtCents: commission.amountHtCents,
-              amountVatCents: commission.amountVatCents,
-              amountTtcCents: commission.amountTtcCents,
-              // Stripe cannot split a payment it never sees, so the commission is
-              // invoiced and debited separately.
-              collectionMethod: 'sepa_direct_debit',
+              // « Prix net »: the SAS receives this money and keeps its part when it
+              // pays the batch cooker, so nothing is invoiced to them or debited.
+              ...withheldCommission(payload.amountTtc, commission.rateBps),
               status: 'pending',
             },
           },
@@ -336,7 +334,8 @@ export class CesuPaymentsService {
     return {
       ...coverage,
       cesuAvailable: cesuAccepted(sap, booking.chefProfile.sepaMandate),
-      crcesuNan: sap?.crcesuNan ?? null,
+      payeeNan: cesuCollector()?.nan ?? null,
+      payeeName: cesuCollector()?.name ?? null,
     };
   }
 
@@ -445,6 +444,22 @@ export class CesuPaymentsService {
       confirmedByUserId: admin.id,
       adminOverride: true,
       adminProofRef: proofRef,
+    });
+  }
+
+  /**
+   * The SAS bank account received this declaration's transfer, matched on the booking
+   * reference and the amount (`cesu-reconciliation/match-transfer.ts`). The admin who
+   * ran the reconciliation is the confirmer; the bank transaction id is the proof.
+   */
+  async settleFromBank(
+    paymentId: string,
+    adminUserId: string,
+    transactionId: string,
+  ): Promise<CesuPaymentDto> {
+    return this.settleDeclaration(paymentId, {
+      confirmedByUserId: adminUserId,
+      adminProofRef: `bank:${transactionId}`.slice(0, 255),
     });
   }
 

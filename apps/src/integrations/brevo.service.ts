@@ -81,7 +81,7 @@ export class BrevoService implements OnModuleInit {
   constructor(config: ConfigService) {
     this.apiKey = config.get<string>('brevo.apiKey');
     this.senderEmail = config.get<string>('brevo.senderEmail', 'noreply@labsfood.com');
-    this.senderName = config.get<string>('brevo.senderName', 'Labs Food');
+    this.senderName = config.get<string>('brevo.senderName', 'Lab’s Food');
     // A copy: the lookup fills it in place, never the config object.
     this.templates = { ...config.get('brevo.templates', {}) };
   }

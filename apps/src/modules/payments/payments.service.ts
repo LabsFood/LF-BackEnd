@@ -23,11 +23,15 @@ import {
 import { assertPayable, commissionBlockApplies, CONTRACT_SELECT } from './payment-rules';
 import { assertOwnSiteUrl } from './own-site-url';
 import { PaymentInvoicesService } from './payment-invoices.service';
+import { ChefPayoutsService } from './payouts/chef-payouts.service';
+import { withheldCommission } from './payouts/net-price';
 import {
   assertNoPendingCesu,
   bookingCoverage,
   settlePayment,
 } from './payment-settlement';
+import { assertMethodCombinable } from './payment-mix';
+import { legacyInvoicingEnabled } from './legacy-invoicing';
 
 /** PaymentIntent states that can still be confirmed by the client. */
 const CONFIRMABLE_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -52,7 +56,38 @@ export class PaymentsService {
     private readonly config: ConfigService,
     private readonly users: UsersService,
     private readonly invoices: PaymentInvoicesService,
+    private readonly payouts: ChefPayoutsService,
   ) {}
+
+  /**
+   * Who sells on a card payment.
+   *
+   * - « Prix net » (default since 26/11/2026): the SAS charges on its own Stripe
+   *   account and is merchant of record; the batch cooker's net is transferred after
+   *   the charge (`ChefPayoutsService.payCardNow`), with an autofacture.
+   * - Former invoicing (`LEGACY_INVOICING_ENABLED=true`): destination charge in the
+   *   batch cooker's name, the commission withheld as `application_fee_amount`.
+   */
+  private cardRouting(
+    chef: { stripeAccountId: string | null },
+    booking: { id: string },
+    commission: CommissionBreakdown,
+  ): Pick<
+    Stripe.PaymentIntentCreateParams,
+    'on_behalf_of' | 'transfer_data' | 'application_fee_amount' | 'transfer_group'
+  > {
+    if (!legacyInvoicingEnabled(this.config)) {
+      return { transfer_group: booking.id };
+    }
+    return {
+      on_behalf_of: chef.stripeAccountId ?? undefined,
+      transfer_data: { destination: chef.stripeAccountId ?? '' },
+      // Stripe rejects a zero fee, so a 0 % commission means sending no fee at all.
+      ...(commission.amountTtcCents > 0
+        ? { application_fee_amount: commission.amountTtcCents }
+        : {}),
+    };
+  }
 
   /**
    * Card payment on a booking, as a Stripe Connect **destination charge**: the client
@@ -76,19 +111,12 @@ export class PaymentsService {
 
     const commission = await this.commissionOn(booking, amountTtc);
 
-    // `on_behalf_of` makes the chef merchant of record, which is what lets invoice A
-    // (`PaymentInvoicesService`) be issued in their name — decided 2026-09-05, see
-    // docs/evolution/payments-stripe-cb-evolution.md. Card payments only: the commission
-    // debit must never carry it (see commission-debits.service.ts).
+    // Seller: the SAS (« prix net ») or, with the former invoicing, the batch cooker
+    // through `on_behalf_of` (see `cardRouting`).
     const intent = await this.stripe.getClient().paymentIntents.create({
       amount: amountTtc,
       currency: booking.currency.toLowerCase(),
-      on_behalf_of: chef.stripeAccountId,
-      transfer_data: { destination: chef.stripeAccountId },
-      // Stripe rejects a zero fee, so a 0 % commission means sending no fee at all.
-      ...(commission.amountTtcCents > 0
-        ? { application_fee_amount: commission.amountTtcCents }
-        : {}),
+      ...this.cardRouting(chef, booking, commission),
       metadata: { bookingId: booking.id, bookingReference: booking.reference ?? '' },
     });
 
@@ -126,6 +154,7 @@ export class PaymentsService {
     }
     assertPayable(booking);
 
+    await assertMethodCombinable(this.prisma, booking.id, 'cb');
     const chef = booking.chefProfile;
     // Re-checked here, not just at booking time: vetting can be revoked between the
     // booking and the payment, and this is the last gate before money moves to the
@@ -229,11 +258,7 @@ export class PaymentsService {
           payment_method_types: ['card'],
           off_session: true,
           confirm: true,
-          on_behalf_of: chef.stripeAccountId,
-          transfer_data: { destination: chef.stripeAccountId },
-          ...(commission.amountTtcCents > 0
-            ? { application_fee_amount: commission.amountTtcCents }
-            : {}),
+          ...this.cardRouting(chef, booking, commission),
           metadata: {
             bookingId: booking.id,
             bookingReference: booking.reference ?? '',
@@ -306,17 +331,22 @@ export class PaymentsService {
           commission: {
             create: {
               chefProfileId,
-              rateBps: commission.rateBps,
-              vatRateBps: commission.vatRateBps,
-              // What the rate was applied to. On a booking paid in several instalments
-              // the booking total is no longer the base of any single line, so without
-              // this an audit cannot replay rateBps x base = amountHtCents.
-              basisAmountCents: amountTtc,
-              amountHtCents: commission.amountHtCents,
-              amountVatCents: commission.amountVatCents,
-              amountTtcCents: commission.amountTtcCents,
-              collectionMethod: 'stripe_application_fee',
               status: 'pending',
+              // « Prix net »: kept back when the SAS pays the batch cooker, like CESU.
+              ...(legacyInvoicingEnabled(this.config)
+                ? {
+                    rateBps: commission.rateBps,
+                    vatRateBps: commission.vatRateBps,
+                    // What the rate was applied to. On a booking paid in several
+                    // instalments the booking total is no longer the base of any single
+                    // line, so without this an audit cannot replay the rate.
+                    basisAmountCents: amountTtc,
+                    amountHtCents: commission.amountHtCents,
+                    amountVatCents: commission.amountVatCents,
+                    amountTtcCents: commission.amountTtcCents,
+                    collectionMethod: 'stripe_application_fee' as const,
+                  }
+                : withheldCommission(amountTtc, commission.rateBps)),
             },
           },
         },
@@ -393,12 +423,8 @@ export class PaymentsService {
             },
           ],
           payment_intent_data: {
-            // Chef as merchant of record, as on the direct intent above.
-            on_behalf_of: chef.stripeAccountId,
-            transfer_data: { destination: chef.stripeAccountId },
-            ...(commission.amountTtcCents > 0
-              ? { application_fee_amount: commission.amountTtcCents }
-              : {}),
+            // Same seller as on the direct intent above.
+            ...this.cardRouting(chef, booking, commission),
             // The intent only exists once the client pays: this is how its webhook
             // finds the payment row.
             metadata,
@@ -614,19 +640,21 @@ export class PaymentsService {
         paidAt,
         stripeChargeId: idOf(intent.latest_charge),
       });
-      // The card commission was withheld by Stripe at charge time as the
-      // `application_fee_amount`, so it is collected the moment the charge is: there is
-      // no invoice and no separate debit on this path.
+      // Former invoicing: Stripe withheld the commission at charge time as the
+      // `application_fee_amount`, so it is collected with the charge. « Prix net »: it
+      // is kept back when the batch cooker is paid (`payCardNow` below).
       await tx.commission.updateMany({
-        where: { paymentId: payment.id },
+        where: { paymentId: payment.id, collectionMethod: 'stripe_application_fee' },
         data: { status: 'collected', collectedAt: paidAt },
       });
-      // Invoice A, numbered in the same transaction: a settled card payment always has
-      // its invoice. The PDF is drawn once the transaction is committed.
+      // The client's invoice, numbered in the same transaction: the SAS's own (« prix
+      // net ») or facture A in the chef's name (former invoicing). The PDF is drawn once
+      // the transaction is committed.
       const invoice = await this.invoices.issue(tx, payment.id, paidAt);
       return { ...settled, invoice };
     });
     await this.invoices.archive(outcome.invoice.id);
+    if (!legacyInvoicingEnabled(this.config)) await this.payouts.payCardNow(payment.id);
 
     this.logger.log(
       `Payment ${payment.id} succeeded (booking ${payment.bookingId}); ` +

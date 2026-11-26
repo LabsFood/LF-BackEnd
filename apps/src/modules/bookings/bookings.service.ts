@@ -780,6 +780,7 @@ export class BookingsService {
         type: 'booking',
         id,
       });
+      await this.lists.announce(id, [booking.clientId]);
     } catch (error) {
       this.logger.error(
         { event: 'booking.shopping_list_not_rebuilt', bookingId: id },

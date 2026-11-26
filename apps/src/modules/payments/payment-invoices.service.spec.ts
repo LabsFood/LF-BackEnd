@@ -59,8 +59,10 @@ describe('PaymentInvoicesService', () => {
   let bucket: { upload: jest.Mock; createSignedUrl: jest.Mock };
   let supabase: { configured: boolean; getClient: jest.Mock };
   let service: PaymentInvoicesService;
+  let legacyOn: boolean;
 
   beforeEach(() => {
+    legacyOn = true;
     tx = {
       paymentInvoice: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -91,7 +93,10 @@ describe('PaymentInvoicesService', () => {
       configured: true,
       getClient: jest.fn(() => ({ storage: { from: () => bucket } })),
     };
-    const get = jest.fn((_key: string, fallback?: unknown) => fallback);
+    // The former invoicing (facture A) is what these tests cover: switched on here.
+    const get = jest.fn((key: string, fallback?: unknown) =>
+      key === 'payments.legacyInvoicing' ? legacyOn : fallback,
+    );
 
     service = new PaymentInvoicesService(
       prisma as unknown as PrismaService,
@@ -137,6 +142,28 @@ describe('PaymentInvoicesService', () => {
           { label: 'Batch cooking 4 repas', amountCents: 18_500 },
           { label: 'Forfait courses', amountCents: 1_500 },
         ],
+      });
+    });
+
+    it('invoices in the SAS name with 10 % VAT under the « prix net » flow', async () => {
+      legacyOn = false;
+      process.env.SAS_SIREN = '987654321';
+      tx.payment.findUniqueOrThrow.mockResolvedValue({ ...PAYMENT, method: 'cesu' });
+      jest.useFakeTimers().setSystemTime(PAID_AT);
+
+      const result = await service.issue(asTx(), 'payment-1', PAID_AT);
+      delete process.env.SAS_SIREN;
+
+      expect(result.invoiceNumber).toBe('LF-CUS26-00007');
+      const { data } = tx.paymentInvoice.create.mock.calls[0][0] as {
+        data: { snapshot: PaymentInvoiceSnapshot };
+      };
+      expect(data.snapshot).toMatchObject({
+        issuer: 'sas',
+        methodLabel: 'CESU',
+        // 200 € TTC at 10 %: 181,82 € HT + 18,18 € VAT.
+        vat: { rateBps: 1000, htCents: 18_182, vatCents: 1_818 },
+        seller: { displayName: 'Lab’s Food', siren: '987654321' },
       });
     });
 

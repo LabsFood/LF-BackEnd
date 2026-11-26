@@ -72,4 +72,37 @@ describe('renderPaymentInvoicePdf', () => {
     expect(text).toContain('LF-CUS26-00007');
     expect(text).not.toContain('SAP');
   });
+
+  it('draws the SAS invoice with HT, the VAT rate and TTC, and the tax credit mention', async () => {
+    const text = textOf(
+      await renderPaymentInvoicePdf({
+        ...SNAPSHOT,
+        invoiceNumber: 'LF-CUS26-00001',
+        issuer: 'sas',
+        methodLabel: 'CESU',
+        vat: { rateBps: 1000, htCents: 18_182, vatCents: 1_818 },
+        seller: {
+          displayName: 'Lab’s Food',
+          city: null,
+          sapDeclarationNumber: 'SAP100715036',
+          siren: '987654321',
+          address: '1 rue de Paris, 75001 Paris',
+        },
+      }),
+    );
+
+    for (const fact of [
+      'LF-CUS26-00001',
+      'Lab’s Food',
+      'SIREN 987654321',
+      'SAP100715036',
+      'Réglée par CESU',
+      'TOTAL HT 181,82 €',
+      'TVA 10 % 18,18 €',
+      'TOTAL TTC PAYÉ 200,00 €',
+      '199 sexdecies',
+    ]) {
+      expect(text).toContain(fact);
+    }
+  });
 });

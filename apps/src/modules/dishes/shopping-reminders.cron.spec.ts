@@ -1,4 +1,5 @@
 import { PrismaService } from '../../prisma/prisma.service';
+import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ShoppingRemindersCron } from './shopping-reminders.cron';
 
@@ -27,11 +28,13 @@ describe('ShoppingRemindersCron (Recettes lot 4, LF-0285)', () => {
       },
     };
     const notifications = { notify: jest.fn(async (..._args: unknown[]) => ({})) };
+    const lists = { announce: jest.fn(async () => undefined) };
     const cron = new ShoppingRemindersCron(
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationsService,
+      lists as unknown as ShoppingListsService,
     );
-    return { prisma, notifications, cron };
+    return { prisma, notifications, cron, lists };
   }
 
   it('claims the reminder, then tells the chef to send the list', async () => {

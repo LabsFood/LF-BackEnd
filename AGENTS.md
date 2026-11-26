@@ -278,7 +278,10 @@ fact. Module: `modules/dishes/`. Spec:
   lot 6). `ShoppingRemindersCron` (hourly, in-app only, each claimed once on the
   booking): chef at J-4 while the list is not sent, client at J-2 while their
   final list is not back, and at the deadline the client is told the list is
-  frozen and the chef reminded to shop.
+  frozen and the chef reminded to shop. The client reads only the snapshot taken
+  at send (`shopping_lists.sent_lines`, empty while `version` is 0); marks and
+  chef replies answer that snapshot; `shopping_list.changed` (WebSocket) tells
+  the other side to re-read.
 - **Lot 6, groceries paid apart** (`modules/groceries`, decisions of 31/10, 11/11,
   16/11): one `grocery_runs` row per prestation the chef shops for. The mandate is
   accepted by the booking box (no Clerk reverification); the proof (model version
@@ -314,9 +317,9 @@ fact. Module: `modules/dishes/`. Spec:
 | Actor                             | Routes                                                                                                                                                                                                                                                                            |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Public                            | `GET /menus/week`, `GET /chefs/:id`, `GET /chefs/:id/showcase`, `GET /referentials/{allergens,diets,dish-categories}`                                                                                                                                                             |
-| Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`                                        |
-| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before`, `POST .../groceries/validate` |
-| Client                            | `GET /me/culinary-map`                                                                                                                                                                                                                                                            |
+| Chef                              | `/me/dishes[/:id][/publish\|unpublish\|photo/…]`, `/me/menus[/:id][/publish\|unpublish]`, `GET\|PUT /me/showcase/weeks`, `GET /me/suggestions`, `POST /me/suggestions/:id/adopt`, `GET /me/offers`, `POST /me/offers/:id/{accept,decline}`, `GET\|PUT /me/chef/pantry-staples`                                        |
+| Chef, admin, the booking's client | `GET /chef-missions/:id/shopping-list`, `GET .../dishes/:dishId/recipe-sheet` (client: once done), `GET .../conservation[.pdf]` (client: once delivered); chef only: `PUT .../shopping-list`, `POST .../shopping-list/reset`, `PATCH .../shopping-list/replies`, `POST .../recipes/repin`, `PUT .../dishes/:dishId/eat-before`, `POST .../groceries/validate` |
+| Client                            | `GET /me/culinary-map`, `POST /me/bookings/:id/shopping-list/submit`, `PATCH /me/bookings/:id/shopping-list/marks`                                                                                                                                                                                                                                                            |
 | Admin                             | `GET /admin/dishes[?review=pending]`, `GET /admin/dishes/custom-values`, `POST /admin/{dishes,menus}/:id/review`, `PATCH /admin/{dishes,menus}/:id/moderation`, `GET /admin/chefs/:id/{dishes,menus}`, `/admin/menus` (Lab's Food), `POST\|DELETE /admin/{meals,menus}/:id/offer` |
 
 ### Messaging
@@ -490,8 +493,9 @@ mandate, ported from `feat/payment-cesu-prefinanced`) plus `booking-payments.*`
   methods this client can use with this batch cooker. A method the batch cooker
   does not take is left out; `dueNowCents` is computed here, never in the browser.
 - **What a batch cooker takes is derived, not declared twice**: card when their
-  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`
-  and a `crcesu_nan`, immediate advance when
+  Stripe account can be charged and paid out, CESU when `sap_profiles.accepts_cesu`,
+  an active SEPA mandate and the platform's `CESU_PLATFORM_NAN` (the client pays
+  Labs Food Batchcooking SAS, never the batch cooker), immediate advance when
   `sap_profiles.urssaf_tiers_prestation_status = active`.
 - **Card**: `POST /payments/checkout-session` returns a Stripe Checkout `url`. A
   destination charge: the batch cooker receives the amount less the commission,

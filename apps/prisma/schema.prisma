@@ -59,6 +59,9 @@ model ChefProfile {
   serviceRadiusKm        Int                         @default(10) @map("service_radius_km")
   /// Languages spoken with clients: codes from `GET /referentials/languages`.
   languages              String[]                    @default([])
+  /// What this batch cooker always brings (salt, oil…): names as typed. A computed
+  /// shopping line with the same name (case and accents aside) is `providedByChef`.
+  pantryStaples          String[]                    @default([]) @map("pantry_staples")
   isActive               Boolean                     @default(false) @map("is_active")
   isVerified             Boolean                     @default(false) @map("is_verified")
   cronofyProfileId       String?                     @map("cronofy_profile_id") @db.VarChar(128)
@@ -128,6 +131,8 @@ model ChefProfile {
   ingredients            ChefIngredient[]
   calendarFeed           ChefCalendarFeed?
   recipeImports          RecipeImport[]
+  chefPayouts            ChefPayout[]
+  payoutStatements       PayoutStatement[]
 
   @@map("chef_profiles")
 }
@@ -529,6 +534,14 @@ model ShoppingList {
   finalReceivedAt DateTime?      @map("final_received_at") @db.Timestamptz(6)
   /// The client's answer, keyed like the lines: `ClientMark[]` in shopping-list.rules.ts.
   clientMarks     Json           @default("[]") @map("client_marks")
+  /// The lines as last sent (`ListLine[]`): what the client reads. Null until the first send.
+  sentLines       Json?          @map("sent_lines")
+  /// The version `clientMarks` answer; the chef sees them only when it is `version`.
+  marksVersion    Int?           @map("marks_version")
+  /// The client's last tick, comment or final list.
+  marksUpdatedAt  DateTime?      @map("marks_updated_at") @db.Timestamptz(6)
+  /// The batch cooker's answers to comments: `ChefReply[]` in shopping-list.rules.ts.
+  chefReplies     Json           @default("[]") @map("chef_replies")
   booking         Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_lists_booking_id_fkey")
   items           ShoppingItem[]
 
@@ -549,6 +562,8 @@ model ShoppingItem {
   removed        Boolean      @default(false)
   /// Every recipe that asks for it marks it optional: listed with a badge (16/11).
   optional       Boolean      @default(false)
+  /// The batch cooker brings it: off the client's aisles, never ticked.
+  providedByChef Boolean      @default(false) @map("provided_by_chef")
   shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "shopping_items_shopping_list_id_fkey")
 
   @@index([shoppingListId], map: "ix_shopping_items_list_id")
@@ -1347,6 +1362,7 @@ model Payment {
   booking                 Booking          @relation(fields: [bookingId], references: [id], onDelete: Restrict, map: "fk_payments_booking_id")
   commission              Commission?
   cesuSettlement          CesuSettlement?
+  chefPayout              ChefPayout?
   invoice                 PaymentInvoice?
   /// Recettes lot 6: the courses hold this payment is, and the chargebacks on it.
   groceryRun              GroceryRun?      @relation("GroceryRunHold")
@@ -1432,7 +1448,7 @@ model Commission {
 
 /// "Service à la personne" declaration for a chef. Type A = the chef holds their own
 /// NOVA declaration; Type B = the chef declares through a cooperative (Unipros-style).
-/// Both external statuses stay inert until the URSSAF / CRCESU integrations exist.
+/// The URSSAF status stays admin-maintained until the URSSAF API integration exists.
 model SapProfile {
   id                          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chefProfileId               String             @unique(map: "uq_sap_profiles_chef_profile_id") @map("chef_profile_id") @db.Uuid
@@ -1441,11 +1457,8 @@ model SapProfile {
   urssafTiersPrestationStatus SapExternalStatus  @default(not_started) @map("urssaf_tiers_prestation_status")
   cooperativeName             String?            @map("cooperative_name") @db.VarChar(255)
   cooperativeMembershipProof  String?            @map("cooperative_membership_proof") @db.VarChar(512)
-  crcesuNan                   String?            @map("crcesu_nan") @db.VarChar(64)
-  crcesuAffiliationStatus     SapExternalStatus  @default(not_started) @map("crcesu_affiliation_status")
-  /// Chef opt-in to being paid in prefinanced CESU. Eligibility is this flag **and** a
-  /// `crcesuNan`: without the NAN a client cannot add the chef on their issuer's portal,
-  /// so accepting the payment method would be a dead end.
+  /// Chef opt-in to being paid in prefinanced CESU. The client pays the platform's own
+  /// CRCESU affiliation (`CESU_PLATFORM_NAN`): batch cookers hold no NAN.
   acceptsCesu                 Boolean            @default(false) @map("accepts_cesu")
   createdAt                   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1659,6 +1672,9 @@ enum PaymentStatus {
 enum CommissionCollectionMethod {
   stripe_application_fee
   sepa_direct_debit
+  /// « Prix net » (25/11/2026): the SAS received the money and keeps its part when it
+  /// pays the batch cooker. Never invoiced to them, never debited.
+  payout_withholding
 
   @@map("commission_collection_method")
 }
@@ -1685,7 +1701,7 @@ enum SapDeclarationType {
   @@map("sap_declaration_type")
 }
 
-/// Shared by the URSSAF "tiers de prestation" habilitation and the CRCESU affiliation.
+/// The URSSAF "tiers de prestation" habilitation.
 /// Inert this phase: no integration writes it, it is admin-maintained metadata.
 enum SapExternalStatus {
   not_started
@@ -2237,4 +2253,94 @@ model RecipeImport {
   @@index([status, startedAt], map: "idx_recipe_imports_status_started_at")
   @@index([createdByUserId, createdAt], map: "idx_recipe_imports_created_by_created_at")
   @@map("recipe_imports")
+}
+
+
+enum ChefPayoutStatus {
+  payable
+  paid
+
+  @@map("chef_payout_status")
+}
+
+/// « Prix net » (MajorD, 25/11/2026): what the SAS owes a batch cooker for one payment
+/// it received (CESU on its NAN, or the URSSAF immediate advance). Created once the
+/// money is in, with every rate frozen, so the amounts replay after a setting changes.
+/// The admin pays by bank transfer, then marks it paid.
+model ChefPayout {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId         String           @unique(map: "uq_chef_payouts_payment_id") @map("payment_id") @db.Uuid
+  chefProfileId     String           @map("chef_profile_id") @db.Uuid
+  method            PaymentMethod
+  amountTtcCents    Int              @map("amount_ttc_cents")
+  vatRateBps        Int              @map("vat_rate_bps")
+  amountHtCents     Int              @map("amount_ht_cents")
+  amountVatCents    Int              @map("amount_vat_cents")
+  commissionRateBps Int              @map("commission_rate_bps")
+  commissionCents   Int              @map("commission_cents")
+  cesuFeeBps        Int              @default(0) @map("cesu_fee_bps")
+  cesuFeeCents      Int              @default(0) @map("cesu_fee_cents")
+  netCents          Int              @map("net_cents")
+  status            ChefPayoutStatus @default(payable)
+  /// When the money reached the SAS: the payment's `paidAt`.
+  receivedAt        DateTime         @map("received_at") @db.Timestamptz(6)
+  paidAt            DateTime?        @map("paid_at") @db.Timestamptz(6)
+  paidByUserId      String?          @map("paid_by_user_id") @db.Uuid
+  /// The transfer label the admin used, to find it on the bank statement.
+  paidReference     String?          @map("paid_reference") @db.VarChar(140)
+  /// The autofacture this payout was paid under: one per « Marquer versé ».
+  statementId       String?          @map("statement_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment           Payment          @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_payment_id")
+  chefProfile       ChefProfile      @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_chef_profile_id")
+  statement         PayoutStatement? @relation(fields: [statementId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_statement_id")
+
+  @@index([chefProfileId, status], map: "ix_chef_payouts_chef_status")
+  @@index([status, receivedAt], map: "ix_chef_payouts_status_received")
+  @@index([statementId], map: "ix_chef_payouts_statement_id")
+  @@map("chef_payouts")
+}
+
+/// A credit read on the SAS bank account, kept once (`transactionId`) with what the
+/// reconciliation made of it. Exceptions stay here for an admin, never guessed.
+model BankCredit {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String   @unique(map: "uq_bank_credits_transaction_id") @map("transaction_id") @db.VarChar(128)
+  bookedOn      DateTime @map("booked_on") @db.Date
+  amountCents   Int      @map("amount_cents")
+  label         String   @db.VarChar(1000)
+  /// `matched` | `amount_mismatch` | `unknown_reference` | `unidentified`
+  outcome       String   @db.VarChar(24)
+  paymentId     String?  @map("payment_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([outcome], map: "ix_bank_credits_outcome")
+  @@map("bank_credits")
+}
+
+/// Autofacture + relevé de versement: the batch cooker's invoice to the SAS for the net
+/// price of the payouts marked paid together, issued by the SAS in their name. Numbered
+/// `LF-AF-<year>-NNNN`; `snapshot` is everything the PDF is drawn from.
+model PayoutStatement {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  number        String       @unique(map: "uq_payout_statements_number") @db.VarChar(32)
+  chefProfileId String       @map("chef_profile_id") @db.Uuid
+  issuedAt      DateTime     @default(now()) @map("issued_at") @db.Timestamptz(6)
+  netCents      Int          @map("net_cents")
+  snapshot      Json
+  /// Object key in the invoices bucket. Null while the PDF is not stored.
+  storagePath   String?      @map("storage_path") @db.VarChar(512)
+  archivedAt    DateTime?    @map("archived_at") @db.Timestamptz(6)
+  /// Approved e-invoicing platform (`b2brouter`), its id and status. Null until sent.
+  einvoiceProvider   String?   @map("einvoice_provider") @db.VarChar(32)
+  einvoiceExternalId String?   @map("einvoice_external_id") @db.VarChar(128)
+  einvoiceStatus     String?   @map("einvoice_status") @db.VarChar(32)
+  einvoiceSentAt     DateTime? @map("einvoice_sent_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile  @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_payout_statements_chef_profile_id")
+  payouts       ChefPayout[]
+
+  @@index([chefProfileId, issuedAt], map: "ix_payout_statements_chef_issued")
+  @@map("payout_statements")
 }

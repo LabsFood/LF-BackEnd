@@ -138,7 +138,7 @@ async function bootstrap(): Promise<void> {
   const host = config.get<string>('api.host', '0.0.0.0');
   const port = config.get<number>('api.port', 8000);
   await app.listen(port, host);
-  logger.log(`Labs Food API listening on http://${host}:${port}`);
+  logger.log(`Lab’s Food API listening on http://${host}:${port}`);
   logger.log(`CORS allowlist:  ${allowedOrigins.join(', ')}`);
   logger.log(`Swagger UI:     http://${host}:${port}/docs`);
   logger.log(`OpenAPI JSON:   http://${host}:${port}/openapi.json`);

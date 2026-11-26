@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   listStatus,
   MarkInput,
+  ReplyInput,
   shoppingDeadline,
 } from '../shopping-lists/domain/shopping-list.rules';
 import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
@@ -34,7 +35,7 @@ import {
   validationFailed,
 } from './domain/content.errors';
 import { COUNTRIES_TOTAL, country } from './domain/countries';
-import { Line, readSteps, roundLines, scale } from './domain/recipes.rules';
+import { fold, Line, readSteps, roundLines, scale } from './domain/recipes.rules';
 import {
   PutDishNotesDto,
   PutEatBeforeDto,
@@ -455,15 +456,14 @@ export class MissionsService {
 
   /**
    * §7's shopping list, for the chef, the admins and the booking's client. The
-   * client starts again from their last answer while they can still send it; once
-   * frozen, they see what counts, like everyone else.
+   * client reads the version sent last (nothing before the first send); the chef
+   * and admins the list as it is now, with what changed since.
    */
   async shoppingList(clerkUserId: string, bookingId: string) {
     const { booking, role } = await this.access(clerkUserId, bookingId);
-    const editable = new Date() < shoppingDeadline(booking.startsAt);
     return this.withMission(
       booking,
-      await this.lists.view(bookingId, { forClient: role === 'client' && editable }),
+      await this.lists.view(bookingId, { forClient: role === 'client' }),
     );
   }
 
@@ -484,6 +484,7 @@ export class MissionsService {
       version > 1 ? 'shopping_list.updated' : 'shopping_list.sent',
       bookingId,
     );
+    await this.lists.announce(bookingId, [booking.clientId]);
     return this.withMission(booking, await this.lists.view(bookingId));
   }
 
@@ -506,15 +507,126 @@ export class MissionsService {
     );
     // The count only: a comment is the client's words, and may say what they eat.
     this.logger.log({ event: 'shopping_list.final_received', bookingId, version, marks });
-    const chef = await this.prisma.chefProfile.findUnique({
-      where: { id: booking.chefProfileId },
-      select: { userId: true },
-    });
-    if (chef) await this.tell(chef.userId, 'shopping_list.final_received', bookingId);
+    const chefUserId = await this.chefUserId(booking.chefProfileId);
+    if (chefUserId) {
+      await this.tell(chefUserId, 'shopping_list.final_received', bookingId);
+      await this.lists.announce(bookingId, [chefUserId]);
+    }
     return this.withMission(
       booking,
       await this.lists.view(bookingId, { forClient: true }),
     );
+  }
+
+  /**
+   * A tick, a part or a comment saved as the client makes it: the batch cooker
+   * sees it on their next read, pushed by WebSocket. Their bell rings once per
+   * quiet spell (`shopping_list.marks_updated`), never once per tick.
+   */
+  async saveShoppingMarks(
+    clerkUserId: string,
+    bookingId: string,
+    answer: { version: number; marks: MarkInput[] },
+  ) {
+    const { booking } = await this.asClient(clerkUserId, bookingId);
+    if (booking.shoppingByClient) throw shoppingByClient();
+
+    const { version, marks, notify } = await this.lists.saveMarks(
+      bookingId,
+      answer,
+      shoppingDeadline(booking.startsAt),
+    );
+    // The count only: a comment is the client's words.
+    this.logger.log({ event: 'shopping_list.marks_saved', bookingId, version, marks });
+    const chefUserId = await this.chefUserId(booking.chefProfileId);
+    if (chefUserId) {
+      if (notify) await this.tell(chefUserId, 'shopping_list.marks_updated', bookingId);
+      await this.lists.announce(bookingId, [chefUserId]);
+    }
+    return this.withMission(
+      booking,
+      await this.lists.view(bookingId, { forClient: true }),
+    );
+  }
+
+  /**
+   * The batch cooker answers the client's comments on the version sent, until the
+   * deadline. The client's bell rings once per quiet spell (`shopping_list.reply`).
+   */
+  async replyToShoppingComments(
+    clerkUserId: string,
+    bookingId: string,
+    replies: ReplyInput[],
+  ) {
+    const { booking } = await this.asChef(clerkUserId, bookingId);
+    if (booking.shoppingByClient) throw shoppingByClient();
+    const deadline = shoppingDeadline(booking.startsAt);
+    if (new Date() >= deadline) throw shoppingListFrozen(deadline);
+
+    const { replies: count, notify } = await this.lists.reply(bookingId, replies);
+    this.logger.log({ event: 'shopping_list.replied', bookingId, replies: count });
+    if (notify) await this.tell(booking.clientId, 'shopping_list.reply', bookingId);
+    await this.lists.announce(bookingId, [booking.clientId]);
+    return this.withMission(booking, await this.lists.view(bookingId));
+  }
+
+  /** What this batch cooker always brings: marked on every new list. */
+  async pantryStaples(clerkUserId: string) {
+    const chef = await this.ownChefProfile(clerkUserId);
+    return { staples: chef.pantryStaples };
+  }
+
+  /**
+   * Replaces the list. Names are kept as typed, once each (case and accents aside).
+   * Lists already computed keep their lines: the staples apply to the next
+   * calculation.
+   */
+  async setPantryStaples(clerkUserId: string, staples: string[]) {
+    const chef = await this.ownChefProfile(clerkUserId);
+    const seen = new Set<string>();
+    const kept = staples
+      .map((name) => name.trim())
+      .filter((name) => {
+        const key = fold(name);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    await this.prisma.chefProfile.update({
+      where: { id: chef.id },
+      data: { pantryStaples: kept },
+    });
+    this.logger.log({
+      event: 'chef.pantry_staples_updated',
+      chefProfileId: chef.id,
+      count: kept.length,
+    });
+    return { staples: kept };
+  }
+
+  private async ownChefProfile(clerkUserId: string) {
+    const user = await this.users.findByClerkId(clerkUserId);
+    const chef = user
+      ? await this.prisma.chefProfile.findUnique({
+          where: { userId: user.id },
+          select: { id: true, pantryStaples: true },
+        })
+      : null;
+    if (!chef) {
+      throw new NotFoundException({
+        code: 'CHEF_NOT_FOUND',
+        message: 'No batch cooker profile for this account.',
+      });
+    }
+    return chef;
+  }
+
+  private async chefUserId(chefProfileId: string) {
+    const chef = await this.prisma.chefProfile.findUnique({
+      where: { id: chefProfileId },
+      select: { userId: true },
+    });
+    return chef?.userId ?? null;
   }
 
   /** The chef's corrections: they survive every recalculation. */

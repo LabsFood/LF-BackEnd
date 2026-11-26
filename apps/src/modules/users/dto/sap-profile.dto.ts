@@ -31,10 +31,11 @@ export const SAP_EXTERNAL_STATUSES = [
 /**
  * Fields a chef may set on their own `sap_profiles` row.
  *
- * `urssafTiersPrestationStatus` and `crcesuAffiliationStatus` are absent by design —
+ * `urssafTiersPrestationStatus` is absent by design —
  * same rule as `isActive`/`isVerified` on `chef_profiles`: a chef must not be able to
  * declare themselves habilitated. An admin writes them through
- * `PATCH /admin/chefs/:id/sap-external-status`; there is no CRCESU API to write them from.
+ * `PATCH /admin/chefs/:id/sap-external-status`. Batch cookers hold no CRCESU affiliation:
+ * prefinanced CESU is paid to the platform (`payments/cesu-collector.ts`).
  */
 export class UpdateMeSapProfileDto {
   @ApiProperty({
@@ -90,24 +91,9 @@ export class UpdateMeSapProfileDto {
   cooperativeMembershipProof?: string;
 
   @ApiPropertyOptional({
-    maxLength: 64,
     description:
-      'CRCESU national affiliation number (NAN), if the chef already has one. ' +
-      'Optional for both declaration types.',
-    example: '1234567',
-  })
-  @IsOptional()
-  @IsString()
-  @Length(1, 64)
-  crcesuNan?: string;
-
-  @ApiPropertyOptional({
-    description:
-      'Opt in to being paid in prefinanced CESU. Takes effect only alongside a ' +
-      '`crcesuNan`: without the number a client cannot add you as an intervenant on ' +
-      'their issuer portal, so accepting the method would be a dead end. Accepting also ' +
-      'means the platform commission on those bookings is collected from you by SEPA ' +
-      'direct debit, since the funds never pass through the platform.',
+      'Opt in to being paid in prefinanced CESU. The client pays the platform’s own ' +
+      'CRCESU affiliation: batch cookers no longer need a NAN.',
     example: true,
   })
   @IsOptional()
@@ -118,20 +104,10 @@ export class UpdateMeSapProfileDto {
 /**
  * Admin body for `PATCH /admin/chefs/:id/sap-external-status`.
  *
- * These two statuses are absent from every self-service DTO — same rule as
- * `isActive` / `isVerified`: no self-habilitation. Until this endpoint existed nothing
- * could write `crcesuAffiliationStatus` at all.
+ * This status is absent from every self-service DTO — same rule as
+ * `isActive` / `isVerified`: no self-habilitation.
  */
 export class UpdateSapExternalStatusDto {
-  @ApiPropertyOptional({
-    enum: SAP_EXTERNAL_STATUSES,
-    description: 'CRCESU affiliation, as confirmed by the CRCESU.',
-    example: 'active',
-  })
-  @IsOptional()
-  @IsIn(SAP_EXTERNAL_STATUSES)
-  crcesuAffiliationStatus?: SapExternalStatus;
-
   @ApiPropertyOptional({
     enum: SAP_EXTERNAL_STATUSES,
     description: 'URSSAF "tiers de prestation" habilitation.',
@@ -191,26 +167,8 @@ export class SapProfileDto {
   })
   cooperativeMembershipProof?: string | null;
 
-  @ApiPropertyOptional({
-    example: 'NAN123456789',
-    nullable: true,
-    description: 'CRCESU affiliation number.',
-  })
-  crcesuNan?: string | null;
-
   @ApiProperty({
-    enum: SAP_EXTERNAL_STATUSES,
-    description:
-      'CRCESU affiliation, admin-maintained through ' +
-      '`PATCH /admin/chefs/:id/sap-external-status`. No integration writes it — there is ' +
-      'no CRCESU API to write it from.',
-    example: 'not_started',
-  })
-  crcesuAffiliationStatus!: SapExternalStatus;
-
-  @ApiProperty({
-    description:
-      'Whether the chef accepts prefinanced CESU. Effective only with a `crcesuNan`.',
+    description: 'Whether the chef accepts prefinanced CESU, paid to the platform NAN.',
     example: false,
   })
   acceptsCesu!: boolean;

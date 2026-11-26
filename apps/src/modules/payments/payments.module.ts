@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ChefOnboardingModule } from '../chef-onboarding/chef-onboarding.module';
+import { EInvoicingModule } from '../einvoicing/einvoicing.module';
 import { UsersModule } from '../users/users.module';
 import {
   AdminUrssafController,
@@ -19,6 +20,15 @@ import { PaymentInvoicesController } from './payment-invoices.controller';
 import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import {
+  AdminChefPayoutsController,
+  ChefPayoutStatementsController,
+  ChefOwnPayoutsController,
+} from './payouts/chef-payouts.controller';
+import { PayoutStatementsService } from './payouts/payout-statements.service';
+import { BankReconciliationService } from './payouts/bank-reconciliation.service';
+import { AccountingExportService } from './payouts/accounting-export.service';
+import { ChefPayoutsService } from './payouts/chef-payouts.service';
 import { SepaMandatesController } from './sepa-mandates.controller';
 import { SepaMandatesService } from './sepa-mandates.service';
 import { StripeConnectController } from './stripe-connect.controller';
@@ -43,7 +53,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
 @Module({
   // ChefOnboardingModule lends its private-bucket storage to the e-CESU proofs and
   // the clients' sealed URSSAF dossiers.
-  imports: [UsersModule, ChefOnboardingModule],
+  imports: [UsersModule, ChefOnboardingModule, EInvoicingModule],
   controllers: [
     PaymentsController,
     BookingPaymentsController,
@@ -58,6 +68,9 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     SepaMandatesController,
     FiscalAttestationsController,
     PaymentInvoicesController,
+    AdminChefPayoutsController,
+    ChefPayoutStatementsController,
+    ChefOwnPayoutsController,
   ],
   providers: [
     PaymentsService,
@@ -71,6 +84,10 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     SepaMandatesService,
     FiscalAttestationsService,
     PaymentInvoicesService,
+    ChefPayoutsService,
+    AccountingExportService,
+    BankReconciliationService,
+    PayoutStatementsService,
   ],
   exports: [
     PaymentsService,

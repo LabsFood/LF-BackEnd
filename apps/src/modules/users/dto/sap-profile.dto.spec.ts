@@ -51,14 +51,14 @@ describe('UpdateMeSapProfileDto', () => {
     expect(validate({ declarationType: 'type_c' })).toContain('declarationType');
   });
 
-  it('accepts an optional CRCESU number on either type', () => {
+  it('refuses a CRCESU number: CESU is paid to the platform, not the chef', () => {
     expect(
       validate({
         declarationType: 'type_a_nova',
         novaCode: 'SAP123456789',
         crcesuNan: '1234567',
       }),
-    ).toEqual([]);
+    ).toContain('crcesuNan');
   });
 
   it('rejects the externally-owned status fields', () => {

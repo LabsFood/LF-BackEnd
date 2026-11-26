@@ -25,12 +25,26 @@ import {
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
 } from './payment-invoice-document';
+import { legacyInvoicingEnabled, legacyInvoicingOff } from './legacy-invoicing';
+import { htOf, SERVICE_VAT_RATE_BPS } from './payouts/net-price';
+import { sasIdentity } from './sas-identity';
+
+const METHOD_LABEL: Record<string, string> = {
+  cb: 'carte bancaire',
+  cesu: 'CESU',
+  avance_immediate: 'avance immédiate',
+};
 
 /** Read links are short-lived, like the KYC ones: a leaked link dies in minutes. */
 const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 
 /**
- * Facture A: the client's invoice for a card payment, in the chef's name.
+ * The client's invoice of a payment.
+ *
+ * - « Prix net » (default): Lab’s Food invoices in its own name, 10 %
+ *   VAT, whatever the method (card, CESU, avance immédiate).
+ * - Former invoicing (`LEGACY_INVOICING_ENABLED`): facture A, for a card payment, in
+ *   the chef's name.
  *
  * Two steps, on purpose:
  * 1. `issue` numbers the invoice and freezes its content, **inside** the transaction that
@@ -49,10 +63,24 @@ export class PaymentInvoicesService {
     private readonly prisma: PrismaService,
     private readonly supabase: SupabaseService,
     private readonly users: UsersService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
     this.template = config.get<string>('payments.paymentInvoicePrefix', 'LF-CUSYY-XXXXX');
+  }
+
+  /**
+   * Issues and stores the client's invoice of a payment, in its own transaction.
+   * Idempotent. For the « prix net » payments settled outside the card webhook (CESU,
+   * avance immédiate), when the SAS records the money as received.
+   */
+  async issueNow(paymentId: string, paidAt: Date): Promise<void> {
+    // Facture A only ever covered card payments, issued by the webhook.
+    if (legacyInvoicingEnabled(this.config)) return;
+    const invoice = await this.prisma.$transaction((tx) =>
+      this.issue(tx, paymentId, paidAt),
+    );
+    await this.archive(invoice.id);
   }
 
   /**
@@ -79,6 +107,7 @@ export class PaymentInvoicesService {
       select: {
         id: true,
         purpose: true,
+        method: true,
         amountTtc: true,
         currency: true,
         booking: {
@@ -116,12 +145,18 @@ export class PaymentInvoicesService {
     }
     const { booking } = payment;
 
+    // « Prix net »: the SAS sells, in its own name, with VAT. Same numbering series as
+    // before (`LF-CUSYY-XXXXX`, decided by MajorD 26/11/2026).
+    const sas = !legacyInvoicingEnabled(this.config);
+    const template = this.template;
     const issuedAt = new Date();
     const year = invoiceYear(issuedAt);
     const issuedThisYear = await tx.paymentInvoice.count({
-      where: { invoiceNumber: { startsWith: invoiceNumberPrefix(this.template, year) } },
+      where: { invoiceNumber: { startsWith: invoiceNumberPrefix(template, year) } },
     });
-    const invoiceNumber = formatInvoiceNumber(this.template, year, issuedThisYear + 1);
+    const invoiceNumber = formatInvoiceNumber(template, year, issuedThisYear + 1);
+    const identity = sasIdentity();
+    const htCents = htOf(payment.amountTtc, SERVICE_VAT_RATE_BPS);
 
     const snapshot: PaymentInvoiceSnapshot = {
       invoiceNumber,
@@ -139,11 +174,31 @@ export class PaymentInvoicesService {
         },
         payment.amountTtc,
       ),
-      seller: {
-        displayName: booking.chefProfile.displayName,
-        city: booking.chefProfile.city,
-        sapDeclarationNumber: booking.chefProfile.sapDeclarationNumber,
-      },
+      ...(sas
+        ? {
+            issuer: 'sas' as const,
+            vat: {
+              rateBps: SERVICE_VAT_RATE_BPS,
+              htCents,
+              vatCents: payment.amountTtc - htCents,
+            },
+            methodLabel: METHOD_LABEL[payment.method] ?? payment.method,
+          }
+        : {}),
+      seller: sas
+        ? {
+            displayName: identity.name,
+            legalName: identity.legalName,
+            city: null,
+            sapDeclarationNumber: identity.sapDeclarationNumber,
+            siren: identity.siren,
+            address: identity.address,
+          }
+        : {
+            displayName: booking.chefProfile.displayName,
+            city: booking.chefProfile.city,
+            sapDeclarationNumber: booking.chefProfile.sapDeclarationNumber,
+          },
       client: {
         name: booking.client.fullName ?? booking.client.email,
         email: booking.client.email,
@@ -185,6 +240,7 @@ export class PaymentInvoicesService {
    * racing a live settlement may lose a number to the unique index (`P2002`): run again.
    */
   async backfill(dryRun: boolean): Promise<PaymentInvoiceBackfillResultDto> {
+    if (!legacyInvoicingEnabled(this.config)) throw legacyInvoicingOff();
     const payments = await this.prisma.payment.findMany({
       // Never a courses payment: the ingredients are not on any invoice (lot 6, LF-0309).
       where: {
