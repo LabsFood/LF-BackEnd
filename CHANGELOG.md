@@ -1,3 +1,16 @@
+## [2.7.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.6.0...v2.7.0) (2026-11-26)
+
+### Features
+
+* **payments:** prix net flow, Lab’s Food invoices the household and pays batch cookers ([#126](https://github.com/LabsFood/LF-BackEnd/issues/126)) ([08477d8](https://github.com/LabsFood/LF-BackEnd/commit/08477d89778c41fd8802f9e3258a30ebb94e95a1))
+* release develop → main (prix net, factures Lab’s Food, versements aux batch cookers) ([#128](https://github.com/LabsFood/LF-BackEnd/issues/128)) ([97e917c](https://github.com/LabsFood/LF-BackEnd/commit/97e917ce922eca36543a42fe6ee3b2ed1c850d78)), closes [#124](https://github.com/LabsFood/LF-BackEnd/issues/124) [#126](https://github.com/LabsFood/LF-BackEnd/issues/126) [#129](https://github.com/LabsFood/LF-BackEnd/issues/129)
+* **shopping-list:** le client lit la version envoyée, coche au fil de l'eau, le batch cooker répond ([#129](https://github.com/LabsFood/LF-BackEnd/issues/129)) ([2f527b3](https://github.com/LabsFood/LF-BackEnd/commit/2f527b309efea299cb24ea29e60d88489e1ecd8e))
+
+### Bug Fixes
+
+* **recettes:** « Velouté » et « velouté » forment un seul groupe dans la fiche PDF ([db556c0](https://github.com/LabsFood/LF-BackEnd/commit/db556c08752c3996a25f1aa714c08ee7002d3ae9))
+* **recettes:** la fiche PDF titre chaque groupe d'ingrédients et met une puce à chaque ligne ([92493b2](https://github.com/LabsFood/LF-BackEnd/commit/92493b24fe6111b3e6a4a48fe547e302c4fd9ab3))
+
 ## [2.6.0](https://github.com/LabsFood/LF-BackEnd/compare/v2.5.0...v2.6.0) (2026-11-25)
 
 ### Features
