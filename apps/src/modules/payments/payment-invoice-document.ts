@@ -30,6 +30,16 @@ import type { InvoiceLine } from './domain/payment-invoices.rules';
 const PLATFORM_NAME = "LAB'S FOOD";
 
 export interface PaymentInvoiceSnapshot {
+  /**
+   * Who sells. Absent or `chef`: facture A, in the batch cooker's name (former
+   * invoicing). `sas`: Labs Food Batchcooking SAS invoices in its own name, with VAT
+   * (« prix net », 26/11/2026), whatever the payment method.
+   */
+  issuer?: 'chef' | 'sas';
+  /** `sas` only: the VAT the SAS charges (10 %, services à la personne). */
+  vat?: { rateBps: number; htCents: number; vatCents: number };
+  /** `sas` only: « carte bancaire », « CESU », « avance immédiate ». */
+  methodLabel?: string;
   invoiceNumber: string;
   /** ISO instants: the snapshot lives in a JSON column. */
   issuedAt: string;
@@ -42,6 +52,9 @@ export interface PaymentInvoiceSnapshot {
     city: string | null;
     /** SAP declaration number, when the chef declared one. */
     sapDeclarationNumber: string | null;
+    /** `sas` only. */
+    siren?: string | null;
+    address?: string | null;
   };
   client: { name: string; email: string };
   booking: {
@@ -73,6 +86,7 @@ export function renderPaymentInvoicePdf(
   snapshot: PaymentInvoiceSnapshot,
 ): Promise<Buffer> {
   const { seller, client, booking } = snapshot;
+  const sas = snapshot.issuer === 'sas';
   const doc = new PDFDocument({
     size: 'A4',
     margin: 50,
@@ -103,7 +117,10 @@ export function renderPaymentInvoicePdf(
     .font(FONT.text)
     .fontSize(10)
     .fillColor(COLOR.inkMid)
-    .text(`Réglée par carte bancaire le ${parisDay(snapshot.paidAt)}`, TEXT);
+    .text(
+      `Réglée par ${snapshot.methodLabel ?? 'carte bancaire'} le ${parisDay(snapshot.paidAt)}`,
+      TEXT,
+    );
 
   doc.y += 18;
   const parties: Row[] = [
@@ -111,7 +128,8 @@ export function renderPaymentInvoicePdf(
       label: 'Prestataire',
       value: [
         seller.displayName,
-        seller.city,
+        sas ? seller.address : seller.city,
+        sas && seller.siren ? `SIREN ${seller.siren}` : null,
         seller.sapDeclarationNumber
           ? `Déclaration SAP n° ${seller.sapDeclarationNumber}`
           : null,
@@ -142,24 +160,50 @@ export function renderPaymentInvoicePdf(
       label: line.label,
       value: formatMoney(line.amountCents, snapshot.currency),
     })),
+    ...(sas && snapshot.vat
+      ? [
+          {
+            label: 'Total HT',
+            value: formatMoney(snapshot.vat.htCents, snapshot.currency),
+          },
+          {
+            label: `TVA ${(snapshot.vat.rateBps / 100).toLocaleString('fr-FR')} %`,
+            value: formatMoney(snapshot.vat.vatCents, snapshot.currency),
+          },
+        ]
+      : []),
     {
-      label: 'Total payé',
+      label: sas ? 'Total TTC payé' : 'Total payé',
       value: formatMoney(snapshot.amountTtcCents, snapshot.currency),
       strong: true,
     },
   ]);
 
-  section(
-    doc,
-    'Mentions',
-    `Facture établie au nom et pour le compte de ${seller.displayName} par ` +
-      `${PLATFORM_NAME}, qui encaisse le règlement par l’intermédiaire de Stripe. ` +
-      'Le montant ci-dessus est celui débité de votre carte.',
-  );
+  if (sas) {
+    section(
+      doc,
+      'Mentions',
+      `Prestation de services à la personne réalisée au domicile du client par ` +
+        `${seller.displayName}, prestataire, qui encaisse ce règlement en son nom. ` +
+        'Les sommes versées ouvrent droit au crédit d’impôt prévu à l’article ' +
+        '199 sexdecies du code général des impôts, dans ses conditions et limites. ' +
+        'Une attestation fiscale annuelle vous est délivrée.',
+    );
+  } else {
+    section(
+      doc,
+      'Mentions',
+      `Facture établie au nom et pour le compte de ${seller.displayName} par ` +
+        `${PLATFORM_NAME}, qui encaisse le règlement par l’intermédiaire de Stripe. ` +
+        'Le montant ci-dessus est celui débité de votre carte.',
+    );
+  }
 
   footer(
     doc,
-    `Document établi par ${PLATFORM_NAME} pour ${seller.displayName} · facture ${snapshot.invoiceNumber}`,
+    sas
+      ? `${seller.displayName} · facture ${snapshot.invoiceNumber}`
+      : `Document établi par ${PLATFORM_NAME} pour ${seller.displayName} · facture ${snapshot.invoiceNumber}`,
   );
 
   doc.end();

@@ -647,21 +647,20 @@ export class PaymentsService {
         where: { paymentId: payment.id, collectionMethod: 'stripe_application_fee' },
         data: { status: 'collected', collectedAt: paidAt },
       });
-      // Invoice A, numbered in the same transaction, while the former invoicing is on
-      // (`legacy-invoicing.ts`). The PDF is drawn once the transaction is committed.
-      const invoice = legacyInvoicingEnabled(this.config)
-        ? await this.invoices.issue(tx, payment.id, paidAt)
-        : null;
+      // The client's invoice, numbered in the same transaction: the SAS's own (« prix
+      // net ») or facture A in the chef's name (former invoicing). The PDF is drawn once
+      // the transaction is committed.
+      const invoice = await this.invoices.issue(tx, payment.id, paidAt);
       return { ...settled, invoice };
     });
-    if (outcome.invoice) await this.invoices.archive(outcome.invoice.id);
+    await this.invoices.archive(outcome.invoice.id);
     if (!legacyInvoicingEnabled(this.config)) await this.payouts.payCardNow(payment.id);
 
     this.logger.log(
       `Payment ${payment.id} succeeded (booking ${payment.bookingId}); ` +
         `${outcome.coveredAmountCents}/${outcome.bookingAmountTtcCents} covered` +
         `${outcome.bookingConfirmed ? ', booking confirmed' : ''}; ` +
-        `invoice ${outcome.invoice?.invoiceNumber ?? 'none (former invoicing off)'}.`,
+        `invoice ${outcome.invoice.invoiceNumber}.`,
     );
   }
 

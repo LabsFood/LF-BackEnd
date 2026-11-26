@@ -13,7 +13,7 @@ import { EInvoicingService } from '../../einvoicing/einvoicing.service';
 import { eInvoiceFromPayoutStatement } from '../../einvoicing/from-payout-statement';
 import { chefLegalIdentity, CHEF_LEGAL_SELECT } from '../../users/chef-legal.views';
 import { UsersService } from '../../users/users.service';
-import { DEFAULT_CESU_PLATFORM_NAME } from '../cesu-collector';
+import { sasIdentity } from '../sas-identity';
 import {
   renderPayoutStatementPdf,
   type PayoutStatementSnapshot,
@@ -123,12 +123,7 @@ export class PayoutStatementsService {
         address: row.businessAddress ?? '',
         vatMention: FRANCHISE_MENTION,
       },
-      buyer: {
-        name: process.env.CESU_PLATFORM_NAME?.trim() || DEFAULT_CESU_PLATFORM_NAME,
-        siren: process.env.SAS_SIREN?.trim() || null,
-        address: process.env.SAS_ADDRESS?.trim() || null,
-        sapDeclarationNumber: process.env.SAP_DECLARATION_NUMBER?.trim() || null,
-      },
+      buyer: sasIdentity(),
       lines: input.payouts.map((p) => ({
         bookingReference: p.payment.booking.reference,
         method: p.method,

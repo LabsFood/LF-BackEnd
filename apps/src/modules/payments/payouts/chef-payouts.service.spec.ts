@@ -40,14 +40,16 @@ function setup() {
   };
   const transfers = { create: jest.fn().mockResolvedValue({ id: 'tr_1' }) };
   const stripe = { configured: true, getClient: () => ({ transfers }) };
+  const invoices = { issueNow: jest.fn() };
   const service = new ChefPayoutsService(
     prisma as never,
     users as never,
     audit as never,
     statements as never,
     stripe as never,
+    invoices as never,
   );
-  return { prisma, users, audit, statements, stripe, transfers, service };
+  return { prisma, users, audit, statements, stripe, transfers, invoices, service };
 }
 
 describe('ChefPayoutsService', () => {

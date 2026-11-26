@@ -534,7 +534,7 @@ describe('PaymentsService', () => {
       );
     });
 
-    it('settles the card payment without invoice A when the former invoicing is off', async () => {
+    it('invoices in the SAS name and pays the batch cooker when the former invoicing is off', async () => {
       legacyOn = false;
       prisma.payment.findUnique.mockResolvedValue({
         id: 'payment-1',
@@ -546,8 +546,9 @@ describe('PaymentsService', () => {
 
       await service.handlePaymentIntentSucceeded(intent);
 
-      expect(invoices.issue).not.toHaveBeenCalled();
-      expect(invoices.archive).not.toHaveBeenCalled();
+      // Same issue call: the service picks the SAS as seller from the flag.
+      expect(invoices.issue).toHaveBeenCalledWith(tx, 'payment-1', expect.any(Date));
+      expect(invoices.archive).toHaveBeenCalledWith('invoice-1');
       expect(tx.booking.update).toHaveBeenCalled();
       // The net goes to the batch cooker right after the charge, with its autofacture.
       expect(payouts.payCardNow).toHaveBeenCalledWith('payment-1');

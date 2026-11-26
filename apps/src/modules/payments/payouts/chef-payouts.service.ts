@@ -12,6 +12,7 @@ import {
 import { StripeService } from '../../../integrations/stripe.service';
 import { UsersService } from '../../users/users.service';
 import { bankFeedConfig } from '../cesu-reconciliation/bank-feed';
+import { PaymentInvoicesService } from '../payment-invoices.service';
 import { PayoutStatementsService } from './payout-statements.service';
 import { isLate, netPrice, SERVICE_VAT_RATE_BPS, type NetPrice } from './net-price';
 
@@ -100,7 +101,39 @@ export class ChefPayoutsService {
     private readonly audit: AuditService,
     private readonly statements: PayoutStatementsService,
     private readonly stripe: StripeService,
+    private readonly invoices: PaymentInvoicesService,
   ) {}
+
+  /**
+   * The SAS's invoice to the household for the money it has received by bank (CESU,
+   * avance immédiate; the card's is issued by its webhook). Picks up every received
+   * payment still without one, so a failure is retried at the next sync.
+   */
+  private async invoiceReceived(): Promise<void> {
+    const missing = await this.prisma.payment.findMany({
+      where: {
+        purpose: 'service',
+        status: 'succeeded',
+        method: { in: BANK_METHODS },
+        commission: WITHHELD,
+        invoice: null,
+      },
+      select: { id: true, paidAt: true, updatedAt: true },
+      orderBy: { paidAt: 'asc' },
+      take: 100,
+    });
+    for (const p of missing) {
+      try {
+        await this.invoices.issueNow(p.id, p.paidAt ?? p.updatedAt);
+      } catch (error) {
+        this.logger.error({
+          event: 'payouts.client_invoice_failed',
+          paymentId: p.id,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
+  }
 
   /**
    * Creates the payout of every received payment that has none yet, with the rates in
@@ -128,7 +161,10 @@ export class ChefPayoutsService {
       },
       take: 500,
     });
-    if (received.length === 0) return 0;
+    if (received.length === 0) {
+      await this.invoiceReceived();
+      return 0;
+    }
 
     const feeRules = await cesuFeeRulesInForce(this.prisma);
     const created = await this.prisma.chefPayout.createMany({
@@ -151,6 +187,7 @@ export class ChefPayoutsService {
       skipDuplicates: true,
     });
     this.logger.log({ event: 'payouts.synced', created: created.count });
+    await this.invoiceReceived();
     return created.count;
   }
 

@@ -90,6 +90,11 @@ export const envValidationSchema = Joi.object({
     .pattern(/^[^X]*YY[^X]*X+$/)
     .max(24)
     .default('LF-CUSYY-XXXXX'),
+  /** The SAS's own client invoices (« prix net »), same template rules. */
+  PAYMENTS_SAS_INVOICE_PREFIX: Joi.string()
+    .pattern(/^[^X]*YY[^X]*X+$/)
+    .max(24)
+    .default('LF-SASYY-XXXXX'),
 
   /** Stripe Connect onboarding redirects (frontend routes on batchcooking-web). */
   STRIPE_CONNECT_REFRESH_URL: Joi.string().uri().optional(),
