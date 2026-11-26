@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../../../common/audit/audit.service';
 import type { ChefTier, PaymentMethod, Prisma } from '../../../generated/prisma/client';
@@ -11,6 +11,7 @@ import {
 } from '../../platform-settings/cesu-fee';
 import { UsersService } from '../../users/users.service';
 import { bankFeedConfig } from '../cesu-reconciliation/bank-feed';
+import { PayoutStatementsService } from './payout-statements.service';
 import { isLate, netPrice, SERVICE_VAT_RATE_BPS, type NetPrice } from './net-price';
 
 /** Money the SAS collects itself and pays out at the net price. */
@@ -29,6 +30,8 @@ export interface PayoutLine extends NetPrice {
   receivedAt: string | null;
   paidAt: string | null;
   paidReference: string | null;
+  /** The autofacture this line was paid under. */
+  statementId: string | null;
   late: boolean;
 }
 
@@ -42,6 +45,8 @@ export interface PayoutsSummary {
   lateCents: number;
   lastReconciliation: { at: string; received: number; matched: number } | null;
   bankFeedConfigured: boolean;
+  /** The batch cooker to pay first (the longest waiting), so the bell opens their card. */
+  nextChefProfileId: string | null;
 }
 
 export interface PayoutChefHit {
@@ -83,6 +88,7 @@ export class ChefPayoutsService {
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly audit: AuditService,
+    private readonly statements: PayoutStatementsService,
   ) {}
 
   /**
@@ -158,6 +164,9 @@ export class ChefPayoutsService {
       this.prisma.platformSetting.findUnique({ where: { key: BANK_RECONCILIATION_KEY } }),
     ]);
 
+    const oldest = [...payable].sort(
+      (a, b) => a.receivedAt.getTime() - b.receivedAt.getTime(),
+    )[0];
     const chefs = new Set<string>();
     const lateChefs = new Set<string>();
     let lateCents = 0;
@@ -181,6 +190,7 @@ export class ChefPayoutsService {
       lateCents,
       lastReconciliation: readLastReconciliation(last?.value),
       bankFeedConfigured: bankFeedConfig() !== null,
+      nextChefProfileId: oldest?.chefProfileId ?? null,
     };
   }
 
@@ -276,7 +286,10 @@ export class ChefPayoutsService {
       },
     });
     if (!chef) throw new NotFoundException('No batch cooker with this id.');
-    const labels = await chefTierLabels(this.prisma);
+    const [labels, statementBlockers] = await Promise.all([
+      chefTierLabels(this.prisma),
+      this.statements.blockers(chefProfileId),
+    ]);
 
     const received = rangeOn('receivedAt', period);
     const paidRange = rangeOn('paidAt', period);
@@ -312,6 +325,8 @@ export class ChefPayoutsService {
         city: chef.city,
         tierLabel: labels[chef.tier],
         ibanLast4: chef.sepaMandate?.ibanLast4 ?? null,
+        /** Empty when an autofacture can be issued, so « Marquer versé » can go. */
+        statementBlockers,
       },
       counts: { payable: payableCount, awaiting: awaitingCount, paid: paidCount },
       totalNetCents: lines.reduce((total, l) => total + l.netCents, 0),
@@ -330,45 +345,117 @@ export class ChefPayoutsService {
     reference?: string,
   ) {
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+    const blockers = await this.statements.blockers(chefProfileId);
+    if (blockers.length > 0) {
+      throw new ConflictException({
+        code: 'PAYOUT_STATEMENT_INCOMPLETE',
+        message:
+          'The autofacture cannot be issued: complete the batch cooker’s legal identity first.',
+        missing: blockers,
+      });
+    }
     const paidAt = new Date();
-    const result = await this.prisma.$transaction(async (tx) => {
-      const payouts = await tx.chefPayout.findMany({
-        where: { id: { in: payoutIds }, chefProfileId, status: 'payable' },
-        select: { id: true, paymentId: true, netCents: true },
-      });
-      if (payouts.length === 0) {
-        throw new NotFoundException('Nothing left to pay among these lines.');
-      }
-      const ids = payouts.map((p) => p.id);
-      await tx.chefPayout.updateMany({
-        where: { id: { in: ids }, status: 'payable' },
-        data: {
-          status: 'paid',
+    const paidReference = reference?.trim().slice(0, 140) || null;
+    const result = await this.withNumberRetry(() =>
+      this.prisma.$transaction(async (tx) => {
+        const payouts = await tx.chefPayout.findMany({
+          where: { id: { in: payoutIds }, chefProfileId, status: 'payable' },
+          include: { payment: { select: { booking: { select: { reference: true } } } } },
+          orderBy: { receivedAt: 'asc' },
+        });
+        if (payouts.length === 0) {
+          throw new NotFoundException('Nothing left to pay among these lines.');
+        }
+        const ids = payouts.map((p) => p.id);
+        const claimed = await tx.chefPayout.updateMany({
+          where: { id: { in: ids }, status: 'payable' },
+          data: { status: 'paid', paidAt, paidByUserId: admin.id, paidReference },
+        });
+        if (claimed.count !== ids.length) {
+          throw new ConflictException('These lines were marked paid a moment ago.');
+        }
+        await tx.commission.updateMany({
+          where: { paymentId: { in: payouts.map((p) => p.paymentId) }, ...WITHHELD },
+          data: { status: 'collected', collectedAt: paidAt },
+        });
+        const statement = await this.statements.issue(tx, {
+          chefProfileId,
+          payouts,
           paidAt,
-          paidByUserId: admin.id,
-          paidReference: reference?.trim().slice(0, 140) || null,
-        },
-      });
-      await tx.commission.updateMany({
-        where: { paymentId: { in: payouts.map((p) => p.paymentId) }, ...WITHHELD },
-        data: { status: 'collected', collectedAt: paidAt },
-      });
-      return {
-        paid: payouts.length,
-        netCents: payouts.reduce((total, p) => total + p.netCents, 0),
-        payoutIds: ids,
-      };
-    });
+          transferReference: paidReference,
+        });
+        return {
+          paid: payouts.length,
+          netCents: payouts.reduce((total, p) => total + p.netCents, 0),
+          payoutIds: ids,
+          statement,
+        };
+      }),
+    );
 
+    await this.statements.archive(result.statement.id);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: admin.id,
       action: 'payout.marked_paid',
       subjectType: 'chef_profile',
       subjectId: chefProfileId,
-      metadata: { payoutIds: result.payoutIds, netCents: result.netCents },
+      metadata: {
+        payoutIds: result.payoutIds,
+        netCents: result.netCents,
+        statementNumber: result.statement.number,
+      },
     });
-    return { paid: result.paid, netCents: result.netCents, paidAt: paidAt.toISOString() };
+    return {
+      paid: result.paid,
+      netCents: result.netCents,
+      paidAt: paidAt.toISOString(),
+      statementId: result.statement.id,
+      statementNumber: result.statement.number,
+    };
+  }
+
+  /** Every line still to pay, all batch cookers, for the day's export. */
+  async payableLines(now = new Date()) {
+    await this.sync();
+    const rows = await this.prisma.chefPayout.findMany({
+      where: { status: 'payable' },
+      orderBy: [{ chefProfileId: 'asc' }, { receivedAt: 'asc' }],
+      take: 2000,
+      include: {
+        chefProfile: { select: { displayName: true } },
+        payment: { select: { booking: { select: { reference: true } } } },
+      },
+    });
+    return rows.map((r) => ({
+      chefProfileId: r.chefProfileId,
+      chefName: r.chefProfile.displayName,
+      bookingReference: r.payment.booking.reference,
+      method: r.method,
+      amountTtcCents: r.amountTtcCents,
+      vatRateBps: r.vatRateBps,
+      amountVatCents: r.amountVatCents,
+      amountHtCents: r.amountHtCents,
+      commissionRateBps: r.commissionRateBps,
+      commissionCents: r.commissionCents,
+      cesuFeeBps: r.cesuFeeBps,
+      cesuFeeCents: r.cesuFeeCents,
+      netCents: r.netCents,
+      receivedAt: r.receivedAt.toISOString(),
+      late: isLate(r.receivedAt, now),
+    }));
+  }
+
+  /** Two « Marquer versé » at once may take the same autofacture number: try again. */
+  private async withNumberRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+    for (let i = 1; ; i += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        const collision = (error as { code?: string }).code === 'P2002';
+        if (!collision || i >= attempts) throw error;
+      }
+    }
   }
 
   /** CESU declared but not received yet, and immediate advances URSSAF has not paid. */
@@ -408,6 +495,7 @@ export class ChefPayoutsService {
       receivedAt: r.receivedAt.toISOString(),
       paidAt: r.paidAt?.toISOString() ?? null,
       paidReference: r.paidReference,
+      statementId: r.statementId,
       late: r.status === 'payable' && isLate(r.receivedAt, now),
     }));
   }
@@ -435,6 +523,7 @@ export class ChefPayoutsService {
       receivedAt: null,
       paidAt: null,
       paidReference: null,
+      statementId: null,
       late: false,
     }));
   }

@@ -19,7 +19,11 @@ import { PaymentInvoicesController } from './payment-invoices.controller';
 import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
-import { AdminChefPayoutsController } from './payouts/chef-payouts.controller';
+import {
+  AdminChefPayoutsController,
+  ChefPayoutStatementsController,
+} from './payouts/chef-payouts.controller';
+import { PayoutStatementsService } from './payouts/payout-statements.service';
 import { BankReconciliationService } from './payouts/bank-reconciliation.service';
 import { ChefPayoutsService } from './payouts/chef-payouts.service';
 import { SepaMandatesController } from './sepa-mandates.controller';
@@ -62,6 +66,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     FiscalAttestationsController,
     PaymentInvoicesController,
     AdminChefPayoutsController,
+    ChefPayoutStatementsController,
   ],
   providers: [
     PaymentsService,
@@ -77,6 +82,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     PaymentInvoicesService,
     ChefPayoutsService,
     BankReconciliationService,
+    PayoutStatementsService,
   ],
   exports: [
     PaymentsService,

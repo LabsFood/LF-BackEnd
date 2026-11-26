@@ -129,6 +129,7 @@ model ChefProfile {
   calendarFeed           ChefCalendarFeed?
   recipeImports          RecipeImport[]
   chefPayouts            ChefPayout[]
+  payoutStatements       PayoutStatement[]
 
   @@map("chef_profiles")
 }
@@ -2274,13 +2275,17 @@ model ChefPayout {
   paidByUserId      String?          @map("paid_by_user_id") @db.Uuid
   /// The transfer label the admin used, to find it on the bank statement.
   paidReference     String?          @map("paid_reference") @db.VarChar(140)
+  /// The autofacture this payout was paid under: one per « Marquer versé ».
+  statementId       String?          @map("statement_id") @db.Uuid
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   payment           Payment          @relation(fields: [paymentId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_payment_id")
   chefProfile       ChefProfile      @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_chef_profile_id")
+  statement         PayoutStatement? @relation(fields: [statementId], references: [id], onDelete: Restrict, map: "fk_chef_payouts_statement_id")
 
   @@index([chefProfileId, status], map: "ix_chef_payouts_chef_status")
   @@index([status, receivedAt], map: "ix_chef_payouts_status_received")
+  @@index([statementId], map: "ix_chef_payouts_statement_id")
   @@map("chef_payouts")
 }
 
@@ -2299,4 +2304,25 @@ model BankCredit {
 
   @@index([outcome], map: "ix_bank_credits_outcome")
   @@map("bank_credits")
+}
+
+/// Autofacture + relevé de versement: the batch cooker's invoice to the SAS for the net
+/// price of the payouts marked paid together, issued by the SAS in their name. Numbered
+/// `LF-AF-<year>-NNNN`; `snapshot` is everything the PDF is drawn from.
+model PayoutStatement {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  number        String       @unique(map: "uq_payout_statements_number") @db.VarChar(32)
+  chefProfileId String       @map("chef_profile_id") @db.Uuid
+  issuedAt      DateTime     @default(now()) @map("issued_at") @db.Timestamptz(6)
+  netCents      Int          @map("net_cents")
+  snapshot      Json
+  /// Object key in the invoices bucket. Null while the PDF is not stored.
+  storagePath   String?      @map("storage_path") @db.VarChar(512)
+  archivedAt    DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  chefProfile   ChefProfile  @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_payout_statements_chef_profile_id")
+  payouts       ChefPayout[]
+
+  @@index([chefProfileId, issuedAt], map: "ix_payout_statements_chef_issued")
+  @@map("payout_statements")
 }

@@ -30,8 +30,18 @@ function setup() {
     ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'admin-1' }),
   };
   const audit = { record: jest.fn() };
-  const service = new ChefPayoutsService(prisma as never, users as never, audit as never);
-  return { prisma, users, audit, service };
+  const statements = {
+    blockers: jest.fn().mockResolvedValue([]),
+    issue: jest.fn().mockResolvedValue({ id: 'st-1', number: 'LF-AF-2026-0001' }),
+    archive: jest.fn(),
+  };
+  const service = new ChefPayoutsService(
+    prisma as never,
+    users as never,
+    audit as never,
+    statements as never,
+  );
+  return { prisma, users, audit, statements, service };
 }
 
 describe('ChefPayoutsService', () => {
@@ -132,12 +142,14 @@ describe('ChefPayoutsService', () => {
   });
 
   describe('markPaid', () => {
-    it('marks the payable lines paid and collects the part kept back', async () => {
-      const { prisma, audit, service } = setup();
-      prisma.chefPayout.findMany.mockResolvedValue([
+    it('marks the payable lines paid, collects the part kept back and issues the autofacture', async () => {
+      const { prisma, audit, statements, service } = setup();
+      const payouts = [
         { id: 'po-1', paymentId: 'pay-1', netCents: 10_818 },
         { id: 'po-2', paymentId: 'pay-2', netCents: 6955 },
-      ]);
+      ];
+      prisma.chefPayout.findMany.mockResolvedValue(payouts);
+      prisma.chefPayout.updateMany.mockResolvedValue({ count: 2 });
 
       const result = await service.markPaid(
         'clerk_admin',
@@ -174,10 +186,38 @@ describe('ChefPayoutsService', () => {
           data: expect.objectContaining({ status: 'collected' }),
         }),
       );
-      expect(result).toMatchObject({ paid: 2, netCents: 17_773 });
+      expect(statements.issue).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          chefProfileId: 'chef-1',
+          payouts,
+          transferReference: 'LF VERSEMENT',
+        }),
+      );
+      expect(statements.archive).toHaveBeenCalledWith('st-1');
+      expect(result).toMatchObject({
+        paid: 2,
+        netCents: 17_773,
+        statementNumber: 'LF-AF-2026-0001',
+      });
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'payout.marked_paid' }),
       );
+    });
+
+    it('refuses before anything moves when no autofacture can be issued', async () => {
+      const { prisma, statements, service } = setup();
+      statements.blockers.mockResolvedValue(['siren', 'vatFranchise']);
+
+      await expect(
+        service.markPaid('clerk_admin', 'chef-1', ['po-1']),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'PAYOUT_STATEMENT_INCOMPLETE',
+          missing: ['siren', 'vatFranchise'],
+        }),
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('refuses when nothing of this batch cooker is still payable', async () => {

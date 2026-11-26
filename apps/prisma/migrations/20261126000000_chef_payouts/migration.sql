@@ -57,3 +57,26 @@ CREATE TABLE "bank_credits" (
 
 CREATE UNIQUE INDEX "uq_bank_credits_transaction_id" ON "bank_credits"("transaction_id");
 CREATE INDEX "ix_bank_credits_outcome" ON "bank_credits"("outcome");
+
+-- Autofacture + relevé de versement, one per « Marquer versé ».
+CREATE TABLE "payout_statements" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "number" VARCHAR(32) NOT NULL,
+    "chef_profile_id" UUID NOT NULL,
+    "issued_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "net_cents" INTEGER NOT NULL,
+    "snapshot" JSONB NOT NULL,
+    "storage_path" VARCHAR(512),
+    "archived_at" TIMESTAMPTZ(6),
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "payout_statements_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "uq_payout_statements_number" ON "payout_statements"("number");
+CREATE INDEX "ix_payout_statements_chef_issued" ON "payout_statements"("chef_profile_id", "issued_at");
+ALTER TABLE "payout_statements" ADD CONSTRAINT "fk_payout_statements_chef_profile_id"
+    FOREIGN KEY ("chef_profile_id") REFERENCES "chef_profiles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "chef_payouts" ADD COLUMN "statement_id" UUID;
+ALTER TABLE "chef_payouts" ADD CONSTRAINT "fk_chef_payouts_statement_id"
+    FOREIGN KEY ("statement_id") REFERENCES "payout_statements"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+CREATE INDEX "ix_chef_payouts_statement_id" ON "chef_payouts"("statement_id");

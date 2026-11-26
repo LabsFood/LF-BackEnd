@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -32,6 +33,7 @@ import {
 } from '../dto/chef-payouts.dto';
 import { BankReconciliationService } from './bank-reconciliation.service';
 import { ChefPayoutsService } from './chef-payouts.service';
+import { PayoutStatementsService } from './payout-statements.service';
 
 const CHEF_ID = '0e6f7a52-3d0b-4c1e-9a55-2b7c9d1e4f60';
 
@@ -50,7 +52,27 @@ export class AdminChefPayoutsController {
   constructor(
     private readonly payouts: ChefPayoutsService,
     private readonly reconciliation: BankReconciliationService,
+    private readonly statements: PayoutStatementsService,
   ) {}
+
+  @Get('payable')
+  @ApiAdminAuthResponses()
+  @ApiOperation({
+    summary: 'Every line still to pay, all batch cookers: the day’s export',
+  })
+  payable() {
+    return this.payouts.payableLines();
+  }
+
+  @Get('statements/:id/download')
+  @ApiAdminAuthResponses()
+  @ApiOperation({
+    summary: 'A 5-minute link to an autofacture and its relevé de versement',
+  })
+  @ApiNotFoundResponse({ description: '`STATEMENT_NOT_FOUND`.' })
+  statementDownload(@Param('id', ParseUUIDPipe) id: string) {
+    return this.statements.downloadForAdmin(id);
+  }
 
   @Get('summary')
   @ApiAdminAuthResponses()
@@ -105,6 +127,11 @@ export class AdminChefPayoutsController {
   })
   @ApiParam({ name: 'id', description: 'The chef profile id.', example: CHEF_ID })
   @ApiNotFoundResponse({ description: 'None of these payouts is still payable.' })
+  @ApiConflictResponse({
+    description:
+      '`PAYOUT_STATEMENT_INCOMPLETE`: the batch cooker’s legal name, SIREN, address or VAT ' +
+      'franchise is missing, so no autofacture can be issued (`missing` lists them).',
+  })
   markPaid(
     @CurrentClerkUser() user: ClerkUser,
     @Param('id', ParseUUIDPipe) id: string,
@@ -129,5 +156,27 @@ export class AdminChefPayoutsController {
   })
   reconcile(@CurrentClerkUser() user: ClerkUser) {
     return this.reconciliation.run(user.userId);
+  }
+}
+
+/** The batch cooker's own autofactures. */
+@ApiTags(TAGS.payments)
+@ApiBearerAuth()
+@UseGuards(ClerkAuthGuard)
+@Controller('me/chef/payout-statements')
+export class ChefPayoutStatementsController {
+  constructor(private readonly statements: PayoutStatementsService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'My autofactures and relevés de versement, newest first' })
+  list(@CurrentClerkUser() user: ClerkUser) {
+    return this.statements.listMine(user.userId);
+  }
+
+  @Get(':id/download')
+  @ApiOperation({ summary: 'A 5-minute link to one of my autofactures' })
+  @ApiNotFoundResponse({ description: '`STATEMENT_NOT_FOUND`.' })
+  download(@CurrentClerkUser() user: ClerkUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.statements.downloadForChef(user.userId, id);
   }
 }

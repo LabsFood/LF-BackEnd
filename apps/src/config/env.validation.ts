@@ -142,6 +142,9 @@ export const envValidationSchema = Joi.object({
   CESU_BANK_ACCOUNT_ID: Joi.string().allow('').optional(),
   /** The SAS's SAP declaration number, for its invoices and fiscal attestations. */
   SAP_DECLARATION_NUMBER: Joi.string().trim().max(32).allow('').optional(),
+  /** The SAS's SIREN and registered address, printed on the autofactures it issues. */
+  SAS_SIREN: Joi.string().trim().max(14).allow('').optional(),
+  SAS_ADDRESS: Joi.string().trim().max(255).allow('').optional(),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),
