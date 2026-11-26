@@ -58,8 +58,6 @@ export class PaymentInvoicesService {
   private readonly logger = new Logger(PaymentInvoicesService.name);
   private readonly bucketName: string;
   private readonly template: string;
-  /** The SAS's own series (« prix net »): `LF-SASYY-XXXXX`. */
-  private readonly sasTemplate: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -69,7 +67,6 @@ export class PaymentInvoicesService {
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
     this.template = config.get<string>('payments.paymentInvoicePrefix', 'LF-CUSYY-XXXXX');
-    this.sasTemplate = config.get<string>('payments.sasInvoicePrefix', 'LF-SASYY-XXXXX');
   }
 
   /**
@@ -148,9 +145,10 @@ export class PaymentInvoicesService {
     }
     const { booking } = payment;
 
-    // « Prix net »: the SAS sells, in its own name and series, with VAT.
+    // « Prix net »: the SAS sells, in its own name, with VAT. Same numbering series as
+    // before (`LF-CUSYY-XXXXX`, decided by MajorD 26/11/2026).
     const sas = !legacyInvoicingEnabled(this.config);
-    const template = sas ? this.sasTemplate : this.template;
+    const template = this.template;
     const issuedAt = new Date();
     const year = invoiceYear(issuedAt);
     const issuedThisYear = await tx.paymentInvoice.count({

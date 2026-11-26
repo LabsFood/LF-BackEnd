@@ -154,7 +154,7 @@ describe('PaymentInvoicesService', () => {
       const result = await service.issue(asTx(), 'payment-1', PAID_AT);
       delete process.env.SAS_SIREN;
 
-      expect(result.invoiceNumber).toBe('LF-SAS26-00007');
+      expect(result.invoiceNumber).toBe('LF-CUS26-00007');
       const { data } = tx.paymentInvoice.create.mock.calls[0][0] as {
         data: { snapshot: PaymentInvoiceSnapshot };
       };

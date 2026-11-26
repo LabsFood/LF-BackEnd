@@ -90,8 +90,6 @@ export interface AppConfig {
     commissionInvoicePrefix: string;
     /** Numbering template of facture A, the client's invoice: `LF-CUSYY-XXXXX`. */
     paymentInvoicePrefix: string;
-    /** The SAS's own client invoices (« prix net »): `LF-SASYY-XXXXX`. */
-    sasInvoicePrefix: string;
   };
   /** Approved e-invoicing platform (plateforme agréée). `none` sends nothing. */
   einvoicing: {
@@ -251,7 +249,6 @@ export const configLoader = (): AppConfig => ({
     ),
     commissionInvoicePrefix: process.env.PAYMENTS_COMMISSION_INVOICE_PREFIX ?? 'LF-COM',
     paymentInvoicePrefix: process.env.PAYMENTS_INVOICE_PREFIX ?? 'LF-CUSYY-XXXXX',
-    sasInvoicePrefix: process.env.PAYMENTS_SAS_INVOICE_PREFIX ?? 'LF-SASYY-XXXXX',
     // Port 3005 is batchcooking-web (see config/allowed-origins.ts).
     stripeConnectRefreshUrl:
       process.env.STRIPE_CONNECT_REFRESH_URL ??

@@ -77,7 +77,7 @@ describe('renderPaymentInvoicePdf', () => {
     const text = textOf(
       await renderPaymentInvoicePdf({
         ...SNAPSHOT,
-        invoiceNumber: 'LF-SAS26-00001',
+        invoiceNumber: 'LF-CUS26-00001',
         issuer: 'sas',
         methodLabel: 'CESU',
         vat: { rateBps: 1000, htCents: 18_182, vatCents: 1_818 },
@@ -92,7 +92,7 @@ describe('renderPaymentInvoicePdf', () => {
     );
 
     for (const fact of [
-      'LF-SAS26-00001',
+      'LF-CUS26-00001',
       'Labs Food Batchcooking SAS',
       'SIREN 987654321',
       'SAP100715036',
