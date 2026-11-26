@@ -9,13 +9,23 @@ import {
   cesuFeeRulesInForce,
   type CesuFeeRules,
 } from '../../platform-settings/cesu-fee';
+import { StripeService } from '../../../integrations/stripe.service';
 import { UsersService } from '../../users/users.service';
 import { bankFeedConfig } from '../cesu-reconciliation/bank-feed';
 import { PayoutStatementsService } from './payout-statements.service';
 import { isLate, netPrice, SERVICE_VAT_RATE_BPS, type NetPrice } from './net-price';
 
 /** Money the SAS collects itself and pays out at the net price. */
+/** Paid into the SAS's bank account: awaited until the bank shows the credit. */
 const BANK_METHODS: PaymentMethod[] = ['cesu', 'avance_immediate'];
+/**
+ * Everything the SAS buys from the batch cooker at the net price. The card joins on
+ * 26/11/2026 (« carte au prix net »): charged on the SAS's own Stripe account, its net
+ * is transferred to the batch cooker's connected account.
+ */
+const PAYOUT_METHODS: PaymentMethod[] = [...BANK_METHODS, 'cb'];
+
+type PayoutActor = { type: 'admin'; userId: string } | { type: 'system' };
 
 export const BANK_RECONCILIATION_KEY = 'bank_reconciliation';
 
@@ -89,6 +99,7 @@ export class ChefPayoutsService {
     private readonly users: UsersService,
     private readonly audit: AuditService,
     private readonly statements: PayoutStatementsService,
+    private readonly stripe: StripeService,
   ) {}
 
   /**
@@ -100,7 +111,7 @@ export class ChefPayoutsService {
       where: {
         purpose: 'service',
         status: 'succeeded',
-        method: { in: BANK_METHODS },
+        method: { in: PAYOUT_METHODS },
         chefPayout: null,
         commission: WITHHELD,
       },
@@ -351,6 +362,58 @@ export class ChefPayoutsService {
     reference?: string,
   ) {
     const admin = await this.users.ensurePersistedFromClerk(adminClerkUserId);
+    return this.settle(
+      { type: 'admin', userId: admin.id },
+      chefProfileId,
+      payoutIds,
+      reference,
+    );
+  }
+
+  /**
+   * A card payment just succeeded: its net goes to the batch cooker's Stripe account
+   * at once, with its autofacture. Best-effort: when the autofacture cannot be issued
+   * yet (legal identity missing) or the transfer fails, the line stays « à verser »
+   * in the console, and « Marquer versé » makes the same transfer later.
+   */
+  async payCardNow(paymentId: string): Promise<void> {
+    await this.sync();
+    const payout = await this.prisma.chefPayout.findFirst({
+      where: { paymentId, method: 'cb', status: 'payable' },
+      select: { id: true, chefProfileId: true },
+    });
+    if (!payout) return;
+    const blockers = await this.statements.blockers(payout.chefProfileId);
+    if (blockers.length > 0) {
+      this.logger.warn({
+        event: 'payout.card_waiting_identity',
+        paymentId,
+        missing: blockers,
+      });
+      return;
+    }
+    try {
+      await this.settle({ type: 'system' }, payout.chefProfileId, [payout.id]);
+    } catch (error) {
+      this.logger.error({
+        event: 'payout.card_transfer_failed',
+        paymentId,
+        reason: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
+  }
+
+  /**
+   * Pays these payable lines: card lines by Stripe transfer to the connected account
+   * (idempotent per line), the others by the bank transfer the admin already made.
+   * Then one autofacture for the lot.
+   */
+  private async settle(
+    actor: PayoutActor,
+    chefProfileId: string,
+    payoutIds: string[],
+    reference?: string,
+  ) {
     const blockers = await this.statements.blockers(chefProfileId);
     if (blockers.length > 0) {
       throw new ConflictException({
@@ -362,6 +425,8 @@ export class ChefPayoutsService {
     }
     const paidAt = new Date();
     const paidReference = reference?.trim().slice(0, 140) || null;
+    const transfers = await this.transferCardLines(chefProfileId, payoutIds);
+    const paidByUserId = actor.type === 'admin' ? actor.userId : null;
     const result = await this.withNumberRetry(() =>
       this.prisma.$transaction(async (tx) => {
         const payouts = await tx.chefPayout.findMany({
@@ -373,11 +438,27 @@ export class ChefPayoutsService {
           throw new NotFoundException('Nothing left to pay among these lines.');
         }
         const ids = payouts.map((p) => p.id);
-        const claimed = await tx.chefPayout.updateMany({
-          where: { id: { in: ids }, status: 'payable' },
-          data: { status: 'paid', paidAt, paidByUserId: admin.id, paidReference },
-        });
-        if (claimed.count !== ids.length) {
+        const paid = { status: 'paid' as const, paidAt, paidByUserId };
+        // Bank lines share the admin's transfer reference; each card line keeps its own
+        // Stripe transfer id.
+        const bankIds = ids.filter((id) => !transfers.has(id));
+        let claimed =
+          bankIds.length > 0
+            ? (
+                await tx.chefPayout.updateMany({
+                  where: { id: { in: bankIds }, status: 'payable' },
+                  data: { ...paid, paidReference },
+                })
+              ).count
+            : 0;
+        for (const [id, transferId] of transfers) {
+          const done = await tx.chefPayout.updateMany({
+            where: { id, status: 'payable' },
+            data: { ...paid, paidReference: transferId },
+          });
+          claimed += done.count;
+        }
+        if (claimed !== ids.length) {
           throw new ConflictException('These lines were marked paid a moment ago.');
         }
         await tx.commission.updateMany({
@@ -388,7 +469,8 @@ export class ChefPayoutsService {
           chefProfileId,
           payouts,
           paidAt,
-          transferReference: paidReference,
+          transferReference:
+            paidReference ?? ([...transfers.values()].join(', ') || null),
         });
         return {
           paid: payouts.length,
@@ -402,8 +484,8 @@ export class ChefPayoutsService {
     await this.statements.archive(result.statement.id);
     await this.statements.transmit(result.statement.id);
     await this.audit.record({
-      actorType: 'admin',
-      actorUserId: admin.id,
+      actorType: actor.type,
+      actorUserId: paidByUserId,
       action: 'payout.marked_paid',
       subjectType: 'chef_profile',
       subjectId: chefProfileId,
@@ -411,6 +493,7 @@ export class ChefPayoutsService {
         payoutIds: result.payoutIds,
         netCents: result.netCents,
         statementNumber: result.statement.number,
+        stripeTransfers: [...transfers.values()],
       },
     });
     return {
@@ -420,6 +503,57 @@ export class ChefPayoutsService {
       statementId: result.statement.id,
       statementNumber: result.statement.number,
     };
+  }
+
+  /**
+   * Stripe transfer of the net of each payable card line to the batch cooker's
+   * connected account, tied to its charge (`source_transaction`: usable before the
+   * charge's funds are available). The idempotency key is the line, so a retry after
+   * a failure further down never transfers twice.
+   */
+  private async transferCardLines(
+    chefProfileId: string,
+    payoutIds: string[],
+  ): Promise<Map<string, string>> {
+    const cards = await this.prisma.chefPayout.findMany({
+      where: { id: { in: payoutIds }, chefProfileId, status: 'payable', method: 'cb' },
+      select: {
+        id: true,
+        method: true,
+        netCents: true,
+        payment: { select: { stripeChargeId: true, currency: true, bookingId: true } },
+        chefProfile: { select: { stripeAccountId: true } },
+      },
+    });
+    const transfers = new Map<string, string>();
+    const cardLines = cards.filter((c) => c.method === 'cb');
+    if (cardLines.length === 0) return transfers;
+    const destination = cardLines[0].chefProfile.stripeAccountId;
+    if (!destination || !this.stripe.configured) {
+      throw new ConflictException({
+        code: 'PAYOUT_STRIPE_ACCOUNT_MISSING',
+        message:
+          'Card lines are paid by Stripe transfer: the batch cooker has no Stripe account.',
+      });
+    }
+    for (const card of cardLines) {
+      if (card.netCents <= 0) continue;
+      const transfer = await this.stripe.getClient().transfers.create(
+        {
+          amount: card.netCents,
+          currency: card.payment.currency.toLowerCase(),
+          destination,
+          transfer_group: card.payment.bookingId,
+          ...(card.payment.stripeChargeId
+            ? { source_transaction: card.payment.stripeChargeId }
+            : {}),
+          metadata: { chefPayoutId: card.id },
+        },
+        { idempotencyKey: `chef-payout-${card.id}` },
+      );
+      transfers.set(card.id, transfer.id);
+    }
+    return transfers;
   }
 
   /** Every line still to pay, all batch cookers, for the day's export. */

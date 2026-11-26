@@ -14,6 +14,7 @@ function setup() {
     chefPayout: {
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       groupBy: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
@@ -37,13 +38,16 @@ function setup() {
     archive: jest.fn(),
     transmit: jest.fn(),
   };
+  const transfers = { create: jest.fn().mockResolvedValue({ id: 'tr_1' }) };
+  const stripe = { configured: true, getClient: () => ({ transfers }) };
   const service = new ChefPayoutsService(
     prisma as never,
     users as never,
     audit as never,
     statements as never,
+    stripe as never,
   );
-  return { prisma, users, audit, statements, service };
+  return { prisma, users, audit, statements, stripe, transfers, service };
 }
 
 describe('ChefPayoutsService', () => {
@@ -249,6 +253,71 @@ describe('ChefPayoutsService', () => {
         expect.objectContaining({ where: { id: 'chef-own' } }),
       );
       expect(card.chef.chefProfileId).toBe('chef-own');
+    });
+  });
+
+  describe('card at net price', () => {
+    const CARD = {
+      id: 'po-c',
+      paymentId: 'pay-c',
+      method: 'cb',
+      netCents: 7650,
+      chefProfileId: 'chef-1',
+      payment: {
+        stripeChargeId: 'ch_1',
+        currency: 'EUR',
+        bookingId: 'bk-1',
+        booking: {},
+      },
+      chefProfile: { stripeAccountId: 'acct_chef' },
+    };
+
+    it('transfers the net of a card line to the Stripe account, once per line', async () => {
+      const { prisma, transfers, service } = setup();
+      prisma.chefPayout.findMany.mockResolvedValue([CARD]);
+      prisma.chefPayout.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.markPaid('clerk_admin', 'chef-1', ['po-c']);
+
+      expect(transfers.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 7650,
+          currency: 'eur',
+          destination: 'acct_chef',
+          source_transaction: 'ch_1',
+          transfer_group: 'bk-1',
+        }),
+        { idempotencyKey: 'chef-payout-po-c' },
+      );
+      expect(prisma.chefPayout.updateMany).toHaveBeenCalledWith({
+        where: { id: 'po-c', status: 'payable' },
+        data: expect.objectContaining({ status: 'paid', paidReference: 'tr_1' }),
+      });
+    });
+
+    it('pays a card right after the charge, without an admin', async () => {
+      const { prisma, transfers, audit, service } = setup();
+      prisma.chefPayout.findFirst.mockResolvedValue(CARD);
+      prisma.chefPayout.findMany.mockResolvedValue([CARD]);
+      prisma.chefPayout.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.payCardNow('pay-c');
+
+      expect(transfers.create).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ actorType: 'system', actorUserId: null }),
+      );
+    });
+
+    it('leaves the card line to pay when the autofacture cannot be issued yet', async () => {
+      const { prisma, statements, transfers, service } = setup();
+      prisma.chefPayout.findFirst.mockResolvedValue(CARD);
+      statements.blockers.mockResolvedValue(['siren']);
+
+      await service.payCardNow('pay-c');
+
+      expect(transfers.create).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
 });

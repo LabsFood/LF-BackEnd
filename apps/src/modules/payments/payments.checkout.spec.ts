@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { PaymentInvoicesService } from './payment-invoices.service';
 import { PaymentsService } from './payments.service';
+import type { ChefPayoutsService } from './payouts/chef-payouts.service';
 
 const SITE = 'https://batchcooking.labsfood.fr';
 
@@ -86,7 +87,9 @@ function setup(booking: object = DONE_BOOKING) {
         ? 2000
         : key === 'payments.commissionRateBps'
           ? 1500
-          : fallback,
+          : key === 'payments.legacyInvoicing'
+            ? true
+            : fallback,
   );
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
@@ -101,6 +104,7 @@ function setup(booking: object = DONE_BOOKING) {
         .mockResolvedValue({ id: 'inv-1', invoiceNumber: 'LF-CUS26-00001' }),
       archive: jest.fn(),
     } as unknown as PaymentInvoicesService,
+    { payCardNow: jest.fn() } as unknown as ChefPayoutsService,
   );
   return { service, prisma, tx, sessions };
 }
