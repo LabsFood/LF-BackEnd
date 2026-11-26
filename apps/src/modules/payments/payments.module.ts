@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ChefOnboardingModule } from '../chef-onboarding/chef-onboarding.module';
+import { EInvoicingModule } from '../einvoicing/einvoicing.module';
 import { UsersModule } from '../users/users.module';
 import {
   AdminUrssafController,
@@ -50,7 +51,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
 @Module({
   // ChefOnboardingModule lends its private-bucket storage to the e-CESU proofs and
   // the clients' sealed URSSAF dossiers.
-  imports: [UsersModule, ChefOnboardingModule],
+  imports: [UsersModule, ChefOnboardingModule, EInvoicingModule],
   controllers: [
     PaymentsController,
     BookingPaymentsController,

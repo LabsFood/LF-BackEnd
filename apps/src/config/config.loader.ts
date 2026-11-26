@@ -82,12 +82,23 @@ export interface AppConfig {
      * `POST /admin/commission-invoices/run-due` to group per chef and per period.
      */
     commissionDebitTrigger: CommissionDebitTrigger;
+    /** The former facture A / facture B + SEPA debit: off unless `LEGACY_INVOICING_ENABLED`. */
+    legacyInvoicing: boolean;
     /** Debit attempts allowed per facture B before an admin has to intervene. */
     commissionDebitMaxAttempts: number;
     /** Numbering prefix of facture B: `<prefix>-<year>-NNNN`. */
     commissionInvoicePrefix: string;
     /** Numbering template of facture A, the client's invoice: `LF-CUSYY-XXXXX`. */
     paymentInvoicePrefix: string;
+  };
+  /** Approved e-invoicing platform (plateforme agréée). `none` sends nothing. */
+  einvoicing: {
+    provider: 'none' | 'b2brouter';
+    b2brouter: {
+      env: 'sandbox' | 'production';
+      apiKey: string;
+      accountId: string;
+    };
   };
   brevo: {
     apiKey?: string;
@@ -232,6 +243,7 @@ export const configLoader = (): AppConfig => ({
     // Joi (env.validation.ts) rejects any other value and defaults this.
     commissionDebitTrigger: (process.env.PAYMENTS_COMMISSION_DEBIT_TRIGGER ??
       'on_payment') as CommissionDebitTrigger,
+    legacyInvoicing: process.env.LEGACY_INVOICING_ENABLED === 'true',
     commissionDebitMaxAttempts: Number(
       process.env.PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS ?? 3,
     ),
@@ -244,6 +256,14 @@ export const configLoader = (): AppConfig => ({
     stripeConnectReturnUrl:
       process.env.STRIPE_CONNECT_RETURN_URL ??
       'http://localhost:3005/retour-stripe?vers=/espace-chef/remuneration&stripe=retour',
+  },
+  einvoicing: {
+    provider: process.env.EINVOICING_PROVIDER === 'b2brouter' ? 'b2brouter' : 'none',
+    b2brouter: {
+      env: process.env.B2BROUTER_ENV === 'production' ? 'production' : 'sandbox',
+      apiKey: process.env.B2BROUTER_API_KEY ?? '',
+      accountId: process.env.B2BROUTER_ACCOUNT_ID ?? '',
+    },
   },
   brevo: {
     apiKey: process.env.BREVO_API_KEY,

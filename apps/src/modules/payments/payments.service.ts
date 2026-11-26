@@ -29,6 +29,7 @@ import {
   settlePayment,
 } from './payment-settlement';
 import { assertMethodCombinable } from './payment-mix';
+import { legacyInvoicingEnabled } from './legacy-invoicing';
 
 /** PaymentIntent states that can still be confirmed by the client. */
 const CONFIRMABLE_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -623,18 +624,20 @@ export class PaymentsService {
         where: { paymentId: payment.id },
         data: { status: 'collected', collectedAt: paidAt },
       });
-      // Invoice A, numbered in the same transaction: a settled card payment always has
-      // its invoice. The PDF is drawn once the transaction is committed.
-      const invoice = await this.invoices.issue(tx, payment.id, paidAt);
+      // Invoice A, numbered in the same transaction, while the former invoicing is on
+      // (`legacy-invoicing.ts`). The PDF is drawn once the transaction is committed.
+      const invoice = legacyInvoicingEnabled(this.config)
+        ? await this.invoices.issue(tx, payment.id, paidAt)
+        : null;
       return { ...settled, invoice };
     });
-    await this.invoices.archive(outcome.invoice.id);
+    if (outcome.invoice) await this.invoices.archive(outcome.invoice.id);
 
     this.logger.log(
       `Payment ${payment.id} succeeded (booking ${payment.bookingId}); ` +
         `${outcome.coveredAmountCents}/${outcome.bookingAmountTtcCents} covered` +
         `${outcome.bookingConfirmed ? ', booking confirmed' : ''}; ` +
-        `invoice ${outcome.invoice.invoiceNumber}.`,
+        `invoice ${outcome.invoice?.invoiceNumber ?? 'none (former invoicing off)'}.`,
     );
   }
 

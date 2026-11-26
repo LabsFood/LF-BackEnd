@@ -76,9 +76,11 @@ describe('CommissionDebitsService', () => {
   let stripe: { configured: boolean; getClient: jest.Mock };
   let service: CommissionDebitsService;
   let trigger: string;
+  let legacyOn: boolean;
 
   beforeEach(() => {
     trigger = 'on_payment';
+    legacyOn = true;
     prisma = {
       commissionInvoice: {
         findUnique: jest.fn().mockResolvedValue(ISSUED_INVOICE),
@@ -123,6 +125,8 @@ describe('CommissionDebitsService', () => {
 
     const get = jest.fn((key: string, fallback?: unknown) => {
       if (key === 'payments.commissionDebitTrigger') return trigger;
+      // These tests cover the former invoicing, switched on here.
+      if (key === 'payments.legacyInvoicing') return legacyOn;
       if (key === 'payments.commissionDebitMaxAttempts') return 3;
       if (key === 'payments.commissionInvoicePrefix') return 'LF-COM';
       return fallback;
@@ -449,6 +453,28 @@ describe('CommissionDebitsService', () => {
       ).rejects.toMatchObject({ response: { code: 'DEBIT_NOT_POSSIBLE' } });
       expect(prisma.commissionDebit.create).not.toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('former invoicing switched off (« prix net »)', () => {
+    it('neither invoices nor debits a commission as it falls due', async () => {
+      legacyOn = false;
+      await expect(service.onCommissionDue('commission-1')).resolves.toBeNull();
+      expect(prisma.commissionInvoice.create).not.toHaveBeenCalled();
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a manual debit, a batch and an invoice with LEGACY_INVOICING_DISABLED', async () => {
+      legacyOn = false;
+      for (const call of [
+        () => service.executeDebit('invoice-1'),
+        () => service.issueInvoiceForCommissions(['commission-1']),
+        () => service.runDueInvoices({ start: new Date(), end: new Date() }),
+      ]) {
+        await expect(call()).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'LEGACY_INVOICING_DISABLED' }),
+        });
+      }
     });
   });
 

@@ -34,6 +34,7 @@ function setup() {
     blockers: jest.fn().mockResolvedValue([]),
     issue: jest.fn().mockResolvedValue({ id: 'st-1', number: 'LF-AF-2026-0001' }),
     archive: jest.fn(),
+    transmit: jest.fn(),
   };
   const service = new ChefPayoutsService(
     prisma as never,
@@ -195,6 +196,7 @@ describe('ChefPayoutsService', () => {
         }),
       );
       expect(statements.archive).toHaveBeenCalledWith('st-1');
+      expect(statements.transmit).toHaveBeenCalledWith('st-1');
       expect(result).toMatchObject({
         paid: 2,
         netCents: 17_773,

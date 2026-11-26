@@ -25,6 +25,7 @@ import {
   PaymentInvoiceSnapshot,
   renderPaymentInvoicePdf,
 } from './payment-invoice-document';
+import { legacyInvoicingEnabled, legacyInvoicingOff } from './legacy-invoicing';
 
 /** Read links are short-lived, like the KYC ones: a leaked link dies in minutes. */
 const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
@@ -49,7 +50,7 @@ export class PaymentInvoicesService {
     private readonly prisma: PrismaService,
     private readonly supabase: SupabaseService,
     private readonly users: UsersService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
     this.template = config.get<string>('payments.paymentInvoicePrefix', 'LF-CUSYY-XXXXX');
@@ -185,6 +186,7 @@ export class PaymentInvoicesService {
    * racing a live settlement may lose a number to the unique index (`P2002`): run again.
    */
   async backfill(dryRun: boolean): Promise<PaymentInvoiceBackfillResultDto> {
+    if (!legacyInvoicingEnabled(this.config)) throw legacyInvoicingOff();
     const payments = await this.prisma.payment.findMany({
       // Never a courses payment: the ingredients are not on any invoice (lot 6, LF-0309).
       where: {

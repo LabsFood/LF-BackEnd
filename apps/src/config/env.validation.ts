@@ -71,6 +71,13 @@ export const envValidationSchema = Joi.object({
   PAYMENTS_COMMISSION_DEBIT_TRIGGER: Joi.string()
     .valid('on_payment', 'monthly_batch')
     .default('on_payment'),
+  /**
+   * The invoicing in place before the « prix net » flow (26/11/2026): facture A in the
+   * batch cooker's name for each card payment, and facture B (commission) with its SEPA
+   * debit. Off by default: the SAS invoices instead, through an approved e-invoicing
+   * platform (see `modules/einvoicing`). `true` turns the old documents back on.
+   */
+  LEGACY_INVOICING_ENABLED: Joi.boolean().default(false),
   /** Debit attempts per facture B before an admin has to step in. */
   PAYMENTS_COMMISSION_DEBIT_MAX_ATTEMPTS: Joi.number().min(1).max(10).default(3),
   /** Numbering prefix of facture B (`LF-COM-<year>-NNNN`). */
@@ -145,6 +152,14 @@ export const envValidationSchema = Joi.object({
   /** The SAS's SIREN and registered address, printed on the autofactures it issues. */
   SAS_SIREN: Joi.string().trim().max(14).allow('').optional(),
   SAS_ADDRESS: Joi.string().trim().max(255).allow('').optional(),
+  /**
+   * E-invoicing through a platform approved by the DGFiP (plateforme agréée). `none`
+   * (default): nothing is sent. `b2brouter`: needs the key and account below.
+   */
+  EINVOICING_PROVIDER: Joi.string().valid('none', 'b2brouter').default('none'),
+  B2BROUTER_ENV: Joi.string().valid('sandbox', 'production').default('sandbox'),
+  B2BROUTER_API_KEY: Joi.string().allow('').optional(),
+  B2BROUTER_ACCOUNT_ID: Joi.string().allow('').optional(),
 
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().default('noreply@labsfood.com'),

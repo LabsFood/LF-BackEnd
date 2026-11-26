@@ -91,7 +91,10 @@ describe('PaymentInvoicesService', () => {
       configured: true,
       getClient: jest.fn(() => ({ storage: { from: () => bucket } })),
     };
-    const get = jest.fn((_key: string, fallback?: unknown) => fallback);
+    // The former invoicing (facture A) is what these tests cover: switched on here.
+    const get = jest.fn((key: string, fallback?: unknown) =>
+      key === 'payments.legacyInvoicing' ? true : fallback,
+    );
 
     service = new PaymentInvoicesService(
       prisma as unknown as PrismaService,

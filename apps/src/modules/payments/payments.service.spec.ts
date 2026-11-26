@@ -72,11 +72,13 @@ describe('PaymentsService', () => {
   let users: { ensurePersistedFromClerk: jest.Mock };
   let invoices: { issue: jest.Mock; archive: jest.Mock };
   let service: PaymentsService;
+  let legacyOn: boolean;
 
   /** Amount already settled on the booking, as the coverage sum sees it. */
   const covered = (amount: number) => ({ _sum: { amountTtc: amount } });
 
   beforeEach(() => {
+    legacyOn = true;
     tx = {
       booking: {
         findUnique: jest.fn().mockResolvedValue({
@@ -137,7 +139,9 @@ describe('PaymentsService', () => {
           ? 2000
           : key === 'payments.commissionDebitMaxAttempts'
             ? 3
-            : fallback,
+            : key === 'payments.legacyInvoicing'
+              ? legacyOn
+              : fallback,
     );
     const config = { get, getOrThrow: get };
 
@@ -491,6 +495,23 @@ describe('PaymentsService', () => {
       expect(invoices.issue.mock.invocationCallOrder[0]).toBeLessThan(
         invoices.archive.mock.invocationCallOrder[0],
       );
+    });
+
+    it('settles the card payment without invoice A when the former invoicing is off', async () => {
+      legacyOn = false;
+      prisma.payment.findUnique.mockResolvedValue({
+        id: 'payment-1',
+        purpose: 'service',
+        bookingId: 'booking-1',
+        status: 'pending',
+        amountTtc: 12_500,
+      });
+
+      await service.handlePaymentIntentSucceeded(intent);
+
+      expect(invoices.issue).not.toHaveBeenCalled();
+      expect(invoices.archive).not.toHaveBeenCalled();
+      expect(tx.booking.update).toHaveBeenCalled();
     });
 
     it('leaves the booking pending while the payments do not cover it', async () => {

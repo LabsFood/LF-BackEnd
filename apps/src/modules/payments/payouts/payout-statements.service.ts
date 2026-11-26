@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '../../../generated/prisma/client';
 import { SupabaseService } from '../../../integrations/supabase.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { EInvoicingService } from '../../einvoicing/einvoicing.service';
+import { eInvoiceFromPayoutStatement } from '../../einvoicing/from-payout-statement';
 import { chefLegalIdentity, CHEF_LEGAL_SELECT } from '../../users/chef-legal.views';
 import { UsersService } from '../../users/users.service';
 import { DEFAULT_CESU_PLATFORM_NAME } from '../cesu-collector';
@@ -60,6 +62,7 @@ export class PayoutStatementsService {
     private readonly prisma: PrismaService,
     private readonly supabase: SupabaseService,
     private readonly users: UsersService,
+    private readonly einvoicing: EInvoicingService,
     config: ConfigService,
   ) {
     this.bucketName = config.get<string>('supabase.invoicesBucket', 'labsfood-invoices');
@@ -166,6 +169,31 @@ export class PayoutStatementsService {
     } catch (error) {
       this.logger.error({
         event: 'payout_statement.archive_failed',
+        statementId,
+        reason: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
+  }
+
+  /**
+   * Hands the autofacture to the approved e-invoicing platform. Does nothing while
+   * `EINVOICING_PROVIDER=none`; best-effort otherwise (the PDF stays the reference).
+   */
+  async transmit(statementId: string): Promise<void> {
+    if (!this.einvoicing.enabled) return;
+    try {
+      const statement = await this.prisma.payoutStatement.findUniqueOrThrow({
+        where: { id: statementId },
+        select: { snapshot: true },
+      });
+      await this.einvoicing.submit(
+        eInvoiceFromPayoutStatement(
+          statement.snapshot as unknown as PayoutStatementSnapshot,
+        ),
+      );
+    } catch (error) {
+      this.logger.error({
+        event: 'payout_statement.einvoice_failed',
         statementId,
         reason: error instanceof Error ? error.message : 'unknown error',
       });

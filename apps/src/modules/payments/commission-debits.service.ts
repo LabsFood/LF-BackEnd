@@ -23,6 +23,7 @@ import {
   customerRef,
   paymentMethodTypes,
 } from './stripe-accounts-v2';
+import { legacyInvoicingEnabled, legacyInvoicingOff } from './legacy-invoicing';
 
 export { SEPA_CLAWBACK_WINDOW_DAYS };
 
@@ -141,7 +142,7 @@ export class CommissionDebitsService {
    * that. A failure leaves the invoice due and visible to an admin.
    */
   async onCommissionDue(commissionId: string): Promise<CommissionInvoice | null> {
-    if (this.trigger !== 'on_payment') {
+    if (!legacyInvoicingEnabled(this.config) || this.trigger !== 'on_payment') {
       return null;
     }
     const due = await this.prisma.commission.findUnique({
@@ -173,6 +174,7 @@ export class CommissionDebitsService {
    * attempt left, and that refusal is only logged here.
    */
   async collectOutstanding(chefProfileId: string): Promise<void> {
+    if (!legacyInvoicingEnabled(this.config)) return;
     const invoices = await this.prisma.commissionInvoice.findMany({
       // A credit note is never debited: it is deducted (lot 6).
       where: { chefProfileId, status: 'issued', kind: 'invoice' },
@@ -204,6 +206,7 @@ export class CommissionDebitsService {
     commissionIds: string[],
     period?: { start: Date; end: Date },
   ): Promise<CommissionInvoice> {
+    if (!legacyInvoicingEnabled(this.config)) throw legacyInvoicingOff();
     if (commissionIds.length === 0) {
       throw new ConflictException('No commission to invoice.');
     }
@@ -257,6 +260,7 @@ export class CommissionDebitsService {
     invoiceId: string,
     options: { targetDateOffsetDays?: number; overrideAttemptCeiling?: boolean } = {},
   ): Promise<CommissionDebit> {
+    if (!legacyInvoicingEnabled(this.config)) throw legacyInvoicingOff();
     const invoice = await this.prisma.commissionInvoice.findUnique({
       where: { id: invoiceId },
       include: { chefProfile: { include: { sepaMandate: true } } },
@@ -394,6 +398,7 @@ export class CommissionDebitsService {
     invoiceNumbers: string[];
     skipped: 'locked' | null;
   }> {
+    if (!legacyInvoicingEnabled(this.config)) throw legacyInvoicingOff();
     const invoices = await this.prisma.$transaction(async (tx) => {
       const [lock] = await tx.$queryRaw<{ locked: boolean }[]>`
         SELECT pg_try_advisory_xact_lock(${BATCH_LOCK_KEY}) AS locked

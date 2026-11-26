@@ -394,6 +394,7 @@ export class ChefPayoutsService {
     );
 
     await this.statements.archive(result.statement.id);
+    await this.statements.transmit(result.statement.id);
     await this.audit.record({
       actorType: 'admin',
       actorUserId: admin.id,
