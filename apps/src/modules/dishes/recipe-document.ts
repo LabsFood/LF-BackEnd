@@ -78,7 +78,10 @@ function ingredientLine(line: Ingredient): string {
 
 /** A run of ingredient lines under one title, as the sheet prints it. */
 export interface IngredientBlock {
-  /** The chef's group name; null when no line of the recipe has a group. */
+  /**
+   * The chef's group name as first written, or « Autres » for the lines without a
+   * group; null when no line of the recipe has a group.
+   */
   title: string | null;
   lines: string[];
 }
@@ -94,8 +97,10 @@ const fold = (text: string) =>
 /**
  * Each group under its name, in order of appearance, then the lines without a group
  * under « Autres » (test feedback of 26/11: printed first and untitled, they read as
- * strays, and the group names read as ingredients). A group the chef already called
- * « Autres » takes them. A recipe with no group at all is one untitled list.
+ * strays, and the group names read as ingredients). A group is one group whatever its
+ * case or accents (the group is typed again on every line), titled as first written.
+ * A group the chef already called « Autres » takes them. A recipe with no group at all
+ * is one untitled list.
  */
 export function ingredientBlocks(
   lines: RecipeDocumentInput['ingredients'],
@@ -108,14 +113,15 @@ export function ingredientBlocks(
       ungrouped.push(ingredientLine(line));
       continue;
     }
-    if (!groups.has(name)) groups.set(name, { title: name, lines: [] });
-    groups.get(name)!.lines.push(ingredientLine(line));
+    const key = fold(name);
+    if (!groups.has(key)) groups.set(key, { title: name, lines: [] });
+    groups.get(key)!.lines.push(ingredientLine(line));
   }
 
   const blocks = [...groups.values()];
   if (!ungrouped.length) return blocks;
   if (!blocks.length) return [{ title: null, lines: ungrouped }];
-  const others = blocks.find((block) => fold(block.title!) === fold(OTHERS));
+  const others = groups.get(fold(OTHERS));
   if (others) others.lines.push(...ungrouped);
   else blocks.push({ title: OTHERS, lines: ungrouped });
   return blocks;

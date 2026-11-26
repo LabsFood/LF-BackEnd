@@ -171,6 +171,20 @@ describe('ingredientBlocks (retour de recette du 26/11)', () => {
     ]);
   });
 
+  it('reads group names that differ only by case or accents as one group, under the first spelling', () => {
+    expect(
+      ingredientBlocks([
+        l('A', 'Velouté'),
+        l('B', 'Finition'),
+        l('C', 'velouté'),
+        l('D', 'VELOUTE'),
+      ]),
+    ).toEqual([
+      { title: 'Velouté', lines: ['200 g A', '200 g C', '200 g D'] },
+      { title: 'Finition', lines: ['200 g B'] },
+    ]);
+  });
+
   it('has no block for a recipe without ingredients', () => {
     expect(ingredientBlocks([])).toEqual([]);
   });
