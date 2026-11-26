@@ -76,24 +76,93 @@ function ingredientLine(line: Ingredient): string {
   );
 }
 
-/** Lines without a group first, then each group under its label, in order of appearance. */
-function ingredientText(lines: Ingredient[]): string {
-  const groups = new Map<string, string[]>();
+/** A run of ingredient lines under one title, as the sheet prints it. */
+export interface IngredientBlock {
+  /** The chef's group name; null when no line of the recipe has a group. */
+  title: string | null;
+  lines: string[];
+}
+
+const OTHERS = 'Autres';
+
+const fold = (text: string) =>
+  text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+
+/**
+ * Each group under its name, in order of appearance, then the lines without a group
+ * under « Autres » (test feedback of 26/11: printed first and untitled, they read as
+ * strays, and the group names read as ingredients). A group the chef already called
+ * « Autres » takes them. A recipe with no group at all is one untitled list.
+ */
+export function ingredientBlocks(
+  lines: RecipeDocumentInput['ingredients'],
+): IngredientBlock[] {
+  const groups = new Map<string, IngredientBlock>();
+  const ungrouped: string[] = [];
   for (const line of lines) {
-    const key = line.group ?? '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(ingredientLine(line));
+    const name = line.group?.trim();
+    if (!name) {
+      ungrouped.push(ingredientLine(line));
+      continue;
+    }
+    if (!groups.has(name)) groups.set(name, { title: name, lines: [] });
+    groups.get(name)!.lines.push(ingredientLine(line));
   }
-  const ungrouped = groups.get('') ?? [];
-  groups.delete('');
-  return [
-    ...ungrouped,
-    ...[...groups].flatMap(([group, texts], i) => [
-      ...(i > 0 || ungrouped.length ? [''] : []),
-      group,
-      ...texts,
-    ]),
-  ].join('\n');
+
+  const blocks = [...groups.values()];
+  if (!ungrouped.length) return blocks;
+  if (!blocks.length) return [{ title: null, lines: ungrouped }];
+  const others = blocks.find((block) => fold(block.title!) === fold(OTHERS));
+  if (others) others.lines.push(...ungrouped);
+  else blocks.push({ title: OTHERS, lines: ungrouped });
+  return blocks;
+}
+
+const BULLET_INDENT = 12;
+const LINE_TEXT = { ...TEXT, width: PAGE.width - BULLET_INDENT, lineGap: 2 };
+
+/**
+ * Group titles in bold navy, every line behind a bullet with a hanging indent: a long
+ * line wraps under its text, not under the bullet.
+ */
+function writeIngredients(doc: PDFKit.PDFDocument, blocks: IngredientBlock[]) {
+  doc.y += 20;
+  label(doc, 'Ingrédients', COLOR.terra);
+  doc.y += 5;
+  const bottom = () => doc.page.height - doc.page.margins.bottom;
+
+  blocks.forEach((block, i) => {
+    if (block.title !== null) {
+      if (i > 0) doc.y += 8;
+      const titleHeight = doc
+        .font(FONT.strong)
+        .fontSize(10)
+        .heightOfString(block.title, { ...TEXT, width: PAGE.width });
+      const firstLine = block.lines.length
+        ? doc.font(FONT.text).fontSize(9.5).heightOfString(block.lines[0], LINE_TEXT)
+        : 0;
+      // Never a title alone at the foot of a page: it moves with its first line.
+      if (doc.y + titleHeight + 3 + firstLine > bottom()) doc.addPage();
+      doc
+        .font(FONT.strong)
+        .fontSize(10)
+        .fillColor(COLOR.navy)
+        .text(block.title, PAGE.left, doc.y, { ...TEXT, width: PAGE.width });
+      doc.y += 3;
+    }
+
+    doc.font(FONT.text).fontSize(9.5).fillColor(COLOR.ink);
+    for (const line of block.lines) {
+      if (doc.y + doc.currentLineHeight(true) > bottom()) doc.addPage();
+      const y = doc.y;
+      doc.text('•', PAGE.left + 2, y, { ...TEXT, lineBreak: false });
+      doc.text(line, PAGE.left + BULLET_INDENT, y, LINE_TEXT);
+    }
+  });
+  doc.x = PAGE.left;
 }
 
 export function renderRecipePdf(input: RecipeDocumentInput): Promise<Buffer> {
@@ -139,7 +208,7 @@ export function renderRecipePdf(input: RecipeDocumentInput): Promise<Buffer> {
       : []),
   ]);
 
-  section(doc, 'Ingrédients', ingredientText(input.ingredients));
+  writeIngredients(doc, ingredientBlocks(input.ingredients));
 
   doc.y += 20;
   label(doc, 'Étapes', COLOR.terra);

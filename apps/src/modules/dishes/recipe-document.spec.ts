@@ -1,5 +1,9 @@
 import { PDF_SPEC_TIMEOUT, textOf } from '../../common/pdf/pdf.test-helpers';
-import { RecipeDocumentInput, renderRecipePdf } from './recipe-document';
+import {
+  ingredientBlocks,
+  RecipeDocumentInput,
+  renderRecipePdf,
+} from './recipe-document';
 
 jest.setTimeout(PDF_SPEC_TIMEOUT);
 
@@ -85,13 +89,21 @@ describe('renderRecipePdf (Recettes §7)', () => {
     });
     const text = textOf(pdf).replace(/\s+/g, ' ');
 
-    expect(text).toContain('2 gousses Ail, haché (bio) (facultatif)');
+    expect(text).toMatch(/•\s*2 gousses Ail, haché \(bio\) \(facultatif\)/);
     expect(text).toContain('selon le goût Sel');
-    // Lines without a group first, then each group under its label.
-    expect(text.indexOf('Sel')).toBeLessThan(text.indexOf('Sauce'));
+    // Each group under its title, in order, then the lines without a group under « Autres » (26/11).
     expect(text.indexOf('Sauce')).toBeLessThan(text.indexOf('2 gousses Ail'));
     expect(text.indexOf('Pâte')).toBeGreaterThan(text.indexOf('(facultatif)'));
     expect(text).toContain('200 g Farine');
+    expect(text.indexOf('Autres')).toBeGreaterThan(text.indexOf('200 g Farine'));
+    expect(text.indexOf('selon le goût Sel')).toBeGreaterThan(text.indexOf('Autres'));
+  });
+
+  it('lists a recipe without groups under bullets, with no « Autres » title', async () => {
+    const text = textOf(await renderRecipePdf(INPUT)).replace(/\s+/g, ' ');
+
+    expect(text).toMatch(/•\s*1,4 kg Poulet fermier/);
+    expect(text).not.toContain('Autres');
   });
 
   it('wears the LAB’S FOOD watermark on every page', async () => {
@@ -107,5 +119,59 @@ describe('renderRecipePdf (Recettes §7)', () => {
 
     expect(pages).toBeGreaterThan(1);
     expect(marks).toBe(pages);
+  });
+});
+
+describe('ingredientBlocks (retour de recette du 26/11)', () => {
+  const l = (name: string, group: string | null = null) => ({
+    name,
+    qty: 200,
+    unit: 'g',
+    fixedQuantity: false,
+    optional: false,
+    precision: null,
+    preparation: null,
+    group,
+  });
+
+  it('puts the groups in order of appearance, then the lines without a group under « Autres »', () => {
+    expect(
+      ingredientBlocks([
+        l('Epice plein sud'),
+        l('Butternut', 'Velouté'),
+        l('Lait de coco', 'Finition'),
+        l('Oignon', 'Velouté'),
+      ]),
+    ).toEqual([
+      { title: 'Velouté', lines: ['200 g Butternut', '200 g Oignon'] },
+      { title: 'Finition', lines: ['200 g Lait de coco'] },
+      { title: 'Autres', lines: ['200 g Epice plein sud'] },
+    ]);
+  });
+
+  it('gives a recipe without any group one untitled block', () => {
+    expect(ingredientBlocks([l('A'), l('B')])).toEqual([
+      { title: null, lines: ['200 g A', '200 g B'] },
+    ]);
+  });
+
+  it('trims group names, and reads a blank group as no group', () => {
+    expect(
+      ingredientBlocks([l('A', ' Velouté '), l('B', 'Velouté'), l('C', '   ')]),
+    ).toEqual([
+      { title: 'Velouté', lines: ['200 g A', '200 g B'] },
+      { title: 'Autres', lines: ['200 g C'] },
+    ]);
+  });
+
+  it('adds the lines without a group to a group the chef already called « Autres »', () => {
+    expect(ingredientBlocks([l('A', 'autres'), l('B', 'Sauce'), l('C')])).toEqual([
+      { title: 'autres', lines: ['200 g A', '200 g C'] },
+      { title: 'Sauce', lines: ['200 g B'] },
+    ]);
+  });
+
+  it('has no block for a recipe without ingredients', () => {
+    expect(ingredientBlocks([])).toEqual([]);
   });
 });
