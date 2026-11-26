@@ -82,7 +82,8 @@ export class WeekMenusQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     maxLength: 100,
     description:
-      'Free text, looked up in the cook’s name, town, menu title and dish names.',
+      'Free text, looked up in the cook’s name, town, menu title, dish names, and the ' +
+      'towns and regions of their intervention zones. Case and accents are ignored.',
     example: 'pho',
   })
   @IsOptional()

@@ -11,6 +11,7 @@ import { buildPaginationMeta, resolvePageBounds } from '../../common/dto/paginat
 import { GeoService } from '../../integrations/geo.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../calendar/availability.service';
+import { METROPOLITAN_REGIONS } from '../chef-onboarding/domain/chef-onboarding.rules';
 import { cesuAccepted } from '../payments/chef-cesu-info';
 import { afterTaxCredit } from '../quotes/domain/quote.rules';
 import { MENU_DISHES, MenuWithDishes } from './chef-content.service';
@@ -51,6 +52,8 @@ const PUBLIC_CHEF_FIELDS = {
   id: true,
   displayName: true,
   city: true,
+  // Shown beside the town (« Nice · 30 km »), as the chef sets it in « Ma vitrine ».
+  serviceRadiusKm: true,
   bio: true,
   interventionZones: true,
   languages: true,
@@ -62,7 +65,13 @@ const PUBLIC_CHEF_FIELDS = {
 
 type PublicChef = Pick<
   ChefProfile,
-  'id' | 'displayName' | 'city' | 'bio' | 'interventionZones' | 'languages'
+  | 'id'
+  | 'displayName'
+  | 'city'
+  | 'serviceRadiusKm'
+  | 'bio'
+  | 'interventionZones'
+  | 'languages'
 > & {
   user: { avatarUrl: string | null };
   sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
@@ -201,7 +210,10 @@ export class VitrineService {
       ];
     });
 
-    const q = query.q?.trim().toLowerCase();
+    // Feedback of 26/11: « Cannes » must find the chef whose zones list Cannes, and
+    // « frejus » find Fréjus. The towns and regions of the zones are searched too.
+    const q = foldText(query.q ?? '');
+    const zoneWords = new Map(chefs.map((chef) => [chef.id, zoneTexts(zonesOf(chef))]));
     const wanted = cards.filter(
       (card) =>
         (query.diets ?? []).every((diet) => card.coveredDiets.includes(diet)) &&
@@ -212,9 +224,10 @@ export class VitrineService {
             card.chef.city,
             card.title,
             ...card.dishes.map((d) => d.name),
+            ...(zoneWords.get(card.chef.id) ?? []),
           ]
             .filter(Boolean)
-            .some((text) => text!.toLowerCase().includes(q))),
+            .some((text) => foldText(text!).includes(q))),
     );
 
     const ordered = vitrineOrder(
@@ -397,6 +410,7 @@ export class VitrineService {
           id: chef.id,
           displayName: chef.displayName,
           city: chef.city,
+          serviceRadiusKm: chef.serviceRadiusKm,
           regionCode: zonesOf(chef)[0]?.regionCode ?? null,
           badges: (Object.entries(BADGE) as [ChefDocumentType, string][])
             .filter(([type]) => valid.has(latest.get(`${chef.id}:${type}`)!))
@@ -461,6 +475,27 @@ function zonesOf(chef: Pick<ChefProfile, 'interventionZones'>): StoredZone[] {
   return Array.isArray(chef.interventionZones)
     ? (chef.interventionZones as unknown as StoredZone[])
     : [];
+}
+
+/** Lower case, no accents, single spaces: how the storefront search compares texts. */
+function foldText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The region and the towns of each zone, as the search reads them. */
+function zoneTexts(zones: StoredZone[]): string[] {
+  return zones
+    .flatMap((zone) => [
+      zone.regionLabel ??
+        METROPOLITAN_REGIONS.find((region) => region.code === zone.regionCode)?.label,
+      ...(zone.cities ?? []).map((city) => city.name),
+    ])
+    .filter((text): text is string => Boolean(text));
 }
 
 const toDate = (day: string) => new Date(`${day}T00:00:00Z`);

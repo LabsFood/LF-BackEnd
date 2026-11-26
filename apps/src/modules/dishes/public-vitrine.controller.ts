@@ -37,6 +37,7 @@ const CHEF_CARD = {
   id: CHEF_ID,
   displayName: 'Ivy Siyaptze',
   city: 'Nice',
+  serviceRadiusKm: 30,
   regionCode: '93',
   badges: ['haccp', 'insured'],
   sessionsDone: 30,

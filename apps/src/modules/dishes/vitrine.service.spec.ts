@@ -103,6 +103,7 @@ describe('VitrineService', () => {
         'languages',
         'sapProfile',
         'sepaMandate',
+        'serviceRadiusKm',
         'user',
       ]);
       // Of the account, the photo only: never the email or the phone.
@@ -206,6 +207,47 @@ describe('VitrineService', () => {
       expect((await service.week({ region: '93', diets: ['vegan'] })).data).toEqual([]);
       expect((await service.week({ region: '93', q: 'pho' })).data).toHaveLength(1);
       expect((await service.week({ shoppingIncluded: true })).data).toEqual([]);
+    });
+
+    it('finds a chef by a town or a region of their zones, accents aside (26/11: « Cannes »)', async () => {
+      const { service } = vitrine({
+        chefs: [
+          chef('riviera', {
+            interventionZones: [
+              {
+                regionCode: '93',
+                regionLabel: "Provence-Alpes-Côte d'Azur",
+                scope: 'cities',
+                cities: [
+                  { insee: '06029', name: 'Cannes' },
+                  { insee: '83061', name: 'Fréjus' },
+                ],
+              },
+            ],
+          }),
+          // No label stored: the region is named from its code.
+          chef('lyon', {
+            city: 'Lyon',
+            interventionZones: [{ regionCode: '84', scope: 'region', cities: [] }],
+          }),
+        ],
+      });
+      const found = async (q: string) =>
+        (await service.week({ q })).data.map((card) => card.chef.id);
+
+      expect(await found('Cannes')).toEqual(['riviera']);
+      expect(await found('frejus')).toEqual(['riviera']);
+      expect(await found('provence')).toEqual(['riviera']);
+      expect(await found('rhone')).toEqual(['lyon']);
+      expect(await found('Marseille')).toEqual([]);
+    });
+
+    it('shows the chef’s intervention radius on their card (26/11)', async () => {
+      const { service } = vitrine({ chefs: [chef('a', { serviceRadiusKm: 30 })] });
+
+      const { data } = await service.week({});
+
+      expect(data[0].chef.serviceRadiusKm).toBe(30);
     });
 
     it('counts an offer that does the shopping: its fee in the price, and the filter finds the chef', async () => {
