@@ -66,7 +66,7 @@ describe('CommissionDebitsService', () => {
       update: jest.Mock;
       count: jest.Mock;
     };
-    commission: { findMany: jest.Mock; updateMany: jest.Mock };
+    commission: { findMany: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     sepaMandate: { updateMany: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
@@ -76,9 +76,11 @@ describe('CommissionDebitsService', () => {
   let stripe: { configured: boolean; getClient: jest.Mock };
   let service: CommissionDebitsService;
   let trigger: string;
+  let legacyOn: boolean;
 
   beforeEach(() => {
     trigger = 'on_payment';
+    legacyOn = true;
     prisma = {
       commissionInvoice: {
         findUnique: jest.fn().mockResolvedValue(ISSUED_INVOICE),
@@ -102,6 +104,9 @@ describe('CommissionDebitsService', () => {
       },
       commission: {
         findMany: jest.fn().mockResolvedValue([CESU_COMMISSION]),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ collectionMethod: 'sepa_direct_debit' }),
         updateMany: jest.fn(),
       },
       sepaMandate: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -120,6 +125,8 @@ describe('CommissionDebitsService', () => {
 
     const get = jest.fn((key: string, fallback?: unknown) => {
       if (key === 'payments.commissionDebitTrigger') return trigger;
+      // These tests cover the former invoicing, switched on here.
+      if (key === 'payments.legacyInvoicing') return legacyOn;
       if (key === 'payments.commissionDebitMaxAttempts') return 3;
       if (key === 'payments.commissionInvoicePrefix') return 'LF-COM';
       return fallback;
@@ -449,12 +456,46 @@ describe('CommissionDebitsService', () => {
     });
   });
 
+  describe('former invoicing switched off (« prix net »)', () => {
+    it('neither invoices nor debits a commission as it falls due', async () => {
+      legacyOn = false;
+      await expect(service.onCommissionDue('commission-1')).resolves.toBeNull();
+      expect(prisma.commissionInvoice.create).not.toHaveBeenCalled();
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a manual debit, a batch and an invoice with LEGACY_INVOICING_DISABLED', async () => {
+      legacyOn = false;
+      for (const call of [
+        () => service.executeDebit('invoice-1'),
+        () => service.issueInvoiceForCommissions(['commission-1']),
+        () => service.runDueInvoices({ start: new Date(), end: new Date() }),
+      ]) {
+        await expect(call()).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'LEGACY_INVOICING_DISABLED' }),
+        });
+      }
+    });
+  });
+
   describe('onCommissionDue', () => {
     it('invoices and debits immediately under the on_payment trigger', async () => {
       await service.onCommissionDue('commission-1');
 
       expect(prisma.commissionInvoice.create).toHaveBeenCalled();
       expect(stripeClient.paymentIntents.create).toHaveBeenCalled();
+    });
+
+    it('never invoices nor debits a part withheld at payout (« prix net »)', async () => {
+      prisma.commission.findUnique.mockResolvedValue({
+        collectionMethod: 'payout_withholding',
+      });
+
+      const result = await service.onCommissionDue('commission-1');
+
+      expect(result).toBeNull();
+      expect(prisma.commissionInvoice.create).not.toHaveBeenCalled();
+      expect(stripeClient.paymentIntents.create).not.toHaveBeenCalled();
     });
 
     it('leaves the commission pending under monthly_batch', async () => {

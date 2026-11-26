@@ -85,8 +85,8 @@ export const CLIENT_DETAIL_EXAMPLE = {
     chefProfileId: BOOKING_ITEM_EXAMPLE.chef.id,
     chefDisplayName: BOOKING_ITEM_EXAMPLE.chef.displayName,
     acceptsCesu: true,
-    crcesuNan: '1234567',
-    crcesuAffiliationStatus: 'active',
+    payeeNan: '1234567',
+    payeeName: 'Lab’s Food',
     supportedIssuers: ['pluxee', 'edenred', 'up', 'bimpli', 'domiserve', 'other'],
   },
 };

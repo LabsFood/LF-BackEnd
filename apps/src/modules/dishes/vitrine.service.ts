@@ -56,7 +56,7 @@ const PUBLIC_CHEF_FIELDS = {
   languages: true,
   // The profile photo is the account's; nothing else of the account is read.
   user: { select: { avatarUrl: true } },
-  sapProfile: { select: { acceptsCesu: true, crcesuNan: true } },
+  sapProfile: { select: { acceptsCesu: true } },
   sepaMandate: { select: { status: true } },
 } as const;
 
@@ -65,7 +65,7 @@ type PublicChef = Pick<
   'id' | 'displayName' | 'city' | 'bio' | 'interventionZones' | 'languages'
 > & {
   user: { avatarUrl: string | null };
-  sapProfile: { acceptsCesu: boolean; crcesuNan: string | null } | null;
+  sapProfile: { acceptsCesu: boolean } | null;
   sepaMandate: { status: string } | null;
 };
 

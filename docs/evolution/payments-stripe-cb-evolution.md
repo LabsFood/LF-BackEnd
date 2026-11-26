@@ -339,7 +339,7 @@ Titre expiry is a non-issue: the issuer's portal refuses to spend an expired tit
 | Debit trigger | **On confirmation** (`on_payment`), switchable to `monthly_batch` by config | Both paths share `executeDebit()`, so switching changes *when* an invoice is cut, never *how* it is collected |
 | Who confirms a CESU payment | **The chef**, with a traced admin override | Only party receiving the issuer's notification and the funds. Nothing else is verifiable |
 | Titre millésime | **Moot** | The issuer's portal refuses an expired titre |
-| CESU eligibility | `sapProfile.acceptsCesu` **and** a `crcesuNan` | An opt-in without the number is a dead end: the client cannot add the chef on their portal |
+| CESU eligibility | `sapProfile.acceptsCesu` **and** the platform `CESU_PLATFORM_NAN` (25/11/2026: chef NAN removed) | CESU is paid to the SAP structure that invoices the household, not to the batch cooker |
 | SEPA scheme | Stripe's **CORE** accepted; risk carried by dispute tracking **and** a booking block | B2B is not available on Stripe at all — see the Stripe facts table below |
 | Facture B | Delivered as a **numbered receivable + JSON**; PDF and S3 belong to the invoicing workstream | The debit has no legal basis without the invoice; the rendering has no bearing on collection |
 | Paper CESU | **Secondary and deliberately unmanaged** | The platform provides the payment method, the invoice and the commission debit. Depositing, validating and cashing the titres is the chef's own responsibility — **must be written into the chef terms** |

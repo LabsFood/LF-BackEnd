@@ -6,6 +6,7 @@ import { StripeService } from '../../integrations/stripe.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { PaymentInvoicesService } from './payment-invoices.service';
+import type { ChefPayoutsService } from './payouts/chef-payouts.service';
 import { PaymentsService } from './payments.service';
 
 const CONNECT_READY_CHEF = {
@@ -45,6 +46,7 @@ describe('PaymentsService', () => {
   let prisma: {
     booking: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     payment: {
+      findMany: jest.Mock;
       findFirst: jest.Mock;
       findUnique: jest.Mock;
       aggregate: jest.Mock;
@@ -71,11 +73,15 @@ describe('PaymentsService', () => {
   let users: { ensurePersistedFromClerk: jest.Mock };
   let invoices: { issue: jest.Mock; archive: jest.Mock };
   let service: PaymentsService;
+  let legacyOn: boolean;
+  let payouts: { payCardNow: jest.Mock };
 
   /** Amount already settled on the booking, as the coverage sum sees it. */
   const covered = (amount: number) => ({ _sum: { amountTtc: amount } });
 
   beforeEach(() => {
+    legacyOn = true;
+    payouts = { payCardNow: jest.fn() };
     tx = {
       booking: {
         findUnique: jest.fn().mockResolvedValue({
@@ -100,6 +106,7 @@ describe('PaymentsService', () => {
         update: jest.fn(),
       },
       payment: {
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
         aggregate: jest.fn().mockResolvedValue(covered(0)),
@@ -135,7 +142,9 @@ describe('PaymentsService', () => {
           ? 2000
           : key === 'payments.commissionDebitMaxAttempts'
             ? 3
-            : fallback,
+            : key === 'payments.legacyInvoicing'
+              ? legacyOn
+              : fallback,
     );
     const config = { get, getOrThrow: get };
 
@@ -145,6 +154,7 @@ describe('PaymentsService', () => {
       config as unknown as ConfigService,
       users as unknown as UsersService,
       invoices as unknown as PaymentInvoicesService,
+      payouts as unknown as ChefPayoutsService,
     );
   });
 
@@ -172,6 +182,34 @@ describe('PaymentsService', () => {
       expect(tx.booking.update).toHaveBeenCalledWith({
         where: { id: 'booking-1' },
         data: { stripePaymentIntentId: 'pi_1' },
+      });
+    });
+
+    it('charges on the SAS account at the net price when the former invoicing is off', async () => {
+      legacyOn = false;
+
+      await service.createIntentForBooking('clerk_1', 'booking-1');
+
+      const [args] = stripeClient.paymentIntents.create.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      expect(args).toEqual(
+        expect.objectContaining({ amount: 12_500, transfer_group: 'booking-1' }),
+      );
+      expect(args).not.toHaveProperty('on_behalf_of');
+      expect(args).not.toHaveProperty('transfer_data');
+      expect(args).not.toHaveProperty('application_fee_amount');
+      // 125 € TTC -> 113,64 € HT at 10 %, Lab’s Food part 18 % of HT, no VAT on it.
+      expect(tx.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          commission: {
+            create: expect.objectContaining({
+              collectionMethod: 'payout_withholding',
+              basisAmountCents: 11_364,
+              vatRateBps: 0,
+            }),
+          },
+        }),
       });
     });
 
@@ -214,12 +252,17 @@ describe('PaymentsService', () => {
         stripe as unknown as StripeService,
         (() => {
           const g = jest.fn((key: string) =>
-            key === 'payments.commissionDebitMaxAttempts' ? 3 : 0,
+            key === 'payments.commissionDebitMaxAttempts'
+              ? 3
+              : key === 'payments.legacyInvoicing'
+                ? true
+                : 0,
           );
           return { get: g, getOrThrow: g };
         })() as unknown as ConfigService,
         users as unknown as UsersService,
         invoices as unknown as PaymentInvoicesService,
+        payouts as unknown as ChefPayoutsService,
       );
 
       await service.createIntentForBooking('clerk_1', 'booking-1');
@@ -463,7 +506,7 @@ describe('PaymentsService', () => {
         }),
       });
       expect(tx.commission.updateMany).toHaveBeenCalledWith({
-        where: { paymentId: 'payment-1' },
+        where: { paymentId: 'payment-1', collectionMethod: 'stripe_application_fee' },
         data: expect.objectContaining({ status: 'collected' }),
       });
       expect(tx.booking.update).toHaveBeenCalledWith({
@@ -489,6 +532,26 @@ describe('PaymentsService', () => {
       expect(invoices.issue.mock.invocationCallOrder[0]).toBeLessThan(
         invoices.archive.mock.invocationCallOrder[0],
       );
+    });
+
+    it('invoices in the SAS name and pays the batch cooker when the former invoicing is off', async () => {
+      legacyOn = false;
+      prisma.payment.findUnique.mockResolvedValue({
+        id: 'payment-1',
+        purpose: 'service',
+        bookingId: 'booking-1',
+        status: 'pending',
+        amountTtc: 12_500,
+      });
+
+      await service.handlePaymentIntentSucceeded(intent);
+
+      // Same issue call: the service picks the SAS as seller from the flag.
+      expect(invoices.issue).toHaveBeenCalledWith(tx, 'payment-1', expect.any(Date));
+      expect(invoices.archive).toHaveBeenCalledWith('invoice-1');
+      expect(tx.booking.update).toHaveBeenCalled();
+      // The net goes to the batch cooker right after the charge, with its autofacture.
+      expect(payouts.payCardNow).toHaveBeenCalledWith('payment-1');
     });
 
     it('leaves the booking pending while the payments do not cover it', async () => {

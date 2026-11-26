@@ -9,6 +9,7 @@ import {
   supplementRulesInForce,
 } from '../bookings/domain/pricing';
 import { validationFailed } from '../dishes/domain/content.errors';
+import { CESU_FEE_KEY, CesuFeeRules, cesuFeeRulesInForce } from './cesu-fee';
 import { CHEF_TIERS_KEY, chefTierLabels, chefTierRules } from './chef-tiers';
 import { FRIDGE_ALERT_KEY, fridgeAlertDaysInForce } from './fridge-alert';
 import { GROCERIES_KEY, GroceriesRules, groceriesInForce } from './groceries';
@@ -167,6 +168,37 @@ export class PlatformSettingsService {
       action: 'settings.groceries_changed',
       subjectType: 'platform_setting',
       metadata: { from: { ...previous }, to: value },
+      requestId,
+    });
+    return { ...value, updatedAt: row.updatedAt };
+  }
+
+  /** CESU processing fee borne by the batch cooker (`cesu-fee.ts`), `updatedAt: null` when never set. */
+  async cesuFee() {
+    const row = await this.prisma.platformSetting.findUnique({
+      where: { key: CESU_FEE_KEY },
+    });
+    return {
+      ...(await cesuFeeRulesInForce(this.prisma)),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  /** For CESU amounts settled from now on; what was already paid out keeps its fee. */
+  async setCesuFee(rules: CesuFeeRules, adminUserId: string, requestId?: string) {
+    const previous = await cesuFeeRulesInForce(this.prisma);
+    const value = { defaultBps: rules.defaultBps, byTier: { ...rules.byTier } };
+    const row = await this.prisma.platformSetting.upsert({
+      where: { key: CESU_FEE_KEY },
+      update: { value, updatedByUserId: adminUserId },
+      create: { key: CESU_FEE_KEY, value, updatedByUserId: adminUserId },
+    });
+    await this.audit.record({
+      actorType: 'admin',
+      actorUserId: adminUserId,
+      action: 'settings.cesu_fee_changed',
+      subjectType: 'platform_setting',
+      metadata: { from: previous, to: value },
       requestId,
     });
     return { ...value, updatedAt: row.updatedAt };

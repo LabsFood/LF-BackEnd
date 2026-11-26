@@ -1320,7 +1320,7 @@ describe('UsersService', () => {
       id: 'uuid-1',
       clerkUserId: 'user_1',
       email: 'team@labsfood.fr',
-      fullName: 'Labs Food Team',
+      fullName: 'Lab’s Food Team',
       phone: null,
       avatarUrl: null,
       role: UserRole.admin,
@@ -1416,7 +1416,6 @@ describe('UsersService', () => {
             novaCode: 'SAP123456789',
             cooperativeName: null,
             cooperativeMembershipProof: null,
-            crcesuNan: null,
           },
         }),
       );
@@ -1427,7 +1426,6 @@ describe('UsersService', () => {
         declarationType: 'type_b_cooperative',
         cooperativeName: 'Unipros',
         cooperativeMembershipProof: 'https://files.test/proof.pdf',
-        crcesuNan: '1234567',
       });
 
       expect(prisma.sapProfile.upsert).toHaveBeenCalledWith(
@@ -1438,13 +1436,12 @@ describe('UsersService', () => {
             novaCode: null,
             cooperativeName: 'Unipros',
             cooperativeMembershipProof: 'https://files.test/proof.pdf',
-            crcesuNan: '1234567',
           },
         }),
       );
     });
 
-    it('never accepts the URSSAF or CRCESU status from the caller', async () => {
+    it('never accepts the URSSAF status nor a CRCESU number from the caller', async () => {
       await service.updateSapProfileByClerkUserId('clerk_1', {
         declarationType: 'type_a_nova',
         novaCode: 'SAP123456789',
@@ -1456,6 +1453,7 @@ describe('UsersService', () => {
       for (const fields of [update, create]) {
         expect(fields).not.toHaveProperty('urssafTiersPrestationStatus');
         expect(fields).not.toHaveProperty('crcesuAffiliationStatus');
+        expect(fields).not.toHaveProperty('crcesuNan');
       }
     });
 
@@ -1463,13 +1461,12 @@ describe('UsersService', () => {
       await service.updateSapProfileByClerkUserId('clerk_1', {
         declarationType: 'type_a_nova',
         novaCode: 'SAP123456789',
-        crcesuNan: '1234567',
         acceptsCesu: true,
       });
 
       expect(prisma.sapProfile.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          update: expect.objectContaining({ acceptsCesu: true, crcesuNan: '1234567' }),
+          update: expect.objectContaining({ acceptsCesu: true }),
         }),
       );
     });
@@ -1487,24 +1484,21 @@ describe('UsersService', () => {
     });
 
     describe('setSapExternalStatus', () => {
-      const BEFORE = {
-        crcesuAffiliationStatus: 'not_started',
-        urssafTiersPrestationStatus: 'pending',
-      };
+      const BEFORE = { urssafTiersPrestationStatus: 'pending' };
 
-      it('is the writer the CRCESU affiliation never had', async () => {
+      it('writes the URSSAF habilitation', async () => {
         prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
         await service.setSapExternalStatus(
           'chef-1',
-          { crcesuAffiliationStatus: 'active' },
+          { urssafTiersPrestationStatus: 'active' },
           'clerk_admin',
         );
 
         expect(prisma.sapProfile.update).toHaveBeenCalledWith({
           where: { chefProfileId: 'chef-1' },
-          data: { crcesuAffiliationStatus: 'active' },
+          data: { urssafTiersPrestationStatus: 'active' },
         });
       });
 
@@ -1514,12 +1508,12 @@ describe('UsersService', () => {
         prisma.sapProfile.update.mockResolvedValue({
           id: 'sap-1',
           ...BEFORE,
-          crcesuAffiliationStatus: 'active',
+          urssafTiersPrestationStatus: 'active',
         });
 
         await service.setSapExternalStatus(
           'chef-1',
-          { crcesuAffiliationStatus: 'active' },
+          { urssafTiersPrestationStatus: 'active' },
           'clerk_admin',
         );
 
@@ -1531,10 +1525,7 @@ describe('UsersService', () => {
           subjectId: 'chef-1',
           metadata: {
             before: BEFORE,
-            after: {
-              crcesuAffiliationStatus: 'active',
-              urssafTiersPrestationStatus: 'pending',
-            },
+            after: { urssafTiersPrestationStatus: 'active' },
           },
         });
       });
@@ -1543,16 +1534,12 @@ describe('UsersService', () => {
         prisma.sapProfile.findUnique.mockResolvedValue(BEFORE);
         prisma.sapProfile.update.mockResolvedValue({ id: 'sap-1' });
 
-        await service.setSapExternalStatus(
-          'chef-1',
-          { urssafTiersPrestationStatus: 'pending' },
-          'clerk_admin',
-        );
+        await service.setSapExternalStatus('chef-1', {}, 'clerk_admin');
 
         const [{ data }] = prisma.sapProfile.update.mock.calls[0] as [
           { data: Record<string, unknown> },
         ];
-        expect(data).not.toHaveProperty('crcesuAffiliationStatus');
+        expect(data).toEqual({});
       });
 
       it('404s when the chef has not declared a SAP route', async () => {
@@ -1561,7 +1548,7 @@ describe('UsersService', () => {
         await expect(
           service.setSapExternalStatus(
             'chef-1',
-            { crcesuAffiliationStatus: 'active' },
+            { urssafTiersPrestationStatus: 'active' },
             'clerk_admin',
           ),
         ).rejects.toMatchObject({
@@ -1570,6 +1557,17 @@ describe('UsersService', () => {
         expect(prisma.sapProfile.update).not.toHaveBeenCalled();
         expect(audit.record).not.toHaveBeenCalled();
       });
+    });
+
+    it('gives the CESU fee of the chef tier, the default for the others', async () => {
+      prisma.chefProfile.findUnique
+        .mockResolvedValueOnce({ id: 'chef-1', userId: 'uuid-1' })
+        .mockResolvedValueOnce({ tier: 'tier_2' });
+      prisma.platformSetting.findUnique.mockResolvedValueOnce({
+        value: { defaultBps: 1000, byTier: { tier_2: 800 } },
+      });
+
+      await expect(service.getOwnCesuFee('clerk_1')).resolves.toEqual({ feeBps: 800 });
     });
 
     it('reads the declaration of the authenticated chef', async () => {

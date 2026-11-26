@@ -54,7 +54,6 @@ const CHEF_SELECT = {
   ...CHEF_LEGAL_SELECT,
   sapProfile: {
     select: {
-      crcesuAffiliationStatus: true,
       urssafTiersPrestationStatus: true,
       novaCode: true,
     },
@@ -201,7 +200,6 @@ export class AdminChefsService {
       sapDeclarationNumber: row.sapDeclarationNumber,
       // Set by `PATCH /admin/chefs/{id}/sap-external-status`; null until the batch
       // cooker has declared a SAP route.
-      crcesuAffiliationStatus: row.sapProfile?.crcesuAffiliationStatus ?? null,
       urssafTiersPrestationStatus: row.sapProfile?.urssafTiersPrestationStatus ?? null,
       zones: zonesOf(row),
       // What clients read before booking, and what they cannot yet (never blocks).

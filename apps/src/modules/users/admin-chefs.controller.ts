@@ -72,7 +72,6 @@ const CHEF_DETAIL = {
   serviceRadiusKm: 30,
   sapPath: 'type-b',
   sapDeclarationNumber: null,
-  crcesuAffiliationStatus: 'active',
   urssafTiersPrestationStatus: 'pending',
   zones: [
     {
@@ -166,9 +165,10 @@ export class AdminChefsController {
       'whether payouts and calendar are connected.\n\n' +
       '`zones` has the shape `PATCH /admin/chefs/{id}/zones` takes: each city whole, ' +
       '`{ name, dept, insee }`, so a zone read here can be sent back unchanged.\n\n' +
-      '`crcesuAffiliationStatus` and `urssafTiersPrestationStatus` read back what ' +
+      '`urssafTiersPrestationStatus` reads back what ' +
       '`PATCH /admin/chefs/{id}/sap-external-status` wrote (`not_started`, `pending`, ' +
-      '`active`); both are `null` until the batch cooker has declared a SAP route.\n\n' +
+      '`active`); `null` until the batch cooker has declared a SAP route. Batch cookers ' +
+      'hold no CRCESU affiliation: CESU is paid to the platform.\n\n' +
       'The rest has its own route, each the single source of its data: the dossier ' +
       'and documents at `GET /admin/chef-applications/{application.id}`, the content ' +
       `at \`GET /admin/chefs/{id}/dishes\` and \`/menus\`.\n\n${ID_HELP}`,

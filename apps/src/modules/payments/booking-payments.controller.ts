@@ -91,8 +91,9 @@ export class BookingPaymentsController {
       '`URSSAF_LINK_PENDING`, `URSSAF_LINK_REFUSED`, `URSSAF_DOSSIER_MISSING` (manual ' +
       'mode: offer `PUT /me/urssaf-dossier` first). Never name the intermediary to the ' +
       'client: Lab’s Food handles the registration and the admin.\n' +
-      '- `cesu` carries `crcesuNan`, the number the client pays the batch cooker with ' +
-      'on their issuer’s site.',
+      '- `cesu` carries `payeeNan` and `payeeName`, the platform’s CRCESU affiliation ' +
+      'the client pays on their issuer’s site (never the batch cooker’s), and ' +
+      '`paymentReference`, the booking reference to enter with the payment.',
   })
   @ApiParam({ name: 'id', description: 'The booking id.', example: BOOKING_ID })
   @ApiOkResponse({
@@ -126,7 +127,9 @@ export class BookingPaymentsController {
           available: true,
           dueNowCents: 18000,
           maxCesuCents: 18000,
-          crcesuNan: '1234567*8',
+          payeeNan: '1234567',
+          payeeName: 'Lab’s Food',
+          paymentReference: 'LF-SM-2026-0001',
         },
       ],
       savedCards: [],

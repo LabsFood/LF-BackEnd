@@ -372,6 +372,24 @@ export class UsersController {
     return this.users.updateOwnChefZones(user.userId, body.interventionZones);
   }
 
+  @Get('me/chef-profile/cesu-fee')
+  @ApiOperation({
+    summary: 'Get the CESU processing fee I would bear',
+    description:
+      '« Frais de traitement et d’encaissement des CESU », in basis points (`1000` = ' +
+      '10 %), at the batch cooker’s tier. Borne by the batch cooker, never by the ' +
+      'client, on what is paid in CESU, computed on what is left after the commission. ' +
+      'Shown before they accept CESU.',
+  })
+  @ApiOkResponse({ description: 'The rate.', schema: { example: { feeBps: 1000 } } })
+  @ApiConflictResponse({
+    description: 'No chef profile yet — complete `PATCH /me/chef-profile` first.',
+  })
+  @ApiClerkAuthResponses()
+  getMeCesuFee(@CurrentClerkUser() user: ClerkUser) {
+    return this.users.getOwnCesuFee(user.userId);
+  }
+
   @Get('me/chef-profile/sap')
   @ApiOperation({
     summary: 'Get my "service à la personne" declaration',
@@ -572,13 +590,12 @@ export class UsersController {
   @ApiOperation({
     summary: 'Admin: set a chef external SAP statuses',
     description:
-      'Writes `crcesu_affiliation_status` and `urssaf_tiers_prestation_status` on the ' +
+      'Writes `urssaf_tiers_prestation_status` on the ' +
       "chef's `sap_profiles` row. Same split as `is_verified` / `is_active`: the chef " +
-      'declares, an admin habilitates — no self-habilitation. There is no CRCESU API to ' +
-      "read the affiliation from, so an admin transcribing the CRCESU's answer is the " +
-      'only source this field can have. `:id` is the chef profile uuid ' +
-      '(`chef_profiles.id`); the chef must already have declared a SAP route. ' +
-      'Audited, with both statuses before and after. ' +
+      'declares, an admin habilitates — no self-habilitation. Batch cookers hold no ' +
+      'CRCESU affiliation any more: CESU is paid to the platform. `:id` is the chef ' +
+      'profile uuid (`chef_profiles.id`); the chef must already have declared a SAP ' +
+      'route. Audited, with the status before and after. ' +
       '`GET /admin/chefs/{id}` reads them back.',
   })
   @ApiParam({

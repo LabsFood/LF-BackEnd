@@ -52,6 +52,7 @@ import { ListAdminClientsQueryDto } from './dto/admin-client.dto';
 import type { AppUserRole } from './dto/admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateMeChefProfileDto } from './dto/chef-profile.dto';
+import { cesuFeeBpsFor, cesuFeeRulesInForce } from '../platform-settings/cesu-fee';
 import { UpdateMeSapProfileDto, UpdateSapExternalStatusDto } from './dto/sap-profile.dto';
 import { UpdateAdminClientDto, UpdateMeProfileDto } from './dto/profile.dto';
 
@@ -809,6 +810,19 @@ export class UsersService {
    * Returns `null` when the chef has not declared yet; a user without a chef profile
    * is a `ConflictException`, same as on write.
    */
+  /**
+   * `GET /me/chef-profile/cesu-fee` — the « frais de traitement et d'encaissement des
+   * CESU » this batch cooker bears, at their tier, shown before they accept CESU.
+   */
+  async getOwnCesuFee(clerkUserId: string) {
+    const { id } = await this.requireOwnChefProfile(clerkUserId);
+    const [chef, rules] = await Promise.all([
+      this.prisma.chefProfile.findUnique({ where: { id }, select: { tier: true } }),
+      cesuFeeRulesInForce(this.prisma),
+    ]);
+    return { feeBps: cesuFeeBpsFor(rules, chef?.tier ?? 'tier_1') };
+  }
+
   async getSapProfileByClerkUserId(clerkUserId: string) {
     const chefProfile = await this.requireOwnChefProfile(clerkUserId);
     return this.prisma.sapProfile.findUnique({
@@ -820,8 +834,8 @@ export class UsersService {
    * Chef self-declaration of their "service à la personne" route
    * (`PATCH /me/chef-profile/sap`).
    *
-   * Only the declarative fields are writable here. `urssafTiersPrestationStatus` and
-   * `crcesuAffiliationStatus` are admin-maintained instead (`setSapExternalStatus`,
+   * Only the declarative fields are writable here. `urssafTiersPrestationStatus` is
+   * admin-maintained instead (`setSapExternalStatus`,
    * `PATCH /admin/chefs/:id/sap-external-status`) — the same split as `isActive`/
    * `isVerified` on `chef_profiles`. There is no URSSAF/CRCESU API to write them from, so
    * an admin transcribing the agency's own answer is the only source they can have.
@@ -843,7 +857,6 @@ export class UsersService {
       cooperativeMembershipProof: isTypeA
         ? null
         : (payload.cooperativeMembershipProof ?? null),
-      crcesuNan: payload.crcesuNan ?? null,
       acceptsCesu: payload.acceptsCesu ?? false,
     };
 
@@ -855,25 +868,21 @@ export class UsersService {
   }
 
   /**
-   * Admin-maintained external SAP statuses (`PATCH /admin/chefs/:id/sap-external-status`).
+   * Admin-maintained URSSAF habilitation (`PATCH /admin/chefs/:id/sap-external-status`).
    *
    * Same split as `isActive` / `isVerified`: a chef declares, an admin habilitates.
-   * `crcesuAffiliationStatus` had **no writer at all** before this — there is no CRCESU
-   * API to read it from, so an admin transcribing the CRCESU's own answer is the only
-   * source it can have.
+   * There is no URSSAF API to read it from. Batch cookers no longer hold a CRCESU
+   * affiliation: CESU is paid to the platform.
    *
    * `:id` is the chef profile uuid, and the row has to exist: a status about a
-   * declaration that was never made would be meaningless.
-   *
-   * Audited with both statuses before and after: it is what puts a batch cooker
-   * on the CESU circuit, so who said so, and when, has to be answerable.
+   * declaration that was never made would be meaningless. Audited before and after.
    */
   async setSapExternalStatus(
     chefProfileId: string,
     payload: UpdateSapExternalStatusDto,
     adminClerkUserId: string,
   ) {
-    const statuses = { crcesuAffiliationStatus: true, urssafTiersPrestationStatus: true };
+    const statuses = { urssafTiersPrestationStatus: true };
     const [before, admin] = await Promise.all([
       this.prisma.sapProfile.findUnique({ where: { chefProfileId }, select: statuses }),
       this.prisma.user.findUnique({
@@ -891,16 +900,12 @@ export class UsersService {
     const updated = await this.prisma.sapProfile.update({
       where: { chefProfileId },
       data: {
-        ...(payload.crcesuAffiliationStatus !== undefined
-          ? { crcesuAffiliationStatus: payload.crcesuAffiliationStatus }
-          : {}),
         ...(payload.urssafTiersPrestationStatus !== undefined
           ? { urssafTiersPrestationStatus: payload.urssafTiersPrestationStatus }
           : {}),
       },
     });
     const after = {
-      crcesuAffiliationStatus: updated.crcesuAffiliationStatus,
       urssafTiersPrestationStatus: updated.urssafTiersPrestationStatus,
     };
 
