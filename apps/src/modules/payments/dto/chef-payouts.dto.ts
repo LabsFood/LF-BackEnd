@@ -46,6 +46,25 @@ export class ChefPayoutsQueryDto {
   to?: string;
 }
 
+/** TEMPORAIRE: the Indy export's period (see accounting-export.service.ts). */
+export class AccountingPeriodQueryDto {
+  @ApiPropertyOptional({
+    description: 'Start of the period, included.',
+    example: '2026-11-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @ApiPropertyOptional({
+    description: 'End of the period, excluded.',
+    example: '2026-12-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+}
+
 export class MarkPayoutsPaidDto {
   @ApiProperty({
     description: 'Payable payouts of this batch cooker covered by the transfer.',

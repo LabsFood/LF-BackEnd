@@ -27,6 +27,7 @@ import {
 } from './payouts/chef-payouts.controller';
 import { PayoutStatementsService } from './payouts/payout-statements.service';
 import { BankReconciliationService } from './payouts/bank-reconciliation.service';
+import { AccountingExportService } from './payouts/accounting-export.service';
 import { ChefPayoutsService } from './payouts/chef-payouts.service';
 import { SepaMandatesController } from './sepa-mandates.controller';
 import { SepaMandatesService } from './sepa-mandates.service';
@@ -84,6 +85,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     FiscalAttestationsService,
     PaymentInvoicesService,
     ChefPayoutsService,
+    AccountingExportService,
     BankReconciliationService,
     PayoutStatementsService,
   ],

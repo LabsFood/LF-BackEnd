@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 import type { Prisma } from '../../../generated/prisma/client';
 import { SupabaseService } from '../../../integrations/supabase.service';
@@ -19,6 +20,8 @@ import {
   type PayoutStatementSnapshot,
 } from './payout-statement-document';
 
+/** Autofactures sent to the platform per hourly run. */
+const EINVOICE_BATCH = 50;
 const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
 
 /** What an autofacture cannot do without, from the batch cooker's legal identity. */
@@ -171,21 +174,33 @@ export class PayoutStatementsService {
   }
 
   /**
-   * Hands the autofacture to the approved e-invoicing platform. Does nothing while
-   * `EINVOICING_PROVIDER=none`; best-effort otherwise (the PDF stays the reference).
+   * Hands the autofacture to the approved e-invoicing platform and records what it
+   * answered. Does nothing while `EINVOICING_PROVIDER=none`, nor for one already sent;
+   * best-effort otherwise (the PDF stays the reference, `transmitPending` retries).
    */
   async transmit(statementId: string): Promise<void> {
     if (!this.einvoicing.enabled) return;
     try {
       const statement = await this.prisma.payoutStatement.findUniqueOrThrow({
         where: { id: statementId },
-        select: { snapshot: true },
+        select: { snapshot: true, einvoiceSentAt: true },
       });
-      await this.einvoicing.submit(
+      if (statement.einvoiceSentAt) return;
+      const result = await this.einvoicing.submit(
         eInvoiceFromPayoutStatement(
           statement.snapshot as unknown as PayoutStatementSnapshot,
         ),
       );
+      if (!result.sent) return;
+      await this.prisma.payoutStatement.update({
+        where: { id: statementId },
+        data: {
+          einvoiceProvider: result.provider,
+          einvoiceExternalId: result.externalId,
+          einvoiceStatus: result.status,
+          einvoiceSentAt: new Date(),
+        },
+      });
     } catch (error) {
       this.logger.error({
         event: 'payout_statement.einvoice_failed',
@@ -193,6 +208,20 @@ export class PayoutStatementsService {
         reason: error instanceof Error ? error.message : 'unknown error',
       });
     }
+  }
+
+  /** Every hour: the autofactures not yet accepted by the platform, oldest first. */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'payout-statements-einvoice' })
+  async transmitPending(): Promise<number> {
+    if (!this.einvoicing.enabled) return 0;
+    const pending = await this.prisma.payoutStatement.findMany({
+      where: { einvoiceSentAt: null },
+      orderBy: { issuedAt: 'asc' },
+      take: EINVOICE_BATCH,
+      select: { id: true },
+    });
+    for (const { id } of pending) await this.transmit(id);
+    return pending.length;
   }
 
   /** The batch cooker's own statements, newest first. */

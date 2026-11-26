@@ -27,10 +27,12 @@ import { CurrentClerkUser } from '../../../auth/current-clerk-user.decorator';
 import { ApiAdminAuthResponses } from '../../../common/swagger/auth-responses';
 import { TAGS } from '../../../common/swagger/tags';
 import {
+  AccountingPeriodQueryDto,
   ChefPayoutsQueryDto,
   MarkPayoutsPaidDto,
   SearchPayoutChefsQueryDto,
 } from '../dto/chef-payouts.dto';
+import { AccountingExportService } from './accounting-export.service';
 import { BankReconciliationService } from './bank-reconciliation.service';
 import { ChefPayoutsService } from './chef-payouts.service';
 import { PayoutStatementsService } from './payout-statements.service';
@@ -40,8 +42,8 @@ const CHEF_ID = '0e6f7a52-3d0b-4c1e-9a55-2b7c9d1e4f60';
 const FLOW =
   '« Prix net »: Lab’s Food sells the prestation with VAT (10 %), ' +
   'collects CESU on its NAN and the URSSAF immediate advance, and pays the batch cooker ' +
-  'HT − Lab’s Food part − CESU fee by bank transfer. Card payments are not listed: ' +
-  'Stripe pays the chef.';
+  'HT − Lab’s Food part − CESU fee: by bank transfer, or by Stripe transfer to their ' +
+  'connected account for a card payment.';
 
 /** The console's « Versements aux batch cookers ». */
 @ApiTags(TAGS.payments)
@@ -53,7 +55,25 @@ export class AdminChefPayoutsController {
     private readonly payouts: ChefPayoutsService,
     private readonly reconciliation: BankReconciliationService,
     private readonly statements: PayoutStatementsService,
+    private readonly accounting: AccountingExportService,
   ) {}
+
+  /** TEMPORAIRE: removed with the move to B2Brouter (see accounting-export.service.ts). */
+  @Get('accounting')
+  @ApiAdminAuthResponses()
+  @ApiOperation({
+    summary: 'Sales and autofactures of a period, for the accounting kept in Indy',
+    description:
+      'Temporary, until B2Brouter sends and receives the invoices (before 1 September ' +
+      '2027). `vente`: Lab’s Food’s invoices to households (HT, VAT, TTC). `achat`: ' +
+      'autofactures to batch cookers (no VAT, franchise en base).',
+  })
+  accountingExport(@Query() query: AccountingPeriodQueryDto) {
+    return this.accounting.lines({
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+  }
 
   @Get('payable')
   @ApiAdminAuthResponses()

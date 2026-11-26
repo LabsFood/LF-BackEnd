@@ -2319,6 +2319,11 @@ model PayoutStatement {
   /// Object key in the invoices bucket. Null while the PDF is not stored.
   storagePath   String?      @map("storage_path") @db.VarChar(512)
   archivedAt    DateTime?    @map("archived_at") @db.Timestamptz(6)
+  /// Approved e-invoicing platform (`b2brouter`), its id and status. Null until sent.
+  einvoiceProvider   String?   @map("einvoice_provider") @db.VarChar(32)
+  einvoiceExternalId String?   @map("einvoice_external_id") @db.VarChar(128)
+  einvoiceStatus     String?   @map("einvoice_status") @db.VarChar(32)
+  einvoiceSentAt     DateTime? @map("einvoice_sent_at") @db.Timestamptz(6)
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   chefProfile   ChefProfile  @relation(fields: [chefProfileId], references: [id], onDelete: Restrict, map: "fk_payout_statements_chef_profile_id")
   payouts       ChefPayout[]
