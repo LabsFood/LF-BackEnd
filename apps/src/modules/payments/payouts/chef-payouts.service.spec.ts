@@ -28,6 +28,7 @@ function setup() {
   );
   const users = {
     ensurePersistedFromClerk: jest.fn().mockResolvedValue({ id: 'admin-1' }),
+    requireOwnChefProfile: jest.fn().mockResolvedValue({ id: 'chef-own' }),
   };
   const audit = { record: jest.fn() };
   const statements = {
@@ -227,6 +228,27 @@ describe('ChefPayoutsService', () => {
       await expect(
         service.markPaid('clerk_admin', 'chef-1', ['po-9']),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('myPayouts', () => {
+    it("reads only the caller's own chef profile", async () => {
+      const { prisma, users, service } = setup();
+      prisma.chefProfile.findUnique.mockResolvedValue({
+        id: 'chef-own',
+        displayName: 'Awa',
+        city: 'Lyon',
+        tier: 'standard',
+        sepaMandate: null,
+      });
+
+      const card = await service.myPayouts('clerk_chef', 'paid', {});
+
+      expect(users.requireOwnChefProfile).toHaveBeenCalledWith('clerk_chef');
+      expect(prisma.chefProfile.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'chef-own' } }),
+      );
+      expect(card.chef.chefProfileId).toBe('chef-own');
     });
   });
 });

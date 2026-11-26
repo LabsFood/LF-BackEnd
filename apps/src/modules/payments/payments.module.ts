@@ -23,6 +23,7 @@ import { PaymentsService } from './payments.service';
 import {
   AdminChefPayoutsController,
   ChefPayoutStatementsController,
+  ChefOwnPayoutsController,
 } from './payouts/chef-payouts.controller';
 import { PayoutStatementsService } from './payouts/payout-statements.service';
 import { BankReconciliationService } from './payouts/bank-reconciliation.service';
@@ -68,6 +69,7 @@ import { UrssafDossiersService } from './urssaf-dossiers.service';
     PaymentInvoicesController,
     AdminChefPayoutsController,
     ChefPayoutStatementsController,
+    ChefOwnPayoutsController,
   ],
   providers: [
     PaymentsService,

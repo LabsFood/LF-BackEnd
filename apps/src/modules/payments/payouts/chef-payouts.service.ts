@@ -334,6 +334,12 @@ export class ChefPayoutsService {
     };
   }
 
+  /** The batch cooker's own payouts: same lines as the admin card, own profile only. */
+  async myPayouts(clerkUserId: string, view: PayoutView, period: PayoutPeriod) {
+    const { id } = await this.users.requireOwnChefProfile(clerkUserId);
+    return this.chefPayouts(id, view, period);
+  }
+
   /**
    * The admin made the transfer: these payouts are paid, and the Labs Food part kept
    * back on them is collected. Only payable payouts of this batch cooker move.

@@ -159,6 +159,29 @@ export class AdminChefPayoutsController {
   }
 }
 
+/** The batch cooker's own payouts: what Labs Food owes and has paid them. */
+@ApiTags(TAGS.payments)
+@ApiBearerAuth()
+@UseGuards(ClerkAuthGuard)
+@Controller('me/chef/payouts')
+export class ChefOwnPayoutsController {
+  constructor(private readonly payouts: ChefPayoutsService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'My payouts: TTC, VAT, HT, Labs Food part, CESU fee and net, per payment',
+    description:
+      '`payable`: received by Labs Food, transfer to come. `awaiting`: not received yet ' +
+      '(estimate). `paid`: transferred, with the autofacture it is on.',
+  })
+  mine(@CurrentClerkUser() user: ClerkUser, @Query() query: ChefPayoutsQueryDto) {
+    return this.payouts.myPayouts(user.userId, query.view ?? 'payable', {
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+  }
+}
+
 /** The batch cooker's own autofactures. */
 @ApiTags(TAGS.payments)
 @ApiBearerAuth()
