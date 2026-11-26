@@ -6,6 +6,7 @@ import { stackOf } from '../../common/logging/app-logger';
 import { DAY_MS } from '../../common/paris-time';
 import { BookingStatus } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ShoppingListsService } from '../shopping-lists/shopping-lists.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   CHEF_SEND_DAYS,
@@ -38,6 +39,7 @@ export class ShoppingRemindersCron {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly lists: ShoppingListsService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'shopping-list-reminders' })
@@ -112,6 +114,8 @@ export class ShoppingRemindersCron {
               id: booking.id,
             });
             sent[kind] += 1;
+            // The client's open page learns the list is frozen without a reload.
+            if (kind === 'client_frozen') await this.lists.announce(booking.id, [userId]);
             this.logger.log({
               event: 'shopping_list.reminded',
               kind,

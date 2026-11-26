@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -34,6 +35,8 @@ import {
   PutDishNotesDto,
   PutEatBeforeDto,
   ValidateGroceriesDto,
+  PatchShoppingRepliesDto,
+  PutPantryStaplesDto,
   PutShoppingListDto,
   RecipeSheetQueryDto,
   SubmitShoppingListDto,
@@ -92,11 +95,35 @@ const SHOPPING_LIST_EXAMPLE = {
   persons: 3,
   shoppingByClient: false,
   deadline: '2026-09-24T10:00:00.000Z',
-  status: 'final_received',
+  status: 'sent',
   generatedAt: '2026-09-20T15:41:02.000Z',
   version: 1,
   sentAt: '2026-09-21T08:12:40.000Z',
-  finalReceivedAt: '2026-09-22T19:03:11.000Z',
+  finalReceivedAt: null,
+  marksUpdatedAt: '2026-09-22T19:03:11.000Z',
+  pendingChanges: true,
+  changesSinceSent: {
+    added: [],
+    removed: [],
+    changed: [
+      {
+        before: {
+          name: 'Ail',
+          qty: 4,
+          unit: 'gousse',
+          aisle: 'fruits-legumes',
+          edited: false,
+        },
+        after: {
+          name: 'Ail',
+          qty: 6,
+          unit: 'gousse',
+          aisle: 'fruits-legumes',
+          edited: true,
+        },
+      },
+    ],
+  },
   groups: [
     {
       aisle: 'fruits-legumes',
@@ -106,8 +133,76 @@ const SHOPPING_LIST_EXAMPLE = {
           qty: 6,
           unit: 'gousse',
           edited: true,
+          providedByChef: false,
+          alreadyHave: false,
+          comment: null,
+          haveQty: null,
+          toBuyQty: 6,
+          chefReply: null,
+        },
+        {
+          name: 'Pommes de terre grenaille',
+          qty: 800,
+          unit: 'g',
+          edited: false,
+          providedByChef: false,
+          alreadyHave: false,
+          comment: 'Bio si possible',
+          haveQty: 300,
+          toBuyQty: 500,
+          chefReply: {
+            reply: 'Pas trouvé en bio, je prends le classique.',
+            repliedAt: '2026-09-22T20:00:00.000Z',
+          },
+        },
+      ],
+    },
+    {
+      aisle: 'epicerie',
+      lines: [
+        {
+          name: 'Sel fin',
+          qty: 10,
+          unit: 'g',
+          edited: false,
+          providedByChef: true,
+          alreadyHave: false,
+          comment: null,
+          haveQty: null,
+          toBuyQty: 10,
+          chefReply: null,
+        },
+      ],
+    },
+  ],
+};
+
+/** The same list as the client reads it: version 1 as sent, the salt set apart. */
+const CLIENT_SHOPPING_LIST_EXAMPLE = {
+  missionId: MISSION_ID,
+  persons: 3,
+  shoppingByClient: false,
+  deadline: '2026-09-24T10:00:00.000Z',
+  status: 'sent',
+  generatedAt: '2026-09-20T15:41:02.000Z',
+  version: 1,
+  sentAt: '2026-09-21T08:12:40.000Z',
+  finalReceivedAt: null,
+  marksUpdatedAt: '2026-09-22T19:03:11.000Z',
+  groups: [
+    {
+      aisle: 'fruits-legumes',
+      lines: [
+        {
+          name: 'Ail',
+          qty: 4,
+          unit: 'gousse',
+          edited: false,
           alreadyHave: true,
           comment: null,
+          haveQty: null,
+          toBuyQty: 0,
+          chefReply: null,
         },
         {
           name: 'Pommes de terre grenaille',
@@ -115,22 +210,25 @@ const SHOPPING_LIST_EXAMPLE = {
           unit: 'g',
           edited: false,
           alreadyHave: false,
-          comment: 'Plutôt des rattes',
+          comment: 'Bio si possible',
+          haveQty: 300,
+          toBuyQty: 500,
+          chefReply: {
+            reply: 'Pas trouvé en bio, je prends le classique.',
+            repliedAt: '2026-09-22T20:00:00.000Z',
+          },
         },
       ],
     },
+  ],
+  providedByChef: [
     {
-      aisle: 'boucherie',
-      lines: [
-        {
-          name: 'Poulet fermier entier',
-          qty: 1.4,
-          unit: 'kg',
-          edited: false,
-          alreadyHave: false,
-          comment: null,
-        },
-      ],
+      name: 'Sel fin',
+      qty: 10,
+      unit: 'g',
+      aisle: 'epicerie',
+      edited: false,
+      providedByChef: true,
     },
   ],
 };
@@ -139,9 +237,24 @@ const LIST_FIELDS =
   '\n\n**The exchange with the client** (Recettes §10.7, when the batch cooker shops): ' +
   '`status` is `preparing` (not sent yet), `sent`, `update_sent` (sent again since the ' +
   "client's last answer), `final_received` or `frozen` (from `deadline`: noon, Paris " +
-  'time, the day before). `version` counts the sends. On each line, `alreadyHave` and ' +
-  "`comment` are the client's answer: shown to the batch cooker and admins once it " +
-  'answers the list sent last; to the client always, to start again from it.';
+  'time, the day before). `version` counts the sends.' +
+  '\n\n**What each side reads.** The client reads only what was sent: `groups: []` ' +
+  'until the first send, then the version sent (a snapshot), never the corrections ' +
+  'made since; the lines the batch cooker brings come apart in `providedByChef`, ' +
+  'without checkbox. The batch cooker and admins read the list as it is now, each ' +
+  'line with `providedByChef`, plus `pendingChanges` (it differs from the version ' +
+  'sent: added, removed or changed lines) and `changesSinceSent` (`null` before the ' +
+  'first send).' +
+  "\n\n**The client's answer**, on each line, for both sides as soon as it answers " +
+  'the version sent (`marksUpdatedAt`: the last tick): `alreadyHave`, `comment`, ' +
+  '`haveQty` (a part they have), `toBuyQty` (what is left to buy: `0` if they have ' +
+  'it, `qty − haveQty`, or `qty`), and `chefReply` (`{ reply, repliedAt }`, shown only ' +
+  'while the comment it answers is unchanged). A mark falls when a new version ' +
+  'changes the quantity of its line.' +
+  '\n\n**Realtime**: the WebSocket `/ws` pushes `{"event":"shopping_list.changed",' +
+  '"data":{"bookingId","version","marksUpdatedAt"}}` to the batch cooker after a ' +
+  'tick or a final list, and to the client after a send, a reply and the freeze: ' +
+  'fetch the list again.';
 
 const NOT_FOUND = {
   description:
@@ -368,7 +481,18 @@ export class MissionsController {
       LIST_FIELDS,
   })
   @ApiMissionIdParam()
-  @ApiOkResponse({ description: 'The list.', example: SHOPPING_LIST_EXAMPLE })
+  @ApiOkResponse({
+    description:
+      'The list: the `chef` example for the batch cooker and admins, the `client` one for the client.',
+    content: {
+      'application/json': {
+        examples: {
+          chef: { summary: 'Batch cooker, admin', value: SHOPPING_LIST_EXAMPLE },
+          client: { summary: 'Client', value: CLIENT_SHOPPING_LIST_EXAMPLE },
+        },
+      },
+    },
+  })
   @ApiNotFoundResponse(NOT_FOUND)
   @ApiClerkAuthResponses()
   shoppingList(
@@ -385,7 +509,9 @@ export class MissionsController {
     description:
       'Send the whole list as you want it. What differs from the recipes is kept as ' +
       'your correction and **survives every recalculation**; a computed line you ' +
-      'leave out is struck out. `POST …/shopping-list/reset` drops every correction.',
+      'leave out is struck out. `POST …/shopping-list/reset` drops every correction. ' +
+      '`providedByChef` (optional per line) marks what you bring. The client sees ' +
+      'none of it until you send again (`pendingChanges`).',
   })
   @ApiMissionIdParam()
   @ApiOkResponse({ description: 'The corrected list.', example: SHOPPING_LIST_EXAMPLE })
@@ -481,9 +607,11 @@ export class MissionsController {
   @ApiOperation({
     summary: 'Send my final shopping list to the batch cooker',
     description:
-      'What you already have, and a comment per line if you like. Send it again as ' +
-      'often as you like until noon, Paris time, the day before; after that, the list ' +
-      'is frozen. If you never send it, the batch cooker buys the whole list.' +
+      '« I am done »: your marks replace those saved, and the batch cooker is told ' +
+      '(`shopping_list.final_received`). Not needed for them to see your ticks: ' +
+      '`PATCH …/shopping-list/marks` saves them as you go. Send it again as often as ' +
+      'you like until noon, Paris time, the day before; after that, the list is ' +
+      'frozen. With no answer, the batch cooker buys the whole list.' +
       LIST_FIELDS,
   })
   @ApiMissionIdParam()
@@ -511,6 +639,115 @@ export class MissionsController {
     @Body() payload: SubmitShoppingListDto,
   ) {
     return this.missions.submitShoppingList(user.userId, id, payload);
+  }
+
+  @Patch('me/bookings/:id/shopping-list/marks')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Save my ticks on the shopping list as I make them',
+    description:
+      'Each tick, part (`haveQty`) or comment is saved at once and seen by the batch ' +
+      'cooker on their next read (and pushed over `/ws`): no final list needed. The ' +
+      'marks sent are merged into yours, by line: a mark with `alreadyHave: false`, ' +
+      'no `haveQty` and no comment **removes** it; the lines not sent keep theirs. ' +
+      'Idempotent: made to be called on every tick (group them, ~500 ms). `version` ' +
+      'is the one on screen. The batch cooker is told once per quiet spell (15 min), ' +
+      'not on every tick. `POST …/submit` still says « I am done ».' +
+      LIST_FIELDS,
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({
+    description: 'The list as you read it, with your marks.',
+    example: CLIENT_SHOPPING_LIST_EXAMPLE,
+  })
+  @ApiConflictResponse({
+    description:
+      '`SHOPPING_LIST_NOT_SENT`, `SHOPPING_LIST_FROZEN` (`frozenSince`), ' +
+      '`SHOPPING_LIST_UPDATED` (`version`: reload), `SHOPPING_BY_CLIENT`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a line not on the version sent, answered twice, brought ' +
+      'by the batch cooker, or a `haveQty` out of bounds.',
+  })
+  @ApiForbiddenResponse({
+    description: '`CONTENT_NOT_OWNED`: only the client of this prestation answers.',
+  })
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  saveMarks(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: SubmitShoppingListDto,
+  ) {
+    return this.missions.saveShoppingMarks(user.userId, id, payload);
+  }
+
+  @Patch('chef-missions/:id/shopping-list/replies')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: "Answer the client's comments on the shopping list",
+    description:
+      'One reply per line (280 characters), on a line of the version sent that the ' +
+      'client commented. `reply: null` clears it; lines not sent keep theirs. A reply ' +
+      'shows only while the comment it answers is unchanged. The client is told once ' +
+      'per quiet spell (`shopping_list.reply`) and pushed `shopping_list.changed`.',
+  })
+  @ApiMissionIdParam()
+  @ApiOkResponse({ description: 'The list.', example: SHOPPING_LIST_EXAMPLE })
+  @ApiConflictResponse({
+    description:
+      '`SHOPPING_LIST_FROZEN` after the deadline; `SHOPPING_BY_CLIENT` when the client ' +
+      'does the shopping.',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      '`VALIDATION_FAILED`: a line not on the version sent, or without comment.',
+  })
+  @ApiForbiddenResponse(CHEF_ONLY)
+  @ApiNotFoundResponse(NOT_FOUND)
+  @ApiClerkAuthResponses()
+  reply(
+    @CurrentClerkUser() user: ClerkUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: PatchShoppingRepliesDto,
+  ) {
+    return this.missions.replyToShoppingComments(user.userId, id, payload.replies);
+  }
+
+  @Get('me/chef/pantry-staples')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'What I always bring to a prestation',
+    description:
+      'Salt, oil, basic spices…: a shopping line with one of these names (case and ' +
+      'accents aside) is marked `providedByChef` when a list is computed. The client ' +
+      'does not buy it.',
+  })
+  @ApiOkResponse({ example: { staples: ['Sel fin', 'Poivre', 'Huile d’olive'] } })
+  @ApiNotFoundResponse({ description: '`CHEF_NOT_FOUND`: not a batch cooker account.' })
+  @ApiClerkAuthResponses()
+  pantryStaples(@CurrentClerkUser() user: ClerkUser) {
+    return this.missions.pantryStaples(user.userId);
+  }
+
+  @Put('me/chef/pantry-staples')
+  @ApiTags(TAGS.missions)
+  @ApiOperation({
+    summary: 'Set what I always bring to a prestation',
+    description:
+      'Replaces the list, each name once (case and accents aside). Applies to the ' +
+      'next calculation of a list; the lines already marked or unmarked by hand keep ' +
+      'what you chose.',
+  })
+  @ApiOkResponse({ example: { staples: ['Sel fin', 'Poivre', 'Huile d’olive'] } })
+  @ApiNotFoundResponse({ description: '`CHEF_NOT_FOUND`: not a batch cooker account.' })
+  @ApiClerkAuthResponses()
+  setPantryStaples(
+    @CurrentClerkUser() user: ClerkUser,
+    @Body() payload: PutPantryStaplesDto,
+  ) {
+    return this.missions.setPantryStaples(user.userId, payload.staples);
   }
 
   @Post('chef-missions/:id/recipes/repin')

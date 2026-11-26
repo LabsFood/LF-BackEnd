@@ -1,6 +1,8 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 
@@ -11,12 +13,14 @@ import {
   ShoppingItem,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MessagingEventsService } from '../messaging/services/messaging-events.service';
 import { aislesInForce } from '../platform-settings/recipe-lists';
 import { displayQuantity } from '../dishes/domain/units.rules';
 import {
   aggregate,
   applyCorrections,
   diffCorrections,
+  fold,
   groupByAisle,
   Line,
   lineKey,
@@ -24,9 +28,16 @@ import {
   scale,
 } from '../dishes/domain/recipes.rules';
 import {
+  applyReplies,
+  changesSinceSent,
+  ChefReply,
   ClientMark,
+  keptMarks,
+  ListLine,
   MarkInput,
-  marksApply,
+  mergeMarks,
+  quietSince,
+  ReplyInput,
   submitRefusal,
   toMarks,
   withMarks,
@@ -52,6 +63,7 @@ const toLine = (item: ShoppingItem): Line => ({
   unit: item.unit ?? '',
   aisle: item.aisle,
   ...(item.optional ? { optional: true as const } : {}),
+  ...(item.providedByChef ? { providedByChef: true } : {}),
 });
 
 /** The list as the chef left it: computed lines with their corrections applied. */
@@ -62,6 +74,27 @@ export const linesOf = (items: ShoppingItem[]) =>
       .filter((item) => item.edited)
       .map((item) => ({ ...toLine(item), removed: item.removed })),
   );
+
+type ListRow = {
+  version: number;
+  sentLines: Prisma.JsonValue | null;
+  clientMarks: Prisma.JsonValue;
+  marksVersion: number | null;
+  chefReplies: Prisma.JsonValue;
+};
+
+/** The lines the client reads: those last sent, never the chef's work in progress. */
+export const sentLinesOf = (list: Pick<ListRow, 'sentLines'>) =>
+  (list.sentLines ?? []) as unknown as ListLine[];
+
+/** The client's marks, if they answer the version sent last. */
+const currentMarks = (list: ListRow) =>
+  list.marksVersion === list.version ? (list.clientMarks as unknown as ClientMark[]) : [];
+
+const repliesOf = (list: Pick<ListRow, 'chefReplies'>) =>
+  (list.chefReplies ?? []) as unknown as ChefReply[];
+
+const json = (value: unknown) => value as Prisma.InputJsonValue;
 
 /**
  * A prestation's shopping list (FLOW-02 §7), computed from the recipes it cooks
@@ -74,7 +107,12 @@ export const linesOf = (items: ShoppingItem[]) =>
  */
 @Injectable()
 export class ShoppingListsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ShoppingListsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly events?: MessagingEventsService,
+  ) {}
 
   async getByBookingId(bookingId: string) {
     return this.prisma.shoppingList.findUnique({
@@ -177,39 +215,87 @@ export class ShoppingListsService {
   }
 
   /**
-   * §7's shape, grouped by aisle, with the exchange with the client (§10.7). Each
-   * line carries the client's answer: for the chef and admins only once it answers
-   * the list sent last; for the client always, to start again from it after an
-   * update.
+   * §7's shape, grouped by aisle, with the exchange with the client (§10.7). The
+   * client's marks show on each line as soon as they answer the version sent last.
+   *
+   * The chef and admins read the live list, with what changed since the last send.
+   * The client reads only what was sent: nothing before the first send, then that
+   * snapshot, the lines the batch cooker brings set apart and not to be ticked.
    */
   async view(bookingId: string, options: { forClient?: boolean } = {}) {
     const list =
       (await this.getByBookingId(bookingId)) ??
       (await this.regenerateForBooking(bookingId));
-    const marks =
-      options.forClient || marksApply(list)
-        ? (list.clientMarks as unknown as ClientMark[])
-        : [];
-    return {
+    const order = (await aislesInForce(this.prisma)).map((aisle) => aisle.code);
+    const marks = currentMarks(list);
+    const replies = repliesOf(list);
+    const common = {
       generatedAt: list.generatedAt,
       version: list.version,
       sentAt: list.sentAt,
       finalReceivedAt: list.finalReceivedAt,
+      marksUpdatedAt: list.marksVersion === list.version ? list.marksUpdatedAt : null,
+    };
+
+    if (options.forClient) {
+      const sent = sentLinesOf(list);
+      return {
+        ...common,
+        groups: groupByAisle(
+          withMarks(
+            sent.filter((line) => !line.providedByChef),
+            marks,
+            replies,
+          ),
+          order,
+        ),
+        providedByChef: sent.filter((line) => line.providedByChef),
+      };
+    }
+
+    const live = linesOf(list.items);
+    const changes = list.version > 0 ? changesSinceSent(sentLinesOf(list), live) : null;
+    return {
+      ...common,
+      pendingChanges: !!changes && Object.values(changes).some((c) => c.length > 0),
+      changesSinceSent: changes,
       groups: groupByAisle(
-        withMarks(linesOf(list.items), marks),
-        (await aislesInForce(this.prisma)).map((aisle) => aisle.code),
+        withMarks(live, marks, replies).map((line) => ({
+          ...line,
+          providedByChef: !!line.providedByChef,
+        })),
+        order,
       ),
     };
   }
 
-  /** The batch cooker sends the list as it is now. Each send counts. */
+  /**
+   * The batch cooker sends the list as it is now: it becomes what the client reads
+   * (`sentLines`). Each send counts. The client's marks carry over to the lines
+   * that still ask for the same quantity; the others fall.
+   */
   async send(bookingId: string) {
     if (!(await this.getByBookingId(bookingId)))
       await this.regenerateForBooking(bookingId);
-    return this.prisma.shoppingList.update({
-      where: { bookingId },
-      data: { version: { increment: 1 }, sentAt: new Date() },
-      select: { version: true },
+    return this.locked(bookingId, async (tx, listId) => {
+      const list = await tx.shoppingList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: true },
+      });
+      const sent = linesOf(list.items);
+      const version = list.version + 1;
+      const marks = keptMarks(sent, currentMarks(list));
+      await tx.shoppingList.update({
+        where: { id: listId },
+        data: {
+          version,
+          sentAt: new Date(),
+          sentLines: json(sent),
+          clientMarks: json(marks),
+          marksVersion: marks.length ? version : null,
+        },
+      });
+      return { version };
     });
   }
 
@@ -231,7 +317,7 @@ export class ShoppingListsService {
   }
 
   /**
-   * The client's final list: their marks, checked against the list as it is inside
+   * The client's final list: their marks, checked against the version sent, inside
    * the lock. A send that lands meanwhile waits, then makes this answer out of date.
    */
   async submit(
@@ -240,23 +326,114 @@ export class ShoppingListsService {
     deadline: Date,
   ) {
     return this.locked(bookingId, async (tx, listId) => {
-      const list = await tx.shoppingList.findUniqueOrThrow({
-        where: { id: listId },
-        include: { items: true },
-      });
+      const list = await tx.shoppingList.findUniqueOrThrow({ where: { id: listId } });
       const now = new Date();
       const refusal = submitRefusal(list, deadline, now, answer.version);
       if (refusal) throw refusal;
-      const marks = toMarks(linesOf(list.items), answer.marks);
+      const marks = toMarks(sentLinesOf(list), answer.marks);
       await tx.shoppingList.update({
         where: { id: listId },
         data: {
-          clientMarks: marks as unknown as Prisma.InputJsonValue,
+          clientMarks: json(marks),
+          marksVersion: list.version,
+          marksUpdatedAt: now,
           finalReceivedAt: now,
         },
       });
       return { version: list.version, marks: marks.length };
     });
+  }
+
+  /**
+   * A tick, a part or a comment saved at once (no « send » needed): merged into
+   * the client's marks for the version they see. `notify` says whether the chef's
+   * bell rings: only after a quiet spell, never once per tick.
+   */
+  async saveMarks(
+    bookingId: string,
+    answer: { version: number; marks: MarkInput[] },
+    deadline: Date,
+  ) {
+    return this.locked(bookingId, async (tx, listId) => {
+      const list = await tx.shoppingList.findUniqueOrThrow({ where: { id: listId } });
+      const now = new Date();
+      const refusal = submitRefusal(list, deadline, now, answer.version);
+      if (refusal) throw refusal;
+      const marks = mergeMarks(sentLinesOf(list), currentMarks(list), answer.marks);
+      await tx.shoppingList.update({
+        where: { id: listId },
+        data: {
+          clientMarks: json(marks),
+          marksVersion: list.version,
+          marksUpdatedAt: now,
+        },
+      });
+      return {
+        version: list.version,
+        marks: marks.length,
+        notify: quietSince(list.marksUpdatedAt, now),
+      };
+    });
+  }
+
+  /**
+   * The batch cooker answers the client's comments on the version sent. `notify`
+   * says whether the client's bell rings (one per quiet spell).
+   */
+  async reply(bookingId: string, input: ReplyInput[]) {
+    return this.locked(bookingId, async (tx, listId) => {
+      const list = await tx.shoppingList.findUniqueOrThrow({ where: { id: listId } });
+      const now = new Date();
+      const before = repliesOf(list);
+      const replies = applyReplies(
+        sentLinesOf(list),
+        currentMarks(list),
+        before,
+        input,
+        now,
+      );
+      await tx.shoppingList.update({
+        where: { id: listId },
+        data: { chefReplies: json(replies) },
+      });
+      const last = before.reduce<Date | null>((latest, reply) => {
+        const at = new Date(reply.repliedAt);
+        return !latest || at > latest ? at : latest;
+      }, null);
+      return { replies: replies.length, notify: quietSince(last, now) };
+    });
+  }
+
+  /**
+   * Tells the people on the page that the list changed (WebSocket
+   * `shopping_list.changed`): they fetch it again. Best effort, never thrown.
+   */
+  async announce(bookingId: string, userIds: string[]) {
+    if (!this.events || userIds.length === 0) return;
+    try {
+      const list = await this.prisma.shoppingList.findUnique({
+        where: { bookingId },
+        select: { version: true, marksUpdatedAt: true },
+      });
+      await this.events.publish({
+        userIds,
+        toUsers: {
+          event: 'shopping_list.changed',
+          data: {
+            bookingId,
+            version: list?.version ?? 0,
+            marksUpdatedAt: list?.marksUpdatedAt ?? null,
+          },
+        },
+        toAdmins: null,
+      });
+    } catch (error) {
+      this.logger.warn({
+        event: 'shopping_list.announce_failed',
+        bookingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -276,12 +453,17 @@ export class ShoppingListsService {
     if (!(await this.getByBookingId(bookingId)))
       await this.regenerateForBooking(bookingId);
     await this.locked(bookingId, async (tx, listId) => {
-      const computed = (
-        await tx.shoppingItem.findMany({
-          where: { shoppingListId: listId, edited: false },
-        })
-      ).map(toLine);
-      const corrections = diffCorrections(computed, wanted);
+      const items = await tx.shoppingItem.findMany({
+        where: { shoppingListId: listId },
+      });
+      const computed = items.filter((item) => !item.edited).map(toLine);
+      // An older front sends no `providedByChef`: the line keeps what it has.
+      const live = new Map(linesOf(items).map((line) => [lineKey(line), line]));
+      const resolved = wanted.map((line) => ({
+        ...line,
+        providedByChef: line.providedByChef ?? !!live.get(lineKey(line))?.providedByChef,
+      }));
+      const corrections = diffCorrections(computed, resolved);
       await tx.shoppingItem.deleteMany({
         where: { shoppingListId: listId, edited: true },
       });
@@ -295,6 +477,7 @@ export class ShoppingListsService {
           quantity: formatQuantity(c),
           edited: true,
           removed: c.removed,
+          providedByChef: !!c.providedByChef,
         })),
       });
     });
@@ -313,14 +496,24 @@ export class ShoppingListsService {
     return this.view(bookingId);
   }
 
-  /** What the pinned recipes give, scaled to the portions booked and added up. */
+  /**
+   * What the pinned recipes give, scaled to the portions booked and added up. A
+   * line the batch cooker always brings (their pantry staples) is marked so.
+   */
   private async computedLines(bookingId: string): Promise<Line[]> {
     const pinned = await this.pinRecipes(bookingId);
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { chefProfile: { select: { pantryStaples: true } } },
+    });
+    const staples = new Set((booking?.chefProfile?.pantryStaples ?? []).map(fold));
     // Recettes §4.12: added up unrounded, rounded once at the end.
     return roundLines(
       aggregate(
         pinned.flatMap((p) => scale(p.recipe.ingredients, p.recipe.portions, p.portions)),
       ),
+    ).map((line) =>
+      staples.has(fold(line.name)) ? { ...line, providedByChef: true } : line,
     );
   }
 

@@ -29,6 +29,7 @@ import { MessagingService } from './services/messaging.service';
   ],
   // `ensurePair`: an accepted custom request opens the thread at once; any other
   // booking opens it on demand (`openForBooking`).
-  exports: [MessagingService],
+  // The shopping list pushes `shopping_list.changed` down the same sockets.
+  exports: [MessagingService, MessagingEventsService],
 })
 export class MessagingModule {}
