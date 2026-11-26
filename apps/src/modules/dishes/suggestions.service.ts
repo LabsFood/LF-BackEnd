@@ -70,7 +70,7 @@ export class SuggestionsService {
     const menuCopy = new Map(menuCopies.map((c) => [c.sourceMenuId, c.id]));
 
     return {
-      dishes: dishes.map((dish) => ({
+      dishes: featuredFirst(dishes).map((dish) => ({
         ...toPreview(dish),
         adoptedCopyId: dishCopy.get(dish.id) ?? null,
       })),
@@ -181,7 +181,7 @@ export class SuggestionsService {
       }),
     ]);
     return {
-      dishes: dishes.map(toPreview),
+      dishes: featuredFirst(dishes).map(toPreview),
       menus: menus.map((menu) => ({
         id: menu.id,
         title: menu.title,
@@ -352,9 +352,21 @@ export class SuggestionsService {
   }
 }
 
-/** A preview (§6): the dish without its recipe; a chef route, so with the times. */
+/**
+ * A preview (§6): the dish without its recipe; a chef route, so with the times, and
+ * whether the team featured it (« Mettre en vedette » in the console, feedback of 26/11).
+ */
 function toPreview(meal: Meal) {
-  return { ...toDishSummary(meal), updatedAt: meal.updatedAt };
+  return {
+    ...toDishSummary(meal),
+    updatedAt: meal.updatedAt,
+    isFeatured: meal.isFeatured,
+  };
+}
+
+/** The featured dishes first; the order the query gave is kept within each part. */
+function featuredFirst(meals: Meal[]): Meal[] {
+  return [...meals.filter((m) => m.isFeatured), ...meals.filter((m) => !m.isFeatured)];
 }
 
 function assertConsent(consent: boolean): void {

@@ -751,7 +751,8 @@ export class MeContentController {
     description:
       "Dishes and menus Lab's Food offers every batch cooker as a starting point. A " +
       'preview only: never the ingredients or steps.\n\n' +
-      '`adoptedCopyId` is the id of your copy when you already adopted it, else `null`.',
+      '`adoptedCopyId` is the id of your copy when you already adopted it, else `null`. ' +
+      'Dishes the team featured (`isFeatured`) come first, then the others, by name.',
   })
   @ApiOkResponse({ description: 'The suggestions.', example: SUGGESTIONS_EXAMPLE })
   @ApiNotFoundResponse({ description: 'This account has no batch cooker profile.' })
@@ -806,7 +807,8 @@ export class MeContentController {
     summary: "See what Lab's Food prepared for me",
     description:
       'Dishes and menus Lab’s Food prepared for you alone. Nobody else sees them. ' +
-      'Accept one to make it yours, or decline it. A preview only, like suggestions.',
+      'Accept one to make it yours, or decline it. A preview only, like suggestions. ' +
+      'Featured dishes (`isFeatured`) come first, then the latest.',
   })
   @ApiOkResponse({
     description: 'The offers.',

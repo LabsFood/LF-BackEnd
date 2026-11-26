@@ -264,6 +264,7 @@ export const SUGGESTIONS_EXAMPLE = {
       name: 'Poulet yassa',
       country: 'SN',
       updatedAt: '2026-09-03T14:12:00.000Z',
+      isFeatured: true,
       adoptedCopyId: null,
     },
   ],

@@ -260,7 +260,45 @@ describe('SuggestionsService', () => {
     expect(dishes[0]).toHaveProperty('calories');
   });
 
+  it('puts the featured suggestions first, flagged, in name order within each part (26/11)', async () => {
+    const h = harness();
+    h.meal.findMany
+      .mockResolvedValueOnce([
+        suggestion({ id: 's-a', name: 'Aubergines farcies', isFeatured: false }),
+        suggestion({ id: 's-c', name: 'Carrot cake', isFeatured: true }),
+        suggestion({ id: 's-o', name: 'Colombo de poulet', isFeatured: false }),
+        suggestion({ id: 's-v', name: 'Velouté de butternut', isFeatured: true }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const { dishes } = await service(h).list('clerk_1');
+
+    expect(dishes.map((d) => [d.name, d.isFeatured])).toEqual([
+      ['Carrot cake', true],
+      ['Velouté de butternut', true],
+      ['Aubergines farcies', false],
+      ['Colombo de poulet', false],
+    ]);
+  });
+
   describe('offers', () => {
+    it('puts the featured offered dishes first, flagged, latest first within each part (26/11)', async () => {
+      const h = harness();
+      h.meal.findMany.mockResolvedValueOnce([
+        suggestion({ id: 'o-1', name: 'Récent', isFeatured: false }),
+        suggestion({ id: 'o-2', name: 'Vedette', isFeatured: true }),
+        suggestion({ id: 'o-3', name: 'Ancien', isFeatured: false }),
+      ]);
+
+      const { dishes } = await service(h).offers('clerk_1');
+
+      expect(dishes.map((d) => [d.name, d.isFeatured])).toEqual([
+        ['Vedette', true],
+        ['Récent', false],
+        ['Ancien', false],
+      ]);
+    });
+
     it('only ever looks at offers made to the calling chef', async () => {
       const h = harness();
       await service(h).offers('clerk_1');
