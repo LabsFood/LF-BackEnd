@@ -333,6 +333,7 @@ export class AdminUrssafController {
           chefName: 'Alice Martin',
           chefNovaCode: 'SAP123456789',
         },
+        sapDeclarationNumber: 'SAP100715036',
       },
     ],
   })

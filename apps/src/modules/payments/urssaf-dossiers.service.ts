@@ -20,6 +20,7 @@ import {
   normalizeDossier,
   type UrssafDossier,
 } from './domain/urssaf-dossier.rules';
+import { sasIdentity } from './sas-identity';
 
 const PROBLEM_MESSAGES: Record<string, string> = {
   REQUIRED: 'Required.',
@@ -179,7 +180,10 @@ export class UrssafDossiersService {
       linkId: link.id,
       clientId: link.clientId,
       chefProfileId: link.chefProfileId,
+      // Dossier check only: the request is entered under `sapDeclarationNumber`.
       chefNovaCode: link.chefProfile.sapProfile?.novaCode ?? null,
+      /** The SAS SAP declaration the request is entered under (MajorD 26/11). */
+      sapDeclarationNumber: sasIdentity().sapDeclarationNumber,
       filledAt: row.filledAt,
       updatedAt: row.updatedAt,
       dossier,

@@ -1,5 +1,6 @@
 import type { CesuIssuer } from '../../generated/prisma/client';
 import { cesuCollector } from './cesu-collector';
+import { sasIdentity } from './sas-identity';
 
 /**
  * Every issuer a French beneficiary can hold a prefinanced CESU account with. Purely
@@ -58,23 +59,23 @@ export const cesuAccepted = (
   mandate: { status: string } | null | undefined,
 ) => Boolean(sap?.acceptsCesu && cesuCollector() && mandateActive(mandate));
 
-/** The chef's own SAP/NOVA number: every request to URSSAF is made in its name. */
-export const novaCodeSet = (sap: { novaCode: string | null } | null | undefined) =>
-  Boolean(sap?.novaCode?.trim());
+/**
+ * The SAS SAP declaration is configured: every immediate-advance request is made under
+ * it, never under the chef's own NOVA (MajorD, 26/11/2026). The chef's NOVA is only
+ * checked by the admin when vetting the dossier.
+ */
+export const sasSapSet = () => Boolean(sasIdentity().sapDeclarationNumber);
 
 /**
- * The immediate advance: URSSAF habilitation (flipped by an admin), the chef's NOVA
- * code (entered with each request on the intermediary's space), and a mandate for
- * the commission.
+ * The immediate advance: URSSAF habilitation (flipped by an admin once the chef's
+ * dossier, NOVA included, is checked), the SAS SAP declaration the request is made
+ * under, and a mandate for the commission.
  */
 export const advanceAccepted = (
-  sap:
-    { urssafTiersPrestationStatus: string; novaCode: string | null } | null | undefined,
+  sap: { urssafTiersPrestationStatus: string } | null | undefined,
   mandate: { status: string } | null | undefined,
 ) =>
-  sap?.urssafTiersPrestationStatus === 'active' &&
-  novaCodeSet(sap) &&
-  mandateActive(mandate);
+  sap?.urssafTiersPrestationStatus === 'active' && sasSapSet() && mandateActive(mandate);
 
 export function toChefCesuInfo(chef: ChefCesuInfoRow): ChefCesuInfo {
   const acceptsCesu = cesuAccepted(chef.sapProfile, chef.sepaMandate);

@@ -169,8 +169,13 @@ describe('UrssafDossiersService', () => {
 
   it('reveals the whole dossier to an admin, audited', async () => {
     const { service, audit } = setup({ existing: { storagePath: 'clients/u1/a.enc' } });
+    const saved = process.env.SAP_DECLARATION_NUMBER;
+    process.env.SAP_DECLARATION_NUMBER = 'SAP100715036';
     const revealed = await service.reveal('admin-clerk', 'l1');
+    process.env.SAP_DECLARATION_NUMBER = saved;
     expect(revealed.dossier.iban).toBe(IBAN);
+    // The request is entered under the SAS SAP; the chef NOVA stays for the dossier check.
+    expect(revealed.sapDeclarationNumber).toBe('SAP100715036');
     expect(revealed.chefNovaCode).toBe('SAP123456789');
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({

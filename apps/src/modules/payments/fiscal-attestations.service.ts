@@ -4,13 +4,11 @@ import type { PaymentMethod } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { FiscalAttestationDto, FiscalAttestationProviderDto } from './dto/payment.dto';
+import { sasIdentity } from './sas-identity';
 
 /** Wording carried back to the client for the part their issuer attests, not the platform. */
 export const ECESU_ATTESTATION_NOTE =
   'Part réglée en e-CESU — attestation délivrée par votre émetteur.';
-
-export const TYPE_B_ATTESTATION_NOTE =
-  'Prestataire déclaré via une coopérative — facture et attestation émises par celle-ci.';
 
 /** Payment row shape the aggregation needs: amounts plus who was paid, by whom. */
 type AttestationPayment = {
@@ -37,11 +35,11 @@ type AttestationPayment = {
  * Yearly totals backing the "attestation fiscale" a client files for the 50 %
  * "service à la personne" credit.
  *
- * **The chef is the declared provider (prestataire)**, so an attestation is issued per
- * chef, carrying that chef's own declaration — NOVA code for `type_a_nova`, the
- * cooperative for `type_b_cooperative`. The client-level totals here are a dashboard
- * summary: no single document can cover amounts from several independent providers,
- * which is why every response carries a `providers` breakdown.
+ * **Lab's Food is the provider (prestataire)**: the SAS collects every payment and
+ * invoices the household in its own name (prix net flow), so it issues one attestation
+ * per client and year under its own SAP declaration (`sasIdentity()`, MajorD
+ * 26/11/2026). `providers` is a per-batch-cooker breakdown; the chef's own SAP/NOVA
+ * stays on it for the admin's dossier check only.
  *
  * Only `succeeded` payments count, so a refunded payment drops out on its own.
  *
@@ -173,6 +171,7 @@ export class FiscalAttestationsService {
     );
 
     return {
+      issuer: attestationIssuer(),
       clientId: client.id,
       clientName: client.fullName,
       clientEmail: client.email,
@@ -239,34 +238,37 @@ export class FiscalAttestationsService {
   }
 }
 
+/** The SAS, under its own SAP declaration: the issuer of every attestation. */
+export function attestationIssuer(): FiscalAttestationDto['issuer'] {
+  const { name, legalName, siren, address, sapDeclarationNumber } = sasIdentity();
+  return { name, legalName, siren, address, sapDeclarationNumber };
+}
+
 /**
- * Whether **LAB'S FOOD** may attest this payment — the single predicate behind
+ * Whether Lab's Food may attest this payment: the single predicate behind
  * `platformAttestedAmountCents`.
  *
  * The client's own eligible total stays complete either way; what narrows is the part
- * this platform puts its name to. Two exclusions, deliberately expressed in one place so
- * a later accounting ruling is one edit and one test rather than a hunt:
+ * the SAS puts its name to. One exclusion, kept in one place so a later accounting
+ * ruling is one edit and one test rather than a hunt:
  *
- * 1. **Type B** — the chef declares through a cooperative, which issues both the invoice
- *    and the attestation. Attesting here would duplicate theirs.
- * 2. **e-CESU** — the issuer already attests the share it financed. Paper CESU stays
- *    attested by the platform.
+ * - **e-CESU**: the issuer already attests the share it financed. Paper CESU stays
+ *   attested by the SAS.
  *
- * ⚠️ Exclusion 2 is the open question flagged for the accountant: paper and electronic
- * CESU are both *prefinanced*, from the same issuers, and the issuer's attestation covers
- * both — so attesting paper may carry the same over-declaration exposure under art. 199
- * sexdecies CGI, and it is LAB'S FOOD that signs. If that is confirmed, the fix is one
- * line here.
+ * The chef's declaration route (NOVA or cooperative) no longer matters: the SAS
+ * invoices the household for every booking, so it attests every booking.
  *
- * ponytail: pending accountant sign-off on exclusion 2 (paper CESU). Upgrade: fold paper
- * into the `isECesu` check above once confirmed — one line, no migration.
+ * ⚠️ Open question flagged for the accountant: paper and electronic CESU are both
+ * *prefinanced*, from the same issuers, and the issuer's attestation covers both, so
+ * attesting paper may carry the same over-declaration exposure under art. 199 sexdecies
+ * CGI, and it is the SAS that signs. If that is confirmed, the fix is one line here.
+ *
+ * ponytail: pending accountant sign-off on paper CESU. Upgrade: fold paper into the
+ * e-CESU check below once confirmed — one line, no migration.
  */
 export function attestationExclusion(
   payment: AttestationPayment,
-): typeof ECESU_ATTESTATION_NOTE | typeof TYPE_B_ATTESTATION_NOTE | null {
-  if (payment.booking.chefProfile.sapProfile?.declarationType === 'type_b_cooperative') {
-    return TYPE_B_ATTESTATION_NOTE;
-  }
+): typeof ECESU_ATTESTATION_NOTE | null {
   if (payment.method === 'cesu' && payment.cesuSettlement?.medium === 'ecesu') {
     return ECESU_ATTESTATION_NOTE;
   }
