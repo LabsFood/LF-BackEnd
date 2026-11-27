@@ -161,16 +161,15 @@ export class WorkAuthorizationDto {
 
 export class CompanySapDto {
   @ApiProperty({
-    enum: ['type-b', 'type-a'],
+    enum: ['type-a'],
     description:
-      'Who holds the "services à la personne" declaration; Lab’s Food is not a ' +
-      'cooperative and onboards no one without one. `type-a`: the batch cooker has ' +
-      'their own, gives its number in `declarationNumber` and deposits the ' +
-      '`sap-declaration` receipt. `type-b`: an SAP cooperative they joined holds it, ' +
-      'and they deposit `sap-cooperative`, its membership certificate.',
-    example: 'type-b',
+      'Who holds the "services à la personne" declaration: the batch cooker, always ' +
+      '(27/11/2026: the cooperative route is closed). `type-a`: they give their number ' +
+      'in `declarationNumber` and deposit the `sap-declaration` receipt. Without one, ' +
+      'Lab’s Food onboards no one.',
+    example: 'type-a',
   })
-  @IsIn(['type-a', 'type-b'])
+  @IsIn(['type-a'])
   path!: string;
 
   @ApiPropertyOptional({
