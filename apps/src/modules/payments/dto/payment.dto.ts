@@ -137,7 +137,7 @@ export class FiscalAttestationProviderDto {
   @ApiPropertyOptional({
     nullable: true,
     description: 'Cooperative the chef declares through (dossier check only).',
-    example: 'Unipros',
+    example: 'Coop SAP',
   })
   cooperativeName?: string | null;
 

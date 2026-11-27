@@ -161,7 +161,7 @@ describe('BookingPaymentsService — manual URSSAF route', () => {
       expect(settlePayment).toHaveBeenCalled();
     });
 
-    it('accepts a refusal without a reference: Unipros may refuse before giving one', async () => {
+    it('accepts a refusal without a reference: the intermediary may refuse before giving one', async () => {
       const { service } = setup('manual');
       const result = await service.recordAdminOutcome(
         'clerk',

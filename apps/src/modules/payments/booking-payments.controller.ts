@@ -230,7 +230,7 @@ export class BookingPaymentsController {
 
 /**
  * The team watches the immediate advance and records URSSAF's answers: in its place
- * while the gateway is simulated, or copied from the intermediary's space (Unipros)
+ * while the gateway is simulated, or copied from the intermediary's space
  * while it is manual.
  */
 @ApiTags(TAGS.payments)
@@ -347,7 +347,7 @@ export class AdminUrssafController {
   @ApiOperation({
     summary: 'Record that a request was entered on the intermediary’s space',
     description:
-      'Manual mode: the admin entered the request on Unipros and records the reference ' +
+      'Manual mode: the admin entered the request on the intermediary’s space and records the reference ' +
       'it gave. Accepted once per request, so nobody enters it twice.',
   })
   @ApiParam({ name: 'id', description: 'The payment id.', example: PAYMENT_ID })

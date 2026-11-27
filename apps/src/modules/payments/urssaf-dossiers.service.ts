@@ -40,7 +40,7 @@ const PROBLEM_MESSAGES: Record<string, string> = {
 
 /**
  * The client's URSSAF dossier for the immediate advance, manual route: collected
- * here, entered by an admin on the intermediary's space (Unipros).
+ * here, entered by an admin on the intermediary's space.
  *
  * Sealed (AES-256-GCM, `KYC_ENCRYPTION_KEY`) before it reaches the private KYC
  * bucket; Postgres only knows it exists. Nothing from it is ever logged: events

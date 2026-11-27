@@ -28,7 +28,7 @@ Sommaire :
 | **Responsable d'incident (RI)** | MajorD (fondateur, compte Railway `Danyjk`) | Décide, agit sur la prod, communique. Seule personne avec les accès admin à tout aujourd'hui. |
 | **Suppléant** | *À désigner* | Doit pouvoir au minimum : faire un Rollback Railway, lire Sentry, poster un message aux clients. |
 | **Support opérationnel** | Équipe Lab's Food (admin console) | Prévient le RI, répond aux clients et aux batch cookers, saisit les demandes URSSAF à la main si besoin. |
-| **Fournisseurs** | Railway, Supabase, Clerk, Stripe, Brevo, Cloudflare, GitHub, Unipros | Support via leur console (voir §8.1). |
+| **Fournisseurs** | Railway, Supabase, Clerk, Stripe, Brevo, Cloudflare, GitHub | Support via leur console (voir §8.1). |
 
 **Risque n°1 du plan : une seule personne a les clés.** Tant qu'il n'y a pas de suppléant,
 le RTO réel de tous les services est « le temps que MajorD soit joignable ». Voir §6.
@@ -70,7 +70,7 @@ Le projet Railway `hearty-rebirth` (backend, admin, batchcooking, Redis) n'est p
 | **Clerk** | Connexion, sessions, JWT | Comptes de connexion (le rôle et les données métier sont dans Postgres) |
 | **Stripe + Connect** | Paiements CB, SEPA, comptes Express des chefs, commissions | Source de vérité des paiements |
 | **Brevo** | E-mails transactionnels (24+ modèles) | Modèles d'e-mails, journaux d'envoi |
-| **URSSAF / Unipros** | Avance immédiate en mode `manual` : un admin saisit les demandes sur l'espace Unipros | Dossiers côté Unipros |
+| **URSSAF** | Avance immédiate en mode `manual` : un admin saisit les demandes sur l'espace URSSAF de Lab's Food | Dossiers côté URSSAF |
 | **GitHub + GHCR** | Code, CI, images Docker de l'API, workflow de déploiement prod | Code, images |
 | **Sentry / PostHog** | Erreurs, moniteurs cron et uptime / analytics | Observabilité uniquement |
 | **DNS `labsfood.fr`** | Domaines des fronts | *Registrar et hébergeur DNS à noter en §8.1* |
@@ -119,7 +119,7 @@ pannes dégradent une fonction précise.
 | Redis | Basse (1 réplica API) | 1 h | sans objet (données jetables) | sans objet |
 | Brevo | Moyenne | 4 h | e-mails perdus pendant la panne | idem |
 | R2 photos | Moyenne | 4 h | 24 h | **aucune copie** |
-| URSSAF / Unipros | Moyenne | 1 jour ouvré | 0 (saisie manuelle) | 0 |
+| URSSAF | Moyenne | 1 jour ouvré | 0 (saisie manuelle) | 0 |
 | CI / GHCR | Basse (ne bloque que les déploiements) | 1 jour | 0 | 0 |
 
 ---
@@ -462,9 +462,9 @@ Railway `CRASHED`/`FAILED`, page blanche ou erreur 500.
 
 ---
 
-### 5.10 Avance immédiate URSSAF (mode `manual`, via Unipros)
+### 5.10 Avance immédiate URSSAF (mode `manual`, espace URSSAF)
 
-**Détection** : impossible de saisir une demande sur l'espace Unipros, refus en série,
+**Détection** : impossible de saisir une demande sur l'espace URSSAF de Lab's Food, refus en série,
 ou dossiers clients illisibles dans la console (erreur de déchiffrement).
 
 **Impact** : les clients ne bénéficient pas de l'avance immédiate tant que la demande
@@ -474,8 +474,8 @@ n'est pas saisie. Le paiement CB reste possible.
 `labsfood-kyc`.
 
 **Reprise**
-1. Espace Unipros indisponible : noter les demandes en attente (console) et les saisir au
-   retour ; contacter Unipros si ça dure plus d'un jour ouvré. Prévenir les clients concernés
+1. Espace URSSAF indisponible : noter les demandes en attente (console) et les saisir au
+   retour ; contacter l'URSSAF si ça dure plus d'un jour ouvré. Prévenir les clients concernés
    du délai.
 2. Erreur de déchiffrement des dossiers : `KYC_ENCRYPTION_KEY` a changé ou manque.
    **Remettre la clé d'origine** (gestionnaire de mots de passe). Ne jamais générer une
@@ -697,7 +697,7 @@ avec la prod est un incident à traiter.
 | Cloudflare (R2) | dash.cloudflare.com | cloudflarestatus.com |
 | GitHub | github.com/LabsFood | githubstatus.com |
 | Sentry (UE) | sentry.io | status.sentry.io |
-| Unipros | *à compléter : espace intermédiaire + contact support* | |
+| URSSAF | *à compléter : espace de saisie + contact support* | |
 | Registrar / DNS `labsfood.fr` | *à compléter* | |
 
 ### 8.2 Sondes rapides

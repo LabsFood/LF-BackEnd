@@ -49,7 +49,7 @@ const CHEF_B = {
   sapProfile: {
     declarationType: 'type_b_cooperative',
     novaCode: null,
-    cooperativeName: 'Unipros',
+    cooperativeName: 'Coop SAP',
   },
 };
 const CHEF_UNDECLARED = { id: 'chef-c', displayName: 'Chef Sans SAP', sapProfile: null };
@@ -142,7 +142,7 @@ describe('FiscalAttestationsService', () => {
       sapDeclared: true,
       declarationType: 'type_b_cooperative',
       novaCode: null,
-      cooperativeName: 'Unipros',
+      cooperativeName: 'Coop SAP',
     });
   });
 

@@ -98,7 +98,7 @@ interface UrssafPaymentMetadata {
   /** When the request reached URSSAF, or (manual mode) was entered on the intermediary's space. */
   transmittedAt?: string | null;
   debitedCents?: number;
-  /** Manual mode: the reference the intermediary (Unipros) gave the request. */
+  /** Manual mode: the reference the intermediary gave the request. */
   externalReference?: string;
   /** Recettes lot 6: URSSAF took it back (status 120), why and when. */
   urssafStatus?: number;

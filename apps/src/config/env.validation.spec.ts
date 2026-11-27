@@ -72,7 +72,7 @@ describe('envValidationSchema — URSSAF_GATEWAY', () => {
 
   const KEY = Buffer.alloc(32, 7).toString('base64');
 
-  it('runs manual beside live Stripe keys: a real admin enters real requests on Unipros', () => {
+  it('runs manual beside live Stripe keys: a real admin enters real requests on the intermediary’s space', () => {
     const { error } = validate({
       STRIPE_SECRET_KEY: 'sk_live_abc123',
       URSSAF_GATEWAY: 'manual',
