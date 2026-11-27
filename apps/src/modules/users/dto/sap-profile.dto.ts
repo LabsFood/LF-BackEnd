@@ -22,6 +22,14 @@ export const SAP_DECLARATION_TYPES = [
   'type_b_cooperative',
 ] as const satisfies readonly SapDeclarationType[];
 
+/**
+ * What a chef may now declare: their own NOVA only. `type_b_cooperative` stays in the
+ * database enum for existing rows, but nobody can set it any more (27/11/2026).
+ */
+export const SAP_DECLARATION_TYPES_ALLOWED = [
+  'type_a_nova',
+] as const satisfies readonly SapDeclarationType[];
+
 export const SAP_EXTERNAL_STATUSES = [
   'not_started',
   'pending',
@@ -39,13 +47,13 @@ export const SAP_EXTERNAL_STATUSES = [
  */
 export class UpdateMeSapProfileDto {
   @ApiProperty({
-    enum: SAP_DECLARATION_TYPES,
+    enum: SAP_DECLARATION_TYPES_ALLOWED,
     description:
-      'Declaration route. `type_a_nova` requires `novaCode`; `type_b_cooperative` ' +
-      'requires `cooperativeName` and `cooperativeMembershipProof`.',
+      'Declaration route: the chef own NOVA, which requires `novaCode`. The ' +
+      'cooperative route is closed.',
     example: 'type_a_nova',
   })
-  @IsIn(SAP_DECLARATION_TYPES)
+  @IsIn(SAP_DECLARATION_TYPES_ALLOWED)
   declarationType!: SapDeclarationType;
 
   @ApiPropertyOptional({

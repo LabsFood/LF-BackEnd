@@ -22,29 +22,14 @@ describe('UpdateMeSapProfileDto', () => {
     expect(validate({ declarationType: 'type_a_nova' })).toContain('novaCode');
   });
 
-  it('accepts a type B declaration with cooperative name and proof', () => {
+  it('rejects a type B declaration: the cooperative route is closed', () => {
     expect(
       validate({
         declarationType: 'type_b_cooperative',
         cooperativeName: 'Coop SAP',
         cooperativeMembershipProof: 'https://files.test/proof.pdf',
       }),
-    ).toEqual([]);
-  });
-
-  it('rejects a type B declaration missing the cooperative name', () => {
-    expect(
-      validate({
-        declarationType: 'type_b_cooperative',
-        cooperativeMembershipProof: 'https://files.test/proof.pdf',
-      }),
-    ).toContain('cooperativeName');
-  });
-
-  it('does not require the other type fields', () => {
-    expect(
-      validate({ declarationType: 'type_b_cooperative', cooperativeName: 'Coop SAP' }),
-    ).not.toContain('novaCode');
+    ).toContain('declarationType');
   });
 
   it('rejects an unknown declaration type', () => {
