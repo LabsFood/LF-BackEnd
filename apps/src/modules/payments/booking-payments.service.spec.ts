@@ -184,6 +184,15 @@ describe('BookingPaymentsService — manual URSSAF route', () => {
   });
 
   describe('requestLink', () => {
+    // The request is made under the SAS SAP declaration: without it, no advance.
+    const savedSap = process.env.SAP_DECLARATION_NUMBER;
+    beforeAll(() => {
+      process.env.SAP_DECLARATION_NUMBER = 'SAP100715036';
+    });
+    afterAll(() => {
+      process.env.SAP_DECLARATION_NUMBER = savedSap;
+    });
+
     it('waits for the URSSAF dossier in manual mode', async () => {
       const { service } = setup('manual');
       await expect(service.requestLink('clerk', 'chef1')).rejects.toMatchObject({

@@ -57,12 +57,47 @@ export class PaymentIntentDto {
 }
 
 /**
- * One provider's share of a client's yearly total.
+ * Who issues the attestation: Lab's Food, under the company's own SAP declaration.
  *
- * The chef is the declared "service à la personne" provider (prestataire), so the
- * attestation a client files is issued **per chef**, carrying that chef's own
- * declaration — a NOVA code for `type_a_nova`, the cooperative for
- * `type_b_cooperative`. A chef with no `SapProfile` cannot issue one at all.
+ * The SAS is the « services à la personne » provider (prestataire) the household pays
+ * and that invoices it (prix net flow), so it is the one that attests, whichever batch
+ * cooker did the work (MajorD, 26/11/2026).
+ */
+export class FiscalAttestationIssuerDto {
+  @ApiProperty({ description: 'Trade name, as shown everywhere.', example: 'Lab’s Food' })
+  name!: string;
+
+  @ApiProperty({
+    description: 'Registered company, for the legal mention only.',
+    example: 'Lab’s Food Batchcooking SAS',
+  })
+  legalName!: string;
+
+  @ApiPropertyOptional({ nullable: true, example: '131895203' })
+  siren!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: '200 rue de la Croix Nivert, 75015 Paris',
+  })
+  address!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'The SAS SAP declaration number the attestation is issued under ' +
+      '(`SAP_DECLARATION_NUMBER`). `null` while it is not configured.',
+    example: 'SAP100715036',
+  })
+  sapDeclarationNumber!: string | null;
+}
+
+/**
+ * One batch cooker's share of a client's yearly total.
+ *
+ * A breakdown only: the attestation itself is issued by Lab's Food under its own SAP
+ * declaration (`FiscalAttestationDto.issuer`). The chef's own declaration fields below
+ * are kept for the admin's dossier check, never printed on the client's attestation.
  */
 export class FiscalAttestationProviderDto {
   @ApiProperty({
@@ -77,8 +112,8 @@ export class FiscalAttestationProviderDto {
 
   @ApiProperty({
     description:
-      'Whether the chef has declared a SAP route. `false` means they cannot legally ' +
-      'issue an attestation for these amounts yet.',
+      'Whether the chef has declared their own SAP route (dossier check only: the ' +
+      'attestation is issued by Lab’s Food either way).',
     example: true,
   })
   sapDeclared!: boolean;
@@ -86,20 +121,22 @@ export class FiscalAttestationProviderDto {
   @ApiPropertyOptional({
     enum: ['type_a_nova', 'type_b_cooperative'],
     nullable: true,
-    description: 'The chef SAP declaration route, when declared.',
+    description: 'The chef SAP declaration route, when declared (dossier check only).',
   })
   declarationType?: SapDeclarationType | null;
 
   @ApiPropertyOptional({
     nullable: true,
-    description: 'NOVA declaration number, for `type_a_nova` chefs.',
+    description:
+      'The chef own NOVA number, for `type_a_nova` chefs (dossier check only, never ' +
+      'the number on the attestation).',
     example: 'SAP123456789',
   })
   novaCode?: string | null;
 
   @ApiPropertyOptional({
     nullable: true,
-    description: 'Cooperative issuing on the chef behalf, for `type_b_cooperative`.',
+    description: 'Cooperative the chef declares through (dossier check only).',
     example: 'Unipros',
   })
   cooperativeName?: string | null;
@@ -114,10 +151,9 @@ export class FiscalAttestationProviderDto {
 
   @ApiProperty({
     description:
-      "The part of `eligibleAmountCents` **LAB'S FOOD** attests, in minor units. Two " +
-      'exclusions narrow it: a `type_b_cooperative` chef (the cooperative issues both ' +
-      'invoice and attestation) and e-CESU payments (the issuer already attests the share ' +
-      'it financed). Paper CESU stays attested here. `notes` says which applied.',
+      'The part of `eligibleAmountCents` Lab’s Food attests, in minor units. Only ' +
+      'e-CESU payments narrow it (the issuer already attests the share it financed). ' +
+      'Paper CESU stays attested here. `notes` says when it applied.',
     example: 18000,
   })
   platformAttestedAmountCents!: number;
@@ -153,9 +189,8 @@ export class FiscalAttestationProviderDto {
 /**
  * `GET /me/fiscal-attestations/:year` and the admin routes.
  *
- * The client-level totals are a **dashboard summary, not an attestation**: each entry
- * in `providers` is the unit a real attestation is issued for, because each chef is an
- * independent declared provider.
+ * One attestation per client and year, issued by Lab's Food under the SAS SAP
+ * declaration (`issuer`). `providers` breaks the total down by batch cooker.
  */
 export class FiscalAttestationDto {
   @ApiProperty({
@@ -180,16 +215,16 @@ export class FiscalAttestationDto {
 
   @ApiProperty({
     description:
-      'Sum across every provider, in minor units. Informational only — no single ' +
-      'document covers amounts from several independent providers.',
+      'Sum across every batch cooker, in minor units: the amount the attestation ' +
+      'covers, before the e-CESU exclusion.',
     example: 48000,
   })
   eligibleAmountCents!: number;
 
   @ApiProperty({
     description:
-      "Sum of every provider's `platformAttestedAmountCents`, in minor units — what " +
-      "LAB'S FOOD itself attests, as opposed to what the client is entitled to claim.",
+      "Sum of every provider's `platformAttestedAmountCents`, in minor units: what " +
+      'Lab’s Food itself attests, as opposed to what the client is entitled to claim.',
     example: 30000,
   })
   platformAttestedAmountCents!: number;
@@ -204,9 +239,15 @@ export class FiscalAttestationDto {
   currency!: string;
 
   @ApiProperty({
+    type: FiscalAttestationIssuerDto,
+    description: 'Lab’s Food, under the SAS SAP declaration: who issues the attestation.',
+  })
+  issuer!: FiscalAttestationIssuerDto;
+
+  @ApiProperty({
     type: FiscalAttestationProviderDto,
     isArray: true,
-    description: 'Per-chef breakdown, largest amount first. One attestation per entry.',
+    description: 'Per-batch-cooker breakdown, largest amount first.',
   })
   providers!: FiscalAttestationProviderDto[];
 }

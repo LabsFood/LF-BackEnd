@@ -158,6 +158,7 @@ export class AdminUrssafDossiersController {
       clientId: '3b1ebc99-9c0b-4ef8-bb6d-6bb9bd380a66',
       chefProfileId: '0e6f7a52-3d0b-4c1e-9a55-2b7c9d1e4f60',
       chefNovaCode: 'SAP123456789',
+      sapDeclarationNumber: 'SAP100715036',
       filledAt: '2026-11-16T10:00:00.000Z',
       updatedAt: '2026-11-16T10:00:00.000Z',
       dossier: { ...DOSSIER_EXAMPLE, iban: 'FR7630006000011234567890189' },

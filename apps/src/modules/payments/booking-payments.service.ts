@@ -16,7 +16,7 @@ import { TAX_CREDIT_BPS } from '../platform-settings/pricing.constants';
 import { UsersService } from '../users/users.service';
 import { CommissionDebitsService } from './commission-debits.service';
 import { cesuCollector } from './cesu-collector';
-import { advanceAccepted, cesuAccepted, novaCodeSet } from './chef-cesu-info';
+import { advanceAccepted, cesuAccepted, sasSapSet } from './chef-cesu-info';
 import { commissionForPayment } from './commission-policy';
 import { commissionDueAutomatically } from './domain/urssaf-mode.rules';
 import { assertPayable, CONTRACT_SELECT, paymentPhase } from './payment-rules';
@@ -28,6 +28,7 @@ import {
 import { UrssafGateway } from './urssaf.gateway';
 import { assertMethodCombinable } from './payment-mix';
 import { withheldCommission } from './payouts/net-price';
+import { sasIdentity } from './sas-identity';
 
 const BPS = 10_000;
 
@@ -526,13 +527,13 @@ export class BookingPaymentsService {
       select: {
         id: true,
         userId: true,
-        sapProfile: { select: { urssafTiersPrestationStatus: true, novaCode: true } },
+        sapProfile: { select: { urssafTiersPrestationStatus: true } },
       },
     });
     if (
       !chef ||
       chef.sapProfile?.urssafTiersPrestationStatus !== 'active' ||
-      !novaCodeSet(chef.sapProfile)
+      !sasSapSet()
     ) {
       throw new UnprocessableEntityException({
         code: 'URSSAF_NOT_ACCEPTED',
@@ -766,8 +767,11 @@ export class BookingPaymentsService {
           clientName: payment.booking.client.fullName ?? payment.booking.client.email,
           chefProfileId: payment.booking.chefProfile.id,
           chefName: payment.booking.chefProfile.displayName,
+          // Dossier check only: the request is entered under `sapDeclarationNumber`.
           chefNovaCode: payment.booking.chefProfile.sapProfile?.novaCode ?? null,
         },
+        /** The SAS SAP declaration every request is entered under (MajorD 26/11). */
+        sapDeclarationNumber: sasIdentity().sapDeclarationNumber,
       };
     });
   }

@@ -97,7 +97,32 @@ describe('FiscalAttestationsService', () => {
     });
   });
 
-  it('carries each chef own SAP declaration onto their entry', async () => {
+  it('is issued by Lab’s Food under the SAS SAP declaration, whoever cooked', async () => {
+    const saved = { ...process.env };
+    process.env.SAP_DECLARATION_NUMBER = 'SAP100715036';
+    process.env.SAS_LEGAL_NAME = 'Lab’s Food Batchcooking SAS';
+    process.env.SAS_SIREN = '131895203';
+    prisma.payment.findMany.mockResolvedValue([
+      payment(10_000, CHEF_A),
+      payment(10_000, CHEF_B),
+    ]);
+
+    try {
+      const result = await service.summarizeForClerkUser('clerk_1', 2026);
+
+      expect(result.issuer).toEqual({
+        name: 'Lab’s Food',
+        legalName: 'Lab’s Food Batchcooking SAS',
+        siren: '131895203',
+        address: saved.SAS_ADDRESS?.trim() || null,
+        sapDeclarationNumber: 'SAP100715036',
+      });
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it('keeps each chef own SAP declaration on their entry, for the dossier check', async () => {
     prisma.payment.findMany.mockResolvedValue([
       payment(10_000, CHEF_A),
       payment(10_000, CHEF_B),
@@ -121,7 +146,7 @@ describe('FiscalAttestationsService', () => {
     });
   });
 
-  it('flags a chef who cannot legally issue an attestation', async () => {
+  it('flags a chef with no SAP declaration of their own', async () => {
     prisma.payment.findMany.mockResolvedValue([payment(10_000, CHEF_UNDECLARED)]);
 
     const { providers } = await service.summarizeForClerkUser('clerk_1', 2026);
@@ -225,15 +250,14 @@ describe('FiscalAttestationsService', () => {
       ]);
     });
 
-    it('excludes a type B provider even when they were paid by card', async () => {
-      // The cooperative issues both the invoice and the attestation.
+    it('attests a type B chef too: the SAS invoiced the household, not the cooperative', async () => {
       prisma.payment.findMany.mockResolvedValue([payment(30_000, CHEF_B)]);
 
       const result = await service.summarizeForClerkUser('clerk_1', 2026);
 
       expect(result.eligibleAmountCents).toBe(30_000);
-      expect(result.platformAttestedAmountCents).toBe(0);
-      expect(result.providers[0].notes[0]).toMatch(/coopérative/);
+      expect(result.platformAttestedAmountCents).toBe(30_000);
+      expect(result.providers[0].notes).toEqual([]);
     });
 
     it('lists the payment methods used with each provider', async () => {
@@ -282,7 +306,7 @@ describe('FiscalAttestationsService', () => {
     expect(rows.map((r) => r.clientId)).toEqual(['user-2', 'user-1']);
     expect(rows[0]).toMatchObject({ eligibleAmountCents: 30_000, paymentsCount: 1 });
     expect(rows[1]).toMatchObject({ eligibleAmountCents: 15_000, paymentsCount: 2 });
-    // The client with two chefs gets two attestations, not one merged figure.
+    // One attestation per client, broken down by batch cooker.
     expect(rows[1].providers).toHaveLength(2);
   });
 });
