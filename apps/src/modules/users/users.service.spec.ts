@@ -1424,7 +1424,7 @@ describe('UsersService', () => {
     it('upserts a type B declaration and clears the NOVA code', async () => {
       await service.updateSapProfileByClerkUserId('clerk_1', {
         declarationType: 'type_b_cooperative',
-        cooperativeName: 'Unipros',
+        cooperativeName: 'Coop SAP',
         cooperativeMembershipProof: 'https://files.test/proof.pdf',
       });
 
@@ -1434,7 +1434,7 @@ describe('UsersService', () => {
             acceptsCesu: false,
             declarationType: 'type_b_cooperative',
             novaCode: null,
-            cooperativeName: 'Unipros',
+            cooperativeName: 'Coop SAP',
             cooperativeMembershipProof: 'https://files.test/proof.pdf',
           },
         }),

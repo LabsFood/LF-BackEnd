@@ -14,7 +14,7 @@ import { SapDeclarationType, SapExternalStatus } from '../../../generated/prisma
 /**
  * How a chef is declared for "service à la personne" activity:
  * - `type_a_nova` — the chef holds their own NOVA declaration (`novaCode` required).
- * - `type_b_cooperative` — the chef declares through a cooperative such as Unipros
+ * - `type_b_cooperative` — the chef declares through a cooperative such as a SAP cooperative
  *   (`cooperativeName` + `cooperativeMembershipProof` required).
  */
 export const SAP_DECLARATION_TYPES = [
@@ -65,7 +65,7 @@ export class UpdateMeSapProfileDto {
     description:
       'Cooperative the chef declares through. Required when `declarationType` is ' +
       '`type_b_cooperative`.',
-    example: 'Unipros',
+    example: 'Coop SAP',
   })
   @ValidateIf(
     (dto: UpdateMeSapProfileDto) => dto.declarationType === 'type_b_cooperative',
@@ -80,7 +80,7 @@ export class UpdateMeSapProfileDto {
     description:
       'URL or storage key of the membership proof. Required when `declarationType` is ' +
       '`type_b_cooperative`.',
-    example: 'https://files.labsfood.fr/sap/unipros-membership-2026.pdf',
+    example: 'https://files.labsfood.fr/sap/coop-membership-2026.pdf',
   })
   @ValidateIf(
     (dto: UpdateMeSapProfileDto) => dto.declarationType === 'type_b_cooperative',

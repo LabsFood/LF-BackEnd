@@ -26,7 +26,7 @@ describe('UpdateMeSapProfileDto', () => {
     expect(
       validate({
         declarationType: 'type_b_cooperative',
-        cooperativeName: 'Unipros',
+        cooperativeName: 'Coop SAP',
         cooperativeMembershipProof: 'https://files.test/proof.pdf',
       }),
     ).toEqual([]);
@@ -43,7 +43,7 @@ describe('UpdateMeSapProfileDto', () => {
 
   it('does not require the other type fields', () => {
     expect(
-      validate({ declarationType: 'type_b_cooperative', cooperativeName: 'Unipros' }),
+      validate({ declarationType: 'type_b_cooperative', cooperativeName: 'Coop SAP' }),
     ).not.toContain('novaCode');
   });
 

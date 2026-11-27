@@ -1447,7 +1447,7 @@ model Commission {
 }
 
 /// "Service à la personne" declaration for a chef. Type A = the chef holds their own
-/// NOVA declaration; Type B = the chef declares through a cooperative (Unipros-style).
+/// NOVA declaration; Type B = the chef declares through a cooperative (cooperative route).
 /// The URSSAF status stays admin-maintained until the URSSAF API integration exists.
 model SapProfile {
   id                          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

@@ -187,7 +187,7 @@ Two declaration routes:
 | `declarationType` | Required fields | Meaning |
 |-------------------|-----------------|---------|
 | `type_a_nova` | `novaCode` | The chef holds their own NOVA declaration |
-| `type_b_cooperative` | `cooperativeName`, `cooperativeMembershipProof` | The chef declares through a cooperative (Unipros-style) |
+| `type_b_cooperative` | `cooperativeName`, `cooperativeMembershipProof` | The chef declares through a cooperative (cooperative route) |
 
 Batch cookers hold no CRCESU number (removed 25/11/2026): prefinanced CESU is paid to the
 platform's own affiliation (`CESU_PLATFORM_NAN`, Labs Food Batchcooking SAS), with the

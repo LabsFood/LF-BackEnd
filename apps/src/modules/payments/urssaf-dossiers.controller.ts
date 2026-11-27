@@ -147,7 +147,7 @@ export class AdminUrssafDossiersController {
   @ApiOperation({
     summary: 'Reveal the client’s URSSAF dossier for an enrolment',
     description:
-      'Everything, IBAN included, to copy into the intermediary’s space (Unipros), with ' +
+      'Everything, IBAN included, to copy into the intermediary’s space, with ' +
       'the batch cooker’s NOVA code. Every call is audited (`urssaf.dossier_revealed`).',
   })
   @ApiParam({ name: 'id', description: 'The enrolment id.', example: LINK_ID })

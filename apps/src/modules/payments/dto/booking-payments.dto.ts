@@ -65,7 +65,7 @@ export class SimulateUrssafOutcomeDto {
 
   @ApiPropertyOptional({
     description:
-      'Manual mode: the reference the intermediary (Unipros) gave the request. ' +
+      'Manual mode: the reference the intermediary gave the request. ' +
       'Required for `paid` unless recorded at transmission.',
     example: 'UNI-2026-000123',
     maxLength: 100,
@@ -92,7 +92,7 @@ export class UrssafRepriseDto {
 
 export class MarkUrssafTransmittedDto {
   @ApiProperty({
-    description: 'The reference the intermediary (Unipros) gave the request.',
+    description: 'The reference the intermediary gave the request.',
     example: 'UNI-2026-000123',
     maxLength: 100,
   })

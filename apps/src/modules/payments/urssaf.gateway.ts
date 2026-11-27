@@ -31,7 +31,7 @@ export interface UrssafTransmission {
  *
  * ponytail: `simulated` and `manual` send nothing. In `simulated` an admin answers in
  * URSSAF's place; in `manual` the request joins the admin queue, the admin enters it
- * on the intermediary's online space (Unipros) and records the reference and answer
+ * on the intermediary's online space and records the reference and answer
  * (`POST /admin/urssaf-payments/{id}/transmitted`, `.../outcome`).
  * Add the `live` mode here with the real calls, and feed the answers back through
  * `UrssafService.recordOutcome` from URSSAF's webhook or a polling job.

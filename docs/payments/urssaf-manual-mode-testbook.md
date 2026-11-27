@@ -5,11 +5,11 @@ A click-by-click walk through the immediate advance (« avance immédiate ») wh
 (admin-dashboard), with the French labels exactly as the screens show them.
 
 In manual mode nothing is sent to URSSAF by the API. The client's request joins the admin
-queue; an admin enters it by hand on the intermediary's online space (Unipros), then
-records Unipros' reference and URSSAF's answer in the console. The commission is not
+queue; an admin enters it by hand on the intermediary's online space, then
+records the request's reference and URSSAF's answer in the console. The commission is not
 debited on its own: the admin collects it from the batch cooker's transactions.
 
-Source of truth: PR #92 (`368cc19`, _avance immédiate, manual route through Unipros_) and
+Source of truth: PR #92 (`368cc19`, _avance immédiate, manual route_) and
 `97aaef9` (the dossier needs an address). Routes and rules are in
 [`stripe-payments-contract.md`](stripe-payments-contract.md) and the Swagger
 (`/docs`, tag _payments_). If a label below no longer matches a screen, the screen wins:
@@ -84,7 +84,7 @@ option is simply absent from the client's payment screen.
 
 ## 3. Client: fill the URSSAF dossier (site)
 
-The dossier comes first in manual mode: Lab's Food enrols the client on Unipros with it.
+The dossier comes first in manual mode: Lab's Food enrols the client on the URSSAF space with it.
 
 ### 3.1 Where to find it
 
@@ -169,7 +169,7 @@ prestation with that chef.
 4. With the dossier filled, click **« Demander le rattachement »** (it shows
    « Demande en cours… »). The reason changes to « …en cours d’instruction. »
 
-## 5. Admin: enrol the client on Unipros
+## 5. Admin: enrol the client on the URSSAF space
 
 Console → **Transactions** → tab **« Avance immédiate »**.
 
@@ -181,12 +181,12 @@ is not in manual mode: stop and fix `URSSAF_GATEWAY`.
 1. Section **« Rattachements en attente »**: the client's row shows the client name,
    « avec {chef} · demandé le JJ/MM/AAAA », the email, and the badge **« En attente »**.
 2. Click **« Dossier »**. The drawer **« Dossier URSSAF »** opens: « À recopier sur
-   l'espace Unipros pour rattacher ce client à {chef}. Cette lecture est tracée. »
+   l'espace URSSAF de Lab’s Food pour rattacher ce client (prestations de {chef}). Cette lecture est tracée. »
    - Blocks: **« Identité »**, **« Contact »**, **« Compte prélevé par l'URSSAF »** (full
      IBAN, BIC, Titulaire), **« Batch cooker »** (« Numéro SAP / NOVA »).
    - Each value has a copy button. The opening is audited (`urssaf.dossier_revealed`).
-3. On **Unipros**, enter the client's enrolment with these values and the chef's NOVA.
-4. Back in the console, record Unipros' answer:
+3. On the **URSSAF space**, enter the client's enrolment with these values and the chef's NOVA.
+4. Back in the console, record the answer:
    - Accepted: **« Rattacher »**. Toast **« Rattachement actif »** (« Le client peut régler
      avec l'avance immédiate. »). The row leaves the list.
    - Refused: **« Refuser »** → dialog **« Refuser le rattachement ? »**, enter the reason
@@ -213,23 +213,23 @@ Audit: `urssaf.link_recorded`.
    - Nothing was charged on the site. A second click or a second tab answers
      « Votre demande est déjà transmise à l’URSSAF. » (`URSSAF_REQUEST_PENDING`).
 
-## 7. Admin: enter the request on Unipros and record the answer
+## 7. Admin: enter the request on the URSSAF space and record the answer
 
 Console → **Transactions** → **« Avance immédiate »** → section **« Demandes de paiement »**.
 
 1. The new row shows the full amount and « dont {50 %} prélevés au client », then
    « {client} → {chef} · {référence} », then **« NOVA {code} · JJ/MM/AAAA »**.
-   Badge **« À saisir sur Unipros »**, button **« Noter la saisie »**.
-2. On **Unipros**, enter the payment request (amount, client, chef's NOVA). Note the
-   reference Unipros gives it.
-3. Click **« Noter la saisie »**. Dialog **« Noter la saisie sur Unipros »** (it repeats the
-   amount and the NOVA). Paste the reference into « Référence Unipros de la demande »
+   Badge **« À saisir manuellement »**, button **« Noter la saisie »**.
+2. On the **URSSAF space**, enter the payment request (amount, client, chef's NOVA). Note the
+   reference it gives.
+3. Click **« Noter la saisie »**. Dialog **« Noter la saisie »** (it repeats the
+   amount and the NOVA). Paste the reference into « Référence de la demande »
    (3 to 100 characters) → **« Noter la saisie »**.
    - Toast **« Saisie notée »** (« La demande attend la réponse de l'URSSAF. »).
-   - The row now shows « · Unipros {référence} », badge **« En attente de l'URSSAF »**,
+   - The row now shows « · Réf. {référence} », badge **« En attente de l'URSSAF »**,
      buttons **« Refuser »** and **« Marquer payé »**.
    - Audit: `urssaf.payment_transmitted`.
-4. When Unipros shows URSSAF's answer:
+4. When the URSSAF space shows URSSAF's answer:
    - **Paid**: **« Marquer payé »**. Toast **« Paiement validé »**: « La prestation est
      réglée. La commission attend : prélevez-la depuis la fiche du batch cooker. »
      Badge **« Payé »**.
@@ -255,7 +255,7 @@ In manual mode, « Marquer payé » leaves the commission pending
 2. Stat cards: **« À prélever maintenant »** (count and amount), « Prélèvements en cours »,
    « Encaissées ».
 3. The paid advance shows « Avance immédiate », the client, the booking reference, the
-   Unipros reference, and « Commission {montant} · À prélever ». A commission on a request
+   reference, and « Commission {montant} · À prélever ». A commission on a request
    still waiting says « Attend le paiement de la prestation » and cannot be ticked.
 4. Tick it (« Cochez les commissions à prélever. » → « 1 commission choisie · {montant} »),
    click **« Prélever la sélection »**.
@@ -272,7 +272,7 @@ In manual mode, « Marquer payé » leaves the commission pending
 | # | Setup | Do | Expect |
 |---|-------|----|--------|
 | 9.1 | Chef without NOVA, or mandate not signed, or habilitation not « Affiliation active » | Open the client's payment screen | No « Avance immédiate » option at all |
-| 9.2 | Request already noted | Note the saisie again (stale tab) | « Cette demande est déjà notée comme saisie sur Unipros. Rechargez la liste. » (`URSSAF_ALREADY_TRANSMITTED`) |
+| 9.2 | Request already noted | Note the saisie again (stale tab) | « Cette demande est déjà notée comme saisie. Rechargez la liste. » (`URSSAF_ALREADY_TRANSMITTED`) |
 | 9.3 | Request already paid or refused | Answer it again (stale tab) | « Cette demande a déjà reçu sa réponse. Rechargez la liste. » (`URSSAF_REQUEST_SETTLED`) |
 | 9.4 | Request not yet noted | Call `POST /admin/urssaf-payments/{id}/outcome` with `paid` and no reference (the UI hides « Marquer payé » until the saisie) | 422 `URSSAF_REFERENCE_REQUIRED` |
 | 9.5 | Commission on a request still pending, or already invoiced | `POST /admin/chefs/{id}/commissions/collect` with it | 409 `COMMISSION_NOT_COLLECTABLE` |
@@ -286,7 +286,7 @@ In manual mode, « Marquer payé » leaves the commission pending
 
 1. On a paid request, click **« Reprise URSSAF »**.
 2. Dialog **« L’URSSAF a repris cette prestation (statut 120) ? »**, reason (« Motif donné
-   par Unipros… ») → **« Enregistrer la reprise »**.
+   par l'URSSAF… ») → **« Enregistrer la reprise »**.
 3. Expect « Reprise enregistrée »: either « La commission, pas encore facturée, est
    retirée. » or « Avoir {numéro} de {montant} émis au batch cooker. ». The row shows
    « Reprise URSSAF (statut 120) le JJ/MM/AAAA ». The prestation is due again on the site.
